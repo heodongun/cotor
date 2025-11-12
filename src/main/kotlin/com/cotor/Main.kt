@@ -2,6 +2,7 @@ package com.cotor
 
 import com.cotor.di.initializeCotor
 import com.cotor.presentation.cli.*
+import com.cotor.presentation.web.WebServer
 import com.github.ajalt.clikt.core.subcommands
 import org.koin.core.context.stopKoin
 
@@ -13,7 +14,28 @@ fun main(args: Array<String>) {
     initializeCotor()
 
     try {
-        // Execute CLI
+        // Simple mode - just run pipeline directly
+        if (args.isNotEmpty() && !args[0].startsWith("-")) {
+            when (args[0]) {
+                "web" -> {
+                    println("🌐 Starting Cotor Web UI...")
+                    println("   Open http://localhost:8080 in your browser")
+                    println()
+                    WebServer().start()
+                    return
+                }
+                "init", "list", "status", "version" -> {
+                    // Use full CLI for these commands
+                }
+                else -> {
+                    // Direct pipeline execution
+                    SimpleCLI().run(args)
+                    return
+                }
+            }
+        }
+        
+        // Full CLI mode
         CotorCli()
             .subcommands(
                 InitCommand(),

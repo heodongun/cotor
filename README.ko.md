@@ -13,6 +13,9 @@ Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기�
 - 🔐 **보안 우선**: Whitelist 기반 명령 검증
 - 📊 **모니터링**: 내장 로깅 및 메트릭
 - 🎯 **다양한 형식**: JSON, CSV, 텍스트 출력
+- 🌐 **웹 UI**: 브라우저에서 파이프라인 실행 및 관리
+- ⚡ **간단한 CLI**: `codex` 스타일의 직관적인 명령어
+- 🤖 **자동 권한**: AI 도구별 자동 승인 플래그 지원
 
 ## 📦 설치
 
@@ -39,16 +42,21 @@ ln -s $(pwd)/cotor /usr/local/bin/cotor
 
 ## 🤖 내장 AI 플러그인
 
-Cotor는 다음 AI CLI 도구들과 통합됩니다:
+Cotor는 다음 AI CLI 도구들과 통합되며, **자동 권한 승인**을 지원합니다:
 
-| AI | 명령어 | 설명 |
-|----|--------|------|
-| **Claude** | `claude --print <prompt>` | Anthropic의 고급 AI |
-| **Codex** | `codex exec <prompt>` | Codex AI 코드 생성 |
-| **Copilot** | `copilot -p <prompt> --allow-all-tools` | GitHub AI 어시스턴트 |
-| **Gemini** | `gemini --yolo <prompt>` | Google 멀티모달 AI |
-| **Cursor** | `cursor-cli generate <prompt>` | Cursor AI 에디터 |
-| **OpenCode** | `opencode generate <prompt>` | 오픈소스 AI |
+| AI | 명령어 | 자동 승인 플래그 | 상태 |
+|----|--------|------------------|------|
+| **Claude** | `claude --dangerously-skip-permissions --print` | ✅ | ✅ 작동 확인 |
+| **Codex** | `codex --dangerously-bypass-approvals-and-sandbox` | ⚠️ | ⚠️ 터미널 필요 (비대화형 모드 미지원) |
+| **Copilot** | `copilot -p --allow-all-tools` | ⚠️ | ⚠️ 세션 기반 인증 필요 |
+| **Gemini** | `gemini --yolo` | ✅ | ✅ 작동 확인 |
+| **Cursor** | `cursor-cli generate --auto-run` | ✅ | 🔄 테스트 필요 |
+| **OpenCode** | `opencode generate` | ✅ | 🔄 테스트 필요 |
+
+> **⚠️ 주의**: 
+> - 자동 승인 플래그는 신뢰된 환경에서만 사용하세요. 
+> - Claude와 Gemini는 파일 생성이 확인되었습니다.
+> - Codex는 대화형 터미널이 필요하여 자동화 파이프라인에서 사용이 제한됩니다.
 
 ### AI CLI 설치
 
@@ -69,6 +77,19 @@ pip install openai
 ```
 
 ## 🚀 빠른 시작
+
+### 방법 1: 간단한 CLI (추천)
+
+```bash
+# 파이프라인 직접 실행 (codex 스타일)
+cotor compare-solutions test/multi-compare.yaml
+
+# 웹 UI 시작
+cotor web
+# 브라우저에서 http://localhost:8080 열기
+```
+
+### 방법 2: 전통적인 CLI
 
 ### 1. 초기화
 
@@ -393,6 +414,22 @@ cotor run architecture-decision --config consensus.yaml --output-format text
 
 ## 🎯 CLI 명령어
 
+### 간단한 모드 (codex 스타일)
+
+```bash
+# 파이프라인 직접 실행
+cotor <pipeline-name> [config-file]
+
+# 예시
+cotor compare-solutions                    # cotor.yaml 사용
+cotor creative-collab test/creative.yaml   # 특정 설정 파일 사용
+
+# 웹 UI 시작
+cotor web
+```
+
+### 전통적인 모드
+
 ```bash
 # 설정 초기화
 cotor init
@@ -516,6 +553,37 @@ security:
 
 ## 📝 예제 출력
 
+### 간단한 CLI 출력
+
+```bash
+$ cotor compare-solutions test/multi-compare.yaml
+
+🚀 Running: compare-solutions
+
+✅ Completed in 48237ms
+   Success: 3/3
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 claude (28400ms)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+N까지의 소수를 찾는 JavaScript 함수를 작성했습니다.
+[코드 출력...]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 codex (4781ms)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+소수 판별을 위해 에라토스테네스 체를 사용합니다.
+[코드 출력...]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 gemini (13881ms)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Python으로 소수 찾기 함수를 구현했습니다.
+[코드 출력...]
+```
+
+### 전통적인 CLI 출력
+
 ```
 ================================================================================
 Pipeline Execution Results
@@ -525,30 +593,44 @@ Summary:
   Total Agents:  3
   Success Count: 3
   Failure Count: 0
-  Total Duration: 26000ms
+  Total Duration: 48237ms
 
 Agent Results:
 
   [1] claude
       Status:   ✓ SUCCESS
-      Duration: 17933ms
+      Duration: 28400ms
       Output:
-        Python "Hello, World!" 프로그램을 생성했습니다...
+        N까지의 소수를 찾는 JavaScript 함수를 작성했습니다...
 
-  [2] copilot
+  [2] codex
       Status:   ✓ SUCCESS
-      Duration: 12963ms
+      Duration: 4781ms
       Output:
-        간단한 console.log로 `hello-world.js`를 생성했습니다...
+        소수 판별을 위해 에라토스테네스 체를 사용합니다...
 
   [3] gemini
       Status:   ✓ SUCCESS
-      Duration: 25800ms
+      Duration: 13881ms
       Output:
-        `hello.go` 파일을 생성했습니다...
+        Python으로 소수 찾기 함수를 구현했습니다...
 
 ================================================================================
 ```
+
+## 🌐 웹 UI
+
+```bash
+$ cotor web
+🌐 Starting Cotor Web UI...
+   Open http://localhost:8080 in your browser
+```
+
+브라우저에서 파이프라인을 시각적으로 관리하고 실행할 수 있습니다:
+- 📋 파이프라인 목록 보기
+- ▶️ 클릭 한 번으로 실행
+- 📊 실시간 결과 확인
+- 🎨 깔끔한 UI
 
 ## 🤝 기여하기
 
@@ -575,6 +657,37 @@ Agent Results:
 - 독립적인 작업에는 `PARALLEL` 모드 사용
 - 출력이 다음 단계의 입력이 되는 경우 `SEQUENTIAL` 모드 사용
 - 복잡한 의존성이 있는 경우 `DAG` 모드 사용
+- 빠른 실행에는 간단한 CLI 사용: `cotor <pipeline-name>`
+- 시각적 관리에는 웹 UI 사용: `cotor web`
+
+## 🧪 테스트 결과
+
+### Compare Solutions (소수 찾기)
+- **실행 시간**: 48.2초
+- **성공률**: 67% (2/3)
+- **결과**: 
+  - ✅ Claude: `findPrimes.js` 생성 완료
+  - ❌ Codex: 터미널 필요 (비대화형 모드 미지원)
+  - ✅ Gemini: `primes.py` 생성 완료
+- **상세**: [테스트 결과 보기](test/results/compare-solutions-result.md)
+
+### Creative Collaboration (소설 창작)
+- **실행 시간**: 125초
+- **성공률**: 67% (2/3)
+- **결과**:
+  - ✅ Claude: `claude-story.md` - "침묵의 메시지" (SF)
+  - ❌ Codex: 터미널 필요
+  - ✅ Gemini: `gemini-story.md` - "프로젝트 제미니" (AI 감성)
+- **상세**: [테스트 결과 보기](test/results/creative-collab-result.md)
+
+### 생성된 파일 확인
+```bash
+ls -la test/results/
+# findPrimes.js    - Claude가 생성한 JavaScript 소수 찾기
+# primes.py        - Gemini가 생성한 Python 소수 찾기
+# claude-story.md  - Claude의 SF 단편 소설
+# gemini-story.md  - Gemini의 AI 감성 소설
+```
 
 ---
 

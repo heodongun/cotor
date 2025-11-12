@@ -5,7 +5,7 @@ import com.cotor.model.*
 
 /**
  * Claude AI Plugin (Anthropic)
- * Executes: claude --print <prompt>
+ * Executes: claude --dangerously-skip-permissions --print <prompt>
  */
 class ClaudePlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -22,8 +22,8 @@ class ClaudePlugin : AgentPlugin {
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        // Execute Claude CLI in non-interactive mode with --print
-        val command = listOf("claude", "--print", prompt)
+        // Execute Claude CLI with auto-approval (skip all permission prompts)
+        val command = listOf("claude", "--dangerously-skip-permissions", "--print", prompt)
         
         val result = processManager.executeProcess(
             command = command,
@@ -48,8 +48,8 @@ class ClaudePlugin : AgentPlugin {
 }
 
 /**
- * Codex Plugin
- * Executes: codex exec <prompt>
+ * Codex Plugin (OpenAI Code Interpreter)
+ * Executes: codex --dangerously-bypass-approvals-and-sandbox <prompt>
  */
 class CodexPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -66,8 +66,9 @@ class CodexPlugin : AgentPlugin {
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        // Execute Codex CLI in non-interactive mode
-        val command = listOf("codex", "exec", prompt)
+        // Execute Codex CLI with full auto-approval (bypass all approvals and sandbox)
+        // Codex doesn't use 'exec' subcommand, just pass the prompt directly
+        val command = listOf("codex", "--dangerously-bypass-approvals-and-sandbox", prompt)
         
         val result = processManager.executeProcess(
             command = command,
@@ -94,6 +95,7 @@ class CodexPlugin : AgentPlugin {
 /**
  * GitHub Copilot Plugin
  * Executes: copilot -p <prompt> --allow-all-tools
+ * Note: Copilot doesn't support full auto-approval, uses session-based silent auth
  */
 class CopilotPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -110,7 +112,8 @@ class CopilotPlugin : AgentPlugin {
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        // Execute GitHub Copilot CLI in non-interactive mode
+        // Execute GitHub Copilot CLI with all tools allowed
+        // Note: Full auto-approval not supported, requires pre-authenticated session
         val command = listOf("copilot", "-p", prompt, "--allow-all-tools")
         
         val result = processManager.executeProcess(
@@ -126,11 +129,19 @@ class CopilotPlugin : AgentPlugin {
         
         return result.stdout
     }
+
+    override fun validateInput(input: String?): ValidationResult {
+        if (input.isNullOrBlank()) {
+            return ValidationResult.Failure(listOf("Input prompt is required for Copilot"))
+        }
+        return ValidationResult.Success
+    }
 }
 
 /**
  * Google Gemini Plugin
- * Executes: gemini <prompt>
+ * Executes: gemini --yolo <prompt>
+ * Uses alwaysAllow whitelist for auto-approval
  */
 class GeminiPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -147,8 +158,8 @@ class GeminiPlugin : AgentPlugin {
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        // Execute Gemini CLI with prompt as positional argument
-        // Use --yolo to auto-approve actions
+        // Execute Gemini CLI with auto-approval
+        // --yolo flag enables alwaysAllow mode for all tools
         val command = listOf("gemini", "--yolo", prompt)
         
         val result = processManager.executeProcess(
@@ -164,11 +175,19 @@ class GeminiPlugin : AgentPlugin {
         
         return result.stdout
     }
+
+    override fun validateInput(input: String?): ValidationResult {
+        if (input.isNullOrBlank()) {
+            return ValidationResult.Failure(listOf("Input prompt is required for Gemini"))
+        }
+        return ValidationResult.Success
+    }
 }
 
 /**
  * Cursor AI Plugin
- * Executes: cursor-cli <prompt>
+ * Executes: cursor-cli generate --auto-run <prompt>
+ * Uses Auto-Run mode with Denylist for dangerous commands
  */
 class CursorPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -185,8 +204,9 @@ class CursorPlugin : AgentPlugin {
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        // Execute Cursor CLI
-        val command = listOf("cursor-cli", "generate", prompt)
+        // Execute Cursor CLI with Auto-Run mode
+        // Uses Denylist approach: auto-runs everything except dangerous commands (rm, etc)
+        val command = listOf("cursor-cli", "generate", "--auto-run", prompt)
         
         val result = processManager.executeProcess(
             command = command,
@@ -201,11 +221,19 @@ class CursorPlugin : AgentPlugin {
         
         return result.stdout
     }
+
+    override fun validateInput(input: String?): ValidationResult {
+        if (input.isNullOrBlank()) {
+            return ValidationResult.Failure(listOf("Input prompt is required for Cursor"))
+        }
+        return ValidationResult.Success
+    }
 }
 
 /**
  * OpenCode Agent Plugin
- * Executes: opencode <prompt>
+ * Executes: opencode generate <prompt>
+ * Default permission: "allow" for all methods (bash, file operations, etc)
  */
 class OpenCodePlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -223,6 +251,8 @@ class OpenCodePlugin : AgentPlugin {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
         // Execute OpenCode CLI
+        // Default permission is "allow" for all methods (configured in opencode.json)
+        // Example config: { "permission": { "bash": "allow", "file": "allow" } }
         val command = listOf("opencode", "generate", prompt)
         
         val result = processManager.executeProcess(
@@ -237,5 +267,12 @@ class OpenCodePlugin : AgentPlugin {
         }
         
         return result.stdout
+    }
+
+    override fun validateInput(input: String?): ValidationResult {
+        if (input.isNullOrBlank()) {
+            return ValidationResult.Failure(listOf("Input prompt is required for OpenCode"))
+        }
+        return ValidationResult.Success
     }
 }
