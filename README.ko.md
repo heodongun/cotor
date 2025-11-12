@@ -342,7 +342,354 @@ tail -f cotor.log
 java -jar /path/to/cotor-1.0.0.jar status
 ```
 
-### 예제 7: 편리한 사용을 위한 별칭 생성
+### 예제 7: 멀티 AI 모델 파이프라인 (Claude, Codex, Gemini, Copilot)
+
+여러 AI 모델을 하나의 파이프라인에서 오케스트레이션하여 종합적인 코드 생성 및 리뷰를 수행하는 고급 예제입니다.
+
+**사용 사례**: 여러 AI 모델로 코드를 생성하고 결과를 비교/병합
+
+**1단계: AI 모델 에이전트 플러그인 생성**
+
+각 AI 모델을 위한 래퍼 플러그인을 생성합니다:
+
+```kotlin
+// ClaudePlugin.kt
+class ClaudePlugin : AgentPlugin {
+    override val metadata = AgentMetadata(
+        name = "claude-code-generator",
+        version = "1.0.0",
+        description = "코드 생성을 위한 Claude AI",
+        author = "Cotor Team",
+        supportedFormats = listOf(DataFormat.JSON, DataFormat.TEXT)
+    )
+
+    override suspend fun execute(
+        context: ExecutionContext,
+        processManager: ProcessManager
+    ): String {
+        // Claude API 또는 CLI 호출
+        val command = listOf(
+            "claude-cli",
+            "generate",
+            "--prompt", context.input ?: ""
+        )
+        
+        val result = processManager.executeProcess(
+            command = command,
+            input = context.input,
+            environment = context.environment,
+            timeout = context.timeout
+        )
+        
+        return result.stdout
+    }
+}
+
+// Codex, Gemini, Copilot을 위한 유사한 플러그인
+class CodexPlugin : AgentPlugin { /* ... */ }
+class GeminiPlugin : AgentPlugin { /* ... */ }
+class CopilotPlugin : AgentPlugin { /* ... */ }
+```
+
+**2단계: 멀티 AI 파이프라인 설정**
+
+`multi-ai-pipeline.yaml` 생성:
+
+```yaml
+version: "1.0"
+
+agents:
+  - name: claude-agent
+    pluginClass: com.cotor.plugins.ClaudePlugin
+    timeout: 60000
+    parameters:
+      model: claude-3-opus
+      temperature: "0.7"
+    tags:
+      - ai
+      - code-generation
+      - claude
+
+  - name: codex-agent
+    pluginClass: com.cotor.plugins.CodexPlugin
+    timeout: 60000
+    parameters:
+      model: gpt-4
+      temperature: "0.5"
+    tags:
+      - ai
+      - code-generation
+      - openai
+
+  - name: gemini-agent
+    pluginClass: com.cotor.plugins.GeminiPlugin
+    timeout: 60000
+    parameters:
+      model: gemini-pro
+      temperature: "0.6"
+    tags:
+      - ai
+      - code-generation
+      - google
+
+  - name: copilot-agent
+    pluginClass: com.cotor.plugins.CopilotPlugin
+    timeout: 60000
+    parameters:
+      model: copilot
+    tags:
+      - ai
+      - code-generation
+      - github
+
+  - name: code-merger
+    pluginClass: com.cotor.plugins.CodeMergerPlugin
+    timeout: 30000
+    tags:
+      - utility
+
+pipelines:
+  # 병렬 실행 - 모든 AI 모델이 동시에 코드 생성
+  - name: multi-ai-parallel
+    description: "여러 AI 모델로 병렬 코드 생성"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-generation
+        agent:
+          name: claude-agent
+          pluginClass: com.cotor.plugins.ClaudePlugin
+        input: "JWT를 사용한 사용자 인증을 위한 REST API 엔드포인트 생성"
+
+      - id: codex-generation
+        agent:
+          name: codex-agent
+          pluginClass: com.cotor.plugins.CodexPlugin
+        input: "JWT를 사용한 사용자 인증을 위한 REST API 엔드포인트 생성"
+
+      - id: gemini-generation
+        agent:
+          name: gemini-agent
+          pluginClass: com.cotor.plugins.GeminiPlugin
+        input: "JWT를 사용한 사용자 인증을 위한 REST API 엔드포인트 생성"
+
+      - id: copilot-generation
+        agent:
+          name: copilot-agent
+          pluginClass: com.cotor.plugins.CopilotPlugin
+        input: "JWT를 사용한 사용자 인증을 위한 REST API 엔드포인트 생성"
+
+  # 순차 실행 - 리뷰 체인
+  - name: multi-ai-review-chain
+    description: "여러 AI 모델을 통한 코드 생성 및 리뷰"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: initial-generation
+        agent:
+          name: claude-agent
+          pluginClass: com.cotor.plugins.ClaudePlugin
+        input: "JWT를 사용한 사용자 인증을 위한 REST API 엔드포인트 생성"
+
+      - id: codex-review
+        agent:
+          name: codex-agent
+          pluginClass: com.cotor.plugins.CodexPlugin
+          parameters:
+            task: review
+        # Claude의 출력이 입력으로 사용됨
+
+      - id: gemini-optimization
+        agent:
+          name: gemini-agent
+          pluginClass: com.cotor.plugins.GeminiPlugin
+          parameters:
+            task: optimize
+        # Codex의 리뷰된 코드가 입력으로 사용됨
+
+      - id: copilot-final-check
+        agent:
+          name: copilot-agent
+          pluginClass: com.cotor.plugins.CopilotPlugin
+          parameters:
+            task: security-check
+        # Gemini의 최적화된 코드가 입력으로 사용됨
+
+  # DAG 기반 워크플로우 - 복잡한 의존성
+  - name: multi-ai-dag
+    description: "의존성이 있는 복잡한 AI 워크플로우"
+    executionMode: DAG
+    stages:
+      - id: requirement-analysis
+        agent:
+          name: claude-agent
+          pluginClass: com.cotor.plugins.ClaudePlugin
+        input: "사용자 인증 시스템 요구사항 분석"
+
+      - id: architecture-design
+        agent:
+          name: gemini-agent
+          pluginClass: com.cotor.plugins.GeminiPlugin
+        dependencies:
+          - requirement-analysis
+
+      - id: backend-code
+        agent:
+          name: codex-agent
+          pluginClass: com.cotor.plugins.CodexPlugin
+        dependencies:
+          - architecture-design
+
+      - id: frontend-code
+        agent:
+          name: copilot-agent
+          pluginClass: com.cotor.plugins.CopilotPlugin
+        dependencies:
+          - architecture-design
+
+      - id: integration-code
+        agent:
+          name: claude-agent
+          pluginClass: com.cotor.plugins.ClaudePlugin
+        dependencies:
+          - backend-code
+          - frontend-code
+
+      - id: final-review
+        agent:
+          name: gemini-agent
+          pluginClass: com.cotor.plugins.GeminiPlugin
+        dependencies:
+          - integration-code
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude-cli
+    - openai
+    - gemini-cli
+    - gh
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/ai-tools
+
+logging:
+  level: INFO
+  file: multi-ai.log
+  format: json
+
+performance:
+  maxConcurrentAgents: 4
+  coroutinePoolSize: 8
+```
+
+**3단계: 병렬 AI 생성 실행**
+
+```bash
+# 4개의 AI 모델로 동시에 코드 생성
+java -jar cotor-1.0.0.jar run multi-ai-parallel \
+  --config multi-ai-pipeline.yaml \
+  --output-format text
+```
+
+**예상 출력:**
+```
+================================================================================
+Pipeline Execution Results
+================================================================================
+
+Summary:
+  Total Agents:  4
+  Success Count: 4
+  Failure Count: 0
+  Total Duration: 8500ms
+  Timestamp:     2025-11-12T11:00:00.000000Z
+
+Agent Results:
+
+  [1] claude-agent
+      Status:   ✓ SUCCESS
+      Duration: 8200ms
+      Output:
+        // Claude의 구현
+        @RestController
+        @RequestMapping("/api/auth")
+        public class AuthController {
+            @PostMapping("/login")
+            public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest request) {
+                // JWT 인증 로직
+                ...
+            }
+        }
+
+  [2] codex-agent
+      Status:   ✓ SUCCESS
+      Duration: 7800ms
+      Output:
+        // Codex의 구현
+        class AuthController {
+            async login(req, res) {
+                // Express를 사용한 JWT 인증
+                ...
+            }
+        }
+
+  [3] gemini-agent
+      Status:   ✓ SUCCESS
+      Duration: 8100ms
+      Output:
+        // Gemini의 구현
+        func LoginHandler(w http.ResponseWriter, r *http.Request) {
+            // Go에서의 JWT 인증
+            ...
+        }
+
+  [4] copilot-agent
+      Status:   ✓ SUCCESS
+      Duration: 7500ms
+      Output:
+        // Copilot의 구현
+        def login(request):
+            # Python에서의 JWT 인증
+            ...
+
+================================================================================
+```
+
+**4단계: 순차 리뷰 체인 실행**
+
+```bash
+# Claude로 생성 후 다른 모델들을 통해 리뷰
+java -jar cotor-1.0.0.jar run multi-ai-review-chain \
+  --config multi-ai-pipeline.yaml \
+  --output-format json
+```
+
+**5단계: 복잡한 DAG 워크플로우 실행**
+
+```bash
+# 의존성이 있는 복잡한 워크플로우 실행
+java -jar cotor-1.0.0.jar run multi-ai-dag \
+  --config multi-ai-pipeline.yaml \
+  --output-format text
+```
+
+**멀티 AI 파이프라인의 장점:**
+
+1. **다양한 관점**: 각 AI 모델은 서로 다른 강점을 가짐
+2. **품질 보증**: 여러 리뷰를 통해 더 많은 이슈 발견
+3. **모범 사례**: 각 모델의 최선의 솔루션을 결합
+4. **병렬 처리**: 동시 실행으로 전체 시간 단축
+5. **합의 도출**: 출력을 비교하여 최적의 솔루션 찾기
+
+**실제 사용 사례:**
+
+- **코드 생성**: 여러 구현을 생성하고 최선을 선택
+- **코드 리뷰**: 다른 AI 모델에 의한 순차적 리뷰
+- **문서화**: 각 AI가 문서를 생성하고 최선의 부분을 병합
+- **테스트**: 여러 관점에서 테스트 케이스 생성
+- **리팩토링**: 여러 소스에서 리팩토링 제안 받기
+- **아키텍처 설계**: 여러 AI 어드바이저와 협업 설계
+
+### 예제 8: 편리한 사용을 위한 별칭 생성
 
 **Unix/Linux/macOS:**
 ```bash

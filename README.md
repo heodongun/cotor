@@ -342,7 +342,354 @@ tail -f cotor.log
 java -jar /path/to/cotor-1.0.0.jar status
 ```
 
-### Example 7: Creating an Alias for Easy Access
+### Example 7: Multi-AI Model Pipeline (Claude, Codex, Gemini, Copilot)
+
+This advanced example demonstrates how to orchestrate multiple AI models in a single pipeline for comprehensive code generation and review.
+
+**Use Case**: Generate code with multiple AI models and compare/merge results
+
+**Step 1: Create AI model agent plugins**
+
+First, create wrapper plugins for each AI model:
+
+```kotlin
+// ClaudePlugin.kt
+class ClaudePlugin : AgentPlugin {
+    override val metadata = AgentMetadata(
+        name = "claude-code-generator",
+        version = "1.0.0",
+        description = "Claude AI for code generation",
+        author = "Cotor Team",
+        supportedFormats = listOf(DataFormat.JSON, DataFormat.TEXT)
+    )
+
+    override suspend fun execute(
+        context: ExecutionContext,
+        processManager: ProcessManager
+    ): String {
+        // Call Claude API or CLI
+        val command = listOf(
+            "claude-cli",
+            "generate",
+            "--prompt", context.input ?: ""
+        )
+        
+        val result = processManager.executeProcess(
+            command = command,
+            input = context.input,
+            environment = context.environment,
+            timeout = context.timeout
+        )
+        
+        return result.stdout
+    }
+}
+
+// Similar plugins for Codex, Gemini, and Copilot
+class CodexPlugin : AgentPlugin { /* ... */ }
+class GeminiPlugin : AgentPlugin { /* ... */ }
+class CopilotPlugin : AgentPlugin { /* ... */ }
+```
+
+**Step 2: Configure multi-AI pipeline**
+
+Create `multi-ai-pipeline.yaml`:
+
+```yaml
+version: "1.0"
+
+agents:
+  - name: claude-agent
+    pluginClass: com.cotor.plugins.ClaudePlugin
+    timeout: 60000
+    parameters:
+      model: claude-3-opus
+      temperature: "0.7"
+    tags:
+      - ai
+      - code-generation
+      - claude
+
+  - name: codex-agent
+    pluginClass: com.cotor.plugins.CodexPlugin
+    timeout: 60000
+    parameters:
+      model: gpt-4
+      temperature: "0.5"
+    tags:
+      - ai
+      - code-generation
+      - openai
+
+  - name: gemini-agent
+    pluginClass: com.cotor.plugins.GeminiPlugin
+    timeout: 60000
+    parameters:
+      model: gemini-pro
+      temperature: "0.6"
+    tags:
+      - ai
+      - code-generation
+      - google
+
+  - name: copilot-agent
+    pluginClass: com.cotor.plugins.CopilotPlugin
+    timeout: 60000
+    parameters:
+      model: copilot
+    tags:
+      - ai
+      - code-generation
+      - github
+
+  - name: code-merger
+    pluginClass: com.cotor.plugins.CodeMergerPlugin
+    timeout: 30000
+    tags:
+      - utility
+
+pipelines:
+  # Parallel execution - all AI models generate code simultaneously
+  - name: multi-ai-parallel
+    description: "Generate code with multiple AI models in parallel"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-generation
+        agent:
+          name: claude-agent
+          pluginClass: com.cotor.plugins.ClaudePlugin
+        input: "Create a REST API endpoint for user authentication with JWT"
+
+      - id: codex-generation
+        agent:
+          name: codex-agent
+          pluginClass: com.cotor.plugins.CodexPlugin
+        input: "Create a REST API endpoint for user authentication with JWT"
+
+      - id: gemini-generation
+        agent:
+          name: gemini-agent
+          pluginClass: com.cotor.plugins.GeminiPlugin
+        input: "Create a REST API endpoint for user authentication with JWT"
+
+      - id: copilot-generation
+        agent:
+          name: copilot-agent
+          pluginClass: com.cotor.plugins.CopilotPlugin
+        input: "Create a REST API endpoint for user authentication with JWT"
+
+  # Sequential execution with review chain
+  - name: multi-ai-review-chain
+    description: "Generate code and review through multiple AI models"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: initial-generation
+        agent:
+          name: claude-agent
+          pluginClass: com.cotor.plugins.ClaudePlugin
+        input: "Create a REST API endpoint for user authentication with JWT"
+
+      - id: codex-review
+        agent:
+          name: codex-agent
+          pluginClass: com.cotor.plugins.CodexPlugin
+          parameters:
+            task: review
+        # Input will be Claude's output
+
+      - id: gemini-optimization
+        agent:
+          name: gemini-agent
+          pluginClass: com.cotor.plugins.GeminiPlugin
+          parameters:
+            task: optimize
+        # Input will be Codex's reviewed code
+
+      - id: copilot-final-check
+        agent:
+          name: copilot-agent
+          pluginClass: com.cotor.plugins.CopilotPlugin
+          parameters:
+            task: security-check
+        # Input will be Gemini's optimized code
+
+  # DAG-based workflow - complex dependencies
+  - name: multi-ai-dag
+    description: "Complex AI workflow with dependencies"
+    executionMode: DAG
+    stages:
+      - id: requirement-analysis
+        agent:
+          name: claude-agent
+          pluginClass: com.cotor.plugins.ClaudePlugin
+        input: "Analyze requirements for user authentication system"
+
+      - id: architecture-design
+        agent:
+          name: gemini-agent
+          pluginClass: com.cotor.plugins.GeminiPlugin
+        dependencies:
+          - requirement-analysis
+
+      - id: backend-code
+        agent:
+          name: codex-agent
+          pluginClass: com.cotor.plugins.CodexPlugin
+        dependencies:
+          - architecture-design
+
+      - id: frontend-code
+        agent:
+          name: copilot-agent
+          pluginClass: com.cotor.plugins.CopilotPlugin
+        dependencies:
+          - architecture-design
+
+      - id: integration-code
+        agent:
+          name: claude-agent
+          pluginClass: com.cotor.plugins.ClaudePlugin
+        dependencies:
+          - backend-code
+          - frontend-code
+
+      - id: final-review
+        agent:
+          name: gemini-agent
+          pluginClass: com.cotor.plugins.GeminiPlugin
+        dependencies:
+          - integration-code
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude-cli
+    - openai
+    - gemini-cli
+    - gh
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/ai-tools
+
+logging:
+  level: INFO
+  file: multi-ai.log
+  format: json
+
+performance:
+  maxConcurrentAgents: 4
+  coroutinePoolSize: 8
+```
+
+**Step 3: Run parallel AI generation**
+
+```bash
+# Generate code with all 4 AI models simultaneously
+java -jar cotor-1.0.0.jar run multi-ai-parallel \
+  --config multi-ai-pipeline.yaml \
+  --output-format text
+```
+
+**Expected Output:**
+```
+================================================================================
+Pipeline Execution Results
+================================================================================
+
+Summary:
+  Total Agents:  4
+  Success Count: 4
+  Failure Count: 0
+  Total Duration: 8500ms
+  Timestamp:     2025-11-12T11:00:00.000000Z
+
+Agent Results:
+
+  [1] claude-agent
+      Status:   ✓ SUCCESS
+      Duration: 8200ms
+      Output:
+        // Claude's implementation
+        @RestController
+        @RequestMapping("/api/auth")
+        public class AuthController {
+            @PostMapping("/login")
+            public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest request) {
+                // JWT authentication logic
+                ...
+            }
+        }
+
+  [2] codex-agent
+      Status:   ✓ SUCCESS
+      Duration: 7800ms
+      Output:
+        // Codex's implementation
+        class AuthController {
+            async login(req, res) {
+                // JWT authentication with Express
+                ...
+            }
+        }
+
+  [3] gemini-agent
+      Status:   ✓ SUCCESS
+      Duration: 8100ms
+      Output:
+        // Gemini's implementation
+        func LoginHandler(w http.ResponseWriter, r *http.Request) {
+            // JWT authentication in Go
+            ...
+        }
+
+  [4] copilot-agent
+      Status:   ✓ SUCCESS
+      Duration: 7500ms
+      Output:
+        // Copilot's implementation
+        def login(request):
+            # JWT authentication in Python
+            ...
+
+================================================================================
+```
+
+**Step 4: Run sequential review chain**
+
+```bash
+# Generate with Claude, then review through other models
+java -jar cotor-1.0.0.jar run multi-ai-review-chain \
+  --config multi-ai-pipeline.yaml \
+  --output-format json
+```
+
+**Step 5: Run complex DAG workflow**
+
+```bash
+# Execute complex workflow with dependencies
+java -jar cotor-1.0.0.jar run multi-ai-dag \
+  --config multi-ai-pipeline.yaml \
+  --output-format text
+```
+
+**Benefits of Multi-AI Pipeline:**
+
+1. **Diverse Perspectives**: Each AI model has different strengths
+2. **Quality Assurance**: Multiple reviews catch more issues
+3. **Best Practices**: Combine best solutions from each model
+4. **Parallel Processing**: Reduce total time with concurrent execution
+5. **Consensus Building**: Compare outputs to find optimal solution
+
+**Real-World Use Cases:**
+
+- **Code Generation**: Generate multiple implementations and choose the best
+- **Code Review**: Sequential review by different AI models
+- **Documentation**: Each AI generates docs, merge the best parts
+- **Testing**: Generate test cases from multiple perspectives
+- **Refactoring**: Get refactoring suggestions from multiple sources
+- **Architecture Design**: Collaborative design with multiple AI advisors
+
+### Example 8: Creating an Alias for Easy Access
 
 **For Unix/Linux/macOS:**
 ```bash
