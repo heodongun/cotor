@@ -40,6 +40,25 @@ chmod +x cotor
 ln -s $(pwd)/cotor /usr/local/bin/cotor
 ```
 
+### Claude Code 통합 (선택사항)
+
+Claude Code에서 cotor를 원활하게 사용할 수 있도록 전역 슬래시 커맨드를 설치합니다:
+
+```bash
+./install-claude-integration.sh
+```
+
+설치되는 항목:
+- ✅ `/cotor-generate` - 목표에서 파이프라인 자동 생성
+- ✅ `/cotor-execute` - 모니터링과 함께 파이프라인 실행
+- ✅ `/cotor-validate` - 파이프라인 구문 검증
+- ✅ `/cotor-template` - 템플릿에서 파이프라인 생성
+- ✅ Claude가 cotor를 이해하도록 하는 전역 지식 베이스
+
+**모든 프로젝트에서 사용 가능**: 한 번 설치하면 어떤 프로젝트에서든 이 커맨드들을 사용할 수 있습니다!
+
+📖 **[상세 설정 가이드](docs/CLAUDE_SETUP.md)** - 수동 설치 및 문제 해결
+
 ## 🤖 내장 AI 플러그인
 
 Cotor는 다음 AI CLI 도구들과 통합되며, **자동 권한 승인**을 지원합니다:
@@ -659,6 +678,64 @@ $ cotor web
 - 복잡한 의존성이 있는 경우 `DAG` 모드 사용
 - 빠른 실행에는 간단한 CLI 사용: `cotor <pipeline-name>`
 - 시각적 관리에는 웹 UI 사용: `cotor web`
+
+## 🎨 Claude Code 통합
+
+Claude 통합을 설치했다면, **모든 프로젝트**에서 다음 슬래시 커맨드를 사용할 수 있습니다:
+
+### 사용 가능한 커맨드
+
+| 커맨드 | 설명 | 예시 |
+|--------|------|------|
+| `/cotor-generate` | 목표에서 파이프라인 자동 생성 | `/cotor-generate "3개의 AI로 정렬 알고리즘 비교"` |
+| `/cotor-execute` | 모니터링과 함께 파이프라인 실행 | `/cotor-execute pipeline.yaml` |
+| `/cotor-validate` | 파이프라인 구문 검증 | `/cotor-validate pipeline.yaml` |
+| `/cotor-template` | 템플릿에서 파이프라인 생성 | `/cotor-template compare-solutions my-pipeline.yaml` |
+
+### 빠른 시작
+
+**1. 사용 가능한 템플릿 목록:**
+```
+/cotor-template
+```
+
+**2. 템플릿에서 생성:**
+```
+/cotor-template compare-solutions test.yaml
+```
+
+**3. 검증:**
+```
+/cotor-validate test.yaml
+```
+
+**4. 실행:**
+```
+/cotor-execute test.yaml
+```
+
+### 사용 가능한 템플릿
+
+- **compare-solutions**: 여러 AI가 같은 문제를 병렬로 해결
+- **review-chain**: 순차적 코드 리뷰 (생성 → 리뷰 → 최적화)
+- **comprehensive-review**: 병렬 다각도 리뷰 (보안, 성능, 모범 사례)
+
+### 지식 베이스
+
+Claude는 `~/.claude/steering/cotor-knowledge.md`의 전역 지식 베이스를 통해 cotor를 자동으로 이해합니다:
+- ✅ Cotor 명령어와 구문
+- ✅ 파이프라인 패턴과 모범 사례
+- ✅ AI 플러그인 정보
+- ✅ 문제 해결 가이드
+
+### 검증
+
+설치 테스트:
+```bash
+./test-claude-integration.sh
+```
+
+모든 테스트가 통과해야 합니다 ✅
 
 ## 🧪 테스트 결과
 
