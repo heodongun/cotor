@@ -44,9 +44,9 @@ Cotor integrates with these AI CLI tools:
 | AI | Command | Description |
 |----|---------|-------------|
 | **Claude** | `claude --print <prompt>` | Anthropic's advanced AI |
+| **Codex** | `codex exec <prompt>` | Codex AI for code generation |
 | **Copilot** | `copilot -p <prompt> --allow-all-tools` | GitHub's AI assistant |
 | **Gemini** | `gemini --yolo <prompt>` | Google's multimodal AI |
-| **Codex** | `openai chat --model gpt-4 --message <prompt>` | OpenAI's code model |
 | **Cursor** | `cursor-cli generate <prompt>` | Cursor AI editor |
 | **OpenCode** | `opencode generate <prompt>` | Open-source AI |
 
@@ -149,7 +149,7 @@ cotor run code-review --config my-config.yaml
 
 ## 📖 Usage Examples
 
-### Single AI
+### Example 1: Single AI Task
 
 ```bash
 # Create a simple pipeline
@@ -168,25 +168,228 @@ pipelines:
         agent:
           name: claude
         input: "Create a Python hello world function"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
 EOF
 
 # Run it
 cotor run generate-code --config single-ai.yaml
 ```
 
-### Multiple AIs in Parallel
+### Example 2: Multiple AIs in Parallel (Same Task)
+
+Get different perspectives on the same problem:
 
 ```bash
-# All AIs work on the same task simultaneously
-cotor run multi-ai-parallel --config cotor.yaml --output-format text
+cat > multi-compare.yaml << EOF
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: compare-solutions
+    description: "Get 3 different implementations"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-solution
+        agent:
+          name: claude
+        input: "Write a function to find prime numbers up to N"
+      
+      - id: codex-solution
+        agent:
+          name: codex
+        input: "Write a function to find prime numbers up to N"
+      
+      - id: gemini-solution
+        agent:
+          name: gemini
+        input: "Write a function to find prime numbers up to N"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
+EOF
+
+# Run and compare results
+cotor run compare-solutions --config multi-compare.yaml --output-format text
 ```
 
-### Sequential Pipeline
+**Output**: You'll get 3 different implementations simultaneously!
+
+### Example 3: Sequential AI Pipeline (Review Chain)
+
+One AI's output becomes the next AI's input:
 
 ```bash
-# Claude generates → Copilot reviews → Gemini optimizes
-cotor run sequential-workflow --config cotor.yaml
+cat > review-chain.yaml << EOF
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: copilot
+    pluginClass: com.cotor.data.plugin.CopilotPlugin
+    timeout: 60000
+
+pipelines:
+  - name: code-review-chain
+    description: "Generate → Review → Optimize"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: generate
+        agent:
+          name: claude
+        input: "Create a REST API endpoint for user authentication"
+      
+      - id: review
+        agent:
+          name: codex
+        # Input will be Claude's output
+      
+      - id: optimize
+        agent:
+          name: copilot
+        # Input will be Codex's reviewed code
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, copilot]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
+EOF
+
+# Run the chain
+cotor run code-review-chain --config review-chain.yaml --output-format text
 ```
+
+**Flow**: Claude generates → Codex reviews → Copilot optimizes
+
+### Example 4: Multi-AI Code Review
+
+Get comprehensive feedback from multiple AIs:
+
+```bash
+cat > code-review.yaml << EOF
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: copilot
+    pluginClass: com.cotor.data.plugin.CopilotPlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: comprehensive-review
+    description: "Multi-perspective code review"
+    executionMode: PARALLEL
+    stages:
+      - id: security-review
+        agent:
+          name: claude
+        input: "Review this code for security vulnerabilities: [your code here]"
+      
+      - id: performance-review
+        agent:
+          name: codex
+        input: "Review this code for performance issues: [your code here]"
+      
+      - id: best-practices
+        agent:
+          name: copilot
+        input: "Review this code for best practices: [your code here]"
+      
+      - id: optimization
+        agent:
+          name: gemini
+        input: "Suggest optimizations for this code: [your code here]"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, copilot, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
+EOF
+
+# Get 4 different reviews simultaneously
+cotor run comprehensive-review --config code-review.yaml --output-format text
+```
+
+**Result**: 4 AIs review your code from different angles - all at once!
+
+### Example 5: AI Consensus Building
+
+Use multiple AIs to reach a consensus:
+
+```bash
+cat > consensus.yaml << EOF
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: architecture-decision
+    description: "Get architectural recommendations"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-opinion
+        agent:
+          name: claude
+        input: "What's the best architecture for a real-time chat app?"
+      
+      - id: codex-opinion
+        agent:
+          name: codex
+        input: "What's the best architecture for a real-time chat app?"
+      
+      - id: gemini-opinion
+        agent:
+          name: gemini
+        input: "What's the best architecture for a real-time chat app?"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
+EOF
+
+# Compare recommendations
+cotor run architecture-decision --config consensus.yaml --output-format text
+```
+
+**Use Case**: Compare different AI opinions to make better decisions!
 
 ## 🎯 CLI Commands
 

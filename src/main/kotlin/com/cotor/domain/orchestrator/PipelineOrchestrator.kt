@@ -42,7 +42,8 @@ class DefaultPipelineOrchestrator(
     private val agentExecutor: AgentExecutor,
     private val resultAggregator: ResultAggregator,
     private val eventBus: EventBus,
-    private val logger: Logger
+    private val logger: Logger,
+    private val agentRegistry: com.cotor.data.registry.AgentRegistry
 ) : PipelineOrchestrator {
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()
@@ -81,8 +82,11 @@ class DefaultPipelineOrchestrator(
         var previousOutput: String? = null
 
         for (stage in pipeline.stages) {
+            val agentConfig = agentRegistry.getAgent(stage.agent.name)
+                ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
+            
             val input = previousOutput ?: stage.input
-            val result = agentExecutor.executeAgent(stage.agent, input)
+            val result = agentExecutor.executeAgent(agentConfig, input)
             results.add(result)
 
             if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT) {
@@ -98,7 +102,9 @@ class DefaultPipelineOrchestrator(
     private suspend fun executeParallel(pipeline: Pipeline): AggregatedResult = coroutineScope {
         val results = pipeline.stages.map { stage ->
             async(Dispatchers.Default) {
-                agentExecutor.executeAgent(stage.agent, stage.input)
+                val agentConfig = agentRegistry.getAgent(stage.agent.name)
+                    ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
+                agentExecutor.executeAgent(agentConfig, stage.input)
             }
         }.awaitAll()
 
@@ -114,13 +120,16 @@ class DefaultPipelineOrchestrator(
         val sortedStages = topologicalSort(pipeline.stages)
 
         for (stage in sortedStages) {
+            val agentConfig = agentRegistry.getAgent(stage.agent.name)
+                ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
+            
             val input = if (stage.dependencies.isEmpty()) {
                 stage.input
             } else {
                 resolveDependencies(stage.dependencies, results)
             }
 
-            val result = agentExecutor.executeAgent(stage.agent, input)
+            val result = agentExecutor.executeAgent(agentConfig, input)
             results[stage.id] = result
         }
 

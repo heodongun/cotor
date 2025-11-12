@@ -48,14 +48,14 @@ class ClaudePlugin : AgentPlugin {
 }
 
 /**
- * OpenAI Codex/GPT Plugin
- * Executes: openai <prompt>
+ * Codex Plugin
+ * Executes: codex exec <prompt>
  */
 class CodexPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
         name = "codex",
         version = "1.0.0",
-        description = "OpenAI Codex/GPT for code generation",
+        description = "Codex AI for code generation",
         author = "Cotor Team",
         supportedFormats = listOf(DataFormat.JSON, DataFormat.TEXT)
     )
@@ -65,10 +65,9 @@ class CodexPlugin : AgentPlugin {
         processManager: ProcessManager
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
-        val model = context.parameters["model"] ?: "gpt-4"
         
-        // Execute OpenAI CLI
-        val command = listOf("openai", "chat", "--model", model, "--message", prompt)
+        // Execute Codex CLI in non-interactive mode
+        val command = listOf("codex", "exec", prompt)
         
         val result = processManager.executeProcess(
             command = command,
@@ -78,7 +77,7 @@ class CodexPlugin : AgentPlugin {
         )
         
         if (!result.isSuccess) {
-            throw AgentExecutionException("OpenAI execution failed: ${result.stderr}")
+            throw AgentExecutionException("Codex execution failed: ${result.stderr}")
         }
         
         return result.stdout

@@ -44,9 +44,9 @@ Cotor는 다음 AI CLI 도구들과 통합됩니다:
 | AI | 명령어 | 설명 |
 |----|--------|------|
 | **Claude** | `claude --print <prompt>` | Anthropic의 고급 AI |
+| **Codex** | `codex exec <prompt>` | Codex AI 코드 생성 |
 | **Copilot** | `copilot -p <prompt> --allow-all-tools` | GitHub AI 어시스턴트 |
 | **Gemini** | `gemini --yolo <prompt>` | Google 멀티모달 AI |
-| **Codex** | `openai chat --model gpt-4 --message <prompt>` | OpenAI 코드 모델 |
 | **Cursor** | `cursor-cli generate <prompt>` | Cursor AI 에디터 |
 | **OpenCode** | `opencode generate <prompt>` | 오픈소스 AI |
 
@@ -149,7 +149,7 @@ cotor run code-review --config my-config.yaml
 
 ## 📖 사용 예제
 
-### 단일 AI
+### 예제 1: 단일 AI 작업
 
 ```bash
 # 간단한 파이프라인 생성
@@ -168,25 +168,228 @@ pipelines:
         agent:
           name: claude
         input: "Python hello world 함수를 만들어주세요"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
 EOF
 
 # 실행
 cotor run generate-code --config single-ai.yaml
 ```
 
-### 병렬 실행
+### 예제 2: 여러 AI 병렬 실행 (같은 작업)
+
+같은 문제에 대해 다양한 관점 얻기:
 
 ```bash
-# 모든 AI가 동시에 같은 작업 수행
-cotor run multi-ai-parallel --config cotor.yaml --output-format text
+cat > multi-compare.yaml << EOF
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: compare-solutions
+    description: "3가지 다른 구현 받기"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-solution
+        agent:
+          name: claude
+        input: "N까지의 소수를 찾는 함수를 작성해주세요"
+      
+      - id: codex-solution
+        agent:
+          name: codex
+        input: "N까지의 소수를 찾는 함수를 작성해주세요"
+      
+      - id: gemini-solution
+        agent:
+          name: gemini
+        input: "N까지의 소수를 찾는 함수를 작성해주세요"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
+EOF
+
+# 실행하고 결과 비교
+cotor run compare-solutions --config multi-compare.yaml --output-format text
 ```
 
-### 순차 파이프라인
+**결과**: 3가지 다른 구현을 동시에 받습니다!
+
+### 예제 3: 순차 AI 파이프라인 (리뷰 체인)
+
+한 AI의 출력이 다음 AI의 입력이 됩니다:
 
 ```bash
-# Claude 생성 → Copilot 리뷰 → Gemini 최적화
-cotor run sequential-workflow --config cotor.yaml
+cat > review-chain.yaml << EOF
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: copilot
+    pluginClass: com.cotor.data.plugin.CopilotPlugin
+    timeout: 60000
+
+pipelines:
+  - name: code-review-chain
+    description: "생성 → 리뷰 → 최적화"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: generate
+        agent:
+          name: claude
+        input: "사용자 인증을 위한 REST API 엔드포인트를 만들어주세요"
+      
+      - id: review
+        agent:
+          name: codex
+        # Claude의 출력이 입력으로 사용됨
+      
+      - id: optimize
+        agent:
+          name: copilot
+        # Codex의 리뷰된 코드가 입력으로 사용됨
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, copilot]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
+EOF
+
+# 체인 실행
+cotor run code-review-chain --config review-chain.yaml --output-format text
 ```
+
+**흐름**: Claude 생성 → Codex 리뷰 → Copilot 최적화
+
+### 예제 4: 멀티 AI 코드 리뷰
+
+여러 AI로부터 종합적인 피드백 받기:
+
+```bash
+cat > code-review.yaml << EOF
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: copilot
+    pluginClass: com.cotor.data.plugin.CopilotPlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: comprehensive-review
+    description: "다각도 코드 리뷰"
+    executionMode: PARALLEL
+    stages:
+      - id: security-review
+        agent:
+          name: claude
+        input: "이 코드의 보안 취약점을 검토해주세요: [코드]"
+      
+      - id: performance-review
+        agent:
+          name: codex
+        input: "이 코드의 성능 문제를 검토해주세요: [코드]"
+      
+      - id: best-practices
+        agent:
+          name: copilot
+        input: "이 코드의 모범 사례를 검토해주세요: [코드]"
+      
+      - id: optimization
+        agent:
+          name: gemini
+        input: "이 코드의 최적화 방안을 제안해주세요: [코드]"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, copilot, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
+EOF
+
+# 4가지 다른 리뷰를 동시에 받기
+cotor run comprehensive-review --config code-review.yaml --output-format text
+```
+
+**결과**: 4개의 AI가 다른 관점에서 코드를 리뷰 - 모두 동시에!
+
+### 예제 5: AI 합의 도출
+
+여러 AI를 사용하여 합의 도출:
+
+```bash
+cat > consensus.yaml << EOF
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: architecture-decision
+    description: "아키텍처 추천 받기"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-opinion
+        agent:
+          name: claude
+        input: "실시간 채팅 앱을 위한 최적의 아키텍처는?"
+      
+      - id: codex-opinion
+        agent:
+          name: codex
+        input: "실시간 채팅 앱을 위한 최적의 아키텍처는?"
+      
+      - id: gemini-opinion
+        agent:
+          name: gemini
+        input: "실시간 채팅 앱을 위한 최적의 아키텍처는?"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
+EOF
+
+# 추천 비교
+cotor run architecture-decision --config consensus.yaml --output-format text
+```
+
+**활용**: 다양한 AI 의견을 비교하여 더 나은 결정을 내리세요!
 
 ## 🎯 CLI 명령어
 

@@ -1,0 +1,37 @@
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: compare-solutions
+    description: "3가지 다른 구현 받기"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-solution
+        agent:
+          name: claude
+        input: "N까지의 소수를 찾는 함수를 작성해주세요 js로 짜줘"
+      
+      - id: codex-solution
+        agent:
+          name: codex
+        input: "N까지의 소수를 찾는 함수를 작성해주세요 kotlin으로 짜줘"
+      
+      - id: gemini-solution
+        agent:
+          name: gemini
+        input: "N까지의 소수를 찾는 함수를 작성해주세요 python으로 짜줘"
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin,/Users/heodongun/Desktop/cotor/test]

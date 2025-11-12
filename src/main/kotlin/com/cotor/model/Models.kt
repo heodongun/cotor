@@ -53,10 +53,18 @@ data class Pipeline(
 @Serializable
 data class PipelineStage(
     val id: String,
-    val agent: AgentConfig,
+    val agent: AgentReference,
     val input: String? = null,
     val dependencies: List<String> = emptyList(),
     val failureStrategy: FailureStrategy = FailureStrategy.ABORT
+)
+
+/**
+ * Reference to an agent by name
+ */
+@Serializable
+data class AgentReference(
+    val name: String
 )
 
 /**
