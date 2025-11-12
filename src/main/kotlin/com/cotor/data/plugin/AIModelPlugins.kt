@@ -5,6 +5,7 @@ import com.cotor.model.*
 
 /**
  * Claude AI Plugin (Anthropic)
+ * Executes: claude --print <prompt>
  */
 class ClaudePlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -19,19 +20,23 @@ class ClaudePlugin : AgentPlugin {
         context: ExecutionContext,
         processManager: ProcessManager
     ): String {
-        val model = context.parameters["model"] ?: "claude-3-opus-20240229"
-        val prompt = context.input ?: ""
+        val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        // For demo purposes, return formatted response
-        // In production, this would call Claude API
-        return """
-            [Claude Response]
-            Model: $model
-            Input: $prompt
-            
-            Generated code or analysis would appear here.
-            This is a placeholder for Claude API integration.
-        """.trimIndent()
+        // Execute Claude CLI in non-interactive mode with --print
+        val command = listOf("claude", "--print", prompt)
+        
+        val result = processManager.executeProcess(
+            command = command,
+            input = null,
+            environment = context.environment,
+            timeout = context.timeout
+        )
+        
+        if (!result.isSuccess) {
+            throw AgentExecutionException("Claude execution failed: ${result.stderr}")
+        }
+        
+        return result.stdout
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -44,6 +49,7 @@ class ClaudePlugin : AgentPlugin {
 
 /**
  * OpenAI Codex/GPT Plugin
+ * Executes: openai <prompt>
  */
 class CodexPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -58,17 +64,24 @@ class CodexPlugin : AgentPlugin {
         context: ExecutionContext,
         processManager: ProcessManager
     ): String {
+        val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         val model = context.parameters["model"] ?: "gpt-4"
-        val prompt = context.input ?: ""
         
-        return """
-            [Codex/GPT Response]
-            Model: $model
-            Input: $prompt
-            
-            Generated code would appear here.
-            This is a placeholder for OpenAI API integration.
-        """.trimIndent()
+        // Execute OpenAI CLI
+        val command = listOf("openai", "chat", "--model", model, "--message", prompt)
+        
+        val result = processManager.executeProcess(
+            command = command,
+            input = null,
+            environment = context.environment,
+            timeout = context.timeout
+        )
+        
+        if (!result.isSuccess) {
+            throw AgentExecutionException("OpenAI execution failed: ${result.stderr}")
+        }
+        
+        return result.stdout
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -81,6 +94,7 @@ class CodexPlugin : AgentPlugin {
 
 /**
  * GitHub Copilot Plugin
+ * Executes: copilot -p <prompt> --allow-all-tools
  */
 class CopilotPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -95,20 +109,29 @@ class CopilotPlugin : AgentPlugin {
         context: ExecutionContext,
         processManager: ProcessManager
     ): String {
-        val prompt = context.input ?: ""
+        val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        return """
-            [GitHub Copilot Response]
-            Input: $prompt
-            
-            Code suggestions would appear here.
-            This is a placeholder for GitHub Copilot integration.
-        """.trimIndent()
+        // Execute GitHub Copilot CLI in non-interactive mode
+        val command = listOf("copilot", "-p", prompt, "--allow-all-tools")
+        
+        val result = processManager.executeProcess(
+            command = command,
+            input = null,
+            environment = context.environment,
+            timeout = context.timeout
+        )
+        
+        if (!result.isSuccess) {
+            throw AgentExecutionException("GitHub Copilot execution failed: ${result.stderr}")
+        }
+        
+        return result.stdout
     }
 }
 
 /**
  * Google Gemini Plugin
+ * Executes: gemini <prompt>
  */
 class GeminiPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -123,22 +146,30 @@ class GeminiPlugin : AgentPlugin {
         context: ExecutionContext,
         processManager: ProcessManager
     ): String {
-        val model = context.parameters["model"] ?: "gemini-pro"
-        val prompt = context.input ?: ""
+        val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        return """
-            [Gemini Response]
-            Model: $model
-            Input: $prompt
-            
-            Generated analysis or code would appear here.
-            This is a placeholder for Google Gemini API integration.
-        """.trimIndent()
+        // Execute Gemini CLI with prompt as positional argument
+        // Use --yolo to auto-approve actions
+        val command = listOf("gemini", "--yolo", prompt)
+        
+        val result = processManager.executeProcess(
+            command = command,
+            input = null,
+            environment = context.environment,
+            timeout = context.timeout
+        )
+        
+        if (!result.isSuccess) {
+            throw AgentExecutionException("Gemini execution failed: ${result.stderr}")
+        }
+        
+        return result.stdout
     }
 }
 
 /**
  * Cursor AI Plugin
+ * Executes: cursor-cli <prompt>
  */
 class CursorPlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -153,20 +184,29 @@ class CursorPlugin : AgentPlugin {
         context: ExecutionContext,
         processManager: ProcessManager
     ): String {
-        val prompt = context.input ?: ""
+        val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        return """
-            [Cursor AI Response]
-            Input: $prompt
-            
-            Intelligent code edits would appear here.
-            This is a placeholder for Cursor AI integration.
-        """.trimIndent()
+        // Execute Cursor CLI
+        val command = listOf("cursor-cli", "generate", prompt)
+        
+        val result = processManager.executeProcess(
+            command = command,
+            input = null,
+            environment = context.environment,
+            timeout = context.timeout
+        )
+        
+        if (!result.isSuccess) {
+            throw AgentExecutionException("Cursor execution failed: ${result.stderr}")
+        }
+        
+        return result.stdout
     }
 }
 
 /**
  * OpenCode Agent Plugin
+ * Executes: opencode <prompt>
  */
 class OpenCodePlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -181,14 +221,22 @@ class OpenCodePlugin : AgentPlugin {
         context: ExecutionContext,
         processManager: ProcessManager
     ): String {
-        val prompt = context.input ?: ""
+        val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         
-        return """
-            [OpenCode Response]
-            Input: $prompt
-            
-            Open-source code generation would appear here.
-            This is a placeholder for OpenCode integration.
-        """.trimIndent()
+        // Execute OpenCode CLI
+        val command = listOf("opencode", "generate", prompt)
+        
+        val result = processManager.executeProcess(
+            command = command,
+            input = null,
+            environment = context.environment,
+            timeout = context.timeout
+        )
+        
+        if (!result.isSuccess) {
+            throw AgentExecutionException("OpenCode execution failed: ${result.stderr}")
+        }
+        
+        return result.stdout
     }
 }
