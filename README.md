@@ -23,32 +23,148 @@ Cotor is a Kotlin-based AI CLI master-agent system that orchestrates multiple in
 
 ## Quick Start
 
-### 1. Build the Project
+### Easy Installation (Recommended)
 
 ```bash
-./gradlew build
+# Clone the repository
+git clone https://github.com/yourusername/cotor.git
+cd cotor
+
+# Run the installation script
+./install.sh
 ```
 
-### 2. Create Shadow JAR
+The installation script will:
+- ✅ Check Java installation
+- ✅ Build the project
+- ✅ Create executable scripts
+- ✅ Show you how to add `cotor` to your PATH
+
+### Manual Installation
+
+**1. Build the Project**
 
 ```bash
 ./gradlew shadowJar
 ```
 
-The executable JAR will be created at `build/libs/cotor-1.0.0.jar`.
-
-### 3. Initialize Configuration
+**2. Make the script executable**
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar init
+chmod +x cotor
 ```
 
-This creates a default `cotor.yaml` configuration file in the current directory.
-
-### 4. Run a Pipeline
+**3. Use Cotor**
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar run example-pipeline
+# Run directly
+./cotor version
+
+# Or add to PATH (add to ~/.bashrc or ~/.zshrc)
+export PATH="$PATH:/path/to/cotor"
+
+# Then use anywhere
+cotor version
+```
+
+### Quick Test
+
+```bash
+# Initialize configuration
+./cotor init
+
+# List available agents
+./cotor list
+
+# Run example pipeline
+./cotor run example-pipeline
+
+# Test all AI models (Claude, Codex, Copilot, Gemini, Cursor, OpenCode)
+./cotor run test-all-models --config test-ai-models.yaml --output-format text
+```
+
+## Built-in AI Model Plugins
+
+Cotor comes with 6 pre-configured AI model plugins ready to use:
+
+| Plugin | Description | Model | Provider |
+|--------|-------------|-------|----------|
+| **Claude** | Advanced reasoning and code generation | claude-3-opus | Anthropic |
+| **Codex** | OpenAI's code generation model | gpt-4 | OpenAI |
+| **Copilot** | GitHub's AI pair programmer | copilot | GitHub |
+| **Gemini** | Google's multimodal AI | gemini-pro | Google |
+| **Cursor** | Intelligent code editing | cursor | Cursor |
+| **OpenCode** | Open-source code generation | opencode | Community |
+
+### Testing All AI Models
+
+```bash
+# Test all models in parallel
+./cotor run test-all-models --config test-ai-models.yaml --output-format text
+
+# Test individual models
+./cotor run test-claude --config test-ai-models.yaml
+./cotor run test-codex --config test-ai-models.yaml
+./cotor run test-copilot --config test-ai-models.yaml
+./cotor run test-gemini --config test-ai-models.yaml
+./cotor run test-cursor --config test-ai-models.yaml
+./cotor run test-opencode --config test-ai-models.yaml
+
+# Test sequential workflow (Claude → Codex → Gemini)
+./cotor run test-sequential --config test-ai-models.yaml
+```
+
+### Example Output
+
+```
+================================================================================
+Pipeline Execution Results
+================================================================================
+
+Summary:
+  Total Agents:  6
+  Success Count: 6
+  Failure Count: 0
+  Total Duration: 12ms
+  Timestamp:     2025-11-12T11:23:00.000000Z
+
+Agent Results:
+
+  [1] claude
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      Output:
+        [Claude Response]
+        Model: claude-3-opus-20240229
+        Input: Generate a hello world function in Python
+        ...
+
+  [2] codex
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+  [3] copilot
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+  [4] gemini
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+  [5] cursor
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+  [6] opencode
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+================================================================================
 ```
 
 ## User Flow Examples

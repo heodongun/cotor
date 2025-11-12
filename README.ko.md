@@ -23,32 +23,148 @@ Cotor는 여러 독립적인 AI CLI 툴을 통합 CLI 인터페이스로 오케�
 
 ## 빠른 시작
 
-### 1. 프로젝트 빌드
+### 간편 설치 (권장)
 
 ```bash
-./gradlew build
+# 저장소 클론
+git clone https://github.com/yourusername/cotor.git
+cd cotor
+
+# 설치 스크립트 실행
+./install.sh
 ```
 
-### 2. Shadow JAR 생성
+설치 스크립트가 자동으로:
+- ✅ Java 설치 확인
+- ✅ 프로젝트 빌드
+- ✅ 실행 스크립트 생성
+- ✅ PATH 추가 방법 안내
+
+### 수동 설치
+
+**1. 프로젝트 빌드**
 
 ```bash
 ./gradlew shadowJar
 ```
 
-실행 가능한 JAR 파일이 `build/libs/cotor-1.0.0.jar`에 생성됩니다.
-
-### 3. 설정 초기화
+**2. 스크립트 실행 권한 부여**
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar init
+chmod +x cotor
 ```
 
-현재 디렉토리에 기본 `cotor.yaml` 설정 파일이 생성됩니다.
-
-### 4. 파이프라인 실행
+**3. Cotor 사용**
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar run example-pipeline
+# 직접 실행
+./cotor version
+
+# 또는 PATH에 추가 (~/.bashrc 또는 ~/.zshrc에 추가)
+export PATH="$PATH:/path/to/cotor"
+
+# 이후 어디서나 사용 가능
+cotor version
+```
+
+### 빠른 테스트
+
+```bash
+# 설정 초기화
+./cotor init
+
+# 사용 가능한 에이전트 목록
+./cotor list
+
+# 예제 파이프라인 실행
+./cotor run example-pipeline
+
+# 모든 AI 모델 테스트 (Claude, Codex, Copilot, Gemini, Cursor, OpenCode)
+./cotor run test-all-models --config test-ai-models.yaml --output-format text
+```
+
+## 내장 AI 모델 플러그인
+
+Cotor는 6개의 사전 구성된 AI 모델 플러그인을 제공합니다:
+
+| 플러그인 | 설명 | 모델 | 제공자 |
+|---------|------|------|--------|
+| **Claude** | 고급 추론 및 코드 생성 | claude-3-opus | Anthropic |
+| **Codex** | OpenAI의 코드 생성 모델 | gpt-4 | OpenAI |
+| **Copilot** | GitHub의 AI 페어 프로그래머 | copilot | GitHub |
+| **Gemini** | Google의 멀티모달 AI | gemini-pro | Google |
+| **Cursor** | 지능형 코드 편집 | cursor | Cursor |
+| **OpenCode** | 오픈소스 코드 생성 | opencode | Community |
+
+### 모든 AI 모델 테스트
+
+```bash
+# 모든 모델을 병렬로 테스트
+./cotor run test-all-models --config test-ai-models.yaml --output-format text
+
+# 개별 모델 테스트
+./cotor run test-claude --config test-ai-models.yaml
+./cotor run test-codex --config test-ai-models.yaml
+./cotor run test-copilot --config test-ai-models.yaml
+./cotor run test-gemini --config test-ai-models.yaml
+./cotor run test-cursor --config test-ai-models.yaml
+./cotor run test-opencode --config test-ai-models.yaml
+
+# 순차 워크플로우 테스트 (Claude → Codex → Gemini)
+./cotor run test-sequential --config test-ai-models.yaml
+```
+
+### 예제 출력
+
+```
+================================================================================
+Pipeline Execution Results
+================================================================================
+
+Summary:
+  Total Agents:  6
+  Success Count: 6
+  Failure Count: 0
+  Total Duration: 12ms
+  Timestamp:     2025-11-12T11:23:00.000000Z
+
+Agent Results:
+
+  [1] claude
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      Output:
+        [Claude Response]
+        Model: claude-3-opus-20240229
+        Input: Generate a hello world function in Python
+        ...
+
+  [2] codex
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+  [3] copilot
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+  [4] gemini
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+  [5] cursor
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+  [6] opencode
+      Status:   ✓ SUCCESS
+      Duration: 2ms
+      ...
+
+================================================================================
 ```
 
 ## 사용자 플로우 예제
