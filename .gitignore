@@ -36,6 +36,11 @@ out/
 .vscode/
 *.code-workspace
 
+# AI IDE Settings
+.claude/
+.codex/
+.kiro/
+
 # macOS
 .DS_Store
 .AppleDouble
