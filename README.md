@@ -37,6 +37,25 @@ chmod +x cotor
 ln -s $(pwd)/cotor /usr/local/bin/cotor
 ```
 
+### Claude Code Integration (Optional)
+
+Install global slash commands for Claude Code to use cotor seamlessly:
+
+```bash
+./install-claude-integration.sh
+```
+
+This will install:
+- ✅ `/cotor-generate` - Auto-generate pipelines from goals
+- ✅ `/cotor-execute` - Execute pipelines with monitoring
+- ✅ `/cotor-validate` - Validate pipeline syntax
+- ✅ `/cotor-template` - Create from templates
+- ✅ Global knowledge base for Claude to understand cotor
+
+**Available everywhere**: These commands work in any project once installed!
+
+📖 **[Detailed Setup Guide](docs/CLAUDE_SETUP.md)** - Manual installation and troubleshooting
+
 ## 🤖 Built-in AI Plugins
 
 Cotor integrates with these AI CLI tools:
@@ -575,6 +594,64 @@ Agent Results:
 - Use `PARALLEL` mode for independent tasks
 - Use `SEQUENTIAL` mode when output feeds into next stage
 - Use `DAG` mode for complex dependencies
+
+## 🎨 Claude Code Integration
+
+If you installed the Claude integration, you can use these slash commands in **any project**:
+
+### Available Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/cotor-generate` | Auto-generate pipelines from goals | `/cotor-generate "3 AIs compare sorting algorithms"` |
+| `/cotor-execute` | Execute pipelines with monitoring | `/cotor-execute pipeline.yaml` |
+| `/cotor-validate` | Validate pipeline syntax | `/cotor-validate pipeline.yaml` |
+| `/cotor-template` | Create from templates | `/cotor-template compare-solutions my-pipeline.yaml` |
+
+### Quick Start
+
+**1. List available templates:**
+```
+/cotor-template
+```
+
+**2. Create from template:**
+```
+/cotor-template compare-solutions test.yaml
+```
+
+**3. Validate:**
+```
+/cotor-validate test.yaml
+```
+
+**4. Execute:**
+```
+/cotor-execute test.yaml
+```
+
+### Available Templates
+
+- **compare-solutions**: Multiple AIs solve the same problem in parallel
+- **review-chain**: Sequential code review (generate → review → optimize)
+- **comprehensive-review**: Parallel multi-perspective review (security, performance, best practices)
+
+### Knowledge Base
+
+Claude automatically understands cotor through the global knowledge base at `~/.claude/steering/cotor-knowledge.md`:
+- ✅ Cotor commands and syntax
+- ✅ Pipeline patterns and best practices
+- ✅ AI plugin information
+- ✅ Troubleshooting guides
+
+### Verification
+
+Test your installation:
+```bash
+./test-claude-integration.sh
+```
+
+All tests should pass ✅
 
 ---
 
