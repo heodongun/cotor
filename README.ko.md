@@ -1,5 +1,8 @@
 # Cotor - AI CLI 마스터-에이전트 시스템
 
+[![English](https://img.shields.io/badge/Language-English-blue)](README.md)
+[![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
+
 Cotor는 여러 독립적인 AI CLI 툴을 통합 CLI 인터페이스로 오케스트레이션하는 Kotlin 기반 시스템입니다. 코루틴을 활용한 고성능 비동기 실행으로 AI 워크플로우를 관리하는 유연하고 확장 가능한 프레임워크를 제공합니다.
 
 ## 주요 기능

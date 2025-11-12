@@ -1,5 +1,8 @@
 # Cotor - AI CLI Master-Agent System
 
+[![English](https://img.shields.io/badge/Language-English-blue)](README.md)
+[![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
+
 Cotor is a Kotlin-based AI CLI master-agent system that orchestrates multiple independent AI CLI tools through a unified command-line interface. Built with coroutines for high-performance asynchronous execution, Cotor provides a flexible and extensible framework for managing AI workflows.
 
 ## Features
