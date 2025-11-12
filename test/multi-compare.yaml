@@ -1,0 +1,38 @@
+# cotor-pipeline
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: compare-solutions
+    description: "3가지 다른 구현 받기"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-solution
+        agent:
+          name: claude
+        input: "N까지의 소수를 찾는 함수를 JavaScript로 작성하고 test/results/findPrimes.js 파일로 저장해주세요. 반드시 파일을 생성하고 코드를 작성하세요. 설명만 하지 말고 실제 동작하는 코드를 파일로 만들어주세요."
+      
+      - id: codex-solution
+        agent:
+          name: codex
+        input: "N까지의 소수를 찾는 함수를 Kotlin으로 작성하고 test/results/Primes.kt 파일로 저장해주세요. 반드시 파일을 생성하고 코드를 작성하세요. 설명만 하지 말고 실제 동작하는 코드를 파일로 만들어주세요."
+      
+      - id: gemini-solution
+        agent:
+          name: gemini
+        input: "N까지의 소수를 찾는 함수를 Python으로 작성하고 test/results/primes.py 파일로 저장해주세요. 반드시 파일을 생성하고 코드를 작성하세요. 설명만 하지 말고 실제 동작하는 코드를 파일로 만들어주세요."
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin,/Users/heodongun/Desktop/cotor/test]

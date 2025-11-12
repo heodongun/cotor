@@ -1,0 +1,26 @@
+#!/bin/bash
+# Cotor CLI wrapper script
+
+# Get the real path of this script (follow symlinks)
+SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+
+# Path to the JAR file
+JAR_PATH="$SCRIPT_DIR/build/libs/cotor-1.0.0.jar"
+
+# Check if JAR exists
+if [ ! -f "$JAR_PATH" ]; then
+    echo "Error: cotor-1.0.0.jar not found at $JAR_PATH"
+    echo "Please run: ./gradlew shadowJar"
+    exit 1
+fi
+
+# Check if Java is installed
+if ! command -v java &> /dev/null; then
+    echo "Error: Java is not installed or not in PATH"
+    echo "Please install JDK 17 or higher"
+    exit 1
+fi
+
+# Run the JAR with all arguments passed to this script
+java -jar "$JAR_PATH" "$@"

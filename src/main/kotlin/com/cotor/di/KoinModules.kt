@@ -61,7 +61,7 @@ val cotorModule = module {
     // Domain Layer
     single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get()) }
     single<ResultAggregator> { DefaultResultAggregator() }
-    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get()) }
+    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get()) }
 
     // Event System
     single<EventBus> { CoroutineEventBus() }

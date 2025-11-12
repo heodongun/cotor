@@ -1,0 +1,39 @@
+# cotor-pipeline
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 90000
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 90000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 90000
+
+pipelines:
+  - name: creative-collab
+    description: "3개 AI가 협업해서 창작 소설 쓰기"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-story
+        agent:
+          name: claude
+        input: "우주 탐험가가 외계 행성에서 신비한 유물을 발견하는 SF 단편 소설을 1000자 이내로 작성하고 test/results/claude-story.md 파일로 저장해주세요. 반드시 파일을 생성하세요."
+      
+      - id: codex-story
+        agent:
+          name: codex
+        input: "중세 기사가 용을 물리치는 판타지 단편 소설을 1000자 이내로 작성하고 test/results/codex-story.md 파일로 저장해주세요. 반드시 파일을 생성하세요."
+      
+      - id: gemini-story
+        agent:
+          name: gemini
+        input: "AI가 인간의 감정을 이해하게 되는 과정을 그린 SF 단편 소설을 1000자 이내로 작성하고 test/results/gemini-story.md 파일로 저장해주세요. 반드시 파일을 생성하세요."
+
+security:
+  useWhitelist: true
+  allowedExecutables: [claude, codex, gemini]
+  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin, /Users/heodongun/Desktop/cotor/test]
+#cotor creative-collab test/creative-collab.yaml
