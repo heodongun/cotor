@@ -559,6 +559,7 @@ security:
 
 ## 🧪 테스트
 
+### 단위 테스트
 ```bash
 # 테스트 실행
 ./gradlew test
@@ -569,6 +570,30 @@ security:
 # 빌드
 ./gradlew shadowJar
 ```
+
+### 파이프라인 테스트
+
+실제 예제(게시판 CRUD 기능)로 cotor 테스트:
+
+```bash
+./test-cotor-pipeline.sh
+```
+
+이 스크립트는:
+1. 게시판 구현 파이프라인이 있는 테스트 디렉토리 생성
+2. Claude와 Gemini로 파이프라인 실행
+3. 완전한 CRUD 구현 생성
+4. 테스트 및 문서 생성
+
+**예상 결과물:**
+- `requirements.md` - 요구사항 및 설계
+- `Board.kt` - Entity 클래스
+- `BoardRepository.kt` - Repository 인터페이스
+- `BoardService.kt` - Service 레이어
+- `BoardController.kt` - REST 컨트롤러
+- `code-review.md` - 코드 리뷰 피드백
+- `BoardServiceTest.kt` - 단위 테스트
+- `README.md` - 완전한 문서
 
 ## 📝 예제 출력
 
@@ -668,6 +693,8 @@ $ cotor web
 - [문서](docs/)
 - [예제](examples/)
 - [이슈](https://github.com/yourusername/cotor/issues)
+- [업그레이드 권장사항](docs/UPGRADE_RECOMMENDATIONS.md) - 향후 개선 사항
+- [Claude 설정 가이드](docs/CLAUDE_SETUP.md) - Claude Code 통합
 
 ## 💡 팁
 

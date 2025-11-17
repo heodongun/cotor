@@ -24,7 +24,7 @@ fun main(args: Array<String>) {
                     WebServer().start()
                     return
                 }
-                "init", "list", "status", "version" -> {
+                "init", "list", "status", "version", "run", "validate", "test" -> {
                     // Use full CLI for these commands
                 }
                 else -> {
@@ -39,7 +39,9 @@ fun main(args: Array<String>) {
         CotorCli()
             .subcommands(
                 InitCommand(),
-                RunCommand(),
+                EnhancedRunCommand(),
+                ValidateCommand(),
+                TestCommand(),
                 StatusCommand(),
                 ListCommand(),
                 VersionCommand()

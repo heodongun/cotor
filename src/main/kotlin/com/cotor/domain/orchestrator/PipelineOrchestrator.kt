@@ -80,20 +80,30 @@ class DefaultPipelineOrchestrator(
     private suspend fun executeSequential(pipeline: Pipeline): AggregatedResult {
         val results = mutableListOf<AgentResult>()
         var previousOutput: String? = null
+        val pipelineId = UUID.randomUUID().toString()
 
         for (stage in pipeline.stages) {
-            val agentConfig = agentRegistry.getAgent(stage.agent.name)
-                ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
-            
-            val input = previousOutput ?: stage.input
-            val result = agentExecutor.executeAgent(agentConfig, input)
-            results.add(result)
+            try {
+                eventBus.emit(StageStartedEvent(stage.id, pipelineId))
 
-            if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT) {
-                break
+                val agentConfig = agentRegistry.getAgent(stage.agent.name)
+                    ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
+
+                val input = previousOutput ?: stage.input
+                val result = agentExecutor.executeAgent(agentConfig, input)
+                results.add(result)
+
+                eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+
+                if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT) {
+                    break
+                }
+
+                previousOutput = result.output
+            } catch (e: Exception) {
+                eventBus.emit(StageFailedEvent(stage.id, pipelineId, e))
+                throw e
             }
-
-            previousOutput = result.output
         }
 
         return resultAggregator.aggregate(results)

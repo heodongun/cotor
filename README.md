@@ -5,14 +5,41 @@
 
 Cotor is a Kotlin-based AI CLI orchestration system that manages multiple AI tools through a unified interface. Built with coroutines for high-performance async execution.
 
-## ✨ Features
+## 🎉 What's New in v1.0
+
+### Enhanced CLI Experience
+- ✅ **Real-Time Progress Monitoring**: Live pipeline execution tracking with visual progress bars
+- ✅ **Pipeline Validation**: Validate configurations before running (`cotor validate`)
+- ✅ **Dry-Run Mode**: Estimate execution time without actually running (`--dry-run`)
+- ✅ **User-Friendly Errors**: Clear error messages with solutions and documentation links
+- ✅ **Verbose Mode**: Detailed logging for debugging (`--verbose`)
+- ✅ **Test Framework**: Built-in testing command for pipeline validation
+
+### New Commands
+```bash
+cotor validate <pipeline>  # Validate pipeline configuration
+cotor run <pipeline> --dry-run  # Simulate execution
+cotor run <pipeline> --verbose  # Run with detailed logging
+cotor test  # Run test suite
+```
+
+### Improved Developer Experience
+- 📊 **Live Progress Display**: See exactly what's happening in real-time
+- 🎯 **Duration Estimates**: Know how long pipelines will take before running
+- 🛡️ **Better Error Messages**: Actionable solutions for every error
+- 🧪 **Testing Tools**: Validate pipelines before production use
+
+👉 **[See the Upgrade Guide](docs/UPGRADE_GUIDE.md)** for full details!
+
+## ✨ Core Features
 
 - 🚀 **Coroutine-Based Async**: High-performance parallel execution
 - 🔌 **Plugin Architecture**: Easy integration of new AI tools
 - 🔄 **Flexible Orchestration**: Sequential, parallel, and DAG-based pipelines
 - 🔐 **Security First**: Whitelist-based command validation
-- 📊 **Monitoring**: Built-in logging and metrics
+- 📊 **Real-Time Monitoring**: Live progress tracking and metrics
 - 🎯 **Multiple Formats**: JSON, CSV, and text output
+- ✅ **Pipeline Validation**: Pre-flight checks before execution
 
 ## 📦 Installation
 
@@ -412,6 +439,8 @@ cotor run architecture-decision --config consensus.yaml --output-format text
 
 ## 🎯 CLI Commands
 
+### Basic Commands
+
 ```bash
 # Initialize configuration
 cotor init
@@ -419,17 +448,46 @@ cotor init
 # List registered agents
 cotor list [--config path/to/config.yaml]
 
-# Run a pipeline
-cotor run <pipeline-name> [options]
-  --config <path>           Configuration file (default: cotor.yaml)
-  --output-format <format>  Output format: json, csv, text (default: json)
-  --debug                   Enable debug mode
+# Show version
+cotor version
 
 # Check status
 cotor status
+```
 
-# Show version
-cotor version
+### Pipeline Commands
+
+```bash
+# Validate pipeline before running
+cotor validate <pipeline-name> [--config path/to/config.yaml]
+
+# Run pipeline with real-time monitoring
+cotor run <pipeline-name> [options]
+  --config <path>           Configuration file (default: cotor.yaml)
+  --output-format <format>  Output format: json, csv, text (default: json)
+  --verbose, -v             Enable verbose output with detailed logging
+  --dry-run                 Simulate execution and show estimates
+  --watch, -w               Enable real-time progress monitoring (default: true)
+  --debug, -d               Enable debug mode
+
+# Test cotor functionality
+cotor test [--test-dir path/to/test]
+```
+
+### Command Examples
+
+```bash
+# Validate before running
+./cotor validate board-implementation -c test/board-feature/board-pipeline.yaml
+
+# Dry-run to see estimates
+./cotor run board-implementation --dry-run -c test/board-feature/board-pipeline.yaml
+
+# Run with verbose logging
+./cotor run board-implementation --verbose -c test/board-feature/board-pipeline.yaml
+
+# Test the installation
+./cotor test
 ```
 
 ## 🔧 Creating Custom Plugins
@@ -522,6 +580,7 @@ security:
 
 ## 🧪 Testing
 
+### Unit Tests
 ```bash
 # Run tests
 ./gradlew test
@@ -532,6 +591,30 @@ security:
 # Build
 ./gradlew shadowJar
 ```
+
+### Pipeline Tests
+
+Test cotor with a real-world example (Board CRUD feature):
+
+```bash
+./test-cotor-pipeline.sh
+```
+
+This will:
+1. Create a test directory with a board implementation pipeline
+2. Run the pipeline with Claude and Gemini
+3. Generate complete CRUD implementation
+4. Create tests and documentation
+
+**Expected output:**
+- `requirements.md` - Requirements and design
+- `Board.kt` - Entity class
+- `BoardRepository.kt` - Repository interface
+- `BoardService.kt` - Service layer
+- `BoardController.kt` - REST controller
+- `code-review.md` - Code review feedback
+- `BoardServiceTest.kt` - Unit tests
+- `README.md` - Complete documentation
 
 ## 📝 Example Output
 
@@ -586,6 +669,8 @@ Agent Results:
 - [Documentation](docs/)
 - [Examples](examples/)
 - [Issues](https://github.com/yourusername/cotor/issues)
+- [Upgrade Recommendations](docs/UPGRADE_RECOMMENDATIONS.md) - Future improvements
+- [Claude Setup Guide](docs/CLAUDE_SETUP.md) - Claude Code integration
 
 ## 💡 Tips
 
