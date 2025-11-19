@@ -1,0 +1,57 @@
+version: "1.0"
+
+# 병렬 실행 비교 테스트
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 90000
+
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 90000
+
+pipelines:
+  - name: parallel-comparison
+    description: "2개 AI로 같은 문제 병렬 해결 및 비교"
+    executionMode: PARALLEL
+    stages:
+      - id: claude-solution
+        agent:
+          name: claude
+        input: |
+          버블 정렬 알고리즘을 Python으로 구현해주세요.
+
+          요구사항:
+          - 함수명: bubble_sort
+          - 입력: 정수 리스트
+          - 출력: 정렬된 리스트
+          - 주석으로 설명 추가
+
+          파일로 저장: test-claude/experiments/02-parallel/claude_bubble_sort.py
+
+      - id: gemini-solution
+        agent:
+          name: gemini
+        input: |
+          버블 정렬 알고리즘을 Python으로 구현해주세요.
+
+          요구사항:
+          - 함수명: bubble_sort
+          - 입력: 정수 리스트
+          - 출력: 정렬된 리스트
+          - 주석으로 설명 추가
+
+          파일로 저장: test-claude/experiments/02-parallel/gemini_bubble_sort.py
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude
+    - gemini
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+  file: parallel-test.log

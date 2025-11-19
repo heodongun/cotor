@@ -3,6 +3,10 @@ package com.cotor.presentation.web
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
+import com.cotor.event.EventBus
+import com.cotor.monitoring.TimelineCollector
+import com.cotor.presentation.timeline.StageTimelineEntry
+import com.cotor.presentation.timeline.StageTimelineState
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -23,10 +27,23 @@ import kotlin.io.path.Path
 /**
  * Web UI Server for Cotor
  */
+@Serializable
+data class PipelineSummary(
+    val name: String,
+    val description: String,
+    val configFile: String,
+    val stageCount: Int,
+    val executionMode: String,
+    val agents: List<String>,
+    val lastModified: Long
+)
+
 class WebServer : KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val orchestrator: PipelineOrchestrator by inject()
+    private val eventBus: EventBus by inject()
+    private val timelineCollector by lazy { TimelineCollector(eventBus) }
 
     fun start(port: Int = 8080) {
         embeddedServer(Netty, port = port) {
@@ -38,264 +55,493 @@ class WebServer : KoinComponent {
             }
 
             routing {
-                // Home page
+                                // Home page
                 get("/") {
                     call.respondHtml {
                         head {
-                            title { +"Cotor - AI Master-Agent" }
+                            title { +"Cotor · Pipeline Dashboard" }
+                            meta {
+                                name = "viewport"
+                                content = "width=device-width, initial-scale=1.0"
+                            }
+                            link(rel = "preconnect", href = "https://fonts.googleapis.com")
+                            link(rel = "preconnect", href = "https://fonts.gstatic.com")
+                            link(rel = "stylesheet", href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap")
                             style {
                                 unsafe {
                                     raw("""
-                                        * { margin: 0; padding: 0; box-sizing: border-box; }
-                                        body { 
-                                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                        :root {
+                                            --bg: #0f172a;
+                                            --bg-muted: #1e293b;
+                                            --panel: #ffffff;
+                                            --primary: #5f6af8;
+                                            --primary-dark: #4b55d1;
+                                            --border: #e2e8f0;
+                                            --text: #0f172a;
+                                            --muted: #64748b;
+                                            --success: #10b981;
+                                            --error: #ef4444;
+                                            --warm: #f97316;
+                                        }
+                                        * { box-sizing: border-box; }
+                                        body {
+                                            margin: 0;
+                                            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                                            background: radial-gradient(circle at top, rgba(95,106,248,0.25), transparent 60%), #0b1120;
                                             min-height: 100vh;
-                                            padding: 20px;
+                                            color: var(--text);
+                                            padding: 32px 16px 48px;
                                         }
-                                        .container { 
-                                            max-width: 1200px; 
-                                            margin: 0 auto; 
-                                            background: white;
-                                            border-radius: 20px;
-                                            padding: 40px;
-                                            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                                        .page {
+                                            max-width: 1320px;
+                                            margin: 0 auto;
                                         }
-                                        h1 { 
-                                            color: #667eea; 
-                                            margin-bottom: 10px;
-                                            font-size: 3em;
-                                        }
-                                        .subtitle {
-                                            color: #666;
-                                            margin-bottom: 40px;
-                                            font-size: 1.2em;
-                                        }
-                                        .create-section {
-                                            background: #f8f9fa;
-                                            padding: 30px;
-                                            border-radius: 15px;
-                                            margin-bottom: 40px;
-                                        }
-                                        .create-section h2 {
-                                            color: #667eea;
-                                            margin-bottom: 20px;
-                                        }
-                                        .create-section form {
-                                            display: flex;
-                                            flex-direction: column;
-                                            gap: 15px;
-                                        }
-                                        .create-section input[type="text"],
-                                        .create-section textarea {
-                                            padding: 12px;
-                                            border: 2px solid #ddd;
-                                            border-radius: 8px;
-                                            font-size: 1em;
-                                            font-family: inherit;
-                                        }
-                                        .create-section textarea {
-                                            resize: vertical;
-                                        }
-                                        .agent-select {
-                                            display: flex;
-                                            flex-direction: column;
-                                            gap: 10px;
-                                        }
-                                        .agent-select > div {
+                                        .hero {
+                                            background: linear-gradient(135deg, #1f1f3d, #131624);
+                                            border-radius: 24px;
+                                            padding: 32px 36px;
+                                            color: white;
                                             display: flex;
                                             flex-wrap: wrap;
-                                            gap: 15px;
-                                        }
-                                        .checkbox-label {
-                                            display: flex;
+                                            gap: 24px;
                                             align-items: center;
-                                            gap: 5px;
-                                            cursor: pointer;
+                                            box-shadow: 0 30px 80px rgba(14,21,37,0.5);
                                         }
-                                        .checkbox-label input {
-                                            cursor: pointer;
+                                        .hero h1 {
+                                            font-size: clamp(2rem, 4vw, 2.75rem);
+                                            margin: 0;
                                         }
-                                        .agent-tasks {
+                                        .hero p {
+                                            margin: 8px 0 0;
+                                            color: rgba(255,255,255,0.8);
+                                            max-width: 560px;
+                                        }
+                                        .hero-actions {
+                                            margin-left: auto;
+                                            display: flex;
+                                            gap: 12px;
+                                            flex-wrap: wrap;
+                                        }
+                                        .hero-btn {
+                                            border: none;
+                                            border-radius: 999px;
+                                            padding: 12px 22px;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            transition: transform 0.15s ease, box-shadow 0.15s ease;
+                                        }
+                                        .hero-btn.primary {
+                                            background: white;
+                                            color: var(--primary);
+                                        }
+                                        .hero-btn.secondary {
+                                            background: rgba(255,255,255,0.1);
+                                            color: white;
+                                        }
+                                        .hero-btn:hover {
+                                            transform: translateY(-1px);
+                                            box-shadow: 0 8px 20px rgba(15,23,42,0.25);
+                                        }
+                                        .layout {
+                                            display: grid;
+                                            grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
+                                            gap: 24px;
+                                            margin-top: 28px;
+                                        }
+                                        .panel {
+                                            background: var(--panel);
+                                            border-radius: 22px;
+                                            padding: 24px;
+                                            box-shadow: 0 20px 60px rgba(15,23,42,0.08);
+                                        }
+                                        .panel h3 {
+                                            margin: 0 0 18px;
+                                            font-size: 1.1rem;
+                                            color: var(--text);
+                                        }
+                                        .builder-panel form {
                                             display: flex;
                                             flex-direction: column;
-                                            gap: 15px;
+                                            gap: 16px;
+                                        }
+                                        .field-group label {
+                                            display: flex;
+                                            justify-content: space-between;
+                                            font-weight: 600;
+                                            font-size: 0.92rem;
+                                            margin-bottom: 6px;
+                                            color: var(--text);
+                                        }
+                                        .field-group input,
+                                        .field-group textarea,
+                                        .field-group select {
+                                            width: 100%;
+                                            border-radius: 14px;
+                                            border: 1px solid var(--border);
+                                            padding: 12px 14px;
+                                            font-size: 0.95rem;
+                                            font-family: inherit;
+                                            transition: border 0.15s ease, box-shadow 0.15s ease;
+                                        }
+                                        .field-group input:focus,
+                                        .field-group textarea:focus,
+                                        .field-group select:focus {
+                                            outline: none;
+                                            border-color: var(--primary);
+                                            box-shadow: 0 0 0 3px rgba(95,106,248,0.15);
+                                        }
+                                        .task-stack {
+                                            display: flex;
+                                            flex-direction: column;
+                                            gap: 14px;
                                         }
                                         .agent-task-item {
                                             display: flex;
-                                            gap: 10px;
-                                            align-items: flex-start;
-                                        }
-                                        .agent-select-dropdown {
-                                            padding: 12px;
-                                            border: 2px solid #ddd;
-                                            border-radius: 8px;
-                                            font-size: 1em;
-                                            min-width: 150px;
+                                            gap: 12px;
+                                            background: #f8fafc;
+                                            border-radius: 14px;
+                                            padding: 14px;
+                                            align-items: stretch;
                                         }
                                         .agent-task-item textarea {
-                                            flex: 1;
+                                            resize: vertical;
+                                            min-height: 60px;
                                         }
-                                        .add-btn {
-                                            background: #28a745;
-                                            color: white;
+                                        .task-actions {
+                                            display: flex;
+                                            gap: 12px;
+                                        }
+                                        .ghost-btn,
+                                        .solid-btn {
+                                            border-radius: 14px;
                                             border: none;
-                                            padding: 12px 24px;
-                                            border-radius: 8px;
+                                            padding: 12px 16px;
+                                            font-size: 0.95rem;
+                                            font-weight: 600;
                                             cursor: pointer;
-                                            font-size: 1em;
                                         }
-                                        .add-btn:hover {
-                                            background: #218838;
+                                        .ghost-btn {
+                                            background: rgba(95,106,248,0.08);
+                                            color: var(--primary);
                                         }
+                                        .ghost-btn:hover { background: rgba(95,106,248,0.12); }
+                                        .solid-btn {
+                                            background: var(--primary);
+                                            color: white;
+                                        }
+                                        .solid-btn:hover { background: var(--primary-dark); }
+                                        .stats-grid {
+                                            display: grid;
+                                            gap: 16px;
+                                            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                                        }
+                                        .stat-card {
+                                            background: #f8fafc;
+                                            border-radius: 16px;
+                                            padding: 16px;
+                                        }
+                                        .stat-label {
+                                            color: var(--muted);
+                                            font-size: 0.85rem;
+                                            margin-bottom: 4px;
+                                        }
+                                        .stat-value {
+                                            font-size: 1.8rem;
+                                            font-weight: 700;
+                                        }
+                                        .search-bar {
+                                            display: flex;
+                                            align-items: center;
+                                            gap: 12px;
+                                            padding: 12px 16px;
+                                            border-radius: 16px;
+                                            border: 1px solid var(--border);
+                                        }
+                                        .search-bar input {
+                                            flex: 1;
+                                            border: none;
+                                            font-size: 1rem;
+                                            font-family: inherit;
+                                        }
+                                        .search-bar input:focus { outline: none; }
                                         .pipeline-grid {
                                             display: grid;
-                                            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                                            gap: 20px;
-                                            margin-top: 30px;
+                                            gap: 18px;
+                                            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
                                         }
                                         .pipeline-card {
-                                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                            padding: 30px;
-                                            border-radius: 15px;
-                                            color: white;
-                                            cursor: pointer;
-                                            transition: transform 0.2s, box-shadow 0.2s;
+                                            border: 1px solid var(--border);
+                                            border-radius: 18px;
+                                            padding: 18px;
+                                            display: flex;
+                                            flex-direction: column;
+                                            gap: 12px;
+                                            transition: box-shadow 0.2s ease, border-color 0.2s ease;
                                         }
                                         .pipeline-card:hover {
-                                            transform: translateY(-5px);
-                                            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                                            border-color: rgba(95,106,248,0.4);
+                                            box-shadow: 0 12px 30px rgba(15,23,42,0.12);
                                         }
-                                        .pipeline-name {
-                                            font-size: 1.5em;
-                                            font-weight: bold;
-                                            margin-bottom: 10px;
+                                        .pipeline-meta {
+                                            display: flex;
+                                            gap: 8px;
+                                            flex-wrap: wrap;
                                         }
-                                        .pipeline-desc {
-                                            opacity: 0.9;
-                                            font-size: 0.9em;
+                                        .badge {
+                                            background: rgba(99,102,241,0.1);
+                                            color: var(--primary-dark);
+                                            padding: 4px 10px;
+                                            border-radius: 999px;
+                                            font-size: 0.8rem;
+                                            font-weight: 600;
                                         }
-                                        .run-btn {
-                                            background: white;
-                                            color: #667eea;
-                                            border: none;
-                                            padding: 15px 30px;
-                                            border-radius: 10px;
-                                            font-size: 1em;
-                                            font-weight: bold;
-                                            cursor: pointer;
-                                            margin-top: 20px;
-                                            transition: all 0.2s;
-                                        }
-                                        .run-btn:hover {
-                                            transform: scale(1.05);
-                                            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-                                        }
-                                        #results {
-                                            margin-top: 40px;
-                                            padding: 30px;
-                                            background: #f8f9fa;
-                                            border-radius: 15px;
+                                        .badge.neutral { background: rgba(100,116,139,0.15); color: var(--muted); }
+                                        .badge.small { font-size: 0.72rem; padding: 3px 8px; }
+                                        .results-panel {
                                             display: none;
+                                            flex-direction: column;
+                                            gap: 16px;
                                         }
-                                        .agent-result {
-                                            background: white;
-                                            padding: 20px;
+                                        .results-panel.visible { display: flex; }
+                                        .status-pill {
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 6px;
+                                            padding: 6px 12px;
+                                            border-radius: 999px;
+                                            font-weight: 600;
+                                            font-size: 0.85rem;
+                                        }
+                                        .status-pill.running { background: rgba(249,115,22,0.12); color: var(--warm); }
+                                        .status-pill.success { background: rgba(16,185,129,0.15); color: var(--success); }
+                                        .status-pill.error { background: rgba(239,68,68,0.15); color: var(--error); }
+                                        .timeline {
+                                            display: flex;
+                                            flex-direction: column;
+                                            gap: 12px;
+                                        }
+                                        .timeline-entry {
+                                            border: 1px solid var(--border);
+                                            border-radius: 14px;
+                                            padding: 14px;
+                                            display: flex;
+                                            gap: 12px;
+                                        }
+                                        .timeline-entry.success { border-color: rgba(16,185,129,0.3); }
+                                        .timeline-entry.fail { border-color: rgba(239,68,68,0.3); }
+                                        .timeline-entry pre {
+                                            margin: 0;
+                                            background: #f8fafc;
+                                            padding: 10px;
                                             border-radius: 10px;
-                                            margin-bottom: 20px;
-                                            border-left: 4px solid #667eea;
-                                        }
-                                        .agent-name {
-                                            font-weight: bold;
-                                            color: #667eea;
-                                            margin-bottom: 10px;
-                                        }
-                                        pre {
-                                            background: #f8f9fa;
-                                            padding: 15px;
-                                            border-radius: 5px;
                                             overflow-x: auto;
+                                            max-height: 220px;
                                         }
-                                    """)
+                                        .loader {
+                                            width: 28px;
+                                            height: 28px;
+                                            border-radius: 50%;
+                                            border: 3px solid rgba(15,23,42,0.1);
+                                            border-top-color: var(--primary);
+                                            animation: spin 1s linear infinite;
+                                        }
+                                        .empty-state {
+                                            border: 1px dashed var(--border);
+                                            border-radius: 16px;
+                                            padding: 32px;
+                                            text-align: center;
+                                            color: var(--muted);
+                                        }
+                                        @keyframes spin { to { transform: rotate(360deg); } }
+                                        @media (max-width: 1080px) {
+                                            .layout { grid-template-columns: 1fr; }
+                                        }
+                                    """.trimIndent())
                                 }
                             }
                         }
                         body {
-                            div(classes = "container") {
-                                h1 { +"🤖 Cotor" }
-                                div(classes = "subtitle") {
-                                    +"AI CLI Master-Agent System"
-                                }
-                                
-                                div(classes = "create-section") {
-                                    h2 { +"➕ Create New Pipeline" }
-                                    form {
-                                        id = "createForm"
-                                        input {
-                                            type = InputType.text
-                                            name = "name"
-                                            placeholder = "Pipeline name (e.g., my-task)"
-                                            required = true
+                            div("page") {
+                                div("hero") {
+                                    div {
+                                        h1 { +"Cotor Pipeline Studio" }
+                                        p { +"설정 파일을 뒤지지 않고도 파이프라인을 만들고 실행 상황을 한눈에 확인하세요." }
+                                    }
+                                    div("hero-actions") {
+                                        button(classes = "hero-btn primary") {
+                                            attributes["onclick"] = "document.getElementById('nameInput').focus()"
+                                            +"+ 새 파이프라인"
                                         }
-                                        input {
-                                            type = InputType.text
-                                            name = "description"
-                                            placeholder = "Description"
-                                        }
-                                        div(classes = "agent-tasks") {
-                                            id = "agentTasks"
-                                            h3 { +"AI Tasks:" }
-                                            div(classes = "agent-task-item") {
-                                                select {
-                                                    name = "agent_0"
-                                                    classes = setOf("agent-select-dropdown")
-                                                    listOf("claude", "codex", "gemini", "copilot", "cursor", "opencode").forEach { agent ->
-                                                        option {
-                                                            value = agent
-                                                            +agent.replaceFirstChar { it.uppercase() }
-                                                        }
-                                                    }
-                                                }
-                                                textArea {
-                                                    name = "prompt_0"
-                                                    placeholder = "What should this AI do?"
-                                                    rows = "2"
-                                                    required = true
-                                                }
-                                            }
-                                        }
-                                        button(classes = "add-btn") {
-                                            type = ButtonType.button
-                                            attributes["onclick"] = "addAgentTask()"
-                                            +"+ Add Another AI"
-                                        }
-                                        button(classes = "run-btn") {
-                                            type = ButtonType.submit
-                                            +"Create & Run"
+                                        button(classes = "hero-btn secondary") {
+                                            attributes["onclick"] = "loadPipelines(true)"
+                                            +"↻ 목록 새로고침"
                                         }
                                     }
                                 }
-                                
-                                div {
-                                    id = "pipelines"
-                                    +"Loading pipelines..."
-                                }
-                                
-                                div {
-                                    id = "results"
+
+                                div("layout") {
+                                    div("panel builder-panel") {
+                                        h3 { +"파이프라인 빌더" }
+                                        form {
+                                            id = "createForm"
+                                            div("field-group") {
+                                                label {
+                                                    +"이름"
+                                                    span { +"· 필수" }
+                                                }
+                                                input {
+                                                    id = "nameInput"
+                                                    type = InputType.text
+                                                    name = "name"
+                                                    placeholder = "ex) codex-board-review"
+                                                    required = true
+                                                }
+                                            }
+                                            div("field-group") {
+                                                label { +"설명" }
+                                                input {
+                                                    type = InputType.text
+                                                    name = "description"
+                                                    placeholder = "파이프라인 목적을 간단히 적어주세요"
+                                                }
+                                            }
+                                            div {
+                                                classes = setOf("field-group")
+                                                label { +"AI 작업" }
+                                            div(classes = "task-stack") {
+                                                id = "agentTasks"
+                                                div("agent-task-item") {
+                                                    select {
+                                                        name = "agent_0"
+                                                            classes = setOf("agent-select-dropdown")
+                                                            listOf("claude", "codex", "gemini", "copilot", "cursor", "opencode").forEach { agent ->
+                                                                option {
+                                                                    value = agent
+                                                                    +agent.replaceFirstChar { it.uppercase() }
+                                                                }
+                                                            }
+                                                        }
+                                                        textArea {
+                                                            name = "prompt_0"
+                                                            placeholder = "이 AI가 수행할 작업을 입력하세요"
+                                                            rows = "2"
+                                                            required = true
+                                                        }
+                                                    }
+                                                }
+                                                div("task-actions") {
+                                                    button(classes = "ghost-btn") {
+                                                        type = ButtonType.button
+                                                        attributes["onclick"] = "addAgentTask()"
+                                                        +"＋ 작업 추가"
+                                                    }
+                                                    button(classes = "solid-btn") {
+                                                        type = ButtonType.submit
+                                                        +"생성 후 실행"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    div {
+                                        div(classes = "panel") {
+                                            h3 { +"대시보드" }
+                                            div(classes = "stats-grid") {
+                                                div("stat-card") {
+                                                    div("stat-label") { +"파이프라인" }
+                                                    div("stat-value") {
+                                                        id = "statPipelines"
+                                                        +"0"
+                                                    }
+                                                }
+                                                div("stat-card") {
+                                                    div("stat-label") { +"에이전트" }
+                                                    div("stat-value") {
+                                                        id = "statAgents"
+                                                        +"0"
+                                                    }
+                                                }
+                                                div("stat-card") {
+                                                    div("stat-label") { +"구성 파일" }
+                                                    div("stat-value") {
+                                                        id = "statConfigs"
+                                                        +"0"
+                                                    }
+                                                }
+                                                div("stat-card") {
+                                                    div("stat-label") { +"최근 실행" }
+                                                    div("stat-value") {
+                                                        id = "statLastRun"
+                                                        +"–"
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        div(classes = "panel") {
+                                            h3 { +"파이프라인 탐색" }
+                                            div(classes = "search-bar") {
+                                                span { +"🔍" }
+                                                input {
+                                                    id = "pipelineSearch"
+                                                    placeholder = "이름·설명·파일 경로로 검색"
+                                                }
+                                            }
+                                            div(classes = "pipeline-grid") {
+                                                id = "pipelineCards"
+                                                div("empty-state") {
+                                                    +"파이프라인 정보를 불러오는 중입니다..."
+                                                }
+                                            }
+                                        }
+
+                                        div(classes = "panel results-panel") {
+                                            id = "resultsPanel"
+                                            h3 {
+                                                id = "resultsHeader"
+                                                +"파이프라인 결과"
+                                            }
+                                            div {
+                                                id = "resultsSummary"
+                                                div("empty-state") {
+                                                    +"실행할 파이프라인을 선택하면 상태가 표시됩니다."
+                                                }
+                                            }
+                                            div(classes = "timeline") {
+                                                id = "resultsTimeline"
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            
+
                             script {
                                 unsafe {
                                     raw("""
                                         let taskCount = 1;
-                                        
+                                        const state = {
+                                            pipelines: [],
+                                            filtered: []
+                                        };
+                                        const stats = {
+                                            pipelines: document.getElementById('statPipelines'),
+                                            agents: document.getElementById('statAgents'),
+                                            configs: document.getElementById('statConfigs'),
+                                            lastRun: document.getElementById('statLastRun')
+                                        };
+                                        const pipelineCards = document.getElementById('pipelineCards');
+                                        const searchInput = document.getElementById('pipelineSearch');
+                                        const resultsPanel = document.getElementById('resultsPanel');
+                                        const resultsHeader = document.getElementById('resultsHeader');
+                                        const resultsSummary = document.getElementById('resultsSummary');
+                                        const resultsTimeline = document.getElementById('resultsTimeline');
+
                                         function addAgentTask() {
                                             const container = document.getElementById('agentTasks');
-                                            const newTask = document.createElement('div');
-                                            newTask.className = 'agent-task-item';
-                                            newTask.innerHTML = `
+                                            const item = document.createElement('div');
+                                            item.className = 'agent-task-item';
+                                            item.innerHTML = `
                                                 <select name="agent_${'$'}{taskCount}" class="agent-select-dropdown">
                                                     <option value="claude">Claude</option>
                                                     <option value="codex">Codex</option>
@@ -304,142 +550,242 @@ class WebServer : KoinComponent {
                                                     <option value="cursor">Cursor</option>
                                                     <option value="opencode">OpenCode</option>
                                                 </select>
-                                                <textarea name="prompt_${'$'}{taskCount}" placeholder="What should this AI do?" rows="2" required></textarea>
+                                                <textarea name="prompt_${'$'}{taskCount}" placeholder="이 AI가 수행할 작업" rows="2" required></textarea>
                                             `;
-                                            container.appendChild(newTask);
+                                            container.appendChild(item);
                                             taskCount++;
                                         }
-                                        
-                                        // Handle form submission
-                                        document.getElementById('createForm').addEventListener('submit', async (e) => {
-                                            e.preventDefault();
-                                            const formData = new FormData(e.target);
-                                            
-                                            // Collect agent tasks
+
+                                        document.getElementById('createForm').addEventListener('submit', async (event) => {
+                                            event.preventDefault();
+                                            const formData = new FormData(event.target);
                                             const tasks = [];
                                             for (let i = 0; i < taskCount; i++) {
                                                 const agent = formData.get('agent_' + i);
                                                 const prompt = formData.get('prompt_' + i);
-                                                if (agent && prompt) {
-                                                    tasks.push({ agent, prompt });
-                                                }
+                                                if (agent && prompt) tasks.push({ agent, prompt });
                                             }
-                                            
-                                            const data = {
-                                                name: formData.get('name'),
-                                                description: formData.get('description'),
-                                                tasks: tasks
-                                            };
-                                            
-                                            const res = await fetch('/api/pipelines/create', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify(data)
-                                            });
-                                            
-                                            const result = await res.json();
-                                            if (result.success) {
-                                                alert('Pipeline created: ' + result.file);
-                                                loadPipelines();
-                                                e.target.reset();
-                                                taskCount = 1;
-                                                // Auto-run the new pipeline
-                                                runPipeline(formData.get('name'));
-                                            } else {
-                                                alert('Error: ' + result.error);
-                                            }
-                                        });
-                                        
-                                        async function loadPipelines() {
-                                            const res = await fetch('/api/pipelines');
-                                            const pipelines = await res.json();
-                                            
-                                            if (pipelines.length === 0) {
-                                                document.getElementById('pipelines').innerHTML = '<p>No pipelines found. Create one above!</p>';
+                                            if (!tasks.length) {
+                                                alert('최소 1개의 작업이 필요합니다.');
                                                 return;
                                             }
-                                            
-                                            const html = '<h2>📋 Available Pipelines</h2><div class="pipeline-grid">' + 
-                                                pipelines.map(p => `
-                                                    <div class="pipeline-card">
-                                                        <div class="pipeline-name">${'$'}{p.name}</div>
-                                                        <div class="pipeline-desc">${'$'}{p.description}</div>
-                                                        <small style="opacity: 0.7">${'$'}{p.configFile}</small>
-                                                        <button class="run-btn" onclick="runPipeline('${'$'}{p.name}')">
-                                                            ▶ Run Pipeline
-                                                        </button>
-                                                    </div>
-                                                `).join('') +
-                                                '</div>';
-                                            
-                                            document.getElementById('pipelines').innerHTML = html;
-                                        }
-                                        
-                                        async function runPipeline(name) {
-                                            const results = document.getElementById('results');
-                                            results.style.display = 'block';
-                                            results.innerHTML = '<h2>🚀 Running: ' + name + '</h2><p>Please wait...</p>';
-                                            
-                                            const res = await fetch('/api/run/' + name, { method: 'POST' });
-                                            const data = await res.json();
-                                            
-                                            let html = '<h2>✅ Completed in ' + data.totalDuration + 'ms</h2>';
-                                            html += '<p>Success: ' + data.successCount + '/' + data.totalAgents + '</p>';
-                                            
-                                            data.results.forEach(r => {
-                                                html += `
-                                                    <div class="agent-result">
-                                                        <div class="agent-name">${'$'}{r.agentName} (${'$'}{r.duration}ms)</div>
-                                                        <pre>${'$'}{r.output || r.error}</pre>
-                                                    </div>
-                                                `;
+                                            const payload = {
+                                                name: formData.get('name'),
+                                                description: formData.get('description'),
+                                                tasks
+                                            };
+                                            try {
+                                                const res = await fetch('/api/pipelines/create', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify(payload)
+                                                });
+                                                const data = await res.json();
+                                                if (!res.ok || !data.success) throw new Error(data.error || '생성 실패');
+                                                event.target.reset();
+                                                taskCount = 1;
+                                                document.getElementById('agentTasks').innerHTML = '';
+                                                addAgentTask();
+                                                alert('파이프라인 생성 완료: ' + data.file);
+                                                await loadPipelines(true);
+                                                runPipeline(payload.name);
+                                            } catch (err) {
+                                                alert('에러: ' + err.message);
+                                            }
+                                        });
+
+                                        if (searchInput) {
+                                            searchInput.addEventListener('input', (e) => {
+                                                filterPipelines(e.target.value);
                                             });
-                                            
-                                            results.innerHTML = html;
                                         }
-                                        
+
+                                        function filterPipelines(keyword) {
+                                            const term = keyword.trim().toLowerCase();
+                                            state.filtered = state.pipelines.filter(p => {
+                                                if (!term) return true;
+                                                return (
+                                                    p.name.toLowerCase().includes(term) ||
+                                                    (p.description && p.description.toLowerCase().includes(term)) ||
+                                                    (p.configFile && p.configFile.toLowerCase().includes(term))
+                                                );
+                                            });
+                                            renderPipelines();
+                                        }
+
+                                        async function loadPipelines(force = false) {
+                                            if (force) {
+                                                pipelineCards.innerHTML = '<div class="empty-state">파이프라인을 새로 불러오는 중입니다...</div>';
+                                            }
+                                            try {
+                                                const res = await fetch('/api/pipelines');
+                                                const data = await res.json();
+                                                state.pipelines = data;
+                                                state.filtered = data;
+                                                updateStats();
+                                                renderPipelines();
+                                            } catch (err) {
+                                                pipelineCards.innerHTML = '<div class="empty-state">목록을 불러오지 못했습니다.</div>';
+                                            }
+                                        }
+
+                                        function updateStats() {
+                                            stats.pipelines.textContent = state.pipelines.length;
+                                            const agents = new Set();
+                                            const configs = new Set();
+                                            state.pipelines.forEach(p => {
+                                                (p.agents || []).forEach(a => agents.add(a));
+                                                configs.add(p.configFile);
+                                            });
+                                            stats.agents.textContent = agents.size;
+                                            stats.configs.textContent = configs.size;
+                                        }
+
+                                        function renderPipelines() {
+                                            if (!state.filtered.length) {
+                                                pipelineCards.innerHTML = '<div class="empty-state">조건에 맞는 파이프라인이 없습니다.</div>';
+                                                return;
+                                            }
+                                            pipelineCards.innerHTML = state.filtered.map(p => `
+                                                <div class="pipeline-card">
+                                                    <div>
+                                                        <div style="font-weight:700;font-size:1.1rem;">${'$'}{p.name}</div>
+                                                        <div style="color:var(--muted);font-size:0.9rem;">${'$'}{p.description || '설명 없음'}</div>
+                                                    </div>
+                                                    <div class="pipeline-meta">
+                                                        <span class="badge">${'$'}{p.executionMode}</span>
+                                                        <span class="badge neutral">${'$'}{p.stageCount} stages</span>
+                                                        <span class="badge neutral small">${'$'}{p.configFile}</span>
+                                                    </div>
+                                                    <div style="font-size:0.85rem;color:var(--muted);">
+                                                        Agents · ${'$'}{(p.agents || []).join(', ')}
+                                                    </div>
+                                                    <div style="display:flex;gap:10px;">
+                                                        <button class="ghost-btn" onclick="runPipeline('${'$'}{p.name}')">실행</button>
+                                                    </div>
+                                                </div>
+                                            `).join('');
+                                        }
+
+                                        function setResultsState(stateText, options = {}) {
+                                            resultsPanel.classList.add('visible');
+                                            resultsHeader.textContent = stateText;
+                                            if (options.type === 'loading') {
+                                                resultsSummary.innerHTML = `
+                                                    <div class="status-pill running">실행 중</div>
+                                                    <div class="loader"></div>
+                                                `;
+                                                resultsTimeline.innerHTML = '';
+                                            } else if (options.type === 'error') {
+                                                resultsSummary.innerHTML = `
+                                                    <div class="status-pill error">실패</div>
+                                                    <p style="color:var(--error);margin:8px 0 0;">${'$'}{options.message}</p>
+                                                `;
+                                                resultsTimeline.innerHTML = '';
+                                            }
+                                        }
+
+                                        async function runPipeline(name) {
+                                            setResultsState('실행 중 · ' + name, { type: 'loading' });
+                                            try {
+                                                const res = await fetch('/api/run/' + encodeURIComponent(name), { method: 'POST' });
+                                                const data = await res.json();
+                                                if (!res.ok || data.error) throw new Error(data.error || '실행 실패');
+                                                renderResults(name, data);
+                                                stats.lastRun.textContent = new Date().toLocaleTimeString();
+                                            } catch (err) {
+                                                setResultsState('실패 · ' + name, { type: 'error', message: err.message });
+                                            }
+                                        }
+
+                                        function renderResults(name, data) {
+                                            resultsPanel.classList.add('visible');
+                                            resultsHeader.textContent = '실행 결과 · ' + name;
+                                            const success = data.successCount || 0;
+                                            const total = data.totalAgents || 0;
+                                            resultsSummary.innerHTML = `
+                                                <div class="status-pill success">완료</div>
+                                                <div>총 ${'$'}{total}단계 중 ${'$'}{success}단계 성공 · ${'$'}{data.totalDuration}ms</div>
+                                            `;
+                                            const timelineEntries = (data.timeline && data.timeline.length) ? data.timeline : null;
+                                            if (timelineEntries) {
+                                                resultsTimeline.innerHTML = timelineEntries.map(entry => {
+                                                    const css = entry.state === 'FAILED' ? 'fail' : (entry.state === 'COMPLETED' ? 'success' : '');
+                                                    return `
+                                                        <div class="timeline-entry ${'$'}{css}">
+                                                            <div>
+                                                                <strong>${'$'}{entry.stageId}</strong>
+                                                                <div style="color:var(--muted);font-size:0.85rem;">${'$'}{entry.durationMs || '-'}ms</div>
+                                                            </div>
+                                                            <pre>${'$'}{entry.outputPreview || entry.message}</pre>
+                                                        </div>
+                                                    `;
+                                                }).join('');
+                                            } else {
+                                                resultsTimeline.innerHTML = (data.results || []).map(r => {
+                                                    const ok = r.isSuccess !== false && !r.error;
+                                                    const content = r.output || r.error || '결과가 비어있습니다.';
+                                                    return `
+                                                        <div class="timeline-entry ${'$'}{ok ? 'success' : 'fail'}">
+                                                            <div>
+                                                                <strong>${'$'}{r.agentName}</strong>
+                                                                <div style="color:var(--muted);font-size:0.85rem;">${'$'}{r.duration}ms</div>
+                                                            </div>
+                                                            <pre>${'$'}{content}</pre>
+                                                        </div>
+                                                    `;
+                                                }).join('');
+                                            }
+                                        }
+
+                                        window.runPipeline = runPipeline;
+                                        window.addAgentTask = addAgentTask;
                                         loadPipelines();
-                                    """)
+                                    """.trimIndent())
                                 }
                             }
                         }
                     }
                 }
 
-                // API endpoints
+// API endpoints
                 get("/api/pipelines") {
                     try {
-                        val allPipelines = mutableListOf<Map<String, String>>()
-                        
-                        // Find all cotor pipeline YAML files
-                        // Look for files with "# cotor-pipeline" marker or in test/ directory
+                        val summaries = mutableListOf<PipelineSummary>()
+
                         val yamlFiles = java.io.File(".").walkTopDown()
                             .filter { it.extension in listOf("yaml", "yml") }
                             .filter { !it.path.contains("node_modules") && !it.path.contains(".git") }
                             .filter { file ->
-                                // Check if file contains cotor-pipeline marker or is in test/
-                                file.path.contains("test/") || 
-                                file.readText().contains("# cotor-pipeline") ||
-                                file.readText().contains("version: \"1.0\"")
+                                file.path.contains("test/") ||
+                                    file.readText().contains("# cotor-pipeline") ||
+                                    file.readText().contains("version: \"1.0\"")
                             }
                             .toList()
-                        
+
                         for (yamlFile in yamlFiles) {
                             try {
                                 val config = configRepository.loadConfig(yamlFile.toPath())
                                 config.pipelines.forEach { pipeline ->
-                                    allPipelines.add(mapOf(
-                                        "name" to pipeline.name,
-                                        "description" to pipeline.description,
-                                        "configFile" to yamlFile.path
-                                    ))
+                                    val agents = pipeline.stages.map { it.agent.name }.distinct()
+                                    summaries.add(
+                                        PipelineSummary(
+                                            name = pipeline.name,
+                                            description = pipeline.description.ifBlank { "설명 없음" },
+                                            configFile = yamlFile.path,
+                                            stageCount = pipeline.stages.size,
+                                            executionMode = pipeline.executionMode.name,
+                                            agents = agents,
+                                            lastModified = yamlFile.lastModified()
+                                        )
+                                    )
                                 }
-                            } catch (e: Exception) {
-                                // Skip invalid files
+                            } catch (_: Exception) {
+                                // Ignore individual config errors
                             }
                         }
-                        
-                        call.respond(allPipelines)
+
+                        call.respond(summaries)
                     } catch (e: Exception) {
                         call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
                     }
@@ -478,7 +824,10 @@ class WebServer : KoinComponent {
                         }
                         
                         foundConfig.agents.forEach { agentRegistry.registerAgent(it) }
-                        val result = orchestrator.executePipeline(foundPipeline)
+                        val timelineResult = timelineCollector.runWithTimeline(name) {
+                            orchestrator.executePipeline(foundPipeline)
+                        }
+                        val result = timelineResult.result
                         
                         call.respond(mapOf(
                             "totalAgents" to result.totalAgents,
@@ -487,11 +836,13 @@ class WebServer : KoinComponent {
                             "results" to result.results.map {
                                 mapOf(
                                     "agentName" to it.agentName,
+                                    "isSuccess" to it.isSuccess,
                                     "duration" to it.duration,
                                     "output" to it.output,
                                     "error" to it.error
                                 )
-                            }
+                            },
+                            "timeline" to timelineResult.timeline.map { it.toPayload() }
                         ))
                     } catch (e: Exception) {
                         call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
@@ -563,3 +914,12 @@ security:
         }.start(wait = true)
     }
 }
+
+private fun StageTimelineEntry.toPayload(): Map<String, Any?> = mapOf(
+    "stageId" to stageId,
+    "state" to state.name,
+    "timestamp" to timestamp.toString(),
+    "message" to message,
+    "durationMs" to durationMs,
+    "outputPreview" to outputPreview
+)

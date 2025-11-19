@@ -93,7 +93,7 @@ class PipelineMonitor(
     private fun renderProgress() {
         // Clear screen and move cursor to top
         if (!verbose) {
-            terminal.println("\n".repeat(3))
+            terminal.print("\u001B[H\u001B[2J")
         }
 
         terminal.println(bold(blue("🚀 Running: ${pipeline.name}")) + gray(" (${pipeline.stages.size} stages)"))

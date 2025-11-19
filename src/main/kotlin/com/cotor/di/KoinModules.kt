@@ -26,6 +26,9 @@ import com.cotor.monitoring.StructuredLogger
 import com.cotor.presentation.formatter.*
 import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
+import com.cotor.validation.output.DefaultOutputValidator
+import com.cotor.validation.output.OutputValidator
+import com.cotor.validation.output.SyntaxValidator
 import org.koin.dsl.module
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -61,7 +64,9 @@ val cotorModule = module {
     // Domain Layer
     single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get()) }
     single<ResultAggregator> { DefaultResultAggregator() }
-    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get()) }
+    single<SyntaxValidator> { SyntaxValidator() }
+    single<OutputValidator> { DefaultOutputValidator(get()) }
+    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get()) }
 
     // Event System
     single<EventBus> { CoroutineEventBus() }

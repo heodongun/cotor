@@ -56,7 +56,10 @@ data class PipelineStage(
     val agent: AgentReference,
     val input: String? = null,
     val dependencies: List<String> = emptyList(),
-    val failureStrategy: FailureStrategy = FailureStrategy.ABORT
+    val failureStrategy: FailureStrategy = FailureStrategy.ABORT,
+    val optional: Boolean = false,
+    val recovery: RecoveryConfig? = null,
+    val validation: StageValidationConfig? = null
 )
 
 /**
@@ -87,6 +90,55 @@ enum class FailureStrategy {
     RETRY,       // Retry failed operation
     FALLBACK     // Execute fallback operation
 }
+
+/**
+ * Recovery strategy for a pipeline stage
+ */
+@Serializable
+enum class RecoveryStrategy {
+    RETRY,
+    FALLBACK,
+    RETRY_THEN_FALLBACK,
+    SKIP,
+    ABORT
+}
+
+/**
+ * Recovery configuration applied to a stage
+ */
+@Serializable
+data class RecoveryConfig(
+    val maxRetries: Int = 3,
+    val retryDelayMs: Long = 1000,
+    val backoffMultiplier: Double = 2.0,
+    val fallbackAgents: List<String> = emptyList(),
+    val strategy: RecoveryStrategy = RecoveryStrategy.RETRY,
+    val retryableErrors: List<String> = listOf("timeout", "connection", "api", "rate_limit", "validation")
+)
+
+/**
+ * Custom validator configuration
+ */
+@Serializable
+data class CustomValidatorConfig(
+    val type: String,
+    val options: Map<String, String> = emptyMap()
+)
+
+/**
+ * Output validation configuration for a stage
+ */
+@Serializable
+data class StageValidationConfig(
+    val requiresFile: String? = null,
+    val requiresCodeBlock: Boolean = false,
+    val minLength: Int = 0,
+    val maxLength: Int = Int.MAX_VALUE,
+    val requiredKeywords: List<String> = emptyList(),
+    val forbiddenKeywords: List<String> = emptyList(),
+    val minQualityScore: Double = 0.0,
+    val customValidators: List<CustomValidatorConfig> = emptyList()
+)
 
 /**
  * Retry policy configuration
@@ -211,8 +263,57 @@ data class ExecutionContext(
     val input: String?,
     val parameters: Map<String, String>,
     val environment: Map<String, String>,
-    val timeout: Long
+    val timeout: Long,
+    val pipelineContext: PipelineContext? = null,
+    val currentStageId: String? = null
 )
+
+/**
+ * Metadata describing the current execution target
+ */
+data class AgentExecutionMetadata(
+    val pipelineContext: PipelineContext? = null,
+    val stageId: String? = null
+)
+
+/**
+ * Shared pipeline context accessible to all stages
+ */
+data class PipelineContext(
+    val pipelineId: String,
+    val pipelineName: String,
+    val totalStages: Int,
+    val stageResults: MutableMap<String, AgentResult> = java.util.concurrent.ConcurrentHashMap(),
+    val sharedState: MutableMap<String, Any> = java.util.concurrent.ConcurrentHashMap(),
+    val metadata: MutableMap<String, Any> = java.util.concurrent.ConcurrentHashMap(),
+    val startTime: Long = System.currentTimeMillis()
+) {
+    @Volatile
+    var currentStageIndex: Int = 0
+
+    fun addStageResult(stageId: String, result: AgentResult) {
+        stageResults[stageId] = result
+    }
+
+    fun getStageResult(stageId: String): AgentResult? = stageResults[stageId]
+
+    fun getStageOutput(stageId: String): String? = stageResults[stageId]?.output
+
+    fun getAllOutputs(): String {
+        return stageResults.values
+            .mapNotNull { it.output }
+            .joinToString("\n\n---\n\n")
+    }
+
+    fun getSuccessfulOutputs(): String {
+        return stageResults.values
+            .filter { it.isSuccess }
+            .mapNotNull { it.output }
+            .joinToString("\n\n---\n\n")
+    }
+
+    fun elapsedTime(): Long = System.currentTimeMillis() - startTime
+}
 
 /**
  * Validation result

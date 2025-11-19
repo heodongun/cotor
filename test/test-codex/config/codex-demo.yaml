@@ -1,0 +1,54 @@
+version: "1.0"
+agents:
+  - name: codex-echo
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 15000
+    parameters:
+      prefix: "[codex]"
+  - name: codex-alt
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 15000
+    parameters:
+      prefix: "[alt]"
+pipelines:
+  - name: codex-seq
+    description: "Sequential demo for codex lab"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: gather
+        agent:
+          name: codex-echo
+        input: "Collect feedback from Codex"
+      - id: plan
+        agent:
+          name: codex-alt
+        input: "Draft experiment plan"
+  - name: codex-dag
+    description: "DAG demo pipeline"
+    executionMode: DAG
+    stages:
+      - id: start
+        agent:
+          name: codex-echo
+        input: "Kick off"
+      - id: branch-a
+        agent:
+          name: codex-echo
+        dependencies: [start]
+        input: "Analyze option A"
+      - id: branch-b
+        agent:
+          name: codex-alt
+        dependencies: [start]
+        input: "Analyze option B"
+      - id: merge
+        agent:
+          name: codex-echo
+        dependencies: [branch-a, branch-b]
+        input: "Summarize"
+security:
+  useWhitelist: false
+logging:
+  level: INFO
+performance:
+  maxConcurrentAgents: 4

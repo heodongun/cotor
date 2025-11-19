@@ -8,8 +8,11 @@ import com.cotor.error.UserFriendlyError
 import com.cotor.event.EventBus
 import com.cotor.event.*
 import com.cotor.monitoring.PipelineMonitor
+import com.cotor.monitoring.TimelineCollector
 import com.cotor.monitoring.StageState
 import com.cotor.presentation.formatter.OutputFormatter
+import com.cotor.presentation.timeline.StageTimelineEntry
+import com.cotor.presentation.timeline.StageTimelineState
 import com.cotor.validation.PipelineValidator
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
@@ -18,6 +21,9 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.path
+import com.github.ajalt.mordant.rendering.TextColors.*
+import com.github.ajalt.mordant.rendering.TextStyles.*
+import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -37,6 +43,8 @@ class EnhancedRunCommand : CliktCommand(
     private val orchestrator: PipelineOrchestrator by inject()
     private val outputFormatters: Map<String, OutputFormatter> by inject()
     private val eventBus: EventBus by inject()
+    private val timelineCollector by lazy { TimelineCollector(eventBus) }
+    private val terminal = Terminal()
 
     private val configPath by option("--config", "-c", help = "Path to configuration file")
         .path(mustExist = false)
@@ -101,56 +109,62 @@ class EnhancedRunCommand : CliktCommand(
                 return@runBlocking
             }
 
-            // Create monitor
             val monitor = if (watch) PipelineMonitor(pipeline, verbose) else null
+            val monitorSubscriptions = mutableListOf<EventSubscription>()
 
-            // Subscribe to events
-            if (monitor != null) {
-                eventBus.subscribe(StageStartedEvent::class) { event ->
-                    val stageEvent = event as StageStartedEvent
-                    monitor.updateStageState(stageEvent.stageId, StageState.RUNNING)
-                    if (verbose) {
-                        monitor.logVerbose("Stage started: ${stageEvent.stageId}")
+            try {
+                if (monitor != null) {
+                    monitorSubscriptions += eventBus.subscribe(StageStartedEvent::class) { event ->
+                        val stageEvent = event as StageStartedEvent
+                        monitor.updateStageState(stageEvent.stageId, StageState.RUNNING)
+                        if (verbose) {
+                            monitor.logVerbose("Stage started: ${stageEvent.stageId}")
+                        }
+                    }
+
+                    monitorSubscriptions += eventBus.subscribe(StageCompletedEvent::class) { event ->
+                        val stageEvent = event as StageCompletedEvent
+                        monitor.updateStageState(stageEvent.stageId, StageState.COMPLETED)
+                        if (verbose) {
+                            monitor.logVerbose("Stage completed: ${stageEvent.stageId}")
+                        }
+                    }
+
+                    monitorSubscriptions += eventBus.subscribe(StageFailedEvent::class) { event ->
+                        val stageEvent = event as StageFailedEvent
+                        monitor.updateStageState(stageEvent.stageId, StageState.FAILED, stageEvent.error.message)
+                        if (verbose) {
+                            monitor.logVerbose("Stage failed: ${stageEvent.stageId} - ${stageEvent.error.message}")
+                        }
                     }
                 }
 
-                eventBus.subscribe(StageCompletedEvent::class) { event ->
-                    val stageEvent = event as StageCompletedEvent
-                    monitor.updateStageState(stageEvent.stageId, StageState.COMPLETED)
-                    if (verbose) {
-                        monitor.logVerbose("Stage completed: ${stageEvent.stageId}")
-                    }
+                terminal.println(bold("🚀 Executing pipeline: ") + cyan(pipelineName))
+                if (verbose) {
+                    terminal.println(dim("   Mode: ${pipeline.executionMode} • Stages: ${pipeline.stages.size}"))
+                    terminal.println()
                 }
 
-                eventBus.subscribe(StageFailedEvent::class) { event ->
-                    val stageEvent = event as StageFailedEvent
-                    monitor.updateStageState(stageEvent.stageId, StageState.FAILED, stageEvent.error.message)
-                    if (verbose) {
-                        monitor.logVerbose("Stage failed: ${stageEvent.stageId} - ${stageEvent.error.message}")
-                    }
+                val timelineResult = timelineCollector.runWithTimeline(pipeline.name) {
+                    orchestrator.executePipeline(pipeline)
                 }
+                val result = timelineResult.result
+                val timeline = timelineResult.timeline
+
+                monitor?.showSummary()
+                renderTimeline(timeline)
+                renderResultSummary(result, pipeline)
+
+                val formatter = outputFormatters[outputFormat]
+                    ?: throw IllegalArgumentException("Unknown output format: $outputFormat")
+
+                terminal.println()
+                terminal.println(bold("📄 Aggregated Output"))
+                echo(formatter.format(result))
+
+            } finally {
+                monitorSubscriptions.forEach { eventBus.unsubscribe(it) }
             }
-
-            // Execute pipeline
-            echo("🚀 Executing pipeline: $pipelineName")
-            if (verbose) {
-                echo("   Execution mode: ${pipeline.executionMode}")
-                echo("   Stages: ${pipeline.stages.size}")
-                echo()
-            }
-
-            val result = orchestrator.executePipeline(pipeline)
-
-            // Show summary
-            monitor?.showSummary()
-
-            // Format and output results
-            val formatter = outputFormatters[outputFormat]
-                ?: throw IllegalArgumentException("Unknown output format: $outputFormat")
-
-            echo()
-            echo("📄 Results:")
-            echo(formatter.format(result))
 
         } catch (e: UserFriendlyError) {
             echo(e.message, err = true)
@@ -162,6 +176,36 @@ class EnhancedRunCommand : CliktCommand(
             }
             throw e
         }
+    }
+
+    private fun renderTimeline(entries: List<StageTimelineEntry>) {
+        if (entries.isEmpty()) {
+            terminal.println(dim("No stage timeline recorded."))
+            return
+        }
+
+        terminal.println()
+        terminal.println(bold("⏱  Stage Timeline"))
+        entries.forEach { entry ->
+            val icon = when (entry.state) {
+                StageTimelineState.STARTED -> yellow("●")
+                StageTimelineState.COMPLETED -> green("●")
+                StageTimelineState.FAILED -> red("●")
+            }
+            val duration = entry.durationMs?.let { dim("(${it}ms)") } ?: ""
+            terminal.println("$icon ${entry.stageId} $duration - ${entry.message}")
+            entry.outputPreview?.let {
+                terminal.println(dim("   ${it.replace("\n", " ").take(160)}"))
+            }
+        }
+    }
+
+    private fun renderResultSummary(result: com.cotor.model.AggregatedResult, pipeline: com.cotor.model.Pipeline) {
+        terminal.println()
+        terminal.println(bold("📦 Run Summary"))
+        terminal.println("   Pipeline : ${pipeline.name}")
+        terminal.println("   Agents   : ${result.successCount}/${result.totalAgents} succeeded")
+        terminal.println("   Duration : ${result.totalDuration}ms")
     }
 }
 

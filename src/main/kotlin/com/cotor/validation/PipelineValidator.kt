@@ -95,6 +95,7 @@ class PipelineValidator(
      */
     private fun validateDependencies(stages: List<PipelineStage>, errors: MutableList<String>) {
         val stageIds = stages.map { it.id }.toSet()
+        val stageMap = stages.associateBy { it.id }
 
         stages.forEach { stage ->
             stage.dependencies.forEach { depId ->
@@ -102,30 +103,30 @@ class PipelineValidator(
                     errors.add("Stage '${stage.id}': Dependency '$depId' not found")
                 }
             }
+        }
 
-            // Check for circular dependencies
-            if (hasCircularDependency(stage, stages)) {
-                errors.add("Stage '${stage.id}': Circular dependency detected")
+        val visited = mutableSetOf<String>()
+        val stack = mutableSetOf<String>()
+
+        fun detectCycle(stageId: String): Boolean {
+            if (stageId in stack) return true
+            if (stageId in visited) return false
+
+            visited.add(stageId)
+            stack.add(stageId)
+
+            val stage = stageMap[stageId] ?: return false
+            val hasCycle = stage.dependencies.any { detectCycle(it) }
+
+            stack.remove(stageId)
+            return hasCycle
+        }
+
+        stageIds.forEach { id ->
+            if (detectCycle(id)) {
+                errors.add("Stage '$id': Circular dependency detected")
             }
         }
-    }
-
-    /**
-     * Check for circular dependencies
-     */
-    private fun hasCircularDependency(stage: PipelineStage, stages: List<PipelineStage>): Boolean {
-        val visited = mutableSetOf<String>()
-        val stageMap = stages.associateBy { it.id }
-
-        fun visit(currentId: String): Boolean {
-            if (currentId in visited) return true
-            visited.add(currentId)
-
-            val current = stageMap[currentId] ?: return false
-            return current.dependencies.any { visit(it) }
-        }
-
-        return visit(stage.id)
     }
 
     /**
@@ -160,36 +161,20 @@ class PipelineValidator(
      */
     private fun estimateDagDuration(stages: List<PipelineStage>, estimates: List<StageEstimate>): Long {
         val estimateMap = estimates.associateBy { it.stageId }
-        val criticalPath = findCriticalPath(stages, estimateMap)
-        return criticalPath.sumOf { estimateMap[it]?.estimatedSeconds ?: 0 }
-    }
-
-    /**
-     * Find critical path in DAG
-     */
-    private fun findCriticalPath(stages: List<PipelineStage>, estimates: Map<String, StageEstimate>): List<String> {
         val stageMap = stages.associateBy { it.id }
-        val distances = mutableMapOf<String, Long>()
+        val memo = mutableMapOf<String, Long>()
 
-        fun computeDistance(stageId: String): Long {
-            if (stageId in distances) return distances[stageId]!!
-
+        fun computeDuration(stageId: String): Long {
+            memo[stageId]?.let { return it }
             val stage = stageMap[stageId] ?: return 0
-            val stageDuration = estimates[stageId]?.estimatedSeconds ?: 0
-
-            val maxDepDistance = stage.dependencies.maxOfOrNull { computeDistance(it) } ?: 0
-            val totalDistance = stageDuration + maxDepDistance
-
-            distances[stageId] = totalDistance
-            return totalDistance
+            val stageDuration = estimateMap[stageId]?.estimatedSeconds ?: 0
+            val dependencyDuration = stage.dependencies.maxOfOrNull { computeDuration(it) } ?: 0
+            val total = stageDuration + dependencyDuration
+            memo[stageId] = total
+            return total
         }
 
-        stages.forEach { computeDistance(it.id) }
-
-        return distances.entries
-            .sortedByDescending { it.value }
-            .take(1)
-            .map { it.key }
+        return stages.maxOfOrNull { computeDuration(it.id) } ?: 0
     }
 }
 

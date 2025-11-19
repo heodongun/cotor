@@ -1,10 +1,13 @@
 package com.cotor.domain.orchestrator
 
+import com.cotor.context.TemplateEngine
 import com.cotor.domain.aggregator.ResultAggregator
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.event.EventBus
 import com.cotor.event.*
 import com.cotor.model.*
+import com.cotor.recovery.RecoveryExecutor
+import com.cotor.validation.output.OutputValidator
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import java.util.UUID
@@ -43,13 +46,26 @@ class DefaultPipelineOrchestrator(
     private val resultAggregator: ResultAggregator,
     private val eventBus: EventBus,
     private val logger: Logger,
-    private val agentRegistry: com.cotor.data.registry.AgentRegistry
+    private val agentRegistry: com.cotor.data.registry.AgentRegistry,
+    private val outputValidator: OutputValidator
 ) : PipelineOrchestrator {
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()
+    private val templateEngine = TemplateEngine()
+    private val recoveryExecutor = RecoveryExecutor(
+        agentExecutor = agentExecutor,
+        agentRegistry = agentRegistry,
+        outputValidator = outputValidator,
+        logger = logger
+    )
 
     override suspend fun executePipeline(pipeline: Pipeline): AggregatedResult = coroutineScope {
         val pipelineId = UUID.randomUUID().toString()
+        val context = PipelineContext(
+            pipelineId = pipelineId,
+            pipelineName = pipeline.name,
+            totalStages = pipeline.stages.size
+        )
         logger.info("Starting pipeline: ${pipeline.name} (ID: $pipelineId)")
 
         val deferred = async {
@@ -57,9 +73,9 @@ class DefaultPipelineOrchestrator(
 
             try {
                 val result = when (pipeline.executionMode) {
-                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline)
-                    ExecutionMode.PARALLEL -> executeParallel(pipeline)
-                    ExecutionMode.DAG -> executeDag(pipeline)
+                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context)
+                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context)
+                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context)
                 }
 
                 eventBus.emit(PipelineCompletedEvent(pipelineId, result))
@@ -77,70 +93,71 @@ class DefaultPipelineOrchestrator(
         deferred.await()
     }
 
-    private suspend fun executeSequential(pipeline: Pipeline): AggregatedResult {
+    private suspend fun executeSequential(
+        pipeline: Pipeline,
+        pipelineId: String,
+        pipelineContext: PipelineContext
+    ): AggregatedResult {
         val results = mutableListOf<AgentResult>()
         var previousOutput: String? = null
-        val pipelineId = UUID.randomUUID().toString()
 
-        for (stage in pipeline.stages) {
-            try {
-                eventBus.emit(StageStartedEvent(stage.id, pipelineId))
+        pipeline.stages.forEachIndexed { index, stage ->
+            pipelineContext.currentStageIndex = index
+            val interpolatedInput = stage.input?.let { templateEngine.interpolate(it, pipelineContext) }
+            val stageInput = interpolatedInput ?: previousOutput
+            val result = executeStageWithGuards(stage, pipelineId, pipelineContext, stageInput)
+            results.add(result)
 
-                val agentConfig = agentRegistry.getAgent(stage.agent.name)
-                    ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
-
-                val input = previousOutput ?: stage.input
-                val result = agentExecutor.executeAgent(agentConfig, input)
-                results.add(result)
-
-                eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
-
-                if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT) {
-                    break
-                }
-
+            if (result.isSuccess && !result.output.isNullOrBlank()) {
                 previousOutput = result.output
-            } catch (e: Exception) {
-                eventBus.emit(StageFailedEvent(stage.id, pipelineId, e))
-                throw e
+            }
+
+            if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT && !stage.optional) {
+                return resultAggregator.aggregate(results)
             }
         }
 
         return resultAggregator.aggregate(results)
     }
 
-    private suspend fun executeParallel(pipeline: Pipeline): AggregatedResult = coroutineScope {
+    private suspend fun executeParallel(
+        pipeline: Pipeline,
+        pipelineId: String,
+        pipelineContext: PipelineContext
+    ): AggregatedResult = coroutineScope {
         val results = pipeline.stages.map { stage ->
             async(Dispatchers.Default) {
-                val agentConfig = agentRegistry.getAgent(stage.agent.name)
-                    ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
-                agentExecutor.executeAgent(agentConfig, stage.input)
+                val interpolatedInput = stage.input?.let { templateEngine.interpolate(it, pipelineContext) }
+                executeStageWithGuards(stage, pipelineId, pipelineContext, interpolatedInput)
             }
         }.awaitAll()
 
         resultAggregator.aggregate(results)
     }
 
-    private suspend fun executeDag(pipeline: Pipeline): AggregatedResult {
-        // Build dependency graph
+    private suspend fun executeDag(
+        pipeline: Pipeline,
+        pipelineId: String,
+        pipelineContext: PipelineContext
+    ): AggregatedResult {
         val results = mutableMapOf<String, AgentResult>()
-        val stageMap = pipeline.stages.associateBy { it.id }
-
-        // Topological sort
         val sortedStages = topologicalSort(pipeline.stages)
 
         for (stage in sortedStages) {
-            val agentConfig = agentRegistry.getAgent(stage.agent.name)
-                ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
-            
-            val input = if (stage.dependencies.isEmpty()) {
-                stage.input
+            val baseInput = stage.input?.let { templateEngine.interpolate(it, pipelineContext) }
+            val dependencyInput = if (stage.dependencies.isEmpty()) {
+                null
             } else {
                 resolveDependencies(stage.dependencies, results)
             }
 
-            val result = agentExecutor.executeAgent(agentConfig, input)
+            val stageInput = baseInput ?: dependencyInput
+            val result = executeStageWithGuards(stage, pipelineId, pipelineContext, stageInput)
             results[stage.id] = result
+
+            if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT && !stage.optional) {
+                break
+            }
         }
 
         return resultAggregator.aggregate(results.values.toList())
@@ -169,10 +186,65 @@ class DefaultPipelineOrchestrator(
     private fun resolveDependencies(
         dependencies: List<String>,
         results: Map<String, AgentResult>
-    ): String {
+    ): String? {
         return dependencies
             .mapNotNull { results[it]?.output }
-            .joinToString("\n")
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString("\n")
+    }
+
+    private suspend fun executeStageWithGuards(
+        stage: PipelineStage,
+        pipelineId: String,
+        pipelineContext: PipelineContext,
+        input: String?
+    ): AgentResult {
+        return try {
+            runStage(stage, pipelineId, pipelineContext, input)
+        } catch (e: Exception) {
+            val failureResult = pipelineContext.getStageResult(stage.id)
+                ?: AgentResult(stage.agent.name, false, null, e.message, 0, emptyMap())
+            if (stage.optional || stage.failureStrategy == FailureStrategy.CONTINUE) {
+                failureResult
+            } else {
+                throw e
+            }
+        }
+    }
+
+    private suspend fun runStage(
+        stage: PipelineStage,
+        pipelineId: String,
+        pipelineContext: PipelineContext,
+        input: String?
+    ): AgentResult {
+        eventBus.emit(StageStartedEvent(stage.id, pipelineId))
+
+        return try {
+            val result = recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
+            pipelineContext.addStageResult(stage.id, result)
+
+            if (result.isSuccess) {
+                eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+            } else {
+                val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
+                eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
+            }
+
+            result
+        } catch (e: Exception) {
+            val failureResult = AgentResult(
+                agentName = stage.agent.name,
+                isSuccess = false,
+                output = null,
+                error = e.message ?: "Stage ${stage.id} failed",
+                duration = 0,
+                metadata = emptyMap()
+            )
+            pipelineContext.addStageResult(stage.id, failureResult)
+            eventBus.emit(StageFailedEvent(stage.id, pipelineId, e))
+            throw e
+        }
     }
 
     override suspend fun cancelPipeline(pipelineId: String) {

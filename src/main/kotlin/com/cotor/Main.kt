@@ -24,7 +24,7 @@ fun main(args: Array<String>) {
                     WebServer().start()
                     return
                 }
-                "init", "list", "status", "version", "run", "validate", "test" -> {
+                "init", "list", "status", "version", "run", "validate", "test", "dash" -> {
                     // Use full CLI for these commands
                 }
                 else -> {
@@ -40,6 +40,7 @@ fun main(args: Array<String>) {
             .subcommands(
                 InitCommand(),
                 EnhancedRunCommand(),
+                CodexDashboardCommand(),
                 ValidateCommand(),
                 TestCommand(),
                 StatusCommand(),
