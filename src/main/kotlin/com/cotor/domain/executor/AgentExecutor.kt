@@ -18,7 +18,11 @@ interface AgentExecutor {
      * @param input Optional input data
      * @return AgentResult containing execution results
      */
-    suspend fun executeAgent(agent: AgentConfig, input: String?): AgentResult
+    suspend fun executeAgent(
+        agent: AgentConfig,
+        input: String?,
+        metadata: AgentExecutionMetadata = AgentExecutionMetadata()
+    ): AgentResult
 
     /**
      * Execute an agent with retry policy
@@ -30,7 +34,8 @@ interface AgentExecutor {
     suspend fun executeWithRetry(
         agent: AgentConfig,
         input: String?,
-        retryPolicy: RetryPolicy
+        retryPolicy: RetryPolicy,
+        metadata: AgentExecutionMetadata = AgentExecutionMetadata()
     ): AgentResult
 }
 
@@ -44,7 +49,11 @@ class DefaultAgentExecutor(
     private val logger: Logger
 ) : AgentExecutor {
 
-    override suspend fun executeAgent(agent: AgentConfig, input: String?): AgentResult {
+    override suspend fun executeAgent(
+        agent: AgentConfig,
+        input: String?,
+        metadata: AgentExecutionMetadata
+    ): AgentResult {
         logger.debug("Executing agent: ${agent.name}")
 
         return withContext(Dispatchers.IO) {
@@ -70,7 +79,9 @@ class DefaultAgentExecutor(
                     input = input,
                     parameters = agent.parameters,
                     environment = agent.environment,
-                    timeout = agent.timeout
+                    timeout = agent.timeout,
+                    pipelineContext = metadata.pipelineContext,
+                    currentStageId = metadata.stageId
                 )
 
                 // Execute agent
@@ -116,13 +127,14 @@ class DefaultAgentExecutor(
     override suspend fun executeWithRetry(
         agent: AgentConfig,
         input: String?,
-        retryPolicy: RetryPolicy
+        retryPolicy: RetryPolicy,
+        metadata: AgentExecutionMetadata
     ): AgentResult {
         var lastResult: AgentResult? = null
         var attempt = 0
 
         while (attempt <= retryPolicy.maxRetries) {
-            lastResult = executeAgent(agent, input)
+            lastResult = executeAgent(agent, input, metadata)
 
             if (lastResult.isSuccess) {
                 return lastResult

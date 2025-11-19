@@ -1,0 +1,35 @@
+version: "1.0"
+
+# 기본 단일 AI 테스트
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+
+pipelines:
+  - name: basic-test
+    description: "단순 AI 호출 테스트"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: simple-task
+        agent:
+          name: claude
+        input: |
+          간단한 Python 함수를 작성해주세요:
+          함수명: is_prime
+          입력: 정수 n
+          출력: n이 소수이면 True, 아니면 False
+
+          파일로 저장: test-claude/experiments/01-basic/is_prime.py
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+  file: basic-test.log

@@ -20,6 +20,8 @@ dependencies {
 
     // CLI
     implementation("com.github.ajalt.clikt:clikt:4.2.1")
+    implementation("com.github.ajalt.mordant:mordant:2.2.0")  // Terminal UI
+    implementation("me.tongfei:progressbar:0.9.5")            // Progress bar
 
     // Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
@@ -31,6 +33,7 @@ dependencies {
     // Logging
     implementation("org.slf4j:slf4j-api:2.0.9")
     implementation("ch.qos.logback:logback-classic:1.4.11")
+    implementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
     // Web Server (Ktor)
     implementation("io.ktor:ktor-server-core:2.3.7")
@@ -67,7 +70,7 @@ tasks.jacocoTestReport {
 
 tasks.shadowJar {
     archiveBaseName.set("cotor")
-    archiveClassifier.set("")
+    archiveClassifier.set("all")
     archiveVersion.set(version.toString())
     manifest {
         attributes("Main-Class" to "com.cotor.MainKt")

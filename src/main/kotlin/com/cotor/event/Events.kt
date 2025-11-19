@@ -64,3 +64,32 @@ data class AgentFailedEvent(
     val error: String,
     override val timestamp: Instant = Instant.now()
 ) : CotorEvent()
+
+/**
+ * Stage started event
+ */
+data class StageStartedEvent(
+    val stageId: String,
+    val pipelineId: String,
+    override val timestamp: Instant = Instant.now()
+) : CotorEvent()
+
+/**
+ * Stage completed event
+ */
+data class StageCompletedEvent(
+    val stageId: String,
+    val pipelineId: String,
+    val result: AgentResult,
+    override val timestamp: Instant = Instant.now()
+) : CotorEvent()
+
+/**
+ * Stage failed event
+ */
+data class StageFailedEvent(
+    val stageId: String,
+    val pipelineId: String,
+    val error: Throwable,
+    override val timestamp: Instant = Instant.now()
+) : CotorEvent()

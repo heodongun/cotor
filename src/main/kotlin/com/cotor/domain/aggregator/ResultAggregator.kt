@@ -1,5 +1,6 @@
 package com.cotor.domain.aggregator
 
+import com.cotor.analysis.ResultAnalyzer
 import com.cotor.model.AgentResult
 import com.cotor.model.AggregatedResult
 import java.time.Instant
@@ -19,12 +20,15 @@ interface ResultAggregator {
 /**
  * Default implementation of result aggregator
  */
-class DefaultResultAggregator : ResultAggregator {
+class DefaultResultAggregator(
+    private val resultAnalyzer: ResultAnalyzer
+) : ResultAggregator {
 
     override fun aggregate(results: List<AgentResult>): AggregatedResult {
         val successCount = results.count { it.isSuccess }
         val failureCount = results.count { !it.isSuccess }
         val totalDuration = results.sumOf { it.duration }
+        val analysis = resultAnalyzer.analyze(results)
 
         return AggregatedResult(
             totalAgents = results.size,
@@ -33,7 +37,8 @@ class DefaultResultAggregator : ResultAggregator {
             totalDuration = totalDuration,
             results = results,
             aggregatedOutput = mergeOutputs(results),
-            timestamp = Instant.now()
+            timestamp = Instant.now(),
+            analysis = analysis
         )
     }
 

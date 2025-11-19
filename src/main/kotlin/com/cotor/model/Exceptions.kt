@@ -31,6 +31,15 @@ class SecurityException(message: String, cause: Throwable? = null) : CotorExcept
 class PipelineException(message: String, cause: Throwable? = null) : CotorException(message, cause)
 
 /**
+ * Exception thrown when a pipeline is intentionally aborted by a stage
+ */
+class PipelineAbortedException(
+    val stageId: String,
+    message: String,
+    cause: Throwable? = null
+) : CotorException(message, cause)
+
+/**
  * Exception thrown when validation fails
  */
 class ValidationException(message: String, val errors: List<String>) : CotorException(message)

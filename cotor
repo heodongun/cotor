@@ -5,14 +5,22 @@
 SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
-# Path to the JAR file
-JAR_PATH="$SCRIPT_DIR/build/libs/cotor-1.0.0.jar"
+# Determine project version from gradle.properties
+APP_VERSION=$(grep -E '^version=' "$SCRIPT_DIR/gradle.properties" | head -n 1 | cut -d'=' -f2 | tr -d '\r')
+[ -z "$APP_VERSION" ] && APP_VERSION="1.0.0"
 
-# Check if JAR exists
+# Path to the shaded JAR file (built via shadowJar)
+JAR_PATH="$SCRIPT_DIR/build/libs/cotor-${APP_VERSION}-all.jar"
+
+# Build the CLI if the shaded JAR is missing
 if [ ! -f "$JAR_PATH" ]; then
-    echo "Error: cotor-1.0.0.jar not found at $JAR_PATH"
-    echo "Please run: ./gradlew shadowJar"
-    exit 1
+    echo "Building cotor CLI (./gradlew shadowJar)..."
+    if [ -x "$SCRIPT_DIR/gradlew" ]; then
+        (cd "$SCRIPT_DIR" && ./gradlew shadowJar) || exit 1
+    else
+        echo "Error: gradlew not found in $SCRIPT_DIR"
+        exit 1
+    fi
 fi
 
 # Check if Java is installed

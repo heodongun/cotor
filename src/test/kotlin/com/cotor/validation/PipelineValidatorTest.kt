@@ -1,0 +1,79 @@
+package com.cotor.validation
+
+import com.cotor.data.registry.InMemoryAgentRegistry
+import com.cotor.model.*
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContain
+import io.kotest.matchers.shouldBe
+
+class PipelineValidatorTest : FunSpec({
+
+    val registry = InMemoryAgentRegistry().apply {
+        registerAgent(
+            AgentConfig(
+                name = "echo",
+                pluginClass = "com.cotor.data.plugin.EchoPlugin"
+            )
+        )
+        registerAgent(
+            AgentConfig(
+                name = "alt",
+                pluginClass = "com.cotor.data.plugin.EchoPlugin"
+            )
+        )
+    }
+
+    test("valid DAG pipeline does not report circular dependency") {
+        val pipeline = Pipeline(
+            name = "dag-demo",
+            executionMode = ExecutionMode.DAG,
+            stages = listOf(
+                PipelineStage(id = "start", agent = AgentReference("echo")),
+                PipelineStage(id = "branchA", agent = AgentReference("echo"), dependencies = listOf("start")),
+                PipelineStage(id = "branchB", agent = AgentReference("alt"), dependencies = listOf("start")),
+                PipelineStage(id = "merge", agent = AgentReference("echo"), dependencies = listOf("branchA", "branchB"))
+            )
+        )
+
+        val validator = PipelineValidator(registry)
+        val result = validator.validate(pipeline)
+
+        result.isSuccess shouldBe true
+    }
+
+    test("detects circular dependencies") {
+        val pipeline = Pipeline(
+            name = "invalid-dag",
+            executionMode = ExecutionMode.DAG,
+            stages = listOf(
+                PipelineStage(id = "a", agent = AgentReference("echo"), dependencies = listOf("c")),
+                PipelineStage(id = "b", agent = AgentReference("echo"), dependencies = listOf("a")),
+                PipelineStage(id = "c", agent = AgentReference("echo"), dependencies = listOf("b"))
+            )
+        )
+
+        val validator = PipelineValidator(registry)
+        val result = validator.validate(pipeline) as ValidationResult.Failure
+
+        result.errors.shouldContain("Stage 'a': Circular dependency detected")
+    }
+
+    test("dag duration estimate uses critical path") {
+        val pipeline = Pipeline(
+            name = "duration",
+            executionMode = ExecutionMode.DAG,
+            stages = listOf(
+                PipelineStage(id = "start", agent = AgentReference("echo")),
+                PipelineStage(id = "fast", agent = AgentReference("echo"), dependencies = listOf("start")),
+                PipelineStage(id = "slow", agent = AgentReference("echo"), dependencies = listOf("start")),
+                PipelineStage(id = "finish", agent = AgentReference("echo"), dependencies = listOf("slow"))
+            )
+        )
+
+        val validator = PipelineValidator(registry)
+        val estimate = validator.estimateDuration(pipeline)
+
+        // Default 30s per stage. Critical path start -> slow -> finish = 90 seconds.
+        estimate.totalEstimatedSeconds shouldBe 90
+    }
+})

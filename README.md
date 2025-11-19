@@ -5,14 +5,44 @@
 
 Cotor is a Kotlin-based AI CLI orchestration system that manages multiple AI tools through a unified interface. Built with coroutines for high-performance async execution.
 
-## ✨ Features
+## 🎉 What's New
+
+### CLI, Visuals & Dashboards
+- ✅ **Stage Timeline & Summary** – `cotor run` now prints a colored timeline, per-stage previews, and run summaries.
+- ✅ **Codex Dashboard** – `cotor dash -c <config>` launches an interactive Codex-style TUI to browse and run pipelines without memorizing names.
+- ✅ **Live Monitor Clean‑up** – event subscriptions auto-unsubscribe, so long-running monitors stay stable.
+
+### Web Pipeline Studio
+- 🧱 **Modern Dashboard** – refreshed UI with hero banner, stats, search, and responsive cards.
+- 🪄 **Visual Builder** – add multi-agent tasks in the browser; generated YAML is saved under `test/`.
+- 📡 **Execution Feed** – `/api/run/<pipeline>` returns stage timelines so the browser shows “what happened” instead of just final JSON.
+
+### Validation & Reliability
+- 🔁 **TimelineCollector** – every execution can be replayed across CLI, dashboard, and web.
+- ♻️ **DAG Validation Fixes** – accurate cycle detection and critical-path estimates for dry-runs.
+- ✅ **Tests** – validator, recovery, timeline, and output validation are covered by unit tests.
+
+### Dynamic Workflow Control
+- ✅ **Decision Stages** – `type: DECISION` nodes read previous outputs/metadata, mutate shared state, and jump to any stage with `onTrue/onFalse` actions.
+- ✅ **Loop Controllers** – `type: LOOP` caps iterations, evaluates break expressions, and replays expensive stages without scripting.
+- 🧠 **Expression Engine** – use expressions like `review.validationScore >= 0.85 && context.sharedState.retry != 'done'` to drive adaptive flows.
+
+### Result Intelligence
+- ✅ **Consensus Scoring** – automatic pairwise analysis flags agreement strength and surfaces the most trustworthy agent.
+- ✅ **Best Candidate Spotlight** – run summary now tells you which agent produced the top output (using validation scores & heuristics).
+- ⚠️ **Disagreement Insights** – low-similarity outputs trigger recommendations for follow-up or reruns.
+
+👉 **[See the Upgrade Guide](docs/UPGRADE_GUIDE.md)** for migration details.
+
+## ✨ Core Features
 
 - 🚀 **Coroutine-Based Async**: High-performance parallel execution
 - 🔌 **Plugin Architecture**: Easy integration of new AI tools
 - 🔄 **Flexible Orchestration**: Sequential, parallel, and DAG-based pipelines
 - 🔐 **Security First**: Whitelist-based command validation
-- 📊 **Monitoring**: Built-in logging and metrics
+- 📊 **Real-Time Monitoring**: Live progress tracking and metrics
 - 🎯 **Multiple Formats**: JSON, CSV, and text output
+- ✅ **Pipeline Validation**: Pre-flight checks before execution
 
 ## 📦 Installation
 
@@ -153,6 +183,52 @@ performance:
   maxConcurrentAgents: 10
 ```
 
+### Conditional & Loop Stages
+
+Cotor lets you branch or repeat work without shell scripts by turning stages into decision or loop nodes:
+
+```yaml
+      - id: quality-check
+        type: DECISION
+        condition:
+          expression: "implementation.validationScore >= 0.85"
+          onTrue:
+            action: CONTINUE
+          onFalse:
+            action: GOTO
+            targetStageId: improve
+            sharedState:
+              retryReason: "quality too low"
+
+      - id: loop-controller
+        type: LOOP
+        loop:
+          targetStageId: implementation
+          maxIterations: 2
+          untilExpression: "improve.validationScore >= 0.9"
+```
+
+- **Decision stages** do not run an agent. They evaluate the expression, optionally update shared state, and execute actions (`CONTINUE`, `GOTO`, `ABORT`).
+- **Loop stages** repeat a target stage up to `maxIterations` times and can stop early once `untilExpression` evaluates to `true`.
+- Expressions can reference any previous stage output or metadata via `<stageId>.<field>` (e.g., `review.metadata.severity`) or shared state via `context.sharedState.key`.
+
+### Result Analysis Summary
+
+Every `cotor run` now ends with a consensus report:
+
+```
+📦 Run Summary
+   Pipeline : code-review
+   Agents   : 3/3 succeeded
+   Duration : 9243ms
+   Consensus: ✅ Consensus (82%)
+   Best     : claude - API interface matches spec and includes tests.
+```
+
+- When outputs diverge you’ll see `⚠️ Divergent` plus per-agent disagreement notes (in `--verbose` mode).
+- Recommendations hint at next actions (e.g., rerun top agent, tighten validations, inspect failures).
+- The best agent is chosen using validation scores when available, falling back to output richness.
+
 ### 3. Run Pipeline
 
 ```bash
@@ -164,7 +240,30 @@ cotor run code-review --output-format text
 
 # Run with specific config
 cotor run code-review --config my-config.yaml
+
+# Open Codex-style dashboard
+cotor dash -c test/test-codex/config/codex-demo.yaml
+
+# Launch web studio
+cotor web
 ```
+
+### Codex Lab Sandbox
+
+For experiments, we ship a ready-to-use sandbox:
+
+- `test/test-codex/config/codex-demo.yaml` – demo sequential + DAG pipelines using echo agents.
+- `test/test-codex/{runs,artifacts,templates}` – dedicated folders to store outputs, templates, and run metadata.
+- `./cotor dash -c test/test-codex/config/codex-demo.yaml` – run pipelines repeatedly and review timelines.
+
+### Web Pipeline Studio
+
+```
+cotor web
+# visit http://localhost:8080
+```
+
+Use the left builder to stack AI tasks, click “생성 후 실행”, and monitor the execution feed. The UI lists all detected YAML files (auto-scanned) and summarizes agents, modes, and config locations.
 
 ## 📖 Usage Examples
 
@@ -412,6 +511,8 @@ cotor run architecture-decision --config consensus.yaml --output-format text
 
 ## 🎯 CLI Commands
 
+### Basic Commands
+
 ```bash
 # Initialize configuration
 cotor init
@@ -419,17 +520,46 @@ cotor init
 # List registered agents
 cotor list [--config path/to/config.yaml]
 
-# Run a pipeline
-cotor run <pipeline-name> [options]
-  --config <path>           Configuration file (default: cotor.yaml)
-  --output-format <format>  Output format: json, csv, text (default: json)
-  --debug                   Enable debug mode
+# Show version
+cotor version
 
 # Check status
 cotor status
+```
 
-# Show version
-cotor version
+### Pipeline Commands
+
+```bash
+# Validate pipeline before running
+cotor validate <pipeline-name> [--config path/to/config.yaml]
+
+# Run pipeline with real-time monitoring
+cotor run <pipeline-name> [options]
+  --config <path>           Configuration file (default: cotor.yaml)
+  --output-format <format>  Output format: json, csv, text (default: json)
+  --verbose, -v             Enable verbose output with detailed logging
+  --dry-run                 Simulate execution and show estimates
+  --watch, -w               Enable real-time progress monitoring (default: true)
+  --debug, -d               Enable debug mode
+
+# Test cotor functionality
+cotor test [--test-dir path/to/test]
+```
+
+### Command Examples
+
+```bash
+# Validate before running
+./cotor validate board-implementation -c test/board-feature/board-pipeline.yaml
+
+# Dry-run to see estimates
+./cotor run board-implementation --dry-run -c test/board-feature/board-pipeline.yaml
+
+# Run with verbose logging
+./cotor run board-implementation --verbose -c test/board-feature/board-pipeline.yaml
+
+# Test the installation
+./cotor test
 ```
 
 ## 🔧 Creating Custom Plugins
@@ -522,6 +652,7 @@ security:
 
 ## 🧪 Testing
 
+### Unit Tests
 ```bash
 # Run tests
 ./gradlew test
@@ -532,6 +663,30 @@ security:
 # Build
 ./gradlew shadowJar
 ```
+
+### Pipeline Tests
+
+Test cotor with a real-world example (Board CRUD feature):
+
+```bash
+./test-cotor-pipeline.sh
+```
+
+This will:
+1. Create a test directory with a board implementation pipeline
+2. Run the pipeline with Claude and Gemini
+3. Generate complete CRUD implementation
+4. Create tests and documentation
+
+**Expected output:**
+- `requirements.md` - Requirements and design
+- `Board.kt` - Entity class
+- `BoardRepository.kt` - Repository interface
+- `BoardService.kt` - Service layer
+- `BoardController.kt` - REST controller
+- `code-review.md` - Code review feedback
+- `BoardServiceTest.kt` - Unit tests
+- `README.md` - Complete documentation
 
 ## 📝 Example Output
 
@@ -586,6 +741,8 @@ Agent Results:
 - [Documentation](docs/)
 - [Examples](examples/)
 - [Issues](https://github.com/yourusername/cotor/issues)
+- [Upgrade Recommendations](docs/UPGRADE_RECOMMENDATIONS.md) - Future improvements
+- [Claude Setup Guide](docs/CLAUDE_SETUP.md) - Claude Code integration
 
 ## 💡 Tips
 

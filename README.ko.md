@@ -3,7 +3,24 @@
 [![English](https://img.shields.io/badge/Language-English-blue)](README.md)
 [![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
 
-Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기반 AI CLI 오케스트레이션 시스템입니다. 코루틴을 활용한 고성능 비동기 실행을 제공합니다.
+Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기반 AI CLI 오케스트레이션 시스템입니다. 코루틴을 활용한 고성능 비동기 실행과 타임라인 기반 모니터링을 제공합니다.
+
+## 🎉 새로워진 점
+
+### CLI & Codex 대시보드
+- ✅ **스테이지 타임라인** – `cotor run`이 단계별 진행 상황과 요약을 컬러로 출력합니다.
+- ✅ **Codex 스타일 TUI** – `cotor dash -c <config>`에서 파이프라인을 골라 실행하고, 타임라인을 즉시 확인할 수 있습니다.
+- ✅ **구독 관리 자동화** – 실행 후 이벤트 핸들러가 자동으로 해제되어 모니터가 안정적으로 동작합니다.
+
+### 웹 파이프라인 스튜디오
+- 🧱 **새 대시보드** – 히어로 배너, 통계 카드, 검색 가능한 카드 그리드 등 모던 UI로 재구성했습니다.
+- 🪄 **AI 작업 빌더** – 브라우저에서 AI 작업을 쌓아 YAML을 생성하고 `test/` 폴더에 저장합니다.
+- 📡 **실행 피드백** – `/api/run/<pipeline>`이 스테이지 타임라인까지 반환해 웹 UI에서도 실행 과정을 시각화합니다.
+
+### 안정성 및 검증
+- 🔁 **TimelineCollector** – CLI, 대시보드, 웹에서 동일한 실행 기록을 공유합니다.
+- ♻️ **DAG 검증 개선** – 실제 순환 검출과 크리티컬 경로 기반 드라이런 시간을 제공합니다.
+- ✅ **단위 테스트** – Validator, Recovery, Output Validator, Timeline 등이 테스트로 보호됩니다.
 
 ## ✨ 주요 기능
 
@@ -97,19 +114,6 @@ pip install openai
 
 ## 🚀 빠른 시작
 
-### 방법 1: 간단한 CLI (추천)
-
-```bash
-# 파이프라인 직접 실행 (codex 스타일)
-cotor compare-solutions test/multi-compare.yaml
-
-# 웹 UI 시작
-cotor web
-# 브라우저에서 http://localhost:8080 열기
-```
-
-### 방법 2: 전통적인 CLI
-
 ### 1. 초기화
 
 ```bash
@@ -185,7 +189,29 @@ cotor run code-review --output-format text
 
 # 특정 설정 파일로 실행
 cotor run code-review --config my-config.yaml
+
+# Codex 대시보드 실행
+cotor dash -c test/test-codex/config/codex-demo.yaml
+
+# 웹 파이프라인 스튜디오 실행
+cotor web
+# 브라우저에서 http://localhost:8080
 ```
+
+### Codex 실험 샌드박스
+
+- `test/test-codex/config/codex-demo.yaml` – Echo 에이전트로 구성된 순차/그래프 데모 파이프라인.
+- `test/test-codex/{runs,artifacts,templates}` – 결과물과 템플릿, 실행 메타데이터를 보관하는 디렉터리.
+- `./cotor dash -c test/test-codex/config/codex-demo.yaml` – 반복 실행하며 타임라인을 확인하는 Codex 전용 UI.
+
+### 웹 파이프라인 스튜디오
+
+```
+cotor web
+# http://localhost:8080 접속
+```
+
+좌측 빌더에서 AI 작업을 추가하고 “생성 후 실행”을 누르면 YAML이 저장되고 실행 결과가 실시간으로 표시됩니다. 우측 카드 목록은 자동으로 탐지된 YAML 파일을 검색/정렬해 보여줍니다.
 
 ## 📖 사용 예제
 
@@ -559,6 +585,7 @@ security:
 
 ## 🧪 테스트
 
+### 단위 테스트
 ```bash
 # 테스트 실행
 ./gradlew test
@@ -569,6 +596,30 @@ security:
 # 빌드
 ./gradlew shadowJar
 ```
+
+### 파이프라인 테스트
+
+실제 예제(게시판 CRUD 기능)로 cotor 테스트:
+
+```bash
+./test-cotor-pipeline.sh
+```
+
+이 스크립트는:
+1. 게시판 구현 파이프라인이 있는 테스트 디렉토리 생성
+2. Claude와 Gemini로 파이프라인 실행
+3. 완전한 CRUD 구현 생성
+4. 테스트 및 문서 생성
+
+**예상 결과물:**
+- `requirements.md` - 요구사항 및 설계
+- `Board.kt` - Entity 클래스
+- `BoardRepository.kt` - Repository 인터페이스
+- `BoardService.kt` - Service 레이어
+- `BoardController.kt` - REST 컨트롤러
+- `code-review.md` - 코드 리뷰 피드백
+- `BoardServiceTest.kt` - 단위 테스트
+- `README.md` - 완전한 문서
 
 ## 📝 예제 출력
 
@@ -668,6 +719,8 @@ $ cotor web
 - [문서](docs/)
 - [예제](examples/)
 - [이슈](https://github.com/yourusername/cotor/issues)
+- [업그레이드 권장사항](docs/UPGRADE_RECOMMENDATIONS.md) - 향후 개선 사항
+- [Claude 설정 가이드](docs/CLAUDE_SETUP.md) - Claude Code 통합
 
 ## 💡 팁
 
