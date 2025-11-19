@@ -23,8 +23,11 @@ class RecoveryExecutor(
         pipelineContext: PipelineContext?
     ): AgentResult {
         val recovery = stage.recovery ?: RecoveryConfig()
-        val primaryAgent = agentRegistry.getAgent(stage.agent.name)
-            ?: throw IllegalArgumentException("Agent not found: ${stage.agent.name}")
+        val stageAgent = stage.agent ?: throw IllegalArgumentException(
+            "Stage ${stage.id} requires an agent for execution"
+        )
+        val primaryAgent = agentRegistry.getAgent(stageAgent.name)
+            ?: throw IllegalArgumentException("Agent not found: ${stageAgent.name}")
 
         return when (recovery.strategy) {
             RecoveryStrategy.RETRY -> executeWithRetry(stage, primaryAgent, input, pipelineContext, recovery)
@@ -76,7 +79,7 @@ class RecoveryExecutor(
             }
         }
 
-        return lastResult ?: failureResult(stage.agent.name, "Stage ${stage.id} failed without result")
+        return lastResult ?: failureResult(agentConfig.name, "Stage ${stage.id} failed without result")
     }
 
     private suspend fun executeWithFallback(

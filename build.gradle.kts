@@ -70,7 +70,7 @@ tasks.jacocoTestReport {
 
 tasks.shadowJar {
     archiveBaseName.set("cotor")
-    archiveClassifier.set("")
+    archiveClassifier.set("all")
     archiveVersion.set(version.toString())
     manifest {
         attributes("Main-Class" to "com.cotor.MainKt")

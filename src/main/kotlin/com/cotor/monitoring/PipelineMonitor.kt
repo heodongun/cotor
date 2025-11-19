@@ -46,6 +46,7 @@ class PipelineMonitor(
     private val terminal = Terminal()
     private val stageStates = ConcurrentHashMap<String, StageExecutionInfo>()
     private val startTime = Instant.now()
+    private var lastProgressHash: Int = 0 // Track last rendered state to prevent duplicates
 
     init {
         // Initialize all stages as PENDING
@@ -88,9 +89,19 @@ class PipelineMonitor(
     }
 
     /**
-     * Render current progress
+     * Render current progress (only if state changed)
      */
     private fun renderProgress() {
+        // Calculate current state hash to detect changes
+        val currentHash = calculateProgressHash()
+
+        // Skip rendering if nothing changed (prevent duplicates)
+        if (currentHash == lastProgressHash && !verbose) {
+            return
+        }
+
+        lastProgressHash = currentHash
+
         // Clear screen and move cursor to top
         if (!verbose) {
             terminal.print("\u001B[H\u001B[2J")
@@ -124,6 +135,16 @@ class PipelineMonitor(
     }
 
     /**
+     * Calculate hash of current progress state
+     */
+    private fun calculateProgressHash(): Int {
+        return stageStates.entries
+            .sortedBy { it.key }
+            .joinToString("|") { "${it.key}:${it.value.state}:${it.value.duration?.toMillis()}" }
+            .hashCode()
+    }
+
+    /**
      * Print statistics
      */
     private fun printStats() {
@@ -145,7 +166,7 @@ class PipelineMonitor(
     /**
      * Show final summary
      */
-    fun showSummary() {
+    fun showSummary(totalDurationOverrideMs: Long? = null) {
         terminal.println()
         terminal.println(bold("📊 Pipeline Execution Summary"))
         terminal.println("─".repeat(50))
@@ -163,7 +184,8 @@ class PipelineMonitor(
             terminal.println("  ${red("❌ Failed:")} $failed/$total")
         }
 
-        val totalDuration = Duration.between(startTime, Instant.now())
+        val totalDuration = totalDurationOverrideMs?.let { Duration.ofMillis(it) }
+            ?: Duration.between(startTime, Instant.now())
         terminal.println("  ⏱️  Total Duration: ${formatDuration(totalDuration)}")
 
         if (verbose) {

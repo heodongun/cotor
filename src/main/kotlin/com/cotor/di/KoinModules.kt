@@ -1,5 +1,7 @@
 package com.cotor.di
 
+import com.cotor.analysis.DefaultResultAnalyzer
+import com.cotor.analysis.ResultAnalyzer
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.config.FileConfigRepository
 import com.cotor.data.config.JsonParser
@@ -63,7 +65,8 @@ val cotorModule = module {
 
     // Domain Layer
     single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get()) }
-    single<ResultAggregator> { DefaultResultAggregator() }
+    single<ResultAnalyzer> { DefaultResultAnalyzer() }
+    single<ResultAggregator> { DefaultResultAggregator(get()) }
     single<SyntaxValidator> { SyntaxValidator() }
     single<OutputValidator> { DefaultOutputValidator(get()) }
     single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get()) }

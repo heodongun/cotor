@@ -3,6 +3,7 @@ package com.cotor.validation
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineStage
+import com.cotor.model.StageType
 
 /**
  * Validation result
@@ -39,8 +40,9 @@ class PipelineValidator(
         }
 
         // Validate each stage
+        val stageIds = pipeline.stages.map { it.id }.toSet()
         pipeline.stages.forEach { stage ->
-            validateStage(stage, errors, warnings)
+            validateStage(stage, errors, warnings, stageIds)
         }
 
         // Validate stage IDs are unique
@@ -67,26 +69,75 @@ class PipelineValidator(
     /**
      * Validate a single stage
      */
-    private fun validateStage(stage: PipelineStage, errors: MutableList<String>, warnings: MutableList<String>) {
+    private fun validateStage(
+        stage: PipelineStage,
+        errors: MutableList<String>,
+        warnings: MutableList<String>,
+        stageIds: Set<String>
+    ) {
         // Validate stage ID
         if (stage.id.isBlank()) {
             errors.add("Stage ID cannot be empty")
         }
 
-        // Validate agent exists
+        when (stage.type) {
+            StageType.EXECUTION -> validateExecutionStage(stage, errors)
+            StageType.DECISION -> validateDecisionStage(stage, errors)
+            StageType.LOOP -> validateLoopStage(stage, errors, stageIds)
+        }
+
+        // Validate input for execution stages only
+        if (stage.type == StageType.EXECUTION && stage.input?.isBlank() != false) {
+            warnings.add("Stage '${stage.id}': Empty input, will use previous stage output")
+        }
+    }
+
+    private fun validateExecutionStage(
+        stage: PipelineStage,
+        errors: MutableList<String>
+    ) {
+        val agentName = stage.agent?.name
+        if (agentName.isNullOrBlank()) {
+            errors.add("Stage '${stage.id}': Execution stage requires an agent")
+            return
+        }
+
         val agentExists = try {
-            agentRegistry.getAgent(stage.agent.name) != null
+            agentRegistry.getAgent(agentName) != null
         } catch (e: Exception) {
             false
         }
 
         if (!agentExists) {
-            errors.add("Stage '${stage.id}': Agent '${stage.agent.name}' not defined")
+            errors.add("Stage '${stage.id}': Agent '$agentName' not defined")
         }
 
-        // Validate input
-        if (stage.input?.isBlank() != false) {
-            warnings.add("Stage '${stage.id}': Empty input, will use previous stage output")
+    }
+
+    private fun validateDecisionStage(stage: PipelineStage, errors: MutableList<String>) {
+        val condition = stage.condition
+        if (condition == null || condition.expression.isBlank()) {
+            errors.add("Stage '${stage.id}': Decision stage requires a condition expression")
+        }
+    }
+
+    private fun validateLoopStage(
+        stage: PipelineStage,
+        errors: MutableList<String>,
+        stageIds: Set<String>
+    ) {
+        val loopConfig = stage.loop
+        if (loopConfig == null) {
+            errors.add("Stage '${stage.id}': Loop stage requires loop configuration")
+            return
+        }
+
+        if (loopConfig.maxIterations <= 0) {
+            errors.add("Stage '${stage.id}': Loop maxIterations must be greater than 0")
+        }
+
+        if (loopConfig.targetStageId !in stageIds) {
+            errors.add("Stage '${stage.id}': Loop target '${loopConfig.targetStageId}' not found")
         }
     }
 
@@ -136,8 +187,8 @@ class PipelineValidator(
         val stageEstimates = pipeline.stages.map { stage ->
             StageEstimate(
                 stageId = stage.id,
-                agentName = stage.agent.name,
-                estimatedSeconds = 30 // Default 30s estimate per stage
+                agentName = stage.agent?.name ?: stage.type.name.lowercase(),
+                estimatedSeconds = if (stage.type == StageType.EXECUTION) 30 else 5
             )
         }
 

@@ -1,0 +1,30 @@
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+
+pipelines:
+  - name: simple-test
+    description: "Simple test with Claude"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: greeting
+        agent:
+          name: claude
+        input: "Say hello in exactly 5 words"
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 1

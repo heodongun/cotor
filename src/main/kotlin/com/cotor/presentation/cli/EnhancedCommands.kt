@@ -28,6 +28,7 @@ import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.nio.file.Path
+import kotlin.math.roundToInt
 import kotlin.io.path.Path
 import kotlin.io.path.exists
 
@@ -148,10 +149,11 @@ class EnhancedRunCommand : CliktCommand(
                 val timelineResult = timelineCollector.runWithTimeline(pipeline.name) {
                     orchestrator.executePipeline(pipeline)
                 }
-                val result = timelineResult.result
+                val pipelineDuration = timelineResult.totalDurationMs ?: timelineResult.result.totalDuration
+                val result = timelineResult.result.copy(totalDuration = pipelineDuration)
                 val timeline = timelineResult.timeline
 
-                monitor?.showSummary()
+                monitor?.showSummary(pipelineDuration)
                 renderTimeline(timeline)
                 renderResultSummary(result, pipeline)
 
@@ -206,6 +208,25 @@ class EnhancedRunCommand : CliktCommand(
         terminal.println("   Pipeline : ${pipeline.name}")
         terminal.println("   Agents   : ${result.successCount}/${result.totalAgents} succeeded")
         terminal.println("   Duration : ${result.totalDuration}ms")
+        result.analysis?.let { analysis ->
+            val score = (analysis.consensusScore * 100).roundToInt().coerceIn(0, 100)
+            val badge = if (analysis.hasConsensus) green("✅ Consensus") else yellow("⚠️ Divergent")
+            terminal.println("   Consensus: $badge ($score%)")
+            analysis.bestAgent?.let { agent ->
+                val preview = analysis.bestSummary?.replace("\n", " ")?.take(80) ?: ""
+                terminal.println("   Best     : $agent ${if (preview.isNotBlank()) dim("- $preview") else ""}")
+            }
+            if (verbose) {
+                if (analysis.disagreements.isNotEmpty()) {
+                    terminal.println(dim("   Disagreements:"))
+                    analysis.disagreements.forEach { terminal.println(dim("      • $it")) }
+                }
+                if (analysis.recommendations.isNotEmpty()) {
+                    terminal.println(dim("   Recommendations:"))
+                    analysis.recommendations.forEach { terminal.println(dim("      • $it")) }
+                }
+            }
+        }
     }
 }
 

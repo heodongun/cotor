@@ -133,6 +133,54 @@ implementation("io.github.microutils:kotlin-logging-jvm:3.0.5") // Logging
    - `ValidateCommand` - Pipeline validation
    - `TestCommand` - Testing framework
 
+### 🔁 Conditional & Loop Pipelines
+
+- **Stage types** – `PipelineStage.type` defaults to `EXECUTION`, but can now be `DECISION` or `LOOP`.
+- **Decision stages** – `condition.expression` uses the new evaluator to read previous stage metadata/output (`review.validationScore >= 0.9`) and pick an action (`CONTINUE`, `GOTO`, `ABORT`). `sharedState` assignments let you pass values to later prompts.
+- **Loop stages** – `loop` config targets any stage, enforces `maxIterations`, and optionally breaks once `untilExpression` becomes true.
+
+```yaml
+  - id: review
+    agent:
+      name: gemini
+
+  - id: gate
+    type: DECISION
+    condition:
+      expression: "review.validationScore >= 0.85"
+      onTrue:
+        action: CONTINUE
+      onFalse:
+        action: GOTO
+        targetStageId: improve
+
+  - id: loop-controller
+    type: LOOP
+    loop:
+      targetStageId: review
+      maxIterations: 3
+      untilExpression: "improve.validationScore >= 0.92"
+```
+
+> ℹ️ Conditional stages are supported in `SEQUENTIAL` pipelines. Parallel/DAG pipelines continue to run pure execution stages.
+
+### 🧠 Result Intelligence
+
+- **ResultAnalyzer** – new component (`com.cotor.analysis.ResultAnalyzer`) compares agent outputs and metadata.
+- **Run Summary Enhancements** – CLI now prints a consensus badge, confidence percentage, and highlights the best agent.
+- **Diagnostics** – verbose mode reveals which agents disagree and provides remediation tips (e.g., rerun strongest agent).
+
+Example summary:
+
+```
+📦 Run Summary
+   Pipeline : benchmark
+   Agents   : 4/4 succeeded
+   Duration : 11.4s
+   Consensus: ⚠️ Divergent (48%)
+   Best     : gemini - Added pagination defaults plus schema notes.
+```
+
 #### Event System Updates
 
 New events for stage-level monitoring:

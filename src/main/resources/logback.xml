@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+    <statusListener class="ch.qos.logback.core.status.NopStatusListener" />
+    <property name="COTOR_LOG_LEVEL" value="${COTOR_LOG_LEVEL:-INFO}" />
     <!-- Console appender -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
@@ -29,7 +31,7 @@
     </root>
 
     <!-- Cotor logger -->
-    <logger name="com.cotor" level="DEBUG" additivity="false">
+    <logger name="com.cotor" level="${COTOR_LOG_LEVEL}" additivity="false">
         <appender-ref ref="CONSOLE" />
         <appender-ref ref="FILE" />
     </logger>

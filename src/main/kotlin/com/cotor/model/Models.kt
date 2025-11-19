@@ -53,13 +53,67 @@ data class Pipeline(
 @Serializable
 data class PipelineStage(
     val id: String,
-    val agent: AgentReference,
+    val type: StageType = StageType.EXECUTION,
+    val agent: AgentReference? = null,
     val input: String? = null,
     val dependencies: List<String> = emptyList(),
     val failureStrategy: FailureStrategy = FailureStrategy.ABORT,
     val optional: Boolean = false,
     val recovery: RecoveryConfig? = null,
-    val validation: StageValidationConfig? = null
+    val validation: StageValidationConfig? = null,
+    val condition: StageConditionConfig? = null,
+    val loop: StageLoopConfig? = null
+)
+
+/**
+ * Stage execution type
+ */
+@Serializable
+enum class StageType {
+    EXECUTION,
+    DECISION,
+    LOOP
+}
+
+/**
+ * Conditional stage configuration
+ */
+@Serializable
+data class StageConditionConfig(
+    val expression: String,
+    val onTrue: ConditionOutcome = ConditionOutcome(),
+    val onFalse: ConditionOutcome = ConditionOutcome()
+)
+
+/**
+ * Action to execute after evaluating a condition
+ */
+@Serializable
+data class ConditionOutcome(
+    val action: ConditionAction = ConditionAction.CONTINUE,
+    val targetStageId: String? = null,
+    val sharedState: Map<String, String> = emptyMap(),
+    val message: String? = null
+)
+
+/**
+ * Available condition actions
+ */
+@Serializable
+enum class ConditionAction {
+    CONTINUE,
+    GOTO,
+    ABORT
+}
+
+/**
+ * Loop controller configuration
+ */
+@Serializable
+data class StageLoopConfig(
+    val targetStageId: String,
+    val maxIterations: Int = 3,
+    val untilExpression: String? = null
 )
 
 /**
@@ -219,7 +273,20 @@ data class AggregatedResult(
     val totalDuration: Long,
     val results: List<AgentResult>,
     val aggregatedOutput: String,
-    val timestamp: Instant
+    val timestamp: Instant,
+    val analysis: ResultAnalysis? = null
+)
+
+/**
+ * Analysis summary derived from multiple agent outputs
+ */
+data class ResultAnalysis(
+    val hasConsensus: Boolean,
+    val consensusScore: Double,
+    val bestAgent: String?,
+    val bestSummary: String?,
+    val disagreements: List<String>,
+    val recommendations: List<String>
 )
 
 /**

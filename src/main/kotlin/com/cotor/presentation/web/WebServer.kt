@@ -767,7 +767,9 @@ class WebServer : KoinComponent {
                             try {
                                 val config = configRepository.loadConfig(yamlFile.toPath())
                                 config.pipelines.forEach { pipeline ->
-                                    val agents = pipeline.stages.map { it.agent.name }.distinct()
+                                    val agents = pipeline.stages
+                                        .map { it.agent?.name ?: it.type.name.lowercase() }
+                                        .distinct()
                                     summaries.add(
                                         PipelineSummary(
                                             name = pipeline.name,
@@ -827,7 +829,9 @@ class WebServer : KoinComponent {
                         val timelineResult = timelineCollector.runWithTimeline(name) {
                             orchestrator.executePipeline(foundPipeline)
                         }
-                        val result = timelineResult.result
+                        val result = timelineResult.result.copy(
+                            totalDuration = timelineResult.totalDurationMs ?: timelineResult.result.totalDuration
+                        )
                         
                         call.respond(mapOf(
                             "totalAgents" to result.totalAgents,

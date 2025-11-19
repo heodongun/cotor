@@ -5,31 +5,34 @@
 
 Cotor is a Kotlin-based AI CLI orchestration system that manages multiple AI tools through a unified interface. Built with coroutines for high-performance async execution.
 
-## 🎉 What's New in v1.0
+## 🎉 What's New
 
-### Enhanced CLI Experience
-- ✅ **Real-Time Progress Monitoring**: Live pipeline execution tracking with visual progress bars
-- ✅ **Pipeline Validation**: Validate configurations before running (`cotor validate`)
-- ✅ **Dry-Run Mode**: Estimate execution time without actually running (`--dry-run`)
-- ✅ **User-Friendly Errors**: Clear error messages with solutions and documentation links
-- ✅ **Verbose Mode**: Detailed logging for debugging (`--verbose`)
-- ✅ **Test Framework**: Built-in testing command for pipeline validation
+### CLI, Visuals & Dashboards
+- ✅ **Stage Timeline & Summary** – `cotor run` now prints a colored timeline, per-stage previews, and run summaries.
+- ✅ **Codex Dashboard** – `cotor dash -c <config>` launches an interactive Codex-style TUI to browse and run pipelines without memorizing names.
+- ✅ **Live Monitor Clean‑up** – event subscriptions auto-unsubscribe, so long-running monitors stay stable.
 
-### New Commands
-```bash
-cotor validate <pipeline>  # Validate pipeline configuration
-cotor run <pipeline> --dry-run  # Simulate execution
-cotor run <pipeline> --verbose  # Run with detailed logging
-cotor test  # Run test suite
-```
+### Web Pipeline Studio
+- 🧱 **Modern Dashboard** – refreshed UI with hero banner, stats, search, and responsive cards.
+- 🪄 **Visual Builder** – add multi-agent tasks in the browser; generated YAML is saved under `test/`.
+- 📡 **Execution Feed** – `/api/run/<pipeline>` returns stage timelines so the browser shows “what happened” instead of just final JSON.
 
-### Improved Developer Experience
-- 📊 **Live Progress Display**: See exactly what's happening in real-time
-- 🎯 **Duration Estimates**: Know how long pipelines will take before running
-- 🛡️ **Better Error Messages**: Actionable solutions for every error
-- 🧪 **Testing Tools**: Validate pipelines before production use
+### Validation & Reliability
+- 🔁 **TimelineCollector** – every execution can be replayed across CLI, dashboard, and web.
+- ♻️ **DAG Validation Fixes** – accurate cycle detection and critical-path estimates for dry-runs.
+- ✅ **Tests** – validator, recovery, timeline, and output validation are covered by unit tests.
 
-👉 **[See the Upgrade Guide](docs/UPGRADE_GUIDE.md)** for full details!
+### Dynamic Workflow Control
+- ✅ **Decision Stages** – `type: DECISION` nodes read previous outputs/metadata, mutate shared state, and jump to any stage with `onTrue/onFalse` actions.
+- ✅ **Loop Controllers** – `type: LOOP` caps iterations, evaluates break expressions, and replays expensive stages without scripting.
+- 🧠 **Expression Engine** – use expressions like `review.validationScore >= 0.85 && context.sharedState.retry != 'done'` to drive adaptive flows.
+
+### Result Intelligence
+- ✅ **Consensus Scoring** – automatic pairwise analysis flags agreement strength and surfaces the most trustworthy agent.
+- ✅ **Best Candidate Spotlight** – run summary now tells you which agent produced the top output (using validation scores & heuristics).
+- ⚠️ **Disagreement Insights** – low-similarity outputs trigger recommendations for follow-up or reruns.
+
+👉 **[See the Upgrade Guide](docs/UPGRADE_GUIDE.md)** for migration details.
 
 ## ✨ Core Features
 
@@ -180,6 +183,52 @@ performance:
   maxConcurrentAgents: 10
 ```
 
+### Conditional & Loop Stages
+
+Cotor lets you branch or repeat work without shell scripts by turning stages into decision or loop nodes:
+
+```yaml
+      - id: quality-check
+        type: DECISION
+        condition:
+          expression: "implementation.validationScore >= 0.85"
+          onTrue:
+            action: CONTINUE
+          onFalse:
+            action: GOTO
+            targetStageId: improve
+            sharedState:
+              retryReason: "quality too low"
+
+      - id: loop-controller
+        type: LOOP
+        loop:
+          targetStageId: implementation
+          maxIterations: 2
+          untilExpression: "improve.validationScore >= 0.9"
+```
+
+- **Decision stages** do not run an agent. They evaluate the expression, optionally update shared state, and execute actions (`CONTINUE`, `GOTO`, `ABORT`).
+- **Loop stages** repeat a target stage up to `maxIterations` times and can stop early once `untilExpression` evaluates to `true`.
+- Expressions can reference any previous stage output or metadata via `<stageId>.<field>` (e.g., `review.metadata.severity`) or shared state via `context.sharedState.key`.
+
+### Result Analysis Summary
+
+Every `cotor run` now ends with a consensus report:
+
+```
+📦 Run Summary
+   Pipeline : code-review
+   Agents   : 3/3 succeeded
+   Duration : 9243ms
+   Consensus: ✅ Consensus (82%)
+   Best     : claude - API interface matches spec and includes tests.
+```
+
+- When outputs diverge you’ll see `⚠️ Divergent` plus per-agent disagreement notes (in `--verbose` mode).
+- Recommendations hint at next actions (e.g., rerun top agent, tighten validations, inspect failures).
+- The best agent is chosen using validation scores when available, falling back to output richness.
+
 ### 3. Run Pipeline
 
 ```bash
@@ -191,7 +240,30 @@ cotor run code-review --output-format text
 
 # Run with specific config
 cotor run code-review --config my-config.yaml
+
+# Open Codex-style dashboard
+cotor dash -c test/test-codex/config/codex-demo.yaml
+
+# Launch web studio
+cotor web
 ```
+
+### Codex Lab Sandbox
+
+For experiments, we ship a ready-to-use sandbox:
+
+- `test/test-codex/config/codex-demo.yaml` – demo sequential + DAG pipelines using echo agents.
+- `test/test-codex/{runs,artifacts,templates}` – dedicated folders to store outputs, templates, and run metadata.
+- `./cotor dash -c test/test-codex/config/codex-demo.yaml` – run pipelines repeatedly and review timelines.
+
+### Web Pipeline Studio
+
+```
+cotor web
+# visit http://localhost:8080
+```
+
+Use the left builder to stack AI tasks, click “생성 후 실행”, and monitor the execution feed. The UI lists all detected YAML files (auto-scanned) and summarizes agents, modes, and config locations.
 
 ## 📖 Usage Examples
 

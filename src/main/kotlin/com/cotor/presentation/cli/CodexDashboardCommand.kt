@@ -75,11 +75,14 @@ class CodexDashboardCommand : CliktCommand(
             val timelineResult = timelineCollector.runWithTimeline(selected.name) {
                 orchestrator.executePipeline(selected)
             }
+            val runResult = timelineResult.result.copy(
+                totalDuration = timelineResult.totalDurationMs ?: timelineResult.result.totalDuration
+            )
 
             renderTimeline(timelineResult.timeline)
             terminal.println()
-            terminal.println(bold("결과: ${timelineResult.result.successCount}/${timelineResult.result.totalAgents} 단계 성공"))
-            terminal.println("총 소요 시간: ${timelineResult.result.totalDuration}ms")
+            terminal.println(bold("결과: ${runResult.successCount}/${runResult.totalAgents} 단계 성공"))
+            terminal.println("총 소요 시간: ${runResult.totalDuration}ms")
 
             val again = promptLine("다른 파이프라인을 실행할까요? (Y/n)", "y")
             if (again.equals("n", true)) break
