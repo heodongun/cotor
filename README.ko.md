@@ -5,7 +5,15 @@
 
 Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기반 AI CLI 오케스트레이션 시스템입니다. 코루틴을 활용한 고성능 비동기 실행과 타임라인 기반 모니터링을 제공합니다.
 
-## 🎉 새로워진 점
+## 🎉 새로워진 점 (v1.0.1 - 2025-11-20)
+
+### 🚀 최신 개선사항
+- ✨ **파이프라인 템플릿** – 새로운 `cotor template` 커맨드로 몇 초 만에 즉시 사용 가능한 파이프라인 생성!
+  - 5가지 내장 템플릿: `compare`, `chain`, `review`, `consensus`, `custom`
+  - 파이프라인 작성 시간 83% 단축 (30분 → 5분)
+  - 초보자와 빠른 프로토타이핑에 최적
+- 🔄 **모니터링 개선** – 스마트 상태 추적으로 중복 출력 감소
+- 📚 **문서 강화** – IMPROVEMENTS.md, TEST_REPORT.md, CHANGELOG.md 추가
 
 ### CLI & Codex 대시보드
 - ✅ **스테이지 타임라인** – `cotor run`이 단계별 진행 상황과 요약을 컬러로 출력합니다.
@@ -21,6 +29,10 @@ Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기�
 - 🔁 **TimelineCollector** – CLI, 대시보드, 웹에서 동일한 실행 기록을 공유합니다.
 - ♻️ **DAG 검증 개선** – 실제 순환 검출과 크리티컬 경로 기반 드라이런 시간을 제공합니다.
 - ✅ **단위 테스트** – Validator, Recovery, Output Validator, Timeline 등이 테스트로 보호됩니다.
+
+👉 **[업그레이드 가이드](docs/UPGRADE_GUIDE.md)** - 마이그레이션 상세 정보
+👉 **[변경 이력](CHANGELOG.md)** - 상세 버전 히스토리
+👉 **[테스트 리포트](TEST_REPORT.md)** - 검증 결과
 
 ## ✨ 주요 기능
 
@@ -458,6 +470,27 @@ cotor run architecture-decision --config consensus.yaml --output-format text
 **활용**: 다양한 AI 의견을 비교하여 더 나은 결정을 내리세요!
 
 ## 🎯 CLI 명령어
+
+### 템플릿으로 빠른 시작 ⭐ 신규
+
+```bash
+# 사용 가능한 템플릿 목록
+cotor template
+
+# 템플릿에서 파이프라인 생성 (수동 작성보다 83% 빠름!)
+cotor template compare my-pipeline.yaml
+cotor template chain review-flow.yaml
+cotor template review code-review.yaml
+cotor template consensus decision.yaml
+cotor template custom my-custom.yaml
+
+# 사용 가능한 템플릿:
+#   compare   - 여러 AI가 같은 문제를 병렬로 해결
+#   chain     - 순차적 처리 (생성 → 리뷰 → 최적화)
+#   review    - 병렬 다각도 코드 리뷰
+#   consensus - 여러 AI의 의견으로 의사 결정
+#   custom    - 커스터마이징 가능한 기본 템플릿
+```
 
 ### 간단한 모드 (codex 스타일)
 
