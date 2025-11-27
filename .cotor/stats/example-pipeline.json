@@ -1,0 +1,33 @@
+{
+    "pipelineName": "example-pipeline",
+    "executions": [
+        {
+            "pipelineName": "example-pipeline",
+            "timestamp": "2025-11-27T23:33:48.449187Z",
+            "totalDuration": 8,
+            "successCount": 1,
+            "failureCount": 0,
+            "totalAgents": 1
+        },
+        {
+            "pipelineName": "example-pipeline",
+            "timestamp": "2025-11-27T23:33:49.023372Z",
+            "totalDuration": 9,
+            "successCount": 1,
+            "failureCount": 0,
+            "totalAgents": 1
+        },
+        {
+            "pipelineName": "example-pipeline",
+            "timestamp": "2025-11-27T23:33:49.675167Z",
+            "totalDuration": 8,
+            "successCount": 1,
+            "failureCount": 0,
+            "totalAgents": 1
+        }
+    ],
+    "totalExecutions": 3,
+    "totalSuccesses": 3,
+    "totalDuration": 25,
+    "lastExecuted": "2025-11-27T23:33:49.675167Z"
+}

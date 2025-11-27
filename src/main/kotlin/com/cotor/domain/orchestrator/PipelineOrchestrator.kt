@@ -8,6 +8,7 @@ import com.cotor.event.EventBus
 import com.cotor.event.*
 import com.cotor.model.*
 import com.cotor.recovery.RecoveryExecutor
+import com.cotor.stats.StatsManager
 import com.cotor.validation.output.OutputValidator
 import kotlinx.coroutines.*
 import org.slf4j.Logger
@@ -58,7 +59,8 @@ class DefaultPipelineOrchestrator(
     private val eventBus: EventBus,
     private val logger: Logger,
     private val agentRegistry: com.cotor.data.registry.AgentRegistry,
-    private val outputValidator: OutputValidator
+    private val outputValidator: OutputValidator,
+    private val statsManager: StatsManager
 ) : PipelineOrchestrator {
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()
@@ -98,6 +100,10 @@ class DefaultPipelineOrchestrator(
                 }
 
                 eventBus.emit(PipelineCompletedEvent(pipelineId, result))
+
+                // Record execution statistics
+                statsManager.recordExecution(pipeline.name, result)
+
                 result
             } catch (e: Exception) {
                 if (e is PipelineAbortedException) {
