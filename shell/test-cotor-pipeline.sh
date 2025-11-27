@@ -5,6 +5,11 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+COTOR_CMD="cotor"
+
 # 색상 정의
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -29,12 +34,16 @@ echo ""
 echo -e "${BLUE}1️⃣  Cotor 설치 확인${NC}"
 if command -v cotor &> /dev/null; then
     echo -e "${GREEN}✓${NC} cotor 명령어 발견"
-    cotor version
+    COTOR_CMD="cotor"
+elif [ -x "$PROJECT_ROOT/shell/cotor" ]; then
+    COTOR_CMD="$PROJECT_ROOT/shell/cotor"
+    echo -e "${YELLOW}⚠${NC}  전역 설치된 cotor를 찾을 수 없습니다. 로컬 스크립트를 사용합니다: $COTOR_CMD"
 else
     echo -e "${RED}✗${NC} cotor 명령어를 찾을 수 없습니다"
-    echo "설치 방법: ./install-global.sh"
+    echo "설치 방법: ./shell/install-global.sh"
     exit 1
 fi
+"$COTOR_CMD" version
 echo ""
 
 # 2. 파이프라인 YAML 생성
@@ -201,7 +210,7 @@ echo ""
 
 # 5. 에이전트 목록 확인
 echo -e "${BLUE}5️⃣  등록된 에이전트 확인${NC}"
-cotor list || echo -e "${YELLOW}⚠${NC}  에이전트 목록을 가져올 수 없습니다"
+"$COTOR_CMD" list || echo -e "${YELLOW}⚠${NC}  에이전트 목록을 가져올 수 없습니다"
 echo ""
 
 # 6. 파이프라인 실행
@@ -216,7 +225,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 START_TIME=$(date +%s)
 
 # 파이프라인 실행
-cotor run board-implementation --config board-pipeline.yaml --output-format text || {
+"$COTOR_CMD" run board-implementation --config board-pipeline.yaml --output-format text || {
     echo ""
     echo -e "${RED}❌ 파이프라인 실행 실패${NC}"
     echo ""

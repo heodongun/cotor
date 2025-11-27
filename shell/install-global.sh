@@ -3,6 +3,9 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "🚀 Installing Cotor globally..."
 echo ""
 
@@ -15,14 +18,11 @@ fi
 
 # Build the project
 echo "📦 Building Cotor..."
-./gradlew shadowJar --no-daemon
+(cd "$PROJECT_ROOT" && ./gradlew shadowJar --no-daemon)
 
 # Make cotor script executable
-chmod +x cotor
-
-# Get absolute paths
-COTOR_DIR="$(cd "$(dirname "$0")" && pwd)"
-COTOR_SCRIPT="$COTOR_DIR/cotor"
+COTOR_SCRIPT="$PROJECT_ROOT/shell/cotor"
+chmod +x "$COTOR_SCRIPT"
 
 # Determine installation directory
 if [ -w "/usr/local/bin" ]; then

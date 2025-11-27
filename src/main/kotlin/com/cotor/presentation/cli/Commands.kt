@@ -13,9 +13,11 @@ import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
 import com.cotor.model.CotorConfig
 import com.cotor.presentation.formatter.OutputFormatter
+import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.writeText
@@ -41,10 +43,22 @@ abstract class CotorCommand : CliktCommand(), KoinComponent {
  */
 class CotorCli : CliktCommand(
     name = "cotor",
-    help = "AI CLI Master-Agent System"
+    help = "AI CLI Master-Agent System",
+    invokeWithoutSubcommand = true,
+    printHelpOnEmptyArgs = false
 ) {
+    private val short by option("--short", help = "Show 10-line cheat sheet").flag()
+
     override fun run() {
-        // Show help if no subcommand specified
+        val terminal = Terminal()
+        if (short) {
+            CheatSheetPrinter.print(terminal)
+            return
+        }
+        if (currentContext.invokedSubcommand == null) {
+            CheatSheetPrinter.print(terminal)
+            terminal.println("ℹ️  상세 도움말: cotor --help")
+        }
     }
 }
 
@@ -52,7 +66,15 @@ class CotorCli : CliktCommand(
  * Initialize Cotor with default configuration
  */
 class InitCommand : CotorCommand() {
+    private val interactive by option("--interactive", "-i", help = "대화형으로 기본 파이프라인 설정").flag()
+    private val terminal = Terminal()
+
     override fun run() {
+        if (interactive) {
+            writeInteractiveConfig()
+            return
+        }
+
         val defaultConfig = """
 version: "1.0"
 
@@ -101,6 +123,66 @@ performance:
 
         configPath.writeText(defaultConfig)
         echo("Initialized cotor configuration at: $configPath")
+    }
+
+    private fun writeInteractiveConfig() {
+        terminal.println("🧭 대화형 설정을 시작합니다. 기본값은 Enter 로 유지하세요.")
+
+        val pipelineName = prompt("파이프라인 이름", "my-pipeline")
+        val description = prompt("파이프라인 설명", "Interactive pipeline")
+        val agentName = prompt("에이전트 이름", "claude")
+        val pluginClass = prompt("플러그인 클래스", "com.cotor.data.plugin.ClaudePlugin")
+        val timeout = prompt("타임아웃(ms)", "60000").toLongOrNull() ?: 60000L
+        val executionMode = prompt("실행 모드(SEQUENTIAL/PARALLEL/DAG)", "SEQUENTIAL").uppercase()
+        val promptText = prompt("프롬프트 내용", "Hello from Cotor!")
+
+        val yaml = """
+version: "1.0"
+
+agents:
+  - name: $agentName
+    pluginClass: $pluginClass
+    timeout: $timeout
+
+pipelines:
+  - name: $pipelineName
+    description: "$description"
+    executionMode: $executionMode
+    stages:
+      - id: ${agentName}-stage-1
+        agent:
+          name: $agentName
+        input: "$promptText"
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - $agentName
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+  file: cotor.log
+  format: json
+
+performance:
+  maxConcurrentAgents: 5
+  coroutinePoolSize: 4
+""".trimIndent()
+
+        configPath.writeText(yaml)
+        terminal.println("✅ 대화형 설정이 생성되었습니다: $configPath")
+        terminal.println("다음 명령을 시도해보세요:")
+        terminal.println("  cotor validate $pipelineName -c $configPath")
+        terminal.println("  cotor run $pipelineName -c $configPath --output-format text")
+    }
+
+    private fun prompt(label: String, default: String): String {
+        terminal.print("$label [$default]: ")
+        val input = readLine()?.trim()
+        return if (input.isNullOrBlank()) default else input
     }
 }
 
@@ -200,5 +282,88 @@ class VersionCommand : CliktCommand(
         echo("Cotor version 1.0.0")
         echo("Kotlin ${KotlinVersion.CURRENT}")
         echo("JVM ${System.getProperty("java.version")}")
+    }
+}
+
+/**
+ * Print shell completion scripts
+ */
+class CompletionCommand : CliktCommand(
+    name = "completion",
+    help = "Generate shell completion for bash/zsh/fish"
+) {
+    private val shell by argument("shell", help = "bash | zsh | fish")
+        .choice("bash", "zsh", "fish")
+
+    override fun run() {
+        when (shell) {
+            "bash" -> echo(bashCompletion)
+            "zsh" -> echo(zshCompletion)
+            "fish" -> echo(fishCompletion)
+        }
+        echo("\n# 위 내용을 쉘 설정에 추가하세요. 예) cotor completion $shell > /tmp/cotor.$shell && source /tmp/cotor.$shell")
+        echo("# alias 추천: alias co='cotor'")
+    }
+
+    private val commonSubcommands = listOf(
+        "init", "list", "run", "validate", "template", "dash", "web", "resume", "checkpoint", "stats", "doctor", "version", "completion"
+    )
+
+    private val bashCompletion: String
+        get() = """
+_cotor_completions() {
+  local cur prev
+  COMPREPLY=()
+  cur="${'$'}{COMP_WORDS[COMP_CWORD]}"
+  prev="${'$'}{COMP_WORDS[COMP_CWORD-1]}"
+
+  if [[ ${'$'}COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "${commonSubcommands.joinToString(" ")}" -- "${'$'}cur") )
+  fi
+  return 0
+}
+complete -F _cotor_completions cotor
+""".trimIndent()
+
+    private val zshCompletion: String
+        get() = """
+#compdef cotor
+_cotor_completions() {
+  local -a subcmds
+  subcmds=(${commonSubcommands.joinToString(" ")})
+  _arguments "1: :->subcmds"
+  case ${'$'}state in
+    subcmds)
+      _describe 'command' subcmds
+    ;;
+  esac
+}
+_cotor_completions "${'$'}@"
+""".trimIndent()
+
+    private val fishCompletion: String
+        get() = """
+complete -c cotor -n "__fish_is_first_arg" -f -a "${commonSubcommands.joinToString(" ")}"
+""".trimIndent()
+}
+
+/**
+ * Simple cheat sheet printer used by --short flag
+ */
+object CheatSheetPrinter {
+    fun print(terminal: Terminal) {
+        terminal.println("🧭 Cotor 10줄 요약")
+        terminal.println("--------------------")
+        terminal.println("1) ./shell/install-global.sh  또는  ./gradlew shadowJar && ./shell/cotor version")
+        terminal.println("2) cotor init  (또는 cotor init --interactive)")
+        terminal.println("3) cotor list  |  cotor template")
+        terminal.println("4) cotor validate <pipeline> -c <yaml>")
+        terminal.println("5) cotor run <pipeline> -c <yaml> --output-format text")
+        terminal.println("6) cotor dash -c <yaml>  |  cotor web")
+        terminal.println("7) 예제 실행: examples/run-examples.sh")
+        terminal.println("8) Claude 연동: ./shell/install-claude-integration.sh")
+        terminal.println("9) 문제 발생 시 cotor doctor, --debug, docs/QUICK_START.md")
+        terminal.println("10) 자동완성/alias: cotor completion zsh|bash|fish")
+        terminal.println()
     }
 }

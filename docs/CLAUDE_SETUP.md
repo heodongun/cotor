@@ -17,7 +17,7 @@
 
 ```bash
 cd cotor
-./install-claude-integration.sh
+./shell/install-claude-integration.sh
 ```
 
 이 스크립트는 모든 필요한 파일을 자동으로 설치합니다.
@@ -340,7 +340,7 @@ chmod 644 ~/.claude/settings/cotor-settings.json
 cp -r ~/.claude ~/.claude.backup
 
 # 2. 새 파일 설치
-./install-claude-integration.sh
+./shell/install-claude-integration.sh
 
 # 3. 검증
 ./test-claude-integration.sh

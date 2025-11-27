@@ -1,0 +1,141 @@
+=== Test 1: Version ===
+Cotor version 1.0.0
+Kotlin 2.1.0
+JVM 23
+
+=== Test 2: Short Help ===
+🧭 Cotor 10줄 요약
+--------------------
+1) ./shell/install-global.sh  또는  ./gradlew shadowJar && ./shell/cotor version
+2) cotor init  (또는 cotor init --interactive)
+3) cotor list  |  cotor template
+4) cotor validate <pipeline> -c <yaml>
+5) cotor run <pipeline> -c <yaml> --output-format text
+6) cotor dash -c <yaml>  |  cotor web
+7) 예제 실행: examples/run-examples.sh
+8) Claude 연동: ./shell/install-claude-integration.sh
+9) 문제 발생 시 cotor doctor, --debug, docs/QUICK_START.md
+10) 자동완성/alias: cotor completion zsh|bash|fish
+
+
+=== Test 3: Init ===
+Initialized cotor configuration at: cotor.yaml
+
+=== Test 4: List ===
+Registered Agents (1):
+  - example-agent (com.cotor.data.plugin.EchoPlugin)
+    Timeout: 30000ms
+    Tags: example
+
+=== Test 5: Validate ===
+✅ Pipeline structure: valid
+✅ All agents defined: valid
+✅ Stage dependencies: valid
+
+🎉 No warnings found!
+
+=== Test 6: Doctor ===
+🩺 Cotor Doctor
+환경 점검을 수행합니다. OK 항목이 하나라도 실패해도 명령은 계속됩니다.
+
+✓ Java 버전 확인
+   Java 23
+⚠ CLI JAR 존재 여부
+   shadowJar 실행 필요: ./gradlew shadowJar
+✓ cotor.yaml 확인
+   구성 파일 발견: cotor.yaml
+⚠ 예제 번들 확인
+   누락: examples/single-agent.yaml, examples/parallel-compare.yaml, examples/decision-loop.yaml, examples/run-examples.sh
+✓ claude 명령 확인
+   claude 사용 가능
+✓ gemini 명령 확인
+   gemini 사용 가능
+✓ cotor 명령 확인
+   cotor 사용 가능
+
+팁:
+  - 자동완성: cotor completion zsh|bash|fish > /tmp/cotor && source /tmp/cotor
+  - 샘플 실행: examples/run-examples.sh
+  - Claude 연동: ./shell/install-claude-integration.sh
+
+=== Test 7: Template List ===
+📋 Available Pipeline Templates
+
+  compare      - Multiple AIs solve the same problem in parallel for comparison
+  chain        - Sequential processing chain (generate → review → optimize)
+  review       - Parallel multi-perspective code review (security, performance, best practices)
+  consensus    - Multiple AIs provide opinions to reach consensus
+  custom       - Customizable template with common patterns
+
+Usage: cotor template <type> [output-file] [--preview] [--fill key=value]
+Example: cotor template compare my-pipeline.yaml --fill prompt="Write tests"
+Preview: cotor template --preview chain
+List:    cotor template --list
+
+=== Test 8: Stats ===
+No statistics available yet
+
+Statistics are collected automatically when pipelines run
+
+=== Test 9: Checkpoint ===
+🔖 Checkpoint Management
+
+Total checkpoints: 0
+
+Commands:
+  cotor resume <id>       - Resume from checkpoint
+  cotor checkpoint clean  - Clean old checkpoints
+  cotor checkpoint list   - List all checkpoints
+
+=== Test 10: Resume ===
+No checkpoints found
+
+Checkpoints are automatically created when pipelines complete stages
+
+(eval):1: command not found: head
+(eval):1: command not found: {
+head: echo: No such file or directory
+head: : No such file or directory
+head: tail: No such file or directory
+head: -120: No such file or directory
+head: }: No such file or directory
+==> test-log.txt <==
+=== Test 1: Version ===
+Cotor version 1.0.0
+Kotlin 2.1.0
+JVM 23
+
+=== Test 2: Short Help ===
+🧭 Cotor 10줄 요약
+--------------------
+1) ./shell/install-global.sh  또는  ./gradlew shadowJar && ./shell/cotor version
+2) cotor init  (또는 cotor init --interactive)
+3) cotor list  |  cotor template
+4) cotor validate <pipeline> -c <yaml>
+5) cotor run <pipeline> -c <yaml> --output-format text
+6) cotor dash -c <yaml>  |  cotor web
+7) 예제 실행: examples/run-examples.sh
+==> test-log.txt <==
+=== Test 1: Version ===
+Cotor version 1.0.0
+Kotlin 2.1.0
+JVM 23
+
+=== Test 2: Short Help ===
+🧭 Cotor 10줄 요약
+--------------------
+1) ./shell/install-global.sh  또는  ./gradlew shadowJar && ./shell/cotor version
+2) cotor init  (또는 cotor init --interactive)
+3) cotor list  |  cotor template
+4) cotor validate <pipeline> -c <yaml>
+5) cotor run <pipeline> -c <yaml> --output-format text
+6) cotor dash -c <yaml>  |  cotor web
+7) 예제 실행: examples/run-examples.sh
+(eval):1: command not found: {
+(eval):1: command not found: {
+(eval):1: command not found: {
+(eval):1: command not found: {
+(eval):1: command not found: {
+(eval):1: command not found: {
+(eval):1: command not found: {
+(eval):1: command not found: {

@@ -5,6 +5,10 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 # 색상 정의
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -180,11 +184,11 @@ echo ""
 # 10. README 업데이트 테스트
 echo -e "${BLUE}📝 README 업데이트 테스트${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-test_file_contains "README.md" "Claude Code Integration" "README.md Claude 섹션"
-test_file_contains "README.md" "/cotor-generate" "README.md generate 커맨드"
-test_file_contains "README.md" "install-claude-integration.sh" "README.md 설치 스크립트"
-test_file_contains "README.ko.md" "Claude Code 통합" "README.ko.md Claude 섹션"
-test_file_contains "README.ko.md" "/cotor-generate" "README.ko.md generate 커맨드"
+test_file_contains "docs/README.md" "Claude Code integration" "README.md Claude 섹션"
+test_file_contains "docs/README.md" "Use It Fast" "README.md 빠른 사용 섹션"
+test_file_contains "docs/README.md" "shell/install-claude-integration.sh" "README.md 설치 스크립트"
+test_file_contains "docs/README.ko.md" "Claude Code 통합" "README.ko.md Claude 섹션"
+test_file_contains "docs/README.ko.md" "바로 사용하기" "README.ko.md 빠른 사용 섹션"
 echo ""
 
 # 최종 결과
@@ -210,9 +214,9 @@ else
   echo -e "${RED}❌ 일부 테스트 실패${NC}"
   echo ""
   echo "문제 해결:"
-  echo "1. 설치 스크립트 실행: ./install-claude-integration.sh"
+  echo "1. 설치 스크립트 실행: ./shell/install-claude-integration.sh"
   echo "2. 파일 권한 확인: ls -la ~/.claude/"
-  echo "3. 테스트 재실행: ./test-claude-integration.sh"
+  echo "3. 테스트 재실행: ./shell/test-claude-integration.sh"
   echo ""
   exit 1
 fi

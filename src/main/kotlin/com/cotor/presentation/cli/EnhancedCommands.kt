@@ -353,7 +353,7 @@ class TestCommand : CliktCommand(
         echo("💡 To run tests manually:")
         echo("   cd $testDir/board-feature")
         echo("   ../../gradlew shadowJar")
-        echo("   java -jar ../../build/libs/cotor-1.0.0.jar validate board-implementation")
-        echo("   java -jar ../../build/libs/cotor-1.0.0.jar run board-implementation --verbose")
+        echo("   java -jar ../../build/libs/cotor-1.0.0-all.jar validate board-implementation")
+        echo("   java -jar ../../build/libs/cotor-1.0.0-all.jar run board-implementation --verbose")
     }
 }

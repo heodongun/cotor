@@ -1,0 +1,58 @@
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+
+pipelines:
+  - name: iterate-summary
+    description: "품질이 낮으면 반복 개선하는 루프 파이프라인"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: draft
+        agent:
+          name: claude
+        input: |
+          '클린 코드 원칙'을 3줄로 요약해줘.
+          점수 기준: 간결성, 가독성, 테스트 용이성.
+          답변 끝에 'score=<0~1>' 형태로 점수를 적어줘.
+
+      - id: quality-check
+        type: DECISION
+        condition:
+          expression: "draft.output.contains(\"score=0.\") && draft.output.substringAfter(\"score=\").trim().toDouble() < 0.85"
+          onTrue:
+            action: GOTO
+            targetStageId: improve
+          onFalse:
+            action: CONTINUE
+
+      - id: improve
+        agent:
+          name: claude
+        input: |
+          아래 요약을 개선해줘. 점수를 0.9 이상으로 올려.
+          기존 요약:
+          {{draft.output}}
+
+      - id: final-check
+        type: LOOP
+        loop:
+          targetStageId: draft
+          maxIterations: 2
+          untilExpression: "!quality-check.conditionFailed"
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 1

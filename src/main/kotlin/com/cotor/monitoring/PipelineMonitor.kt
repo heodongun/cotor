@@ -47,6 +47,8 @@ class PipelineMonitor(
     private val stageStates = ConcurrentHashMap<String, StageExecutionInfo>()
     private val startTime = Instant.now()
     private var lastProgressHash: Int = 0 // Track last rendered state to prevent duplicates
+    private var lastRenderTime: Instant = Instant.now() // Debouncing timestamp
+    private val minRenderInterval: Duration = Duration.ofMillis(100) // Minimum 100ms between renders
 
     init {
         // Initialize all stages as PENDING
@@ -89,18 +91,28 @@ class PipelineMonitor(
     }
 
     /**
-     * Render current progress (only if state changed)
+     * Render current progress (with debouncing and state change detection)
      */
-    private fun renderProgress() {
+    private fun renderProgress(force: Boolean = false) {
         // Calculate current state hash to detect changes
         val currentHash = calculateProgressHash()
+        val now = Instant.now()
+        val timeSinceLastRender = Duration.between(lastRenderTime, now)
 
-        // Skip rendering if nothing changed (prevent duplicates)
-        if (currentHash == lastProgressHash && !verbose) {
-            return
+        // Skip rendering if:
+        // 1. Nothing changed AND not forced
+        // 2. Too soon since last render (debouncing) AND not forced
+        if (!force) {
+            if (currentHash == lastProgressHash) {
+                return
+            }
+            if (timeSinceLastRender < minRenderInterval) {
+                return
+            }
         }
 
         lastProgressHash = currentHash
+        lastRenderTime = now
 
         // Clear screen and move cursor to top
         if (!verbose) {
@@ -167,6 +179,8 @@ class PipelineMonitor(
      * Show final summary
      */
     fun showSummary(totalDurationOverrideMs: Long? = null) {
+        // Force final render to ensure latest state is shown
+        renderProgress(force = true)
         terminal.println()
         terminal.println(bold("📊 Pipeline Execution Summary"))
         terminal.println("─".repeat(50))

@@ -24,7 +24,7 @@ fun main(args: Array<String>) {
                     WebServer().start()
                     return
                 }
-                "init", "list", "status", "version", "run", "validate", "test", "dash", "template" -> {
+                "init", "list", "status", "version", "run", "validate", "test", "dash", "template", "resume", "checkpoint", "stats", "completion", "doctor" -> {
                     // Use full CLI for these commands
                 }
                 else -> {
@@ -44,15 +44,37 @@ fun main(args: Array<String>) {
                 ValidateCommand(),
                 TestCommand(),
                 TemplateCommand(),
+                ResumeCommand(),
+                CheckpointCommand(),
+                StatsCommand(),
+                DoctorCommand(),
                 StatusCommand(),
                 ListCommand(),
-                VersionCommand()
+                VersionCommand(),
+                CompletionCommand()
             )
             .main(args)
     } catch (e: Exception) {
-        System.err.println("Error: ${e.message}")
+        // Enhanced error handling with suggestions
+        val errorInfo = com.cotor.error.ErrorHelper.getErrorMessage(e)
+
+        System.err.println("\n${errorInfo.title}")
+        System.err.println("━".repeat(50))
+        System.err.println("Error: ${errorInfo.message}")
+        System.err.println()
+        System.err.println("💡 Suggestions:")
+        errorInfo.suggestions.forEachIndexed { index, suggestion ->
+            System.err.println("  ${index + 1}. $suggestion")
+        }
+        System.err.println("\n🧭 Quick help: run 'cotor --short' or see docs/QUICK_START.md")
+        System.err.println("📦 Examples: examples/run-examples.sh")
+        System.err.println("━".repeat(50))
+
         if (args.contains("--debug") || args.contains("-d")) {
+            System.err.println("\n🔍 Debug Stack Trace:")
             e.printStackTrace()
+        } else {
+            System.err.println("\nℹ️  Run with --debug for detailed stack trace")
         }
         System.exit(1)
     } finally {
