@@ -166,6 +166,7 @@ class WebServer : KoinComponent {
 
                         config.agents.forEach { agentRegistry.registerAgent(it) }
                         val result = orchestrator.executePipeline(pipeline)
+                        val timeline = buildTimelinePayload(pipeline, result)
 
                         call.respond(
                             mapOf(
@@ -184,7 +185,7 @@ class WebServer : KoinComponent {
                                         "error" to it.error
                                     )
                                 },
-                                "timeline" to emptyList<Map<String, Any?>>()
+                                "timeline" to timeline
                             )
                         )
                     } catch (e: Exception) {
@@ -387,6 +388,31 @@ class WebServer : KoinComponent {
 
     private fun sanitizeName(name: String): String =
         name.trim().lowercase().replace("[^a-z0-9-_]".toRegex(), "-")
+
+    private fun buildTimelinePayload(
+        pipeline: Pipeline,
+        result: AggregatedResult
+    ): List<Map<String, Any?>> {
+        val resultByAgent = result.results.groupBy { it.agentName }
+        return pipeline.stages.map { stage ->
+            val stageResult = resultByAgent[stage.agent?.name]?.firstOrNull()
+            val state = when {
+                stageResult == null -> "FAILED"
+                stageResult.isSuccess -> "COMPLETED"
+                else -> "FAILED"
+            }
+            val message = stageResult?.error ?: stageResult?.output
+            val preview = stageResult?.output?.take(200)
+
+            mapOf(
+                "stageId" to stage.id,
+                "state" to state,
+                "durationMs" to (stageResult?.duration ?: 0),
+                "message" to message,
+                "outputPreview" to preview
+            )
+        }
+    }
 }
 
 private fun openInBrowser(url: String) {
