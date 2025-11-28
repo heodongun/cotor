@@ -3,6 +3,9 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "🚀 Installing Cotor..."
 echo ""
 
@@ -27,8 +30,8 @@ echo ""
 
 # Build the project
 echo "📦 Building Cotor..."
-if [ -f "./gradlew" ]; then
-    ./gradlew shadowJar --no-daemon
+if [ -f "$PROJECT_ROOT/gradlew" ]; then
+    (cd "$PROJECT_ROOT" && ./gradlew shadowJar --no-daemon)
 else
     echo "❌ Error: gradlew not found. Are you in the Cotor directory?"
     exit 1
@@ -39,7 +42,8 @@ echo "✅ Build successful!"
 echo ""
 
 # Make cotor script executable
-chmod +x cotor
+COTOR_PATH="$PROJECT_ROOT/shell/cotor"
+chmod +x "$COTOR_PATH"
 
 # Determine shell config file
 if [ -n "$ZSH_VERSION" ]; then
@@ -49,9 +53,6 @@ elif [ -n "$BASH_VERSION" ]; then
 else
     SHELL_CONFIG="$HOME/.profile"
 fi
-
-# Get absolute path
-COTOR_PATH="$(cd "$(dirname "$0")" && pwd)/cotor"
 
 echo "📝 Installation complete!"
 echo ""
@@ -68,7 +69,7 @@ echo ""
 echo "🎉 You can now use Cotor!"
 echo ""
 echo "Try these commands:"
-echo "  ./cotor version"
-echo "  ./cotor init"
-echo "  ./cotor list --config test-ai-models.yaml"
-echo "  ./cotor run test-all-models --config test-ai-models.yaml"
+echo "  ./shell/cotor version"
+echo "  ./shell/cotor init"
+echo "  ./shell/cotor list --config test-ai-models.yaml"
+echo "  ./shell/cotor run test-all-models --config test-ai-models.yaml"

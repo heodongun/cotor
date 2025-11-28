@@ -1,0 +1,27 @@
+version: "1.0"
+
+agents:
+  - name: echo
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 30000
+
+pipelines:
+  - name: hello-echo
+    description: "단일 에이전트가 인사 문구를 반환합니다."
+    executionMode: SEQUENTIAL
+    stages:
+      - id: greet
+        agent:
+          name: echo
+        input: "안녕하세요! Cotor를 시작해봅시다."
+
+security:
+  useWhitelist: false
+  allowedExecutables: []
+  allowedDirectories: []
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 1

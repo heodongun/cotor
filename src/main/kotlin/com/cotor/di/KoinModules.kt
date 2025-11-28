@@ -28,6 +28,7 @@ import com.cotor.monitoring.StructuredLogger
 import com.cotor.presentation.formatter.*
 import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
+import com.cotor.stats.StatsManager
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.OutputValidator
 import com.cotor.validation.output.SyntaxValidator
@@ -69,7 +70,8 @@ val cotorModule = module {
     single<ResultAggregator> { DefaultResultAggregator(get()) }
     single<SyntaxValidator> { SyntaxValidator() }
     single<OutputValidator> { DefaultOutputValidator(get()) }
-    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get()) }
+    single<StatsManager> { StatsManager() }
+    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get(), get()) }
 
     // Event System
     single<EventBus> { CoroutineEventBus() }

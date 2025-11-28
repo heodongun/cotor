@@ -3,6 +3,7 @@ package com.cotor.presentation.cli
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
+import com.cotor.validation.PipelineValidator
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -16,6 +17,7 @@ class SimpleCLI : KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val orchestrator: PipelineOrchestrator by inject()
+    private val pipelineValidator: PipelineValidator by inject()
 
     fun run(args: Array<String>) = runBlocking {
         if (args.isEmpty()) {
@@ -36,6 +38,14 @@ class SimpleCLI : KoinComponent {
             // Find pipeline
             val pipeline = config.pipelines.find { it.name == pipelineName }
                 ?: throw IllegalArgumentException("❌ Pipeline not found: $pipelineName")
+
+            val validation = pipelineValidator.validate(pipeline)
+            if (validation is com.cotor.validation.ValidationResult.Failure) {
+                println("❌ Validation failed:")
+                validation.errors.forEach { println("   - $it") }
+                println("👉 수정 후 다시 실행하거나, --dry-run 으로 흐름만 확인하세요.")
+                return@runBlocking
+            }
             
             // Execute
             println("🚀 Running: $pipelineName")

@@ -582,17 +582,17 @@ pipelines:
 ```bash
 # 1. 재시도 테스트
 cd test-claude
-java -jar ../build/libs/cotor-1.0.0.jar run retry-test \
+java -jar ../build/libs/cotor-1.0.0-all.jar run retry-test \
   --config experiments/04-error/retry-simple.yaml \
   --verbose
 
 # 2. Fallback 테스트
-java -jar ../build/libs/cotor-1.0.0.jar run fallback-test \
+java -jar ../build/libs/cotor-1.0.0-all.jar run fallback-test \
   --config experiments/04-error/fallback-test.yaml \
   --verbose
 
 # 3. 복합 테스트
-java -jar ../build/libs/cotor-1.0.0.jar run retry-then-fallback-test \
+java -jar ../build/libs/cotor-1.0.0-all.jar run retry-then-fallback-test \
   --config experiments/04-error/retry-fallback-test.yaml \
   --verbose
 ```

@@ -4,21 +4,22 @@
 # Get the real path of this script (follow symlinks)
 SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Determine project version from gradle.properties
-APP_VERSION=$(grep -E '^version=' "$SCRIPT_DIR/gradle.properties" | head -n 1 | cut -d'=' -f2 | tr -d '\r')
+APP_VERSION=$(grep -E '^version=' "$PROJECT_ROOT/gradle.properties" | head -n 1 | cut -d'=' -f2 | tr -d '\r')
 [ -z "$APP_VERSION" ] && APP_VERSION="1.0.0"
 
 # Path to the shaded JAR file (built via shadowJar)
-JAR_PATH="$SCRIPT_DIR/build/libs/cotor-${APP_VERSION}-all.jar"
+JAR_PATH="$PROJECT_ROOT/build/libs/cotor-${APP_VERSION}-all.jar"
 
 # Build the CLI if the shaded JAR is missing
 if [ ! -f "$JAR_PATH" ]; then
     echo "Building cotor CLI (./gradlew shadowJar)..."
-    if [ -x "$SCRIPT_DIR/gradlew" ]; then
-        (cd "$SCRIPT_DIR" && ./gradlew shadowJar) || exit 1
+    if [ -x "$PROJECT_ROOT/gradlew" ]; then
+        (cd "$PROJECT_ROOT" && ./gradlew shadowJar) || exit 1
     else
-        echo "Error: gradlew not found in $SCRIPT_DIR"
+        echo "Error: gradlew not found in $PROJECT_ROOT"
         exit 1
     fi
 fi

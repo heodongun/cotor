@@ -19,6 +19,7 @@ import com.cotor.model.StageLoopConfig
 import com.cotor.model.StageType
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.SyntaxValidator
+import com.cotor.stats.StatsManager
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -43,7 +44,8 @@ class PipelineOrchestratorConditionalTest : FunSpec({
             eventBus = CoroutineEventBus(),
             logger = LoggerFactory.getLogger("ConditionalTest"),
             agentRegistry = registry,
-            outputValidator = DefaultOutputValidator(SyntaxValidator())
+            outputValidator = DefaultOutputValidator(SyntaxValidator()),
+            statsManager = StatsManager()
         )
     }
 

@@ -1,7 +1,7 @@
 # Cotor - AI CLI 마스터-에이전트 시스템
 
-[![English](https://img.shields.io/badge/Language-English-blue)](README.md)
-[![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
+[![English](https://img.shields.io/badge/Language-English-blue)](../../docs/README.md)
+[![한국어](https://img.shields.io/badge/Language-한국어-red)](../../docs/README.ko.md)
 
 Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기반 AI CLI 오케스트레이션 시스템입니다. 코루틴을 활용한 고성능 비동기 실행을 제공합니다.
 
@@ -24,7 +24,7 @@ Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기�
 ```bash
 git clone https://github.com/yourusername/cotor.git
 cd cotor
-./install-global.sh
+./shell/install-global.sh
 ```
 
 자동으로:
@@ -36,8 +36,8 @@ cd cotor
 
 ```bash
 ./gradlew shadowJar
-chmod +x cotor
-ln -s $(pwd)/cotor /usr/local/bin/cotor
+chmod +x shell/cotor
+ln -s $(pwd)/shell/cotor /usr/local/bin/cotor
 ```
 
 ### Claude Code 통합 (선택사항)
@@ -45,7 +45,7 @@ ln -s $(pwd)/cotor /usr/local/bin/cotor
 Claude Code에서 cotor를 원활하게 사용할 수 있도록 전역 슬래시 커맨드를 설치합니다:
 
 ```bash
-./install-claude-integration.sh
+./shell/install-claude-integration.sh
 ```
 
 설치되는 항목:
@@ -57,7 +57,7 @@ Claude Code에서 cotor를 원활하게 사용할 수 있도록 전역 슬래시
 
 **모든 프로젝트에서 사용 가능**: 한 번 설치하면 어떤 프로젝트에서든 이 커맨드들을 사용할 수 있습니다!
 
-📖 **[상세 설정 가이드](docs/CLAUDE_SETUP.md)** - 수동 설치 및 문제 해결
+📖 **[상세 설정 가이드](CLAUDE_SETUP.md)** - 수동 설치 및 문제 해결
 
 ## 🤖 내장 AI 플러그인
 

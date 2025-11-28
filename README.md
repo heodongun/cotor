@@ -1,846 +1,306 @@
 # Cotor - AI CLI Master-Agent System
 
-[![English](https://img.shields.io/badge/Language-English-blue)](README.md)
-[![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/yourusername/cotor)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-purple)](https://kotlinlang.org/)
+[![JVM](https://img.shields.io/badge/jvm-23-orange)](https://openjdk.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Cotor is a Kotlin-based AI CLI orchestration system that manages multiple AI tools through a unified interface. Built with coroutines for high-performance async execution.
+Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a single command. Execute complex AI pipelines with sequential, parallel, or DAG execution modes, real-time monitoring, and comprehensive validation.
 
-## 🎉 What's New (v1.0.1 - 2025-11-20)
+## ✨ Key Features
 
-### 🚀 Latest Improvements
-- ✨ **Pipeline Templates** – NEW `cotor template` command creates ready-to-use pipelines in seconds!
-  - 5 built-in templates: `compare`, `chain`, `review`, `consensus`, `custom`
-  - Reduces pipeline creation time by 83% (30 min → 5 min)
-  - Perfect for beginners and quick prototyping
-- 🔄 **Improved Monitoring** – Reduced duplicate output with smart state tracking
-- 📚 **Better Documentation** – Added IMPROVEMENTS.md, TEST_REPORT.md, and CHANGELOG.md
+- 🚀 **Multi-Mode Execution**: Sequential, Parallel, and DAG workflows
+- 📊 **Real-time Monitoring**: Live progress tracking with timeline visualization
+- ✅ **Validation System**: Pre-execution pipeline validation with security checks
+- 🔖 **Checkpoint & Resume**: Save and restore pipeline execution state
+- 📈 **Statistics & Analytics**: Automatic performance tracking and trend analysis
+- 📝 **Template System**: 5 built-in templates for common patterns
+- 🩺 **Doctor Command**: Environment diagnostics and health checks
+- 🌐 **Web & TUI**: Browser-based UI and terminal dashboard
+- 🔒 **Security**: Whitelist-based execution control
+- 🎨 **User-Friendly**: Colored output, helpful error messages, and suggestions
 
-### CLI, Visuals & Dashboards
-- ✅ **Stage Timeline & Summary** – `cotor run` now prints a colored timeline, per-stage previews, and run summaries.
-- ✅ **Codex Dashboard** – `cotor dash -c <config>` launches an interactive Codex-style TUI to browse and run pipelines without memorizing names.
-- ✅ **Live Monitor Clean‑up** – event subscriptions auto-unsubscribe, so long-running monitors stay stable.
+## 📚 Documentation
 
-### Web Pipeline Studio
-- 🧱 **Modern Dashboard** – refreshed UI with hero banner, stats, search, and responsive cards.
-- 🪄 **Visual Builder** – add multi-agent tasks in the browser; generated YAML is saved under `test/`.
-- 📡 **Execution Feed** – `/api/run/<pipeline>` returns stage timelines so the browser shows "what happened" instead of just final JSON.
+### Quick Links
+- [📖 English Guide](docs/README.md)
+- [📖 한글 가이드](docs/README.ko.md)
+- [🚀 Quick Start](docs/QUICK_START.md)
+- [⚡ Features](docs/FEATURES.md)
+- [📑 Documentation Index](docs/INDEX.md)
 
-### Validation & Reliability
-- 🔁 **TimelineCollector** – every execution can be replayed across CLI, dashboard, and web.
-- ♻️ **DAG Validation Fixes** – accurate cycle detection and critical-path estimates for dry-runs.
-- ✅ **Tests** – validator, recovery, timeline, and output validation are covered by unit tests.
+### Test Reports
+- [✅ **Live Test Results**](test-results/LIVE_TEST_RESULTS.md) - Real execution test (NEW!)
+- [📊 Test Summary](test-results/README.md) - Quick overview
+- [🧪 Feature Test Report](docs/reports/FEATURE_TEST_REPORT_v1.0.0.md) - Comprehensive test
 
-### Dynamic Workflow Control
-- ✅ **Decision Stages** – `type: DECISION` nodes read previous outputs/metadata, mutate shared state, and jump to any stage with `onTrue/onFalse` actions.
-- ✅ **Loop Controllers** – `type: LOOP` caps iterations, evaluates break expressions, and replays expensive stages without scripting.
-- 🧠 **Expression Engine** – use expressions like `review.validationScore >= 0.85 && context.sharedState.retry != 'done'` to drive adaptive flows.
+### Additional Resources
+- [📋 Release Notes](docs/release/CHANGELOG.md)
+- [🔧 Upgrade Guide](docs/UPGRADE_GUIDE.md)
+- [🤖 Claude Integration](docs/CLAUDE_SETUP.md)
+- [💡 Usage Tips](docs/USAGE_TIPS.md)
+- [📦 Examples](examples/)
 
-### Result Intelligence
-- ✅ **Consensus Scoring** – automatic pairwise analysis flags agreement strength and surfaces the most trustworthy agent.
-- ✅ **Best Candidate Spotlight** – run summary now tells you which agent produced the top output (using validation scores & heuristics).
-- ⚠️ **Disagreement Insights** – low-similarity outputs trigger recommendations for follow-up or reruns.
+## 🚀 Quick Start
 
-👉 **[See the Upgrade Guide](docs/UPGRADE_GUIDE.md)** for migration details.
-👉 **[See the Changelog](CHANGELOG.md)** for detailed version history.
-👉 **[See the Test Report](TEST_REPORT.md)** for validation results.
-
-## ✨ Core Features
-
-- 🚀 **Coroutine-Based Async**: High-performance parallel execution
-- 🔌 **Plugin Architecture**: Easy integration of new AI tools
-- 🔄 **Flexible Orchestration**: Sequential, parallel, and DAG-based pipelines
-- 🔐 **Security First**: Whitelist-based command validation
-- 📊 **Real-Time Monitoring**: Live progress tracking and metrics
-- 🎯 **Multiple Formats**: JSON, CSV, and text output
-- ✅ **Pipeline Validation**: Pre-flight checks before execution
-
-## 📦 Installation
-
-### Quick Install (Recommended)
+### Option 1: Global Installation (Recommended)
 
 ```bash
 git clone https://github.com/yourusername/cotor.git
 cd cotor
-./install-global.sh
+./shell/install-global.sh
+cotor version
 ```
 
-This will:
-- ✅ Build the project
-- ✅ Install `cotor` command globally
-- ✅ Make it available from anywhere
-
-### Manual Install
+### Option 2: Local Usage
 
 ```bash
 ./gradlew shadowJar
-chmod +x cotor
-ln -s $(pwd)/cotor /usr/local/bin/cotor
+chmod +x shell/cotor
+./shell/cotor version
 ```
 
-### Claude Code Integration (Optional)
-
-Install global slash commands for Claude Code to use cotor seamlessly:
+### Option 3: Docker (Coming Soon)
 
 ```bash
-./install-claude-integration.sh
+docker run -it cotor/cli version
 ```
 
-This will install:
-- ✅ `/cotor-generate` - Auto-generate pipelines from goals
-- ✅ `/cotor-execute` - Execute pipelines with monitoring
-- ✅ `/cotor-validate` - Validate pipeline syntax
-- ✅ `/cotor-template` - Create from templates
-- ✅ Global knowledge base for Claude to understand cotor
-
-**Available everywhere**: These commands work in any project once installed!
-
-📖 **[Detailed Setup Guide](docs/CLAUDE_SETUP.md)** - Manual installation and troubleshooting
-
-## 🤖 Built-in AI Plugins
-
-Cotor integrates with these AI CLI tools:
-
-| AI | Command | Description |
-|----|---------|-------------|
-| **Claude** | `claude --print <prompt>` | Anthropic's advanced AI |
-| **Codex** | `codex exec <prompt>` | Codex AI for code generation |
-| **Copilot** | `copilot -p <prompt> --allow-all-tools` | GitHub's AI assistant |
-| **Gemini** | `gemini --yolo <prompt>` | Google's multimodal AI |
-| **Cursor** | `cursor-cli generate <prompt>` | Cursor AI editor |
-| **OpenCode** | `opencode generate <prompt>` | Open-source AI |
-
-### Install AI CLIs
+## 📖 Basic Usage
 
 ```bash
-# Claude (if you have access)
-# Install from Anthropic
-
-# GitHub Copilot
-# Already installed if you have Copilot CLI
-
-# Gemini
-# Install from Google AI
-
-# OpenAI
-pip install openai
-
-# Others as needed
-```
-
-## 🚀 Quick Start
-
-### 1. Initialize
-
-```bash
+# 1. Create configuration
 cotor init
+
+# 2. List available agents
+cotor list
+
+# 3. Validate pipeline
+cotor validate example-pipeline
+
+# 4. Run pipeline
+cotor run example-pipeline --output-format text
+
+# 5. View statistics
+cotor stats
+
+# 6. Check environment
+cotor doctor
 ```
 
-Creates a `cotor.yaml` configuration file.
+## 💻 CLI Commands
 
-### 2. Create Configuration
+### Core Commands
+| Command | Description | Example |
+|---------|-------------|---------|
+| `init` | Create configuration file | `cotor init --interactive` |
+| `list` | Show registered agents | `cotor list -c cotor.yaml` |
+| `run` | Execute pipeline | `cotor run my-pipeline --verbose` |
+| `validate` | Validate pipeline | `cotor validate my-pipeline` |
+| `version` | Show version info | `cotor version` |
+
+### Advanced Commands
+| Command | Description | Example |
+|---------|-------------|---------|
+| `doctor` | Environment diagnostics | `cotor doctor` |
+| `stats` | Show statistics | `cotor stats my-pipeline` |
+| `template` | Manage templates | `cotor template compare out.yaml` |
+| `checkpoint` | Checkpoint management | `cotor checkpoint` |
+| `resume` | Resume from checkpoint | `cotor resume <id>` |
+| `dash` | TUI dashboard | `cotor dash` |
+| `web` | Web interface | `cotor web` |
+| `completion` | Shell completion | `cotor completion zsh` |
+
+### Quick Help
+```bash
+cotor --short      # 10-line cheat sheet
+cotor --help       # Full command help
+```
+
+## 📦 Examples
+
+Ready-to-run examples in `examples/`:
+
+```bash
+# Single agent example
+./shell/cotor run single-agent -c examples/single-agent.yaml
+
+# Parallel comparison
+./shell/cotor run parallel-compare -c examples/parallel-compare.yaml
+
+# Decision and loop
+./shell/cotor run decision-loop -c examples/decision-loop.yaml
+
+# Run all examples
+./examples/run-examples.sh
+```
+
+## 🔧 Configuration
+
+Create `cotor.yaml`:
 
 ```yaml
 version: "1.0"
 
 agents:
-  - name: claude
+  - name: my-agent
     pluginClass: com.cotor.data.plugin.ClaudePlugin
     timeout: 60000
-
-  - name: copilot
-    pluginClass: com.cotor.data.plugin.CopilotPlugin
-    timeout: 60000
-
-  - name: gemini
-    pluginClass: com.cotor.data.plugin.GeminiPlugin
-    timeout: 60000
+    parameters:
+      model: claude-3-sonnet
+    tags:
+      - ai
+      - claude
 
 pipelines:
-  - name: code-review
-    description: "Multi-AI code review"
-    executionMode: PARALLEL
+  - name: my-pipeline
+    description: "My first pipeline"
+    executionMode: SEQUENTIAL
     stages:
-      - id: claude-review
+      - id: step1
         agent:
-          name: claude
-        input: "Review this code for best practices"
-
-      - id: copilot-review
-        agent:
-          name: copilot
-        input: "Review this code for bugs"
-
-      - id: gemini-review
-        agent:
-          name: gemini
-        input: "Review this code for performance"
+          name: my-agent
+        input: "Analyze this code"
 
 security:
   useWhitelist: true
   allowedExecutables:
     - claude
-    - copilot
     - gemini
   allowedDirectories:
     - /usr/local/bin
-    - /opt/homebrew/bin
 
 logging:
   level: INFO
   file: cotor.log
+  format: json
 
 performance:
   maxConcurrentAgents: 10
+  coroutinePoolSize: 8
 ```
-
-### Conditional & Loop Stages
-
-Cotor lets you branch or repeat work without shell scripts by turning stages into decision or loop nodes:
-
-```yaml
-      - id: quality-check
-        type: DECISION
-        condition:
-          expression: "implementation.validationScore >= 0.85"
-          onTrue:
-            action: CONTINUE
-          onFalse:
-            action: GOTO
-            targetStageId: improve
-            sharedState:
-              retryReason: "quality too low"
-
-      - id: loop-controller
-        type: LOOP
-        loop:
-          targetStageId: implementation
-          maxIterations: 2
-          untilExpression: "improve.validationScore >= 0.9"
-```
-
-- **Decision stages** do not run an agent. They evaluate the expression, optionally update shared state, and execute actions (`CONTINUE`, `GOTO`, `ABORT`).
-- **Loop stages** repeat a target stage up to `maxIterations` times and can stop early once `untilExpression` evaluates to `true`.
-- Expressions can reference any previous stage output or metadata via `<stageId>.<field>` (e.g., `review.metadata.severity`) or shared state via `context.sharedState.key`.
-
-### Result Analysis Summary
-
-Every `cotor run` now ends with a consensus report:
-
-```
-📦 Run Summary
-   Pipeline : code-review
-   Agents   : 3/3 succeeded
-   Duration : 9243ms
-   Consensus: ✅ Consensus (82%)
-   Best     : claude - API interface matches spec and includes tests.
-```
-
-- When outputs diverge you’ll see `⚠️ Divergent` plus per-agent disagreement notes (in `--verbose` mode).
-- Recommendations hint at next actions (e.g., rerun top agent, tighten validations, inspect failures).
-- The best agent is chosen using validation scores when available, falling back to output richness.
-
-### 3. Run Pipeline
-
-```bash
-# List available agents
-cotor list
-
-# Run pipeline
-cotor run code-review --output-format text
-
-# Run with specific config
-cotor run code-review --config my-config.yaml
-
-# Open Codex-style dashboard
-cotor dash -c test/test-codex/config/codex-demo.yaml
-
-# Launch web studio
-cotor web
-```
-
-### Codex Lab Sandbox
-
-For experiments, we ship a ready-to-use sandbox:
-
-- `test/test-codex/config/codex-demo.yaml` – demo sequential + DAG pipelines using echo agents.
-- `test/test-codex/{runs,artifacts,templates}` – dedicated folders to store outputs, templates, and run metadata.
-- `./cotor dash -c test/test-codex/config/codex-demo.yaml` – run pipelines repeatedly and review timelines.
-
-### Web Pipeline Studio
-
-```
-cotor web
-# visit http://localhost:8080
-```
-
-Use the left builder to stack AI tasks, click “생성 후 실행”, and monitor the execution feed. The UI lists all detected YAML files (auto-scanned) and summarizes agents, modes, and config locations.
-
-## 📖 Usage Examples
-
-### Example 1: Single AI Task
-
-```bash
-# Create a simple pipeline
-cat > single-ai.yaml << EOF
-version: "1.0"
-agents:
-  - name: claude
-    pluginClass: com.cotor.data.plugin.ClaudePlugin
-    timeout: 60000
-
-pipelines:
-  - name: generate-code
-    executionMode: SEQUENTIAL
-    stages:
-      - id: generate
-        agent:
-          name: claude
-        input: "Create a Python hello world function"
-
-security:
-  useWhitelist: true
-  allowedExecutables: [claude]
-  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
-EOF
-
-# Run it
-cotor run generate-code --config single-ai.yaml
-```
-
-### Example 2: Multiple AIs in Parallel (Same Task)
-
-Get different perspectives on the same problem:
-
-```bash
-cat > multi-compare.yaml << EOF
-version: "1.0"
-
-agents:
-  - name: claude
-    pluginClass: com.cotor.data.plugin.ClaudePlugin
-    timeout: 60000
-  - name: codex
-    pluginClass: com.cotor.data.plugin.CodexPlugin
-    timeout: 60000
-  - name: gemini
-    pluginClass: com.cotor.data.plugin.GeminiPlugin
-    timeout: 60000
-
-pipelines:
-  - name: compare-solutions
-    description: "Get 3 different implementations"
-    executionMode: PARALLEL
-    stages:
-      - id: claude-solution
-        agent:
-          name: claude
-        input: "Write a function to find prime numbers up to N"
-      
-      - id: codex-solution
-        agent:
-          name: codex
-        input: "Write a function to find prime numbers up to N"
-      
-      - id: gemini-solution
-        agent:
-          name: gemini
-        input: "Write a function to find prime numbers up to N"
-
-security:
-  useWhitelist: true
-  allowedExecutables: [claude, codex, gemini]
-  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
-EOF
-
-# Run and compare results
-cotor run compare-solutions --config multi-compare.yaml --output-format text
-```
-
-**Output**: You'll get 3 different implementations simultaneously!
-
-### Example 3: Sequential AI Pipeline (Review Chain)
-
-One AI's output becomes the next AI's input:
-
-```bash
-cat > review-chain.yaml << EOF
-version: "1.0"
-
-agents:
-  - name: claude
-    pluginClass: com.cotor.data.plugin.ClaudePlugin
-    timeout: 60000
-  - name: codex
-    pluginClass: com.cotor.data.plugin.CodexPlugin
-    timeout: 60000
-  - name: copilot
-    pluginClass: com.cotor.data.plugin.CopilotPlugin
-    timeout: 60000
-
-pipelines:
-  - name: code-review-chain
-    description: "Generate → Review → Optimize"
-    executionMode: SEQUENTIAL
-    stages:
-      - id: generate
-        agent:
-          name: claude
-        input: "Create a REST API endpoint for user authentication"
-      
-      - id: review
-        agent:
-          name: codex
-        # Input will be Claude's output
-      
-      - id: optimize
-        agent:
-          name: copilot
-        # Input will be Codex's reviewed code
-
-security:
-  useWhitelist: true
-  allowedExecutables: [claude, codex, copilot]
-  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
-EOF
-
-# Run the chain
-cotor run code-review-chain --config review-chain.yaml --output-format text
-```
-
-**Flow**: Claude generates → Codex reviews → Copilot optimizes
-
-### Example 4: Multi-AI Code Review
-
-Get comprehensive feedback from multiple AIs:
-
-```bash
-cat > code-review.yaml << EOF
-version: "1.0"
-
-agents:
-  - name: claude
-    pluginClass: com.cotor.data.plugin.ClaudePlugin
-    timeout: 60000
-  - name: codex
-    pluginClass: com.cotor.data.plugin.CodexPlugin
-    timeout: 60000
-  - name: copilot
-    pluginClass: com.cotor.data.plugin.CopilotPlugin
-    timeout: 60000
-  - name: gemini
-    pluginClass: com.cotor.data.plugin.GeminiPlugin
-    timeout: 60000
-
-pipelines:
-  - name: comprehensive-review
-    description: "Multi-perspective code review"
-    executionMode: PARALLEL
-    stages:
-      - id: security-review
-        agent:
-          name: claude
-        input: "Review this code for security vulnerabilities: [your code here]"
-      
-      - id: performance-review
-        agent:
-          name: codex
-        input: "Review this code for performance issues: [your code here]"
-      
-      - id: best-practices
-        agent:
-          name: copilot
-        input: "Review this code for best practices: [your code here]"
-      
-      - id: optimization
-        agent:
-          name: gemini
-        input: "Suggest optimizations for this code: [your code here]"
-
-security:
-  useWhitelist: true
-  allowedExecutables: [claude, codex, copilot, gemini]
-  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
-EOF
-
-# Get 4 different reviews simultaneously
-cotor run comprehensive-review --config code-review.yaml --output-format text
-```
-
-**Result**: 4 AIs review your code from different angles - all at once!
-
-### Example 5: AI Consensus Building
-
-Use multiple AIs to reach a consensus:
-
-```bash
-cat > consensus.yaml << EOF
-version: "1.0"
-
-agents:
-  - name: claude
-    pluginClass: com.cotor.data.plugin.ClaudePlugin
-    timeout: 60000
-  - name: codex
-    pluginClass: com.cotor.data.plugin.CodexPlugin
-    timeout: 60000
-  - name: gemini
-    pluginClass: com.cotor.data.plugin.GeminiPlugin
-    timeout: 60000
-
-pipelines:
-  - name: architecture-decision
-    description: "Get architectural recommendations"
-    executionMode: PARALLEL
-    stages:
-      - id: claude-opinion
-        agent:
-          name: claude
-        input: "What's the best architecture for a real-time chat app?"
-      
-      - id: codex-opinion
-        agent:
-          name: codex
-        input: "What's the best architecture for a real-time chat app?"
-      
-      - id: gemini-opinion
-        agent:
-          name: gemini
-        input: "What's the best architecture for a real-time chat app?"
-
-security:
-  useWhitelist: true
-  allowedExecutables: [claude, codex, gemini]
-  allowedDirectories: [/usr/local/bin, /opt/homebrew/bin]
-EOF
-
-# Compare recommendations
-cotor run architecture-decision --config consensus.yaml --output-format text
-```
-
-**Use Case**: Compare different AI opinions to make better decisions!
-
-## 🎯 CLI Commands
-
-### Quick Start with Templates ⭐ NEW
-
-```bash
-# List available templates
-cotor template
-
-# Create pipeline from template (83% faster than manual creation!)
-cotor template compare my-pipeline.yaml
-cotor template chain review-flow.yaml
-cotor template review code-review.yaml
-cotor template consensus decision.yaml
-cotor template custom my-custom.yaml
-
-# Available templates:
-#   compare   - Multiple AIs solve the same problem in parallel
-#   chain     - Sequential processing (generate → review → optimize)
-#   review    - Parallel multi-perspective code review
-#   consensus - Multiple AIs provide opinions for decision-making
-#   custom    - Customizable template with common patterns
-```
-
-### Basic Commands
-
-```bash
-# Initialize configuration
-cotor init
-
-# List registered agents
-cotor list [--config path/to/config.yaml]
-
-# Show version
-cotor version
-
-# Check status
-cotor status
-```
-
-### Pipeline Commands
-
-```bash
-# Validate pipeline before running
-cotor validate <pipeline-name> [--config path/to/config.yaml]
-
-# Run pipeline with real-time monitoring
-cotor run <pipeline-name> [options]
-  --config <path>           Configuration file (default: cotor.yaml)
-  --output-format <format>  Output format: json, csv, text (default: json)
-  --verbose, -v             Enable verbose output with detailed logging
-  --dry-run                 Simulate execution and show estimates
-  --watch, -w               Enable real-time progress monitoring (default: true)
-  --debug, -d               Enable debug mode
-
-# Test cotor functionality
-cotor test [--test-dir path/to/test]
-```
-
-### Command Examples
-
-```bash
-# Validate before running
-./cotor validate board-implementation -c test/board-feature/board-pipeline.yaml
-
-# Dry-run to see estimates
-./cotor run board-implementation --dry-run -c test/board-feature/board-pipeline.yaml
-
-# Run with verbose logging
-./cotor run board-implementation --verbose -c test/board-feature/board-pipeline.yaml
-
-# Test the installation
-./cotor test
-```
-
-## 🔧 Creating Custom Plugins
-
-```kotlin
-package com.cotor.data.plugin
-
-import com.cotor.data.process.ProcessManager
-import com.cotor.model.*
-
-class MyAIPlugin : AgentPlugin {
-    override val metadata = AgentMetadata(
-        name = "my-ai",
-        version = "1.0.0",
-        description = "My custom AI integration",
-        author = "Your Name",
-        supportedFormats = listOf(DataFormat.TEXT)
-    )
-
-    override suspend fun execute(
-        context: ExecutionContext,
-        processManager: ProcessManager
-    ): String {
-        val prompt = context.input ?: throw IllegalArgumentException("Input required")
-        
-        // Execute your AI CLI
-        val command = listOf("my-ai-cli", prompt)
-        
-        val result = processManager.executeProcess(
-            command = command,
-            input = null,
-            environment = context.environment,
-            timeout = context.timeout
-        )
-        
-        if (!result.isSuccess) {
-            throw AgentExecutionException("Execution failed: ${result.stderr}")
-        }
-        
-        return result.stdout
-    }
-}
-```
-
-Add to `cotor.yaml`:
-
-```yaml
-agents:
-  - name: my-ai
-    pluginClass: com.cotor.data.plugin.MyAIPlugin
-    timeout: 30000
-
-security:
-  allowedExecutables:
-    - my-ai-cli
-```
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────┐
-│      Presentation Layer             │
-│  (CLI, Commands, Formatters)       │
-└─────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────┐
-│       Domain Layer                  │
-│  (Orchestration, Execution)         │
-└─────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────┐
-│        Data Layer                   │
-│  (Registry, Config, Process)        │
-└─────────────────────────────────────┘
-```
-
-## 🔒 Security
-
-- **Whitelist Validation**: Only approved executables can run
-- **Command Injection Prevention**: Input sanitization
-- **Path Validation**: Restricted to allowed directories
-- **Environment Protection**: Dangerous variables blocked
-
-## 📊 Performance
-
-- **Parallel Execution**: Run multiple AIs simultaneously
-- **Coroutine-Based**: Lightweight concurrency
-- **Resource Management**: Memory monitoring and limits
-- **Configurable Timeouts**: Prevent hanging processes
 
 ## 🧪 Testing
 
-### Unit Tests
 ```bash
-# Run tests
+# Run unit tests
 ./gradlew test
 
-# Generate coverage report
-./gradlew jacocoTestReport
+# Run integration tests
+./shell/test-cotor-enhanced.sh
+./shell/test-cotor-pipeline.sh
+./shell/test-claude-integration.sh
 
-# Build
-./gradlew shadowJar
+# Dry run (simulation)
+cotor run my-pipeline --dry-run
 ```
 
-### Pipeline Tests
+## 🤝 Integration
 
-Test cotor with a real-world example (Board CRUD feature):
+### Claude Code Integration
 
 ```bash
-./test-cotor-pipeline.sh
+./shell/install-claude-integration.sh
 ```
 
-This will:
-1. Create a test directory with a board implementation pipeline
-2. Run the pipeline with Claude and Gemini
-3. Generate complete CRUD implementation
-4. Create tests and documentation
+Adds slash commands and knowledge base for Claude Code.
 
-**Expected output:**
-- `requirements.md` - Requirements and design
-- `Board.kt` - Entity class
-- `BoardRepository.kt` - Repository interface
-- `BoardService.kt` - Service layer
-- `BoardController.kt` - REST controller
-- `code-review.md` - Code review feedback
-- `BoardServiceTest.kt` - Unit tests
-- `README.md` - Complete documentation
+### CI/CD Integration
 
-## 📝 Example Output
+```yaml
+# GitHub Actions example
+- name: Run Cotor Pipeline
+  run: |
+    ./shell/cotor run build-and-test \
+      -c .cotor/ci-pipeline.yaml \
+      --output-format json
+```
+
+## 📊 Architecture
 
 ```
-================================================================================
-Pipeline Execution Results
-================================================================================
-
-Summary:
-  Total Agents:  3
-  Success Count: 3
-  Failure Count: 0
-  Total Duration: 26000ms
-
-Agent Results:
-
-  [1] claude
-      Status:   ✓ SUCCESS
-      Duration: 17933ms
-      Output:
-        I've created a Python "Hello, World!" program...
-
-  [2] copilot
-      Status:   ✓ SUCCESS
-      Duration: 12963ms
-      Output:
-        Created `hello-world.js` with a simple console.log...
-
-  [3] gemini
-      Status:   ✓ SUCCESS
-      Duration: 25800ms
-      Output:
-        I have created the `hello.go` file...
-
-================================================================================
+cotor/
+├── src/main/kotlin/com/cotor/
+│   ├── Main.kt                          # Entry point
+│   ├── domain/
+│   │   ├── orchestrator/                # Pipeline execution
+│   │   ├── executor/                    # Agent execution
+│   │   └── condition/                   # Conditional logic
+│   ├── presentation/
+│   │   ├── cli/                         # CLI commands
+│   │   ├── web/                         # Web UI
+│   │   └── formatter/                   # Output formatting
+│   ├── monitoring/                      # Real-time monitoring
+│   ├── checkpoint/                      # Checkpoint system
+│   ├── stats/                           # Statistics
+│   └── validation/                      # Pipeline validation
+├── examples/                            # Example pipelines
+├── docs/                                # Documentation
+└── shell/                               # Shell scripts
 ```
+
+## 🛠️ Development
+
+### Prerequisites
+- JDK 17 or higher
+- Kotlin 2.1.0
+- Gradle 8.5
+
+### Build
+
+```bash
+./gradlew clean build shadowJar
+```
+
+### Run Tests
+
+```bash
+./gradlew test
+./gradlew jacocoTestReport  # Coverage report
+```
+
+## 📈 Roadmap
+
+### v1.1.0 (Next)
+- [ ] Complete resume functionality
+- [ ] Enhanced web UI
+- [ ] Additional templates
+- [ ] Performance optimizations
+
+### v1.2.0
+- [ ] Cloud execution support
+- [ ] Advanced conditional logic
+- [ ] Dynamic pipeline generation
+- [ ] More AI CLI integrations
+
+### v2.0.0 (Long-term)
+- [ ] Distributed execution
+- [ ] ML integration
+- [ ] Advanced visualizations
+- [ ] Enterprise features
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
 
 ## 📄 License
 
-[Add your license here]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🔗 Links
+## 🙏 Acknowledgments
 
-- [Documentation](docs/)
-- [Examples](examples/)
-- [Issues](https://github.com/yourusername/cotor/issues)
-- [Upgrade Recommendations](docs/UPGRADE_RECOMMENDATIONS.md) - Future improvements
-- [Claude Setup Guide](docs/CLAUDE_SETUP.md) - Claude Code integration
+- Built with [Kotlin](https://kotlinlang.org/)
+- CLI powered by [Clikt](https://ajalt.github.io/clikt/)
+- Terminal UI with [Mordant](https://ajalt.github.io/mordant/)
+- Dependency injection via [Koin](https://insert-koin.io/)
 
-## 💡 Tips
+## 📞 Support
 
-- Use `--debug` flag for detailed execution logs
-- Set `maxConcurrentAgents` based on your system resources
-- Use `PARALLEL` mode for independent tasks
-- Use `SEQUENTIAL` mode when output feeds into next stage
-- Use `DAG` mode for complex dependencies
-
-## 🎨 Claude Code Integration
-
-If you installed the Claude integration, you can use these slash commands in **any project**:
-
-### Available Commands
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/cotor-generate` | Auto-generate pipelines from goals | `/cotor-generate "3 AIs compare sorting algorithms"` |
-| `/cotor-execute` | Execute pipelines with monitoring | `/cotor-execute pipeline.yaml` |
-| `/cotor-validate` | Validate pipeline syntax | `/cotor-validate pipeline.yaml` |
-| `/cotor-template` | Create from templates | `/cotor-template compare-solutions my-pipeline.yaml` |
-
-### Quick Start
-
-**1. List available templates:**
-```
-/cotor-template
-```
-
-**2. Create from template:**
-```
-/cotor-template compare-solutions test.yaml
-```
-
-**3. Validate:**
-```
-/cotor-validate test.yaml
-```
-
-**4. Execute:**
-```
-/cotor-execute test.yaml
-```
-
-### Available Templates
-
-- **compare-solutions**: Multiple AIs solve the same problem in parallel
-- **review-chain**: Sequential code review (generate → review → optimize)
-- **comprehensive-review**: Parallel multi-perspective review (security, performance, best practices)
-
-### Knowledge Base
-
-Claude automatically understands cotor through the global knowledge base at `~/.claude/steering/cotor-knowledge.md`:
-- ✅ Cotor commands and syntax
-- ✅ Pipeline patterns and best practices
-- ✅ AI plugin information
-- ✅ Troubleshooting guides
-
-### Verification
-
-Test your installation:
-```bash
-./test-claude-integration.sh
-```
-
-All tests should pass ✅
+- 📧 Email: support@cotor.io
+- 💬 Discord: [Join our community](https://discord.gg/cotor)
+- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/cotor/issues)
+- 📖 Wiki: [Documentation](https://github.com/yourusername/cotor/wiki)
 
 ---
 
-**Made with ❤️ using Kotlin and Coroutines**
+**Made with ❤️ by the Cotor Team**

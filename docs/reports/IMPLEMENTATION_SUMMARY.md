@@ -241,13 +241,13 @@ All implemented features successfully tested:
 
 ### ✅ Help Command
 ```bash
-java -jar build/libs/cotor-1.0.0.jar --help
+java -jar build/libs/cotor-1.0.0-all.jar --help
 # Shows all new commands: init, run, validate, test, status, list, version
 ```
 
 ### ✅ Validation Test
 ```bash
-java -jar build/libs/cotor-1.0.0.jar validate board-implementation -c test/board-feature/board-pipeline.yaml
+java -jar build/libs/cotor-1.0.0-all.jar validate board-implementation -c test/board-feature/board-pipeline.yaml
 # ✅ Pipeline structure: valid
 # ✅ All agents defined: valid
 # ✅ Stage dependencies: valid
@@ -256,14 +256,14 @@ java -jar build/libs/cotor-1.0.0.jar validate board-implementation -c test/board
 
 ### ✅ Dry-Run Test
 ```bash
-java -jar build/libs/cotor-1.0.0.jar run board-implementation --dry-run -c test/board-feature/board-pipeline.yaml
+java -jar build/libs/cotor-1.0.0-all.jar run board-implementation --dry-run -c test/board-feature/board-pipeline.yaml
 # 📋 Pipeline Estimate: board-implementation
 # ⏱️  Total Estimated Duration: ~2m 30s
 ```
 
 ### ✅ Test Command
 ```bash
-java -jar build/libs/cotor-1.0.0.jar test
+java -jar build/libs/cotor-1.0.0-all.jar test
 # 🧪 Running Cotor Pipeline Tests
 # Test 1: Configuration file check ✅
 ```

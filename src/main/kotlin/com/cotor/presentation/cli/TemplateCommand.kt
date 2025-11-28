@@ -3,6 +3,9 @@ package com.cotor.presentation.cli
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
+import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
@@ -29,16 +32,46 @@ class TemplateCommand : CliktCommand(
         help = "Output YAML file path"
     ).optional()
 
+    private val interactive by option(
+        "--interactive", "-i",
+        help = "Interactive mode with prompts for customization"
+    ).flag(default = false)
+
+    private val preview by option("--preview", help = "Preview a template without writing a file")
+        .choice("compare", "chain", "review", "consensus", "custom")
+
+    private val list by option("--list", help = "List available templates").flag(default = false)
+
+    private val fills by option("--fill", "-F", help = "Replace placeholders: key=value").multiple()
+
     private val terminal = Terminal()
 
     override fun run() {
-        if (templateType == null) {
+        if (list && templateType == null && preview == null) {
             showTemplateList()
             return
         }
 
-        val template = generateTemplate(templateType!!)
-        val filename = outputFile ?: "cotor-${templateType}.yaml"
+        val targetType = preview ?: templateType
+        if (targetType == null) {
+            showTemplateList()
+            return
+        }
+
+        val template = if (interactive) {
+            generateInteractiveTemplate(targetType)
+        } else {
+            generateTemplate(targetType)
+        }.let { applyFills(it) }
+
+        if (preview != null && outputFile == null) {
+            terminal.println(bold(blue("📄 Template preview ($preview)")))
+            terminal.println()
+            terminal.println(template)
+            return
+        }
+
+        val filename = outputFile ?: "cotor-${targetType}.yaml"
 
         File(filename).writeText(template)
 
@@ -46,8 +79,112 @@ class TemplateCommand : CliktCommand(
         terminal.println()
         terminal.println(dim("Next steps:"))
         terminal.println(dim("  1. Edit $filename to customize agents and inputs"))
-        terminal.println(dim("  2. Run: cotor validate $filename"))
-        terminal.println(dim("  3. Execute: cotor run <pipeline-name> --config $filename"))
+        terminal.println(dim("  2. Run: cotor validate <pipeline> -c $filename"))
+        terminal.println(dim("  3. Execute: cotor run <pipeline> -c $filename --output-format text"))
+    }
+
+    /**
+     * Generate template with interactive prompts
+     */
+    private fun generateInteractiveTemplate(type: String): String {
+        terminal.println(bold(blue("🎨 Interactive Template Generation")))
+        terminal.println()
+
+        // Gather user inputs
+        terminal.print(yellow("Pipeline name: "))
+        val pipelineName = readLine()?.trim() ?: type
+
+        terminal.print(yellow("Pipeline description: "))
+        val description = readLine()?.trim() ?: "Custom $type pipeline"
+
+        terminal.print(yellow("Number of agents (1-5): "))
+        val numAgents = readLine()?.trim()?.toIntOrNull()?.coerceIn(1, 5) ?: 2
+
+        val agents = mutableListOf<String>()
+        repeat(numAgents) { i ->
+            terminal.print(yellow("Agent ${i + 1} name (claude/gemini/codex): "))
+            val agent = readLine()?.trim() ?: "claude"
+            agents.add(agent)
+        }
+
+        terminal.print(yellow("Execution mode (SEQUENTIAL/PARALLEL/DAG): "))
+        val mode = readLine()?.trim()?.uppercase() ?: "SEQUENTIAL"
+
+        terminal.print(yellow("Timeout per agent (ms, default 60000): "))
+        val timeout = readLine()?.trim()?.toLongOrNull() ?: 60000L
+
+        terminal.println()
+        terminal.println(green("✨ Generating customized template..."))
+
+        return buildCustomTemplate(
+            pipelineName = pipelineName,
+            description = description,
+            agents = agents,
+            executionMode = mode,
+            timeout = timeout,
+            templateType = type
+        )
+    }
+
+    /**
+     * Build custom template from user inputs
+     */
+    private fun buildCustomTemplate(
+        pipelineName: String,
+        description: String,
+        agents: List<String>,
+        executionMode: String,
+        timeout: Long,
+        templateType: String
+    ): String {
+        val agentDefs = agents.distinct().joinToString("\n") { agent ->
+            val pluginClass = when (agent) {
+                "claude" -> "com.cotor.data.plugin.ClaudePlugin"
+                "gemini" -> "com.cotor.data.plugin.GeminiPlugin"
+                "codex" -> "com.cotor.data.plugin.CodexPlugin"
+                "copilot" -> "com.cotor.data.plugin.CopilotPlugin"
+                else -> "com.cotor.data.plugin.ClaudePlugin"
+            }
+            """  - name: $agent
+    pluginClass: $pluginClass
+    timeout: $timeout"""
+        }
+
+        val stages = agents.mapIndexed { index, agent ->
+            """      - id: ${agent}-stage-${index + 1}
+        agent:
+          name: $agent
+        input: "YOUR_PROMPT_HERE""""
+        }.joinToString("\n\n")
+
+        val allowedExecs = agents.distinct().joinToString("\n") { "    - $it" }
+
+        return """version: "1.0"
+
+agents:
+$agentDefs
+
+pipelines:
+  - name: $pipelineName
+    description: "$description"
+    executionMode: $executionMode
+    stages:
+$stages
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+$allowedExecs
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: ${agents.size}
+""".trimIndent()
     }
 
     private fun showTemplateList() {
@@ -67,8 +204,25 @@ class TemplateCommand : CliktCommand(
         }
 
         terminal.println()
-        terminal.println(dim("Usage: cotor template <type> [output-file]"))
-        terminal.println(dim("Example: cotor template compare my-pipeline.yaml"))
+        terminal.println(dim("Usage: cotor template <type> [output-file] [--preview] [--fill key=value]"))
+        terminal.println(dim("Example: cotor template compare my-pipeline.yaml --fill prompt=\"Write tests\""))
+        terminal.println(dim("Preview: cotor template --preview chain"))
+        terminal.println(dim("List:    cotor template --list"))
+    }
+
+    private fun applyFills(template: String): String {
+        if (fills.isEmpty()) return template
+        var output = template
+        fills.forEach { pair ->
+            val (key, value) = pair.split("=", limit = 2).let {
+                if (it.size == 2) it[0].trim() to it[1].trim() else return@forEach
+            }
+            output = output.replace("{{${key}}}", value, ignoreCase = false)
+            if (key.equals("prompt", true)) {
+                output = output.replace("YOUR_PROMPT_HERE", value)
+            }
+        }
+        return output
     }
 
     private fun generateTemplate(type: String): String {

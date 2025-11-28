@@ -1,0 +1,39 @@
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: compare-summaries
+    description: "두 AI가 같은 주제를 요약하고 결과를 비교합니다."
+    executionMode: PARALLEL
+    stages:
+      - id: claude-summary
+        agent:
+          name: claude
+        input: "마이크로서비스 아키텍처 장단점을 3줄로 요약해줘."
+
+      - id: gemini-summary
+        agent:
+          name: gemini
+        input: "마이크로서비스 아키텍처 장단점을 3줄로 요약해줘."
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude
+    - gemini
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 2

@@ -1,0 +1,15 @@
+#compdef cotor
+_cotor_completions() {
+  local -a subcmds
+  subcmds=(init list run validate template dash web resume checkpoint stats doctor version completion)
+  _arguments "1: :->subcmds"
+  case $state in
+    subcmds)
+      _describe 'command' subcmds
+    ;;
+  esac
+}
+_cotor_completions "$@"
+
+# 위 내용을 쉘 설정에 추가하세요. 예) cotor completion zsh > /tmp/cotor.zsh && source /tmp/cotor.zsh
+# alias 추천: alias co='cotor'

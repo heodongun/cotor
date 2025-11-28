@@ -2,6 +2,18 @@
 
 Get up and running with Cotor in 5 minutes!
 
+## 10줄 요약
+1. `./shell/install-global.sh` 또는 `./gradlew shadowJar && ./shell/cotor version`
+2. `cotor init` (또는 `cotor init --interactive`)
+3. `cotor list` 로 에이전트 확인
+4. `cotor template` 으로 YAML 예제 만들기
+5. `cotor validate <pipeline> -c <yaml>`
+6. `cotor run <pipeline> -c <yaml> --output-format text`
+7. `cotor dash -c <yaml>` TUI, `cotor web` 웹 UI
+8. 예제: `examples/run-examples.sh`
+9. 점검: `cotor doctor`, 문제시 `--debug` 또는 docs/README*
+10. Claude 연동: `./shell/install-claude-integration.sh`
+
 ## Prerequisites
 
 - Java 17 or higher
@@ -15,13 +27,13 @@ Get up and running with Cotor in 5 minutes!
 git clone https://github.com/yourorg/cotor.git
 cd cotor
 ./gradlew shadowJar
-chmod +x cotor
+chmod +x shell/cotor
 ```
 
 ### Option 2: Global Install
 
 ```bash
-./install-global.sh
+./shell/install-global.sh
 ```
 
 This makes `cotor` available system-wide.
@@ -62,7 +74,7 @@ EOF
 ### Step 2: Validate the Pipeline
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar validate hello-world -c my-pipeline.yaml
+java -jar build/libs/cotor-1.0.0-all.jar validate hello-world -c my-pipeline.yaml
 ```
 
 **Expected output:**
@@ -79,7 +91,7 @@ java -jar build/libs/cotor-1.0.0.jar validate hello-world -c my-pipeline.yaml
 Test without actually running:
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar run hello-world --dry-run -c my-pipeline.yaml
+java -jar build/libs/cotor-1.0.0-all.jar run hello-world --dry-run -c my-pipeline.yaml
 ```
 
 **Expected output:**
@@ -97,7 +109,7 @@ Stages:
 ### Step 4: Run the Pipeline
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar run hello-world -c my-pipeline.yaml --verbose
+java -jar build/libs/cotor-1.0.0-all.jar run hello-world -c my-pipeline.yaml --verbose
 ```
 
 **What you'll see:**
@@ -183,7 +195,7 @@ security:
 Run it:
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar run compare-solutions -c my-pipeline.yaml
+java -jar build/libs/cotor-1.0.0-all.jar run compare-solutions -c my-pipeline.yaml
 ```
 
 You'll get 2 different implementations simultaneously!
@@ -220,8 +232,8 @@ Try the complete board implementation example:
 
 ```bash
 cd test/board-feature
-java -jar ../../build/libs/cotor-1.0.0.jar validate board-implementation -c board-pipeline.yaml
-java -jar ../../build/libs/cotor-1.0.0.jar run board-implementation --dry-run -c board-pipeline.yaml
+java -jar ../../build/libs/cotor-1.0.0-all.jar validate board-implementation -c board-pipeline.yaml
+java -jar ../../build/libs/cotor-1.0.0-all.jar run board-implementation --dry-run -c board-pipeline.yaml
 ```
 
 ## Troubleshooting
@@ -251,7 +263,7 @@ Add the path to your security whitelist in the YAML file.
 Run validation to see specific errors:
 
 ```bash
-java -jar build/libs/cotor-1.0.0.jar validate <pipeline-name> -c <config-file>
+java -jar build/libs/cotor-1.0.0-all.jar validate <pipeline-name> -c <config-file>
 ```
 
 Fix the reported errors and try again.

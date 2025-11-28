@@ -5,6 +5,10 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 echo "🚀 Cotor Enhanced Features Test Suite"
 echo "======================================="
 echo ""
@@ -22,17 +26,21 @@ echo "-------------------------------------"
 echo -e "${GREEN}✅ Build completed${NC}"
 echo ""
 
+APP_VERSION=$(grep -E 'version[[:space:]]*=' "$PROJECT_ROOT/build.gradle.kts" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+[ -z "$APP_VERSION" ] && APP_VERSION="1.0.0"
+JAR_PATH="$PROJECT_ROOT/build/libs/cotor-${APP_VERSION}-all.jar"
+
 # Step 2: Test basic commands
 echo "🔍 Step 2: Testing Basic Commands"
 echo "-------------------------------------"
 
 echo "Testing version command..."
-java -jar build/libs/cotor-1.0.0.jar version
+java -jar "$JAR_PATH" version
 echo ""
 
 echo "Testing init command..."
 cd test/board-feature
-java -jar ../../build/libs/cotor-1.0.0.jar init -c test-config.yaml || true
+java -jar "$JAR_PATH" init -c test-config.yaml || true
 cd ../..
 echo -e "${GREEN}✅ Basic commands work${NC}"
 echo ""
@@ -41,7 +49,7 @@ echo ""
 echo "✅ Step 3: Testing Pipeline Validation"
 echo "-------------------------------------"
 cd test/board-feature
-java -jar ../../build/libs/cotor-1.0.0.jar validate board-implementation -c board-pipeline.yaml || {
+java -jar "$JAR_PATH" validate board-implementation -c board-pipeline.yaml || {
     echo -e "${YELLOW}⚠️  Validation may have warnings, continuing...${NC}"
 }
 cd ../..
@@ -52,7 +60,7 @@ echo ""
 echo "🎭 Step 4: Testing Dry-Run Mode"
 echo "-------------------------------------"
 cd test/board-feature
-java -jar ../../build/libs/cotor-1.0.0.jar run board-implementation --dry-run -c board-pipeline.yaml || {
+java -jar "$JAR_PATH" run board-implementation --dry-run -c board-pipeline.yaml || {
     echo -e "${YELLOW}⚠️  Dry-run may have issues, continuing...${NC}"
 }
 cd ../..
@@ -73,7 +81,7 @@ if command -v claude &> /dev/null; then
 
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
         cd test/board-feature
-        java -jar ../../build/libs/cotor-1.0.0.jar run board-implementation -c board-pipeline.yaml --verbose || {
+        java -jar "$JAR_PATH" run board-implementation -c board-pipeline.yaml --verbose || {
             echo -e "${RED}❌ Pipeline execution failed${NC}"
         }
         cd ../..
@@ -91,14 +99,14 @@ echo "🛡️  Step 6: Testing Error Handling"
 echo "-------------------------------------"
 echo "Testing with non-existent pipeline..."
 cd test/board-feature
-java -jar ../../build/libs/cotor-1.0.0.jar run nonexistent-pipeline -c board-pipeline.yaml 2>&1 || {
+java -jar "$JAR_PATH" run nonexistent-pipeline -c board-pipeline.yaml 2>&1 || {
     echo -e "${GREEN}✅ Error handling works (expected failure)${NC}"
 }
 cd ../..
 echo ""
 
 echo "Testing with non-existent config..."
-java -jar build/libs/cotor-1.0.0.jar run test -c nonexistent.yaml 2>&1 || {
+java -jar "$JAR_PATH" run test -c nonexistent.yaml 2>&1 || {
     echo -e "${GREEN}✅ Config not found error works${NC}"
 }
 echo ""
