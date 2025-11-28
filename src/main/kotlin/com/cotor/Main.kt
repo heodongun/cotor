@@ -51,6 +51,8 @@ fun main(args: Array<String>) {
                 StatusCommand(),
                 ListCommand(),
                 VersionCommand(),
+                WebCommand(),
+                VersionCommand(),
                 CompletionCommand()
             )
             .main(args)
