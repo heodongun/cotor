@@ -76,4 +76,48 @@ class PipelineValidatorTest : FunSpec({
         // Default 30s per stage. Critical path start -> slow -> finish = 90 seconds.
         estimate.totalEstimatedSeconds shouldBe 90
     }
+
+    test("reports error when fallback agent is missing") {
+        val pipeline = Pipeline(
+            name = "fallback-missing",
+            stages = listOf(
+                PipelineStage(
+                    id = "stage",
+                    agent = AgentReference("echo"),
+                    input = "ok",
+                    recovery = RecoveryConfig(
+                        strategy = RecoveryStrategy.FALLBACK,
+                        fallbackAgents = listOf("ghost-agent")
+                    )
+                )
+            )
+        )
+
+        val validator = PipelineValidator(registry)
+        val result = validator.validate(pipeline) as ValidationResult.Failure
+
+        result.errors.shouldContain("Stage 'stage': Fallback agent 'ghost-agent' not defined")
+    }
+
+    test("warns when fallback strategy has no fallback agents") {
+        val pipeline = Pipeline(
+            name = "fallback-warning",
+            stages = listOf(
+                PipelineStage(
+                    id = "stage",
+                    agent = AgentReference("echo"),
+                    input = "ok",
+                    recovery = RecoveryConfig(
+                        strategy = RecoveryStrategy.FALLBACK,
+                        fallbackAgents = emptyList()
+                    )
+                )
+            )
+        )
+
+        val validator = PipelineValidator(registry)
+        val result = validator.validate(pipeline) as ValidationResult.Success
+
+        result.warnings.shouldContain("Stage 'stage': Recovery strategy FALLBACK has no fallbackAgents configured")
+    }
 })

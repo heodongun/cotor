@@ -4,6 +4,7 @@ import com.cotor.data.registry.AgentRegistry
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineStage
 import com.cotor.model.StageType
+import com.cotor.model.RecoveryStrategy
 
 /**
  * Validation result
@@ -81,7 +82,10 @@ class PipelineValidator(
         }
 
         when (stage.type) {
-            StageType.EXECUTION -> validateExecutionStage(stage, errors)
+            StageType.EXECUTION -> {
+                validateExecutionStage(stage, errors)
+                validateRecovery(stage, errors, warnings)
+            }
             StageType.DECISION -> validateDecisionStage(stage, errors)
             StageType.LOOP -> validateLoopStage(stage, errors, stageIds)
         }
@@ -118,6 +122,32 @@ class PipelineValidator(
         val condition = stage.condition
         if (condition == null || condition.expression.isBlank()) {
             errors.add("Stage '${stage.id}': Decision stage requires a condition expression")
+        }
+    }
+
+    private fun validateRecovery(
+        stage: PipelineStage,
+        errors: MutableList<String>,
+        warnings: MutableList<String>
+    ) {
+        val recovery = stage.recovery ?: return
+        val fallbackAgents = recovery.fallbackAgents
+        val usesFallbacks = recovery.strategy == RecoveryStrategy.FALLBACK ||
+            recovery.strategy == RecoveryStrategy.RETRY_THEN_FALLBACK
+
+        if (usesFallbacks && fallbackAgents.isEmpty()) {
+            warnings.add("Stage '${stage.id}': Recovery strategy ${recovery.strategy} has no fallbackAgents configured")
+        }
+
+        fallbackAgents.forEach { agentName ->
+            val exists = try {
+                agentRegistry.getAgent(agentName) != null
+            } catch (e: Exception) {
+                false
+            }
+            if (!exists) {
+                errors.add("Stage '${stage.id}': Fallback agent '$agentName' not defined")
+            }
         }
     }
 

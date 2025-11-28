@@ -5,9 +5,13 @@ import com.cotor.stats.StatsManager
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
+import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
 import com.github.ajalt.mordant.terminal.Terminal
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import java.time.Duration
 
 /**
@@ -16,16 +20,36 @@ import java.time.Duration
 class StatsCommand : CliktCommand(
     name = "stats",
     help = "Show pipeline execution statistics"
-) {
+), KoinComponent {
     private val pipelineName by argument(
         name = "pipeline",
         help = "Pipeline name to show stats for"
     ).optional()
+    private val clear by option(
+        "--clear",
+        help = "Remove stored stats for the specified pipeline"
+    ).flag(default = false)
 
     private val terminal = Terminal()
-    private val statsManager = StatsManager()
+    private val statsManager: StatsManager by inject()
 
     override fun run() {
+        if (clear) {
+            if (pipelineName == null) {
+                terminal.println(red("Please specify the pipeline name to clear stats for."))
+                terminal.println(dim("Usage: cotor stats <pipeline> --clear"))
+                return
+            }
+
+            val removed = statsManager.clearStats(pipelineName!!)
+            if (removed) {
+                terminal.println(green("✅ Cleared stored statistics for $pipelineName"))
+            } else {
+                terminal.println(yellow("No statistics file found for $pipelineName"))
+            }
+            return
+        }
+
         if (pipelineName == null) {
             showAllStats()
             return

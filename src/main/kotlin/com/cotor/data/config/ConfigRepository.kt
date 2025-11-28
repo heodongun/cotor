@@ -6,8 +6,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
 import kotlin.io.path.extension
+import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
+import kotlin.io.path.createDirectories
 
 /**
  * Repository interface for configuration management
@@ -38,6 +40,9 @@ class FileConfigRepository(
 
     override suspend fun loadConfig(path: Path): CotorConfig = withContext(Dispatchers.IO) {
         try {
+            if (!path.exists()) {
+                throw ConfigurationException("Configuration file not found: $path")
+            }
             val content = path.readText()
 
             when (path.extension.lowercase()) {
@@ -60,6 +65,11 @@ class FileConfigRepository(
                 else -> throw ConfigurationException("Unsupported config format: ${path.extension}")
             }
 
+            path.parent?.let { parent ->
+                if (!parent.exists()) {
+                    parent.createDirectories()
+                }
+            }
             path.writeText(content)
         } catch (e: ConfigurationException) {
             throw e

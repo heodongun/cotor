@@ -11,14 +11,16 @@ import com.github.ajalt.clikt.parameters.types.path
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
-import com.cotor.model.CotorConfig
 import com.cotor.presentation.formatter.OutputFormatter
+import com.cotor.monitoring.PipelineRunSnapshot
+import com.cotor.monitoring.PipelineRunStatus
+import com.cotor.monitoring.PipelineRunTracker
+import com.github.ajalt.mordant.rendering.TextColors.*
+import com.github.ajalt.mordant.rendering.TextStyles.*
 import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import java.io.File
-import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.writeText
 
@@ -230,14 +232,75 @@ class RunCommand : CotorCommand() {
 }
 
 /**
- * Show status of running pipelines
+ * Show status of running and recent pipelines
  */
 class StatusCommand : CotorCommand() {
-    private val orchestrator: PipelineOrchestrator by inject()
+    private val terminal = Terminal()
+    private val runTracker: PipelineRunTracker by inject()
 
     override fun run() {
-        echo("Status: No active pipelines")
-        // TODO: Implement active pipeline tracking
+        val active = runTracker.getActiveRuns()
+        val recent = runTracker.getRecentRuns()
+        val activeIds = active.map { it.pipelineId }.toSet()
+
+        renderActive(active)
+        terminal.println()
+        renderRecent(recent.filterNot { run -> activeIds.contains(run.pipelineId) })
+    }
+
+    private fun renderActive(active: List<PipelineRunSnapshot>) {
+        terminal.println(bold("📡 Active Pipelines"))
+        if (active.isEmpty()) {
+            terminal.println(dim("No pipelines are currently running."))
+            return
+        }
+
+        active.forEach { run ->
+            val elapsed = formatDuration(run.elapsed.toMillis())
+            terminal.println(" - ${yellow("🔄")} ${run.pipelineName} ${dim("(${run.pipelineId.take(8)})")} • ${elapsed}")
+        }
+    }
+
+    private fun renderRecent(recent: List<PipelineRunSnapshot>) {
+        terminal.println(bold("📝 Recent Pipelines"))
+        if (recent.isEmpty()) {
+            terminal.println(dim("No recent executions captured yet."))
+            terminal.println(dim("Runs are tracked automatically when pipelines start."))
+            return
+        }
+
+        recent.forEach { run ->
+            val icon = when (run.status) {
+                PipelineRunStatus.COMPLETED -> green("✅")
+                PipelineRunStatus.RUNNING -> yellow("🔄")
+                PipelineRunStatus.FAILED -> red("❌")
+            }
+            val duration = run.totalDurationMs?.let { formatDuration(it) } ?: formatDuration(run.elapsed.toMillis())
+            val counts = if (run.successCount != null && run.failureCount != null) {
+                "success ${run.successCount}/${run.successCount + run.failureCount}"
+            } else null
+            val message = run.message?.let { " • ${it.take(80)}" } ?: ""
+
+            val summary = buildString {
+                append(" - $icon ${run.pipelineName} ${dim("(${run.pipelineId.take(8)})")}")
+                append(" • $duration")
+                counts?.let { append(" • $it") }
+                append(message)
+            }
+            terminal.println(summary)
+        }
+    }
+
+    private fun formatDuration(ms: Long): String {
+        val seconds = ms / 1000
+        val minutes = seconds / 60
+        val remainderSeconds = seconds % 60
+
+        return when {
+            minutes > 0 -> "${minutes}m ${remainderSeconds}s"
+            seconds > 0 -> "${seconds}s"
+            else -> "${ms}ms"
+        }
     }
 }
 

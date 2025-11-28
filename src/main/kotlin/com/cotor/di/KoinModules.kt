@@ -25,6 +25,7 @@ import com.cotor.model.SecurityConfig
 import com.cotor.monitoring.MetricsCollector
 import com.cotor.monitoring.ResourceMonitor
 import com.cotor.monitoring.StructuredLogger
+import com.cotor.monitoring.PipelineRunTracker
 import com.cotor.presentation.formatter.*
 import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
@@ -72,6 +73,7 @@ val cotorModule = module {
     single<OutputValidator> { DefaultOutputValidator(get()) }
     single<StatsManager> { StatsManager() }
     single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get(), get()) }
+    single(createdAtStart = true) { PipelineRunTracker(get()) }
 
     // Event System
     single<EventBus> { CoroutineEventBus() }
