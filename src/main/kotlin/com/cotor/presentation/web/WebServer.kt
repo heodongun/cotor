@@ -291,8 +291,8 @@ class WebServer : KoinComponent {
             stages = pipeline.stages.map { stage ->
                 EditorStagePayload(
                     id = stage.id,
-                    type = "EXECUTION",
-                    agent = stage.agent.name,
+                    type = stage.type.name,
+                    agent = stage.agent?.name,
                     input = stage.input,
                     dependencies = stage.dependencies
                 )
