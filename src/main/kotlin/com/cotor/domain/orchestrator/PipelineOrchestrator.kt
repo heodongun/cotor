@@ -10,6 +10,8 @@ import com.cotor.model.*
 import com.cotor.recovery.RecoveryExecutor
 import com.cotor.stats.StatsManager
 import com.cotor.validation.output.OutputValidator
+import com.cotor.checkpoint.CheckpointManager
+import com.cotor.checkpoint.toCheckpoint
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import java.util.UUID
@@ -60,7 +62,8 @@ class DefaultPipelineOrchestrator(
     private val logger: Logger,
     private val agentRegistry: com.cotor.data.registry.AgentRegistry,
     private val outputValidator: OutputValidator,
-    private val statsManager: StatsManager
+    private val statsManager: StatsManager,
+    private val checkpointManager: CheckpointManager = CheckpointManager()
 ) : PipelineOrchestrator {
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()
@@ -103,6 +106,9 @@ class DefaultPipelineOrchestrator(
 
                 // Record execution statistics
                 statsManager.recordExecution(pipeline.name, result)
+
+                // Save checkpoint for resume functionality
+                saveCheckpoint(pipelineId, pipeline.name, context)
 
                 result
             } catch (e: Exception) {
@@ -449,6 +455,32 @@ class DefaultPipelineOrchestrator(
         outcome.sharedState.forEach { (key, value) ->
             val interpolated = if (value.isBlank()) "" else templateEngine.interpolate(value, pipelineContext)
             pipelineContext.sharedState[key] = interpolated
+        }
+    }
+
+    /**
+     * Save checkpoint for completed pipeline stages
+     */
+    private fun saveCheckpoint(
+        pipelineId: String,
+        pipelineName: String,
+        context: PipelineContext
+    ) {
+        try {
+            val completedStages = context.stageResults.map { (stageId, result) ->
+                result.toCheckpoint(stageId)
+            }
+
+            if (completedStages.isNotEmpty()) {
+                val checkpointPath = checkpointManager.saveCheckpoint(
+                    pipelineId = pipelineId,
+                    pipelineName = pipelineName,
+                    completedStages = completedStages
+                )
+                logger.info("Checkpoint saved: $checkpointPath")
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to save checkpoint for pipeline $pipelineId: ${e.message}")
         }
     }
 
