@@ -11,7 +11,6 @@ import com.cotor.recovery.RecoveryExecutor
 import com.cotor.stats.StatsManager
 import com.cotor.validation.output.OutputValidator
 import com.cotor.checkpoint.CheckpointManager
-import com.cotor.checkpoint.fromCheckpoint
 import com.cotor.checkpoint.toCheckpoint
 import com.cotor.data.config.CotorProperties
 import kotlinx.coroutines.*
@@ -29,7 +28,11 @@ interface PipelineOrchestrator {
      * @param fromStageId Optional stage ID to resume execution from
      * @return AggregatedResult from pipeline execution
      */
-    suspend fun executePipeline(pipeline: Pipeline, fromStageId: String? = null): AggregatedResult
+    suspend fun executePipeline(
+        pipeline: Pipeline,
+        fromStageId: String? = null,
+        context: PipelineContext? = null
+    ): AggregatedResult
 
     /**
      * Cancel a running pipeline
@@ -79,7 +82,11 @@ class DefaultPipelineOrchestrator(
         logger = logger
     )
 
-    override suspend fun executePipeline(pipeline: Pipeline, fromStageId: String?): AggregatedResult = coroutineScope {
+    override suspend fun executePipeline(
+        pipeline: Pipeline,
+        fromStageId: String?,
+        context: PipelineContext?
+    ): AggregatedResult = coroutineScope {
         if (pipeline.executionMode != ExecutionMode.SEQUENTIAL) {
             val conditionalStages = pipeline.stages.filter { it.type != StageType.EXECUTION }
             if (conditionalStages.isNotEmpty()) {
@@ -87,8 +94,8 @@ class DefaultPipelineOrchestrator(
                 throw PipelineException("Conditional stages ($ids) require SEQUENTIAL execution mode")
             }
         }
-        val pipelineId = UUID.randomUUID().toString()
-        val pipelineContext = PipelineContext(
+        val pipelineId = context?.pipelineId ?: UUID.randomUUID().toString()
+        val pipelineContext = context ?: PipelineContext(
             pipelineId = pipelineId,
             pipelineName = pipeline.name,
             totalStages = pipeline.stages.size
@@ -96,13 +103,6 @@ class DefaultPipelineOrchestrator(
 
         fromStageId?.let {
             logger.info("Resuming pipeline from stage: $it")
-            val checkpoint = checkpointManager.getLatestCheckpoint(pipeline.name)
-                ?: throw PipelineException("No checkpoint found to resume pipeline ${pipeline.name}")
-
-            checkpoint.completedStages.forEach { stageCheckpoint ->
-                val agentResult = stageCheckpoint.fromCheckpoint()
-                pipelineContext.addStageResult(stageCheckpoint.stageId, agentResult)
-            }
         }
 
         logger.info("Starting pipeline: ${pipeline.name} (ID: $pipelineId)")

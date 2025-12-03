@@ -70,7 +70,7 @@ class PipelineOrchestratorMapTest {
         )
 
         // When
-        val result = orchestrator.executePipeline(pipeline, pipelineContext)
+        val result = orchestrator.executePipeline(pipeline, context = pipelineContext)
 
         // Then
         assertEquals(3, result.successCount)
