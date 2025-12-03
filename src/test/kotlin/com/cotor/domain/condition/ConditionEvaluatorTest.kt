@@ -61,4 +61,36 @@ class ConditionEvaluatorTest : FunSpec({
             context
         ) shouldBe true
     }
+
+    test("handles nested expressions and operator precedence") {
+        val context = PipelineContext("pipe-3", "complex", 3)
+        context.addStageResult("step1", AgentResult(agentName="a", isSuccess = true, output = null, error = null, duration = 0, metadata = mapOf("tokens" to "1500")))
+        context.addStageResult("step2", AgentResult(agentName="b", isSuccess = false, output = null, error = null, duration = 0, metadata = mapOf("reason" to "timeout")))
+        context.addStageResult("step3", AgentResult(agentName="c", isSuccess = true, output = "OK", error = null, duration = 0, metadata = emptyMap()))
+
+        evaluator.evaluate("step1.success == true && (step2.success == false || step3.output == 'OK')", context) shouldBe true
+        evaluator.evaluate("step1.tokens > 1000 && step2.reason == 'timeout' && step3.output == 'OK'", context) shouldBe true
+        evaluator.evaluate("step1.tokens > 2000 || (step2.reason == 'timeout' && step3.output == 'OK')", context) shouldBe true
+    }
+
+    test("supports NOT operator") {
+        val context = PipelineContext("pipe-4", "negation", 1)
+        context.addStageResult("check", AgentResult(agentName="d", isSuccess = true, output = null, error = null, duration = 0, metadata = mapOf("is_flagged" to "false")))
+
+        evaluator.evaluate("!check.is_flagged", context) shouldBe true
+        evaluator.evaluate("!(check.is_flagged == true)", context) shouldBe true
+        evaluator.evaluate("!check.success == false", context) shouldBe true
+    }
+
+    test("handles complex nested expressions") {
+        val context = PipelineContext("pipe-5", "super-complex", 4)
+        context.addStageResult("a", AgentResult(agentName="a", isSuccess=true, output=null, error=null, duration=0, metadata=mapOf("x" to "10")))
+        context.addStageResult("b", AgentResult(agentName="b", isSuccess=false, output=null, error=null, duration=0, metadata=mapOf("y" to "20")))
+        context.addStageResult("c", AgentResult(agentName="c", isSuccess=true, output="done", error=null, duration=0, metadata=emptyMap()))
+        context.addStageResult("d", AgentResult(agentName="d", isSuccess=true, output=null, error=null, duration=0, metadata=mapOf("z" to "30")))
+
+        evaluator.evaluate("(a.x > 5 && b.y == 20) || (c.output == 'done' && d.z > 25)", context) shouldBe true
+        evaluator.evaluate("a.x > 5 && (b.y == 20 || (c.output == 'done' && d.z > 35))", context) shouldBe true
+        evaluator.evaluate("!(a.x > 15 || b.y < 10)", context) shouldBe true
+    }
 })
