@@ -28,12 +28,13 @@ class Scanner(private val source: String) {
         when (val c = advance()) {
             '(' -> addToken(TokenType.LEFT_PAREN)
             ')' -> addToken(TokenType.RIGHT_PAREN)
+            ',' -> addToken(TokenType.COMMA)
             '!' -> addToken(if (match('=')) TokenType.BANG_EQUAL else TokenType.BANG)
             '=' -> if (match('=')) addToken(TokenType.EQUAL_EQUAL)
             '>' -> addToken(if (match('=')) TokenType.GREATER_EQUAL else TokenType.GREATER)
             '<' -> addToken(if (match('=')) TokenType.LESS_EQUAL else TokenType.LESS)
-            '&' -> if (match('&')) addToken(TokenType.AND)
-            '|' -> if (match('|')) addToken(TokenType.OR)
+            '&' -> { if (match('&')) addToken(TokenType.AND) }
+            '|' -> { if (match('|')) addToken(TokenType.OR) }
             '"' -> string('"')
             '\'' -> string('\'')
             ' ', '\r', '\t' -> {

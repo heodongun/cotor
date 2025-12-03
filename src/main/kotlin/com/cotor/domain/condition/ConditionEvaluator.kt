@@ -92,6 +92,27 @@ class ConditionEvaluator : Expression.Visitor<Any?> {
         return resolveValue(expr.name, context)
     }
 
+    override fun visitCallExpr(expr: Expression.Call): Any? {
+        val calleeName = (expr.callee as? Expression.Variable)?.name
+        if (calleeName != null && expr.arguments.size == 1) {
+            val stageIdExpr = expr.arguments[0]
+            if (stageIdExpr is Expression.Variable) {
+                val stageId = stageIdExpr.name
+                val stageResult = context.getStageResult(stageId)
+                if (stageResult != null) {
+                    return when (calleeName) {
+                        "success" -> stageResult.isSuccess
+                        "tokens" -> stageResult.metadata["tokens"]?.toDoubleOrNull()
+                        "output" -> stageResult.output
+                        "reason" -> stageResult.metadata["reason"]
+                        else -> null
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     private fun isEqual(a: Any?, b: Any?): Boolean {
         if (a == null && b == null) return true
         if (a == null || b == null) return false
