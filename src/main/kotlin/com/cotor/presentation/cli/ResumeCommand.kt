@@ -6,6 +6,7 @@ import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
+import com.github.ajalt.mordant.table.table
 import com.github.ajalt.mordant.terminal.Terminal
 
 /**
@@ -42,10 +43,22 @@ class ResumeCommand : CliktCommand(
         terminal.println("─".repeat(50))
         terminal.println("Pipeline: ${checkpoint.pipelineName}")
         terminal.println("ID: ${checkpoint.pipelineId}")
-        terminal.println("Timestamp: ${checkpoint.timestamp}")
+        terminal.println("Created At: ${checkpoint.createdAt}")
+        terminal.println("Version: ${checkpoint.cotorVersion} (git: ${checkpoint.gitCommit})")
+        terminal.println("Environment: OS=${checkpoint.os}, JVM=${checkpoint.jvm}")
         terminal.println("Completed Stages: ${checkpoint.completedStages.size}")
         terminal.println("─".repeat(50))
         terminal.println()
+
+        val currentJvm = System.getProperty("java.version")
+        val currentOs = System.getProperty("os.name")
+
+        if (checkpoint.jvm != currentJvm || checkpoint.os != currentOs) {
+            terminal.println(yellow("⚠️  Environment mismatch detected!"))
+            terminal.println(dim("  Checkpoint: JVM=${checkpoint.jvm}, OS=${checkpoint.os}"))
+            terminal.println(dim("  Current:    JVM=$currentJvm, OS=$currentOs"))
+            terminal.println()
+        }
 
         terminal.println(bold("Completed Stages:"))
         checkpoint.completedStages.forEach { stage ->
@@ -71,48 +84,27 @@ class ResumeCommand : CliktCommand(
         terminal.println(bold(blue("📋 Available Checkpoints")))
         terminal.println()
 
-        checkpoints.forEach { checkpoint ->
-            terminal.println("${green("●")} ${bold(checkpoint.pipelineName)}")
-            terminal.println("  ID: ${dim(checkpoint.pipelineId)}")
-            terminal.println("  Time: ${checkpoint.timestamp}")
-            terminal.println("  Completed: ${checkpoint.completedStages} stages")
-            terminal.println("  File: ${dim(checkpoint.file)}")
-            terminal.println()
+        val table = table {
+            header {
+                row("Pipeline", "ID", "Created At", "Version", "Git Commit", "OS", "JVM", "Stages")
+            }
+            body {
+                checkpoints.forEach { checkpoint ->
+                    row(
+                        checkpoint.pipelineName,
+                        checkpoint.pipelineId.take(8),
+                        checkpoint.createdAt,
+                        checkpoint.cotorVersion,
+                        checkpoint.gitCommit,
+                        checkpoint.os,
+                        checkpoint.jvm,
+                        checkpoint.completedStages.toString()
+                    )
+                }
+            }
         }
+        terminal.println(table)
 
         terminal.println(dim("Usage: cotor resume <pipeline-id>"))
-    }
-}
-
-/**
- * Command to manage checkpoints
- */
-class CheckpointCommand : CliktCommand(
-    name = "checkpoint",
-    help = "Manage pipeline checkpoints"
-) {
-    private val terminal = Terminal()
-    private val checkpointManager = CheckpointManager()
-
-    override fun run() {
-        terminal.println(bold(blue("🔖 Checkpoint Management")))
-        terminal.println()
-
-        val checkpoints = checkpointManager.listCheckpoints()
-        terminal.println("Total checkpoints: ${checkpoints.size}")
-        terminal.println()
-
-        if (checkpoints.isNotEmpty()) {
-            terminal.println(bold("Recent Checkpoints:"))
-            checkpoints.take(5).forEach { checkpoint ->
-                terminal.println("  ${green("●")} ${checkpoint.pipelineName} (${checkpoint.timestamp})")
-            }
-            terminal.println()
-        }
-
-        terminal.println(dim("Commands:"))
-        terminal.println(dim("  cotor resume <id>       - Resume from checkpoint"))
-        terminal.println(dim("  cotor checkpoint clean  - Clean old checkpoints"))
-        terminal.println(dim("  cotor checkpoint list   - List all checkpoints"))
     }
 }

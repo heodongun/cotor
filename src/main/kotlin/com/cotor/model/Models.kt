@@ -177,8 +177,19 @@ data class RecoveryConfig(
     val backoffMultiplier: Double = 2.0,
     val fallbackAgents: List<String> = emptyList(),
     val strategy: RecoveryStrategy = RecoveryStrategy.RETRY,
-    val retryableErrors: List<String> = listOf("timeout", "connection", "api", "rate_limit", "validation")
+    val retryableErrors: List<String> = listOf("timeout", "connection", "api", "rate_limit", "validation"),
+    val backoffStrategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
+    val retryOn: List<String> = listOf("timeout", "5xx")
 )
+
+/**
+ * Backoff strategy for retries
+ */
+@Serializable
+enum class BackoffStrategy {
+    FIXED,
+    EXPONENTIAL
+}
 
 /**
  * Custom validator configuration
@@ -211,7 +222,9 @@ data class StageValidationConfig(
 data class RetryPolicy(
     val maxRetries: Int = 3,
     val retryDelay: Long = 1000, // 1 second
-    val backoffMultiplier: Double = 2.0
+    val backoffMultiplier: Double = 2.0,
+    val backoffStrategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
+    val retryOn: List<String> = listOf("timeout", "5xx")
 )
 
 /**

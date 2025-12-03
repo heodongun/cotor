@@ -11,7 +11,9 @@ import com.cotor.recovery.RecoveryExecutor
 import com.cotor.stats.StatsManager
 import com.cotor.validation.output.OutputValidator
 import com.cotor.checkpoint.CheckpointManager
+import com.cotor.checkpoint.fromCheckpoint
 import com.cotor.checkpoint.toCheckpoint
+import com.cotor.data.config.CotorProperties
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import java.util.UUID
@@ -24,9 +26,10 @@ interface PipelineOrchestrator {
     /**
      * Execute a pipeline
      * @param pipeline Pipeline to execute
+     * @param fromStageId Optional stage ID to resume execution from
      * @return AggregatedResult from pipeline execution
      */
-    suspend fun executePipeline(pipeline: Pipeline, context: PipelineContext? = null): AggregatedResult
+    suspend fun executePipeline(pipeline: Pipeline, fromStageId: String? = null): AggregatedResult
 
     /**
      * Cancel a running pipeline
@@ -76,7 +79,7 @@ class DefaultPipelineOrchestrator(
         logger = logger
     )
 
-    override suspend fun executePipeline(pipeline: Pipeline, context: PipelineContext?): AggregatedResult = coroutineScope {
+    override suspend fun executePipeline(pipeline: Pipeline, fromStageId: String?): AggregatedResult = coroutineScope {
         if (pipeline.executionMode != ExecutionMode.SEQUENTIAL) {
             val conditionalStages = pipeline.stages.filter { it.type != StageType.EXECUTION }
             if (conditionalStages.isNotEmpty()) {
@@ -84,12 +87,24 @@ class DefaultPipelineOrchestrator(
                 throw PipelineException("Conditional stages ($ids) require SEQUENTIAL execution mode")
             }
         }
-        val pipelineId = context?.pipelineId ?: UUID.randomUUID().toString()
-        val pipelineContext = context ?: PipelineContext(
+        val pipelineId = UUID.randomUUID().toString()
+        val pipelineContext = PipelineContext(
             pipelineId = pipelineId,
             pipelineName = pipeline.name,
             totalStages = pipeline.stages.size
         )
+
+        fromStageId?.let {
+            logger.info("Resuming pipeline from stage: $it")
+            val checkpoint = checkpointManager.getLatestCheckpoint(pipeline.name)
+                ?: throw PipelineException("No checkpoint found to resume pipeline ${pipeline.name}")
+
+            checkpoint.completedStages.forEach { stageCheckpoint ->
+                val agentResult = stageCheckpoint.fromCheckpoint()
+                pipelineContext.addStageResult(stageCheckpoint.stageId, agentResult)
+            }
+        }
+
         logger.info("Starting pipeline: ${pipeline.name} (ID: $pipelineId)")
 
         val deferred = async {
@@ -97,7 +112,7 @@ class DefaultPipelineOrchestrator(
 
             try {
                 val result = when (pipeline.executionMode) {
-                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext)
+                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, fromStageId)
                     ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
                     ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
                     ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
@@ -106,7 +121,15 @@ class DefaultPipelineOrchestrator(
                 eventBus.emit(PipelineCompletedEvent(pipelineId, result))
 
                 // Record execution statistics
-                statsManager.recordExecution(pipeline.name, result)
+                val stageExecutions = pipelineContext.stageResults.values.map {
+                    com.cotor.stats.StageExecution(
+                        name = it.agentName,
+                        duration = it.duration,
+                        status = if (it.isSuccess) com.cotor.stats.ExecutionStatus.SUCCESS else com.cotor.stats.ExecutionStatus.FAILURE,
+                        retries = it.metadata["retries"] as? Int ?: 0
+                    )
+                }
+                statsManager.recordExecution(pipeline.name, result, stageExecutions)
 
                 // Save checkpoint for resume functionality
                 saveCheckpoint(pipelineId, pipeline.name, pipelineContext)
@@ -132,12 +155,18 @@ class DefaultPipelineOrchestrator(
     private suspend fun executeSequential(
         pipeline: Pipeline,
         pipelineId: String,
-        pipelineContext: PipelineContext
+        pipelineContext: PipelineContext,
+        fromStageId: String? = null
     ): AggregatedResult {
-        val results = mutableListOf<AgentResult>()
+        val results = pipelineContext.stageResults.values.toMutableList()
         val stageIndexMap = pipeline.stages.mapIndexed { index, stage -> stage.id to index }.toMap()
-        var previousOutput: String? = null
-        var index = 0
+        var previousOutput: String? = results.lastOrNull()?.output
+
+        val startIndex = fromStageId?.let {
+            stageIndexMap[it] ?: throw PipelineException("Resume stage '$it' not found in pipeline")
+        } ?: 0
+
+        var index = startIndex
         var safetyCounter = 0
 
         while (index in pipeline.stages.indices) {
@@ -503,12 +532,25 @@ class DefaultPipelineOrchestrator(
                 val checkpointPath = checkpointManager.saveCheckpoint(
                     pipelineId = pipelineId,
                     pipelineName = pipelineName,
-                    completedStages = completedStages
+                    completedStages = completedStages,
+                    cotorVersion = CotorProperties.version,
+                    gitCommit = getGitCommit(),
+                    os = System.getProperty("os.name"),
+                    jvm = System.getProperty("java.version")
                 )
                 logger.info("Checkpoint saved: $checkpointPath")
             }
         } catch (e: Exception) {
             logger.warn("Failed to save checkpoint for pipeline $pipelineId: ${e.message}")
+        }
+    }
+
+    private fun getGitCommit(): String {
+        return try {
+            val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD").start()
+            process.inputStream.bufferedReader().readText().trim()
+        } catch (e: Exception) {
+            "unknown"
         }
     }
 

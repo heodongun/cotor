@@ -25,7 +25,8 @@ class StatsManager(
      */
     fun recordExecution(
         pipelineName: String,
-        result: AggregatedResult
+        result: AggregatedResult,
+        stages: List<StageExecution>
     ) {
         val execution = PipelineExecution(
             pipelineName = pipelineName,
@@ -33,7 +34,8 @@ class StatsManager(
             totalDuration = result.totalDuration,
             successCount = result.successCount,
             failureCount = result.failureCount,
-            totalAgents = result.totalAgents
+            totalAgents = result.totalAgents,
+            stages = stages
         )
 
         val statsFile = getStatsFile(pipelineName)
@@ -98,6 +100,39 @@ class StatsManager(
     }
 
     /**
+     * Get detailed statistics for a pipeline, including stage-level data.
+     */
+    fun getStatsDetails(pipelineName: String): StatsDetails? {
+        val stats = loadStats(pipelineName) ?: return null
+        if (stats.executions.isEmpty()) {
+            return StatsDetails(pipelineName, 0, emptyList())
+        }
+
+        val stageStats = stats.executions
+            .asSequence()
+            .flatMap { it.stages }
+            .groupBy { it.name }
+            .map { (stageName, stageExecutions) ->
+                val totalExecutions = stageExecutions.size
+                val avgDuration = stageExecutions.map { it.duration }.average().toLong()
+                val successRate = stageExecutions.count { it.status == ExecutionStatus.SUCCESS }.toDouble() / totalExecutions * 100
+                val avgRetries = stageExecutions.map { it.retries }.average()
+                StageStats(
+                    stageName = stageName,
+                    avgDuration = avgDuration,
+                    successRate = successRate,
+                    avgRetries = avgRetries
+                )
+            }
+
+        return StatsDetails(
+            pipelineName = pipelineName,
+            totalExecutions = stats.totalExecutions,
+            stages = stageStats
+        )
+    }
+
+    /**
      * List all pipeline statistics
      */
     fun listAllStats(): List<StatsSummary> {
@@ -141,6 +176,14 @@ class StatsManager(
         return getStatsFile(pipelineName).delete()
     }
 
+    /**
+     * Get execution history for a pipeline
+     */
+    fun getExecutionHistory(pipelineName: String, count: Int): List<PipelineExecution> {
+        val stats = loadStats(pipelineName) ?: return emptyList()
+        return stats.executions.takeLast(count)
+    }
+
     private fun getStatsFile(pipelineName: String): File {
         val safeName = pipelineName.replace("[^a-zA-Z0-9-_]".toRegex(), "_")
         return File(statsDir, "$safeName.json")
@@ -171,8 +214,23 @@ data class PipelineExecution(
     val totalDuration: Long,
     val successCount: Int,
     val failureCount: Int,
-    val totalAgents: Int
+    val totalAgents: Int,
+    val stages: List<StageExecution> = emptyList()
 )
+
+@Serializable
+data class StageExecution(
+    val name: String,
+    val duration: Long,
+    val status: ExecutionStatus,
+    val retries: Int
+)
+
+@Serializable
+enum class ExecutionStatus {
+    SUCCESS,
+    FAILURE
+}
 
 /**
  * Statistics summary
@@ -195,3 +253,22 @@ enum class PerformanceTrend {
     STABLE,
     DEGRADING
 }
+
+/**
+ * Detailed statistics, including stage-level data
+ */
+data class StatsDetails(
+    val pipelineName: String,
+    val totalExecutions: Int,
+    val stages: List<StageStats>
+)
+
+/**
+ * Stage statistics
+ */
+data class StageStats(
+    val stageName: String,
+    val avgDuration: Long,
+    val successRate: Double,
+    val avgRetries: Double
+)

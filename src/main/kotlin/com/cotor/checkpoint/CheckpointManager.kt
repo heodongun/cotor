@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonNames
 import java.io.File
 import java.time.Instant
 
@@ -14,7 +15,10 @@ import java.time.Instant
 class CheckpointManager(
     private val checkpointDir: String = ".cotor/checkpoints"
 ) {
-    private val json = Json { prettyPrint = true }
+    private val json = Json {
+        prettyPrint = true
+        ignoreUnknownKeys = true
+    }
 
     init {
         File(checkpointDir).mkdirs()
@@ -26,12 +30,20 @@ class CheckpointManager(
     fun saveCheckpoint(
         pipelineId: String,
         pipelineName: String,
-        completedStages: List<StageCheckpoint>
+        completedStages: List<StageCheckpoint>,
+        cotorVersion: String,
+        gitCommit: String,
+        os: String,
+        jvm: String
     ): String {
         val checkpoint = PipelineCheckpoint(
             pipelineId = pipelineId,
             pipelineName = pipelineName,
-            timestamp = Instant.now().toString(),
+            createdAt = Instant.now().toString(),
+            cotorVersion = cotorVersion,
+            gitCommit = gitCommit,
+            os = os,
+            jvm = jvm,
             completedStages = completedStages
         )
 
@@ -72,7 +84,11 @@ class CheckpointManager(
                     CheckpointSummary(
                         pipelineId = checkpoint.pipelineId,
                         pipelineName = checkpoint.pipelineName,
-                        timestamp = checkpoint.timestamp,
+                        createdAt = checkpoint.createdAt,
+                        cotorVersion = checkpoint.cotorVersion,
+                        gitCommit = checkpoint.gitCommit,
+                        os = checkpoint.os,
+                        jvm = checkpoint.jvm,
                         completedStages = checkpoint.completedStages.size,
                         file = file.absolutePath
                     )
@@ -80,7 +96,7 @@ class CheckpointManager(
                     null
                 }
             }
-            ?.sortedByDescending { it.timestamp }
+            ?.sortedByDescending { it.createdAt }
             ?: emptyList()
     }
 
@@ -92,32 +108,58 @@ class CheckpointManager(
         return checkpointFile.delete()
     }
 
+
     /**
-     * Clean old checkpoints (older than specified days)
+     * Get all checkpoints
      */
-    fun cleanOldCheckpoints(daysToKeep: Int = 7): Int {
+    fun getCheckpoints(): List<PipelineCheckpoint> {
         val dir = File(checkpointDir)
-        if (!dir.exists()) return 0
+        if (!dir.exists()) return emptyList()
 
-        val cutoffTime = Instant.now().minusSeconds((daysToKeep * 24 * 60 * 60).toLong())
-        var deletedCount = 0
-
-        dir.listFiles()
+        return dir.listFiles()
             ?.filter { it.extension == "json" }
-            ?.forEach { file ->
+            ?.mapNotNull { file ->
                 try {
-                    val checkpoint = json.decodeFromString<PipelineCheckpoint>(file.readText())
-                    val checkpointTime = Instant.parse(checkpoint.timestamp)
-                    if (checkpointTime.isBefore(cutoffTime)) {
-                        if (file.delete()) {
-                            deletedCount++
-                        }
-                    }
+                    json.decodeFromString<PipelineCheckpoint>(file.readText())
                 } catch (e: Exception) {
-                    // Skip invalid checkpoints
+                    null
                 }
             }
+            ?.sortedByDescending { it.createdAt }
+            ?: emptyList()
+    }
 
+    /**
+     * Garbage collect checkpoints
+     */
+    fun gc(config: CheckpointConfig): Int {
+        val checkpoints = getCheckpoints()
+        val toDelete = mutableSetOf<String>()
+
+        config.maxCount?.let { maxCount ->
+            if (checkpoints.size > maxCount) {
+                checkpoints.drop(maxCount).forEach {
+                    toDelete.add(it.pipelineId)
+                }
+            }
+        }
+
+        config.maxAgeDays?.let { maxAgeDays ->
+            val cutoffTime = Instant.now().minusSeconds((maxAgeDays * 24 * 60 * 60).toLong())
+            checkpoints.forEach {
+                val checkpointTime = Instant.parse(it.createdAt)
+                if (checkpointTime.isBefore(cutoffTime)) {
+                    toDelete.add(it.pipelineId)
+                }
+            }
+        }
+
+        var deletedCount = 0
+        toDelete.forEach {
+            if (deleteCheckpoint(it)) {
+                deletedCount++
+            }
+        }
         return deletedCount
     }
 }
@@ -129,7 +171,12 @@ class CheckpointManager(
 data class PipelineCheckpoint(
     val pipelineId: String,
     val pipelineName: String,
-    val timestamp: String,
+    @JsonNames("timestamp")
+    val createdAt: String,
+    val cotorVersion: String = "unknown",
+    val gitCommit: String = "unknown",
+    val os: String = "unknown",
+    val jvm: String = "unknown",
     val completedStages: List<StageCheckpoint>
 )
 
@@ -152,7 +199,11 @@ data class StageCheckpoint(
 data class CheckpointSummary(
     val pipelineId: String,
     val pipelineName: String,
-    val timestamp: String,
+    val createdAt: String,
+    val cotorVersion: String = "unknown",
+    val gitCommit: String = "unknown",
+    val os: String = "unknown",
+    val jvm: String = "unknown",
     val completedStages: Int,
     val file: String
 )
