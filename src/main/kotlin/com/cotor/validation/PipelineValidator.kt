@@ -21,7 +21,8 @@ sealed class ValidationResult {
  * Pipeline validator
  */
 class PipelineValidator(
-    private val agentRegistry: AgentRegistry
+    private val agentRegistry: AgentRegistry,
+    private val pluginLoader: com.cotor.data.plugin.PluginLoader
 ) {
     /**
      * Validate pipeline configuration
@@ -137,16 +138,67 @@ class PipelineValidator(
             return
         }
 
-        val agentExists = try {
-            agentRegistry.getAgent(agentName) != null
+        val agentConfig = try {
+            agentRegistry.getAgent(agentName)
         } catch (e: Exception) {
-            false
+            null
         }
 
-        if (!agentExists) {
+        if (agentConfig == null) {
             errors.add("Stage '${stage.id}': Agent '$agentName' not defined")
+            return
         }
 
+        val agentPlugin = try {
+            pluginLoader.loadPlugin(agentConfig.pluginClass)
+        } catch (e: Exception) {
+            errors.add("Stage '${stage.id}': Could not load plugin for agent '$agentName'")
+            return
+        }
+
+        validateAgentParameters(stage, agentConfig, agentPlugin, errors)
+    }
+
+    private fun validateAgentParameters(
+        stage: PipelineStage,
+        agentConfig: com.cotor.model.AgentConfig,
+        agentPlugin: com.cotor.data.plugin.AgentPlugin,
+        errors: MutableList<String>
+    ) {
+        val schema = agentPlugin.parameterSchema
+        if (schema.parameters.isEmpty()) {
+            return // No parameters to validate
+        }
+
+        val providedParameters = agentConfig.parameters
+        val definedParameters = schema.parameters.associateBy { it.name }
+
+        // Check for unknown parameters
+        providedParameters.keys.forEach { paramName ->
+            if (!definedParameters.containsKey(paramName)) {
+                errors.add("Stage '${stage.id}': Unknown parameter '$paramName' for agent '${agentConfig.name}'")
+            }
+        }
+
+        // Check for missing required parameters and type mismatches
+        definedParameters.values.forEach { schemaParam ->
+            if (schemaParam.required && !providedParameters.containsKey(schemaParam.name)) {
+                errors.add("Stage '${stage.id}': Missing required parameter '${schemaParam.name}' for agent '${agentConfig.name}'")
+            }
+
+            providedParameters[schemaParam.name]?.let { paramValue ->
+                val typeIsValid = when (schemaParam.type) {
+                    com.cotor.model.ParameterType.STRING -> true
+                    com.cotor.model.ParameterType.NUMBER -> paramValue.toDoubleOrNull() != null
+                    com.cotor.model.ParameterType.BOOLEAN -> paramValue.lowercase() in listOf("true", "false")
+                    com.cotor.model.ParameterType.MAP -> true // Basic check, advanced would require parsing
+                    com.cotor.model.ParameterType.LIST -> true // Basic check
+                }
+                if (!typeIsValid) {
+                    errors.add("Stage '${stage.id}': Invalid type for parameter '${schemaParam.name}' for agent '${agentConfig.name}'. Expected ${schemaParam.type}, but got value '$paramValue'.")
+                }
+            }
+        }
     }
 
     private fun validateDecisionStage(stage: PipelineStage, errors: MutableList<String>) {
