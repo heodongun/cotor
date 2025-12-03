@@ -93,14 +93,4 @@ class ConditionEvaluatorTest : FunSpec({
         evaluator.evaluate("a.x > 5 && (b.y == 20 || (c.output == 'done' && d.z > 35))", context) shouldBe true
         evaluator.evaluate("!(a.x > 15 || b.y < 10)", context) shouldBe true
     }
-
-    test("supports expression DSL") {
-        val context = PipelineContext("pipe-6", "dsl-test", 2)
-        context.addStageResult("step1", AgentResult(agentName="a", isSuccess = true, output = null, error = null, duration = 0, metadata = mapOf("tokens" to "1500")))
-        context.addStageResult("step2", AgentResult(agentName="b", isSuccess = false, output = null, error = null, duration = 0, metadata = mapOf("reason" to "timeout")))
-
-        evaluator.evaluate("success(step1) && tokens(step1) > 1000", context) shouldBe true
-        evaluator.evaluate("success(step1) && tokens(step1) > 2000", context) shouldBe false
-        evaluator.evaluate("!success(step2) || reason(step2) == 'timeout'", context) shouldBe true
-    }
 })

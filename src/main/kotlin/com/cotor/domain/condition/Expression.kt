@@ -2,7 +2,7 @@ package com.cotor.domain.condition
 
 enum class TokenType {
     // Single-character tokens.
-    LEFT_PAREN, RIGHT_PAREN, COMMA,
+    LEFT_PAREN, RIGHT_PAREN,
 
     // One or two character tokens.
     BANG, BANG_EQUAL,
@@ -30,13 +30,6 @@ sealed class Expression {
         fun visitLiteralExpr(expr: Literal): R
         fun visitUnaryExpr(expr: Unary): R
         fun visitVariableExpr(expr: Variable): R
-        fun visitCallExpr(expr: Call): R
-    }
-
-    data class Call(val callee: Expression, val paren: Token, val arguments: List<Expression>) : Expression() {
-        override fun <R> accept(visitor: Visitor<R>): R {
-            return visitor.visitCallExpr(this)
-        }
     }
 
     data class Binary(val left: Expression, val operator: Token, val right: Expression) : Expression() {
