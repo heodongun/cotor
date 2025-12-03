@@ -67,15 +67,18 @@ class RecoveryExecutor(
             }
 
             lastResult = result
-            if (!isRetryable(result.error, recovery.retryableErrors)) {
+            if (!isRetryable(result.error, recovery.retryOn)) {
                 logger.debug("Stage ${stage.id} failure not retryable: ${result.error}")
                 return result
             }
 
             if (currentAttempt < attempts) {
+                delayMs = when (recovery.backoffStrategy) {
+                    BackoffStrategy.FIXED -> recovery.retryDelayMs
+                    BackoffStrategy.EXPONENTIAL -> (delayMs * recovery.backoffMultiplier).toLong().coerceAtLeast(delayMs)
+                }
                 logger.warn("Stage ${stage.id} failed (attempt $currentAttempt). Retrying after ${delayMs}ms...")
                 delay(delayMs)
-                delayMs = (delayMs * recovery.backoffMultiplier).toLong().coerceAtLeast(delayMs)
             }
         }
 
