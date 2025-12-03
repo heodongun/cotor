@@ -44,6 +44,21 @@ class StatsManagerTest : FunSpec({
         testStats.avgRetries.shouldBe(0.5 plusOrMinus 0.01)
     }
 
+    test("getStatsDetails handles stages with retries") {
+        val dir = Files.createTempDirectory("stats-test-retries")
+        val manager = StatsManager(dir.toString())
+        val result = AggregatedResult(1, 1, 0, 1000, emptyList(), "output", Instant.now())
+        val stages = listOf(
+            StageExecution("flaky-stage", 200, ExecutionStatus.SUCCESS, 2),
+            StageExecution("flaky-stage", 300, ExecutionStatus.FAILURE, 3)
+        )
+        manager.recordExecution("retry-pipeline", result, stages)
+        val details = manager.getStatsDetails("retry-pipeline")
+        details.shouldNotBeNull()
+        val flakyStats = details.stages.first { it.stageName == "flaky-stage" }
+        flakyStats.avgRetries.shouldBe(2.5 plusOrMinus 0.01)
+    }
+
     test("clearStats removes stored statistics") {
         val dir = Files.createTempDirectory("stats-test")
         val manager = StatsManager(dir.toString())

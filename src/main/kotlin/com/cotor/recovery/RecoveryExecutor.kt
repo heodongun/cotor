@@ -57,22 +57,25 @@ class RecoveryExecutor(
         val attempts = recovery.maxRetries.coerceAtLeast(1)
         var delayMs = recovery.retryDelayMs
         var lastResult: AgentResult? = null
+        var retries = 0
 
         repeat(attempts) { attempt ->
             val currentAttempt = attempt + 1
             logger.debug("Executing stage ${stage.id} attempt $currentAttempt/$attempts")
             val result = runAgent(agentConfig, stage, input, pipelineContext)
+
             if (result.isSuccess) {
-                return result
+                return result.copy(metadata = result.metadata + ("retries" to retries.toString()))
             }
 
             lastResult = result
             if (!isRetryable(result.error, recovery.retryOn)) {
                 logger.debug("Stage ${stage.id} failure not retryable: ${result.error}")
-                return result
+                return result.copy(metadata = result.metadata + ("retries" to retries.toString()))
             }
 
             if (currentAttempt < attempts) {
+                retries++
                 delayMs = when (recovery.backoffStrategy) {
                     BackoffStrategy.FIXED -> recovery.retryDelayMs
                     BackoffStrategy.EXPONENTIAL -> (delayMs * recovery.backoffMultiplier).toLong().coerceAtLeast(delayMs)
@@ -82,7 +85,8 @@ class RecoveryExecutor(
             }
         }
 
-        return lastResult ?: failureResult(agentConfig.name, "Stage ${stage.id} failed without result")
+        val finalResult = lastResult ?: failureResult(agentConfig.name, "Stage ${stage.id} failed without result")
+        return finalResult.copy(metadata = finalResult.metadata + ("retries" to retries.toString()))
     }
 
     private suspend fun executeWithFallback(
