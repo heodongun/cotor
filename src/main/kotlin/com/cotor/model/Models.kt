@@ -1,5 +1,6 @@
 package com.cotor.model
 
+import com.cotor.checkpoint.CheckpointRetentionConfig
 import kotlinx.serialization.Serializable
 import java.nio.file.Path
 import java.time.Instant
@@ -14,7 +15,8 @@ data class CotorConfig(
     val pipelines: List<Pipeline> = emptyList(),
     val security: SecurityConfig = SecurityConfig(),
     val logging: LoggingConfig = LoggingConfig(),
-    val performance: PerformanceConfig = PerformanceConfig()
+    val performance: PerformanceConfig = PerformanceConfig(),
+    val checkpointRetention: CheckpointRetentionConfig = CheckpointRetentionConfig()
 )
 
 /**

@@ -1,5 +1,6 @@
 package com.cotor.presentation.cli
 
+import com.cotor.checkpoint.CheckpointManager
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
@@ -21,33 +22,18 @@ import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import kotlin.io.path.Path
+import java.nio.file.Paths
 import kotlin.io.path.writeText
-
-class CheckpointCommand : CliktCommand(help = "Manage checkpoints.") {
-    init {
-        subcommands(CheckpointGCCommand())
-    }
-
-    override fun run() {
-        // This command does nothing on its own, it only serves as a container for subcommands.
-    }
-}
 
 /**
  * Base CLI command for Cotor
  */
-abstract class CotorCommand : CliktCommand(), KoinComponent {
-    val configPath by option("--config", "-c", help = "Path to configuration file")
-        .path(mustExist = false)
-        .default(Path("cotor.yaml"))
-
-    val logLevel by option("--log-level", "-l", help = "Log level")
-        .choice("DEBUG", "INFO", "WARN", "ERROR")
-        .default("INFO")
-
-    val debug by option("--debug", "-d", help = "Enable debug mode")
-        .flag(default = false)
+abstract class CotorCommand(
+    help: String = ""
+) : CliktCommand(help = help), KoinComponent {
+    protected val configPath by option("-c", "--config", help = "Path to config file")
+        .path(mustExist = false, canBeDir = false)
+        .default(Paths.get("cotor.yaml"))
 }
 
 /**
@@ -60,7 +46,15 @@ class CotorCli : CliktCommand(
     printHelpOnEmptyArgs = false
 ) {
     init {
-        subcommands(CheckpointCommand())
+        subcommands(
+            InitCommand(),
+            RunCommand(),
+            StatusCommand(),
+            ListCommand(),
+            VersionCommand(),
+            CompletionCommand(),
+            CheckpointCommand()
+        )
     }
 
     private val short by option("--short", help = "Show 10-line cheat sheet").flag()
@@ -81,7 +75,9 @@ class CotorCli : CliktCommand(
 /**
  * Initialize Cotor with default configuration
  */
-class InitCommand : CotorCommand() {
+class InitCommand : CotorCommand(
+    help = "Create a default cotor.yaml configuration file"
+) {
     private val interactive by option("--interactive", "-i", help = "대화형으로 기본 파이프라인 설정").flag()
     private val terminal = Terminal()
 
@@ -113,7 +109,6 @@ pipelines:
       - id: step1
         agent:
           name: example-agent
-          pluginClass: com.cotor.data.plugin.EchoPlugin
         input: "test input"
 
 # Security settings
@@ -205,7 +200,9 @@ performance:
 /**
  * Run a pipeline
  */
-class RunCommand : CotorCommand() {
+class RunCommand : CotorCommand(
+    help = "Run a pipeline"
+) {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val orchestrator: PipelineOrchestrator by inject()
@@ -248,7 +245,9 @@ class RunCommand : CotorCommand() {
 /**
  * Show status of running and recent pipelines
  */
-class StatusCommand : CotorCommand() {
+class StatusCommand : CotorCommand(
+    help = "Show status of running and recent pipelines"
+) {
     private val terminal = Terminal()
     private val runTracker: PipelineRunTracker by inject()
 
@@ -321,7 +320,9 @@ class StatusCommand : CotorCommand() {
 /**
  * List registered agents
  */
-class ListCommand : CotorCommand() {
+class ListCommand : CotorCommand(
+    help = "List registered agents"
+) {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
 
@@ -442,5 +443,15 @@ object CheatSheetPrinter {
         terminal.println("9) 문제 발생 시 cotor doctor, --debug, docs/QUICK_START.md")
         terminal.println("10) 자동완성/alias: cotor completion zsh|bash|fish")
         terminal.println()
+    }
+}
+
+class CheckpointCommand : CliktCommand(help = "Manage checkpoints.") {
+    init {
+        subcommands(CheckpointGCCommand(CheckpointManager()))
+    }
+
+    override fun run() {
+        // This command does nothing on its own, it only serves as a container for subcommands.
     }
 }

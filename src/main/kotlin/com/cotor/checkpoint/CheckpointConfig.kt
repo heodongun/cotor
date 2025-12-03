@@ -7,3 +7,9 @@ data class CheckpointConfig(
     val maxCount: Int? = null,
     val maxAgeDays: Int? = null,
 )
+
+@Serializable
+data class CheckpointRetentionConfig(
+    val maxCount: Int? = null,
+    val maxAgeDays: Int? = null,
+)

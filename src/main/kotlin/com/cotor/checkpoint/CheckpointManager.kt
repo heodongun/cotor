@@ -133,7 +133,7 @@ class CheckpointManager(
      * Garbage collect checkpoints
      */
     fun gc(config: CheckpointConfig): Int {
-        val checkpoints = getCheckpoints()
+        val checkpoints = getCheckpoints().sortedByDescending { it.createdAt }
         val toDelete = mutableSetOf<String>()
 
         config.maxCount?.let { maxCount ->
