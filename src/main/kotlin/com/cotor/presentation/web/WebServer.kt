@@ -78,6 +78,47 @@ data class EditorTemplatePayload(
     val pipeline: EditorPipelineRequest
 )
 
+@Serializable
+data class SaveResponse(
+    val ok: Boolean,
+    val path: String
+)
+
+@Serializable
+data class ConfigResponse(
+    val readOnly: Boolean
+)
+
+@Serializable
+data class RunResponse(
+    val name: String,
+    val executionMode: String,
+    val totalAgents: Int,
+    val successCount: Int,
+    val failureCount: Int,
+    val totalDuration: Long,
+    val results: List<AgentResultPayload>,
+    val timeline: List<TimelineEntryPayload>
+)
+
+@Serializable
+data class AgentResultPayload(
+    val agentName: String,
+    val isSuccess: Boolean,
+    val duration: Long,
+    val output: String?,
+    val error: String?
+)
+
+@Serializable
+data class TimelineEntryPayload(
+    val stageId: String,
+    val state: String,
+    val durationMs: Long,
+    val message: String?,
+    val outputPreview: String?
+)
+
 class WebServer : KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
@@ -94,7 +135,7 @@ class WebServer : KoinComponent {
         "echo" to "com.cotor.data.plugin.EchoPlugin"
     )
 
-    fun start(port: Int = 8080, openBrowser: Boolean = false) {
+    fun start(port: Int = 8080, openBrowser: Boolean = false, readOnly: Boolean = false) {
         ensureEditorDir()
 
         if (openBrowser) {
@@ -121,6 +162,10 @@ class WebServer : KoinComponent {
                     call.respondText(editorHtml, ContentType.Text.Html)
                 }
 
+                get("/api/editor/config") {
+                    call.respond(ConfigResponse(readOnly = readOnly))
+                }
+
                 get("/api/editor/templates") {
                     call.respond(buildTemplates())
                 }
@@ -140,6 +185,9 @@ class WebServer : KoinComponent {
                 }
 
                 post("/api/editor/save") {
+                    if (readOnly) {
+                        return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Read-only mode"))
+                    }
                     val request = call.receive<EditorPipelineRequest>()
                     if (request.name.isBlank()) {
                         return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Pipeline name is required"))
@@ -149,10 +197,13 @@ class WebServer : KoinComponent {
                     }
 
                     val path = savePipeline(request)
-                    call.respond(mapOf("ok" to true, "path" to path.toString()))
+                    call.respond(SaveResponse(ok = true, path = path.toString()))
                 }
 
                 post("/api/editor/run") {
+                    if (readOnly) {
+                        return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Read-only mode"))
+                    }
                     val request = call.receive<EditorPipelineRequest>()
                     val configPath = request.path?.let { Path(it) } ?: editorDir.resolve("${sanitizeName(request.name)}.yaml")
                     if (!configPath.exists()) {
@@ -167,27 +218,27 @@ class WebServer : KoinComponent {
                         config.agents.forEach { agentRegistry.registerAgent(it) }
                         val result = orchestrator.executePipeline(pipeline)
                         val timeline = buildTimelinePayload(pipeline, result)
-
-                        call.respond(
-                            mapOf(
-                                "name" to pipeline.name,
-                                "executionMode" to pipeline.executionMode.name,
-                                "totalAgents" to result.totalAgents,
-                                "successCount" to result.successCount,
-                                "failureCount" to result.failureCount,
-                                "totalDuration" to result.totalDuration,
-                                "results" to result.results.map {
-                                    mapOf(
-                                        "agentName" to it.agentName,
-                                        "isSuccess" to it.isSuccess,
-                                        "duration" to it.duration,
-                                        "output" to it.output,
-                                        "error" to it.error
-                                    )
-                                },
-                                "timeline" to timeline
+                        val agentResults = result.results.map {
+                            AgentResultPayload(
+                                agentName = it.agentName,
+                                isSuccess = it.isSuccess,
+                                duration = it.duration,
+                                output = it.output,
+                                error = it.error
                             )
+                        }
+
+                        val response = RunResponse(
+                            name = pipeline.name,
+                            executionMode = pipeline.executionMode.name,
+                            totalAgents = result.totalAgents,
+                            successCount = result.successCount,
+                            failureCount = result.failureCount,
+                            totalDuration = result.totalDuration,
+                            results = agentResults,
+                            timeline = timeline
                         )
+                        call.respond(response)
                     } catch (e: Exception) {
                         call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
                     }
@@ -392,7 +443,7 @@ class WebServer : KoinComponent {
     private fun buildTimelinePayload(
         pipeline: Pipeline,
         result: AggregatedResult
-    ): List<Map<String, Any?>> {
+    ): List<TimelineEntryPayload> {
         return pipeline.stages.mapIndexed { index, stage ->
             // Prefer positional mapping (execution order) and fall back to agent name matching.
             val stageResult = result.results.getOrNull(index)
@@ -405,12 +456,12 @@ class WebServer : KoinComponent {
             val message = stageResult?.error ?: stageResult?.output
             val preview = stageResult?.output?.take(200)
 
-            mapOf(
-                "stageId" to stage.id,
-                "state" to state,
-                "durationMs" to (stageResult?.duration ?: 0),
-                "message" to message,
-                "outputPreview" to preview
+            TimelineEntryPayload(
+                stageId = stage.id,
+                state = state,
+                durationMs = (stageResult?.duration ?: 0),
+                message = message,
+                outputPreview = preview
             )
         }
     }
@@ -565,7 +616,8 @@ private val editorHtml = """
       description: "",
       executionMode: "SEQUENTIAL",
       stages: [],
-      path: null
+      path: null,
+      readOnly: false
     };
     const pluginMap = {
       claude: "ClaudePlugin",
@@ -845,13 +897,55 @@ private val editorHtml = """
       return Array.from(names);
     }
 
+    function applyReadOnlyMode() {
+      if (!state.readOnly) return;
+
+      // 비활성화할 버튼들
+      const buttonsToDisable = [
+        ...document.querySelectorAll('.hero-actions .btn.primary'),
+        ...document.querySelectorAll('.tags .btn'),
+        ...document.querySelectorAll('.stage-card .btn'),
+        ...document.querySelectorAll('.panel .pill[onclick]'),
+      ];
+      buttonsToDisable.forEach(btn => {
+        btn.style.display = 'none';
+      });
+
+      // 모든 입력 필드 읽기 전용으로
+      const inputs = document.querySelectorAll('input, textarea, select');
+      inputs.forEach(input => {
+        input.setAttribute('readonly', true);
+        input.style.pointerEvents = 'none';
+        input.style.background = '#2a3a52';
+      });
+
+      // 템플릿/저장본 클릭 비활성화
+      document.getElementById('templateList').style.pointerEvents = 'none';
+    }
+
+    async function initApp() {
+      try {
+        const res = await fetch("/api/editor/config");
+        const config = await res.json();
+        state.readOnly = config.readOnly;
+        if (state.readOnly) {
+          document.querySelector('.hero h1').innerText += " (읽기 전용)";
+        }
+      } catch (e) {
+        console.error("Failed to load config", e);
+      }
+
+      document.getElementById("executionMode").addEventListener("change", e => {
+        state.executionMode = e.target.value;
+      });
+
+      await Promise.all([loadTemplates(), loadPipelines()]);
+      renderStages();
+      applyReadOnlyMode();
+    }
+
     // Init
-    document.getElementById("executionMode").addEventListener("change", e => {
-      state.executionMode = e.target.value;
-    });
-    loadTemplates();
-    loadPipelines();
-    renderStages();
+    initApp();
   </script>
 </body>
 </html>
