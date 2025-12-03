@@ -26,7 +26,7 @@ interface PipelineOrchestrator {
      * @param pipeline Pipeline to execute
      * @return AggregatedResult from pipeline execution
      */
-    suspend fun executePipeline(pipeline: Pipeline): AggregatedResult
+    suspend fun executePipeline(pipeline: Pipeline, context: PipelineContext? = null): AggregatedResult
 
     /**
      * Cancel a running pipeline
@@ -76,7 +76,7 @@ class DefaultPipelineOrchestrator(
         logger = logger
     )
 
-    override suspend fun executePipeline(pipeline: Pipeline): AggregatedResult = coroutineScope {
+    override suspend fun executePipeline(pipeline: Pipeline, context: PipelineContext?): AggregatedResult = coroutineScope {
         if (pipeline.executionMode != ExecutionMode.SEQUENTIAL) {
             val conditionalStages = pipeline.stages.filter { it.type != StageType.EXECUTION }
             if (conditionalStages.isNotEmpty()) {
@@ -84,8 +84,8 @@ class DefaultPipelineOrchestrator(
                 throw PipelineException("Conditional stages ($ids) require SEQUENTIAL execution mode")
             }
         }
-        val pipelineId = UUID.randomUUID().toString()
-        val context = PipelineContext(
+        val pipelineId = context?.pipelineId ?: UUID.randomUUID().toString()
+        val pipelineContext = context ?: PipelineContext(
             pipelineId = pipelineId,
             pipelineName = pipeline.name,
             totalStages = pipeline.stages.size
@@ -97,9 +97,10 @@ class DefaultPipelineOrchestrator(
 
             try {
                 val result = when (pipeline.executionMode) {
-                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context)
-                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context)
-                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context)
+                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext)
+                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
+                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
+                    ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
                 }
 
                 eventBus.emit(PipelineCompletedEvent(pipelineId, result))
@@ -108,7 +109,7 @@ class DefaultPipelineOrchestrator(
                 statsManager.recordExecution(pipeline.name, result)
 
                 // Save checkpoint for resume functionality
-                saveCheckpoint(pipelineId, pipeline.name, context)
+                saveCheckpoint(pipelineId, pipeline.name, pipelineContext)
 
                 result
             } catch (e: Exception) {
@@ -259,6 +260,33 @@ class DefaultPipelineOrchestrator(
 
         stages.forEach { visit(it) }
         return sorted
+    }
+
+    private suspend fun executeMap(
+        pipeline: Pipeline,
+        pipelineId: String,
+        pipelineContext: PipelineContext
+    ): AggregatedResult = coroutineScope {
+        val fanoutStages = pipeline.stages.filter { it.fanout != null }
+        if (fanoutStages.size != 1) {
+            throw PipelineException("MAP execution mode requires exactly one stage with a fanout configuration")
+        }
+        val fanoutStage = fanoutStages.first()
+
+        val sourceName = fanoutStage.fanout?.source
+            ?: throw PipelineException("Fanout stage ${fanoutStage.id} is missing a source")
+
+        val sourceData = pipelineContext.sharedState[sourceName] as? List<*>
+            ?: throw PipelineException("Fanout source '$sourceName' not found in shared state or is not a list")
+
+        val results = sourceData.map { item ->
+            async(Dispatchers.Default) {
+                val stageInput = item.toString()
+                executeStageWithGuards(fanoutStage, pipelineId, pipelineContext, stageInput)
+            }
+        }.awaitAll()
+
+        aggregateResults(results, pipelineContext)
     }
 
     private fun resolveDependencies(

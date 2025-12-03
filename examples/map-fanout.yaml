@@ -1,0 +1,15 @@
+# examples/map-fanout.yaml
+agents:
+  - name: "file-reader"
+    pluginClass: "com.cotor.agent.FileReaderAgent"
+
+pipelines:
+  - name: "map-fanout-pipeline"
+    description: "Reads a list of files in parallel using the MAP execution mode"
+    executionMode: MAP
+    stages:
+      - id: "read-files"
+        agent:
+          name: "file-reader"
+        fanout:
+          source: "files"

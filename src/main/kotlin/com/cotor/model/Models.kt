@@ -62,7 +62,16 @@ data class PipelineStage(
     val recovery: RecoveryConfig? = null,
     val validation: StageValidationConfig? = null,
     val condition: StageConditionConfig? = null,
-    val loop: StageLoopConfig? = null
+    val loop: StageLoopConfig? = null,
+    val fanout: FanoutConfig? = null
+)
+
+/**
+ * Configuration for fanning out a stage over a list of items.
+ */
+@Serializable
+data class FanoutConfig(
+    val source: String
 )
 
 /**
@@ -131,7 +140,8 @@ data class AgentReference(
 enum class ExecutionMode {
     SEQUENTIAL,  // Sequential execution
     PARALLEL,    // Parallel execution
-    DAG          // Dependency graph-based execution
+    DAG,         // Dependency graph-based execution
+    MAP          // Map/fan-out execution
 }
 
 /**
