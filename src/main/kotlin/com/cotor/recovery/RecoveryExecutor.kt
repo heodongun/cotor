@@ -54,35 +54,53 @@ class RecoveryExecutor(
         pipelineContext: PipelineContext?,
         recovery: RecoveryConfig
     ): AgentResult {
-        val attempts = recovery.maxRetries.coerceAtLeast(1)
-        var delayMs = recovery.retryDelayMs
+        val totalAttempts = 1 + recovery.maxRetries
         var lastResult: AgentResult? = null
+        var currentDelay = recovery.retryDelayMs.toDouble()
 
-        repeat(attempts) { attempt ->
-            val currentAttempt = attempt + 1
-            logger.debug("Executing stage ${stage.id} attempt $currentAttempt/$attempts")
+        for (attempt in 1..totalAttempts) {
             val result = runAgent(agentConfig, stage, input, pipelineContext)
-            if (result.isSuccess) {
-                return result
-            }
+            val retries = attempt - 1
+            val resultWithAttempt = result.copy(
+                metadata = result.metadata + ("retries" to retries.toString())
+            )
 
-            lastResult = result
-            if (!isRetryable(result.error, recovery.retryOn)) {
-                logger.debug("Stage ${stage.id} failure not retryable: ${result.error}")
-                return result
-            }
-
-            if (currentAttempt < attempts) {
-                delayMs = when (recovery.backoffStrategy) {
-                    BackoffStrategy.FIXED -> recovery.retryDelayMs
-                    BackoffStrategy.EXPONENTIAL -> (delayMs * recovery.backoffMultiplier).toLong().coerceAtLeast(delayMs)
+            if (resultWithAttempt.isSuccess) {
+                if (retries > 0) {
+                    logger.info("Stage ${stage.id} succeeded after $retries retries.")
                 }
-                logger.warn("Stage ${stage.id} failed (attempt $currentAttempt). Retrying after ${delayMs}ms...")
-                delay(delayMs)
+                return resultWithAttempt
+            }
+
+            lastResult = resultWithAttempt
+
+            if (attempt < totalAttempts) {
+                val matchedCondition = getMatchedRetryCondition(resultWithAttempt.error, recovery.retryOn)
+                if (matchedCondition != null) {
+                    val delayMs = currentDelay.toLong()
+                    logger.warn(
+                        "Stage ${stage.id} failed on attempt $attempt/$totalAttempts with error: '${result.error}'. " +
+                                "Matched retry condition: '$matchedCondition'. Retrying in ${delayMs}ms..."
+                    )
+                    delay(delayMs)
+
+                    if (recovery.backoffStrategy == BackoffStrategy.EXPONENTIAL) {
+                        currentDelay *= recovery.backoffMultiplier
+                    }
+                } else {
+                    logger.warn(
+                        "Stage ${stage.id} failed on attempt $attempt/$totalAttempts with non-retryable error: '${result.error}'"
+                    )
+                    return resultWithAttempt
+                }
             }
         }
 
-        return lastResult ?: failureResult(agentConfig.name, "Stage ${stage.id} failed without result")
+        logger.error("Stage ${stage.id} failed after exhausting all $totalAttempts attempts.")
+        return lastResult ?: failureResult(
+            agentConfig.name,
+            "Stage ${stage.id} failed after all retry attempts"
+        )
     }
 
     private suspend fun executeWithFallback(
@@ -179,10 +197,10 @@ class RecoveryExecutor(
         }
     }
 
-    private fun isRetryable(error: String?, retryableErrors: List<String>): Boolean {
-        if (error.isNullOrBlank()) return false
+    private fun getMatchedRetryCondition(error: String?, retryableErrors: List<String>): String? {
+        if (error.isNullOrBlank()) return null
         val lower = error.lowercase()
-        return retryableErrors.any { lower.contains(it.lowercase()) }
+        return retryableErrors.find { lower.contains(it.lowercase()) }
     }
 
     private fun failureResult(agentName: String, message: String): AgentResult {
