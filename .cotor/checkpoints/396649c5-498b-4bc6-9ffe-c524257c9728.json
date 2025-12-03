@@ -1,0 +1,15 @@
+{
+    "pipelineId": "396649c5-498b-4bc6-9ffe-c524257c9728",
+    "pipelineName": "hello-echo",
+    "timestamp": "2025-12-03T00:32:24.547729747Z",
+    "completedStages": [
+        {
+            "stageId": "greet",
+            "agentName": "echo",
+            "output": "안녕하세요! Cotor를 시작해봅시다.",
+            "isSuccess": true,
+            "duration": 9,
+            "timestamp": "2025-12-03T00:32:24.546004338Z"
+        }
+    ]
+}

@@ -141,6 +141,14 @@ class StatsManager(
         return getStatsFile(pipelineName).delete()
     }
 
+    /**
+     * Get execution history for a pipeline
+     */
+    fun getExecutionHistory(pipelineName: String, count: Int): List<PipelineExecution> {
+        val stats = loadStats(pipelineName) ?: return emptyList()
+        return stats.executions.takeLast(count)
+    }
+
     private fun getStatsFile(pipelineName: String): File {
         val safeName = pipelineName.replace("[^a-zA-Z0-9-_]".toRegex(), "_")
         return File(statsDir, "$safeName.json")
