@@ -11,6 +11,25 @@ sealed class CotorException(message: String, cause: Throwable? = null) : Excepti
 class ConfigurationException(message: String, cause: Throwable? = null) : CotorException(message, cause)
 
 /**
+ * Exception thrown when YAML parsing fails
+ */
+class YamlParsingException(
+    val path: String,
+    val line: Int,
+    val column: Int,
+    val originalMessage: String,
+    val snippet: String,
+) : CotorException(
+    """
+Error parsing YAML file: $path
+Location: Line $line, Column $column
+Message: $originalMessage
+Snippet:
+$snippet
+    """.trimIndent()
+)
+
+/**
  * Exception thrown when a plugin fails to load
  */
 class PluginLoadException(message: String, cause: Throwable? = null) : CotorException(message, cause)
