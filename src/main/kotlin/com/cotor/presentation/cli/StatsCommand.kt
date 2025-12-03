@@ -7,10 +7,15 @@ import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.types.choice
+import com.cotor.stats.StatsDetails
+import com.cotor.stats.StatsSummary
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
 import com.github.ajalt.mordant.terminal.Terminal
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.time.Duration
@@ -38,29 +43,38 @@ class StatsCommand : CliktCommand(
         "--details",
         help = "Show detailed, stage-level statistics"
     ).flag(default = false)
+    private val outputFormat by option(
+        "--output-format",
+        help = "Output format (json, csv)"
+    ).choice("json", "csv")
 
-    private val terminal = Terminal()
     private val statsManager: StatsManager by inject()
+    private val json = Json { prettyPrint = true }
 
     override fun run() {
         if (clear) {
             if (pipelineName == null) {
-                terminal.println(red("Please specify the pipeline name to clear stats for."))
-                terminal.println(dim("Usage: cotor stats <pipeline> --clear"))
+                echo(red("Please specify the pipeline name to clear stats for."))
+                echo(dim("Usage: cotor stats <pipeline> --clear"))
                 return
             }
 
             val removed = statsManager.clearStats(pipelineName!!)
             if (removed) {
-                terminal.println(green("✅ Cleared stored statistics for $pipelineName"))
+                echo(green("✅ Cleared stored statistics for $pipelineName"))
             } else {
-                terminal.println(yellow("No statistics file found for $pipelineName"))
+                echo(yellow("No statistics file found for $pipelineName"))
             }
             return
         }
 
         if (pipelineName == null) {
-            showAllStats()
+            val allStats = statsManager.listAllStats()
+            when (outputFormat) {
+                "json" -> echo(json.encodeToString(allStats))
+                "csv" -> printAllStatsCsv(allStats)
+                else -> showAllStats(allStats)
+            }
             return
         }
 
@@ -72,43 +86,70 @@ class StatsCommand : CliktCommand(
         if (details) {
             val stageDetails = statsManager.getStatsDetails(pipelineName!!)
             if (stageDetails == null) {
-                terminal.println(yellow("No statistics found for pipeline: $pipelineName"))
-                terminal.println()
-                terminal.println(dim("Run the pipeline first to collect statistics"))
+                echo(yellow("No statistics found for pipeline: $pipelineName"))
+                echo()
+                echo(dim("Run the pipeline first to collect statistics"))
                 return
             }
-            showStageDetails(stageDetails)
+
+            when (outputFormat) {
+                "json" -> echo(json.encodeToString(stageDetails))
+                "csv" -> printStageDetailsCsv(stageDetails)
+                else -> showStageDetails(stageDetails)
+            }
         } else {
             val summary = statsManager.getStatsSummary(pipelineName!!)
             if (summary == null) {
-                terminal.println(yellow("No statistics found for pipeline: $pipelineName"))
-                terminal.println()
-                terminal.println(dim("Run the pipeline first to collect statistics"))
+                echo(yellow("No statistics found for pipeline: $pipelineName"))
+                echo()
+                echo(dim("Run the pipeline first to collect statistics"))
                 return
             }
-            showDetailedStats(summary)
+
+            when (outputFormat) {
+                "json" -> echo(json.encodeToString(summary))
+                "csv" -> printDetailedStatsCsv(summary)
+                else -> showDetailedStats(summary)
+            }
         }
     }
 
-    private fun showAllStats() {
-        val allStats = statsManager.listAllStats()
+    private fun printAllStatsCsv(allStats: List<StatsSummary>) {
+        echo("Pipeline,Executions,SuccessRate,AvgDuration,Trend")
+        allStats.forEach {
+            echo("${it.pipelineName},${it.totalExecutions},${it.successRate},${it.avgDuration},${it.trend}")
+        }
+    }
 
+    private fun printDetailedStatsCsv(summary: StatsSummary) {
+        echo("Pipeline,TotalExecutions,SuccessRate,AvgDuration,AvgRecentDuration,LastExecuted,Trend")
+        echo("${summary.pipelineName},${summary.totalExecutions},${summary.successRate},${summary.avgDuration},${summary.avgRecentDuration},${summary.lastExecuted},${summary.trend}")
+    }
+
+    private fun printStageDetailsCsv(details: StatsDetails) {
+        echo("StageName,AvgDuration,SuccessRate,AvgRetries")
+        details.stages.forEach {
+            echo("${it.stageName},${it.avgDuration},${it.successRate},${it.avgRetries}")
+        }
+    }
+
+    private fun showAllStats(allStats: List<StatsSummary>) {
         if (allStats.isEmpty()) {
-            terminal.println(yellow("No statistics available yet"))
-            terminal.println()
-            terminal.println(dim("Statistics are collected automatically when pipelines run"))
+            echo(yellow("No statistics available yet"))
+            echo()
+            echo(dim("Statistics are collected automatically when pipelines run"))
             return
         }
 
-        terminal.println(bold(blue("📊 Pipeline Statistics Overview")))
-        terminal.println("─".repeat(80))
-        terminal.println()
+        echo(bold(blue("📊 Pipeline Statistics Overview")))
+        echo("─".repeat(80))
+        echo()
 
-        terminal.println(String.format(
+        echo(String.format(
             "%-30s %10s %10s %12s %8s",
             "Pipeline", "Executions", "Success", "Avg Time", "Trend"
         ))
-        terminal.println("─".repeat(80))
+        echo("─".repeat(80))
 
         allStats.forEach { stats ->
             val trendIcon = when (stats.trend) {
@@ -117,7 +158,7 @@ class StatsCommand : CliktCommand(
                 PerformanceTrend.DEGRADING -> red("↘")
             }
 
-            terminal.println(String.format(
+            echo(String.format(
                 "%-30s %10d %9.1f%% %12s %8s",
                 stats.pipelineName.take(30),
                 stats.totalExecutions,
@@ -127,80 +168,80 @@ class StatsCommand : CliktCommand(
             ))
         }
 
-        terminal.println("─".repeat(80))
-        terminal.println()
-        terminal.println(dim("Usage: cotor stats <pipeline-name> for detailed statistics"))
+        echo("─".repeat(80))
+        echo()
+        echo(dim("Usage: cotor stats <pipeline-name> for detailed statistics"))
     }
 
     private fun showDetailedStats(summary: com.cotor.stats.StatsSummary) {
-        terminal.println(bold(blue("📊 Detailed Statistics: ${summary.pipelineName}")))
-        terminal.println("─".repeat(50))
-        terminal.println()
+        echo(bold(blue("📊 Detailed Statistics: ${summary.pipelineName}")))
+        echo("─".repeat(50))
+        echo()
 
         // Overview
-        terminal.println(bold("Overview:"))
-        terminal.println("  Total Executions: ${summary.totalExecutions}")
-        terminal.println("  Success Rate: ${green(String.format("%.1f%%", summary.successRate))}")
-        terminal.println("  Last Executed: ${summary.lastExecuted ?: "Never"}")
-        terminal.println()
+        echo(bold("Overview:"))
+        echo("  Total Executions: ${summary.totalExecutions}")
+        echo("  Success Rate: ${green(String.format("%.1f%%", summary.successRate))}")
+        echo("  Last Executed: ${summary.lastExecuted ?: "Never"}")
+        echo()
 
         // Performance
-        terminal.println(bold("Performance:"))
-        terminal.println("  Average Duration: ${formatDuration(summary.avgDuration)}")
-        terminal.println("  Recent Average: ${formatDuration(summary.avgRecentDuration)}")
+        echo(bold("Performance:"))
+        echo("  Average Duration: ${formatDuration(summary.avgDuration)}")
+        echo("  Recent Average: ${formatDuration(summary.avgRecentDuration)}")
 
         val trendText = when (summary.trend) {
             PerformanceTrend.IMPROVING -> green("Improving ↗")
             PerformanceTrend.STABLE -> yellow("Stable →")
             PerformanceTrend.DEGRADING -> red("Degrading ↘")
         }
-        terminal.println("  Trend: $trendText")
-        terminal.println()
+        echo("  Trend: $trendText")
+        echo()
 
         // Recommendations
-        terminal.println(bold("Recommendations:"))
+        echo(bold("Recommendations:"))
         when (summary.trend) {
             PerformanceTrend.IMPROVING -> {
-                terminal.println(green("  ✅ Performance is improving - keep up the good work!"))
+                echo(green("  ✅ Performance is improving - keep up the good work!"))
             }
             PerformanceTrend.STABLE -> {
-                terminal.println(yellow("  ℹ️  Performance is stable"))
+                echo(yellow("  ℹ️  Performance is stable"))
             }
             PerformanceTrend.DEGRADING -> {
-                terminal.println(red("  ⚠️  Performance is degrading"))
-                terminal.println("  💡 Consider reviewing recent changes or optimizing prompts")
+                echo(red("  ⚠️  Performance is degrading"))
+                echo("  💡 Consider reviewing recent changes or optimizing prompts")
             }
         }
 
         if (summary.successRate < 80) {
-            terminal.println(red("  ⚠️  Low success rate detected"))
-            terminal.println("  💡 Review agent configurations and error logs")
+            echo(red("  ⚠️  Low success rate detected"))
+            echo("  💡 Review agent configurations and error logs")
         }
 
-        terminal.println()
-        terminal.println("─".repeat(50))
+        echo()
+        echo("─".repeat(50))
     }
 
     private fun showStageDetails(details: com.cotor.stats.StatsDetails) {
-        terminal.println(bold(blue("📊 Stage-level Statistics: ${details.pipelineName}")))
-        terminal.println("─".repeat(80))
-        terminal.println()
+        echo(bold(blue("📊 Stage-level Statistics: ${details.pipelineName}")))
+        echo("─".repeat(80))
+        echo()
 
         if (details.stages.isEmpty()) {
-            terminal.println(yellow("No stage-level data available for this pipeline."))
-            terminal.println(dim("Ensure `recordExecution` is called with stage details."))
-            terminal.println("─".repeat(80))
+            echo(yellow("No stage-level data available for this pipeline."))
+            echo(dim("Ensure `recordExecution` is called with stage details."))
+            echo("─".repeat(80))
             return
         }
 
-        terminal.println(String.format(
+        echo(String.format(
             "%-30s %15s %15s %15s",
             "Stage Name", "Avg Duration", "Success Rate", "Avg Retries"
         ))
-        terminal.println("─".repeat(80))
+        echo("─".repeat(80))
 
         details.stages.forEach { stage ->
-            terminal.println(String.format(
+            echo(String.format(
                 "%-30s %15s %14.1f%% %15.1f",
                 stage.stageName.take(30),
                 formatDuration(stage.avgDuration),
@@ -209,7 +250,7 @@ class StatsCommand : CliktCommand(
             ))
         }
 
-        terminal.println("─".repeat(80))
+        echo("─".repeat(80))
     }
 
     private fun formatDuration(ms: Long): String {
@@ -229,25 +270,25 @@ class StatsCommand : CliktCommand(
         val history = statsManager.getExecutionHistory(pipelineName, count)
 
         if (history.isEmpty()) {
-            terminal.println(yellow("No execution history found for $pipelineName"))
+            echo(yellow("No execution history found for $pipelineName"))
             return
         }
 
-        terminal.println(bold(blue("📈 Execution History for $pipelineName (last $count)")))
-        terminal.println("─".repeat(80))
-        terminal.println()
+        echo(bold(blue("📈 Execution History for $pipelineName (last $count)")))
+        echo("─".repeat(80))
+        echo()
 
-        terminal.println(String.format(
+        echo(String.format(
             "%-28s %10s %10s %12s",
             "Timestamp", "Success", "Failure", "Duration"
         ))
-        terminal.println("─".repeat(80))
+        echo("─".repeat(80))
 
         history.forEach { exec ->
             val successText = if (exec.successCount > 0) green(exec.successCount.toString()) else exec.successCount.toString()
             val failureText = if (exec.failureCount > 0) red(exec.failureCount.toString()) else exec.failureCount.toString()
 
-            terminal.println(String.format(
+            echo(String.format(
                 "%-28s %10s %10s %12s",
                 exec.timestamp,
                 successText,
@@ -256,6 +297,6 @@ class StatsCommand : CliktCommand(
             ))
         }
 
-        terminal.println("─".repeat(80))
+        echo("─".repeat(80))
     }
 }
