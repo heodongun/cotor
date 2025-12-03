@@ -1,0 +1,49 @@
+{
+    "pipelineName": "hello-echo",
+    "executions": [
+        {
+            "pipelineName": "hello-echo",
+            "timestamp": "2025-12-03T00:32:20.781803076Z",
+            "totalDuration": 55,
+            "successCount": 1,
+            "failureCount": 0,
+            "totalAgents": 1
+        },
+        {
+            "pipelineName": "hello-echo",
+            "timestamp": "2025-12-03T00:32:22.090527221Z",
+            "totalDuration": 51,
+            "successCount": 1,
+            "failureCount": 0,
+            "totalAgents": 1
+        },
+        {
+            "pipelineName": "hello-echo",
+            "timestamp": "2025-12-03T00:32:23.274296937Z",
+            "totalDuration": 31,
+            "successCount": 1,
+            "failureCount": 0,
+            "totalAgents": 1
+        },
+        {
+            "pipelineName": "hello-echo",
+            "timestamp": "2025-12-03T00:32:24.512607019Z",
+            "totalDuration": 51,
+            "successCount": 1,
+            "failureCount": 0,
+            "totalAgents": 1
+        },
+        {
+            "pipelineName": "hello-echo",
+            "timestamp": "2025-12-03T00:32:26.675289076Z",
+            "totalDuration": 70,
+            "successCount": 1,
+            "failureCount": 0,
+            "totalAgents": 1
+        }
+    ],
+    "totalExecutions": 5,
+    "totalSuccesses": 5,
+    "totalDuration": 258,
+    "lastExecuted": "2025-12-03T00:32:26.675289076Z"
+}

@@ -11,8 +11,10 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
 import org.slf4j.Logger
 
 class RecoveryExecutorTest : FunSpec({
@@ -95,5 +97,91 @@ class RecoveryExecutorTest : FunSpec({
         val result = recoveryExecutor.executeWithRecovery(stage, null, null)
         result.isSuccess.shouldBeFalse()
         result.error?.contains("Validation failed") shouldBe true
+    }
+
+    test("fixed backoff strategy should use a constant delay") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val outputValidator = mockk<OutputValidator>(relaxed = true)
+        val recoveryExecutor = RecoveryExecutor(agentExecutor, registry, outputValidator, logger)
+        val stage = PipelineStage(
+            id = "stage1",
+            agent = AgentReference("primary"),
+            recovery = RecoveryConfig(
+                strategy = RecoveryStrategy.RETRY,
+                maxRetries = 3,
+                retryDelayMs = 100,
+                backoffStrategy = BackoffStrategy.FIXED,
+                retryOn = listOf("timeout")
+            )
+        )
+
+        coEvery {
+            agentExecutor.executeAgent(any(), any(), any())
+        } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
+
+        runBlocking {
+            recoveryExecutor.executeWithRecovery(stage, "input", null)
+        }
+
+        coVerify(exactly = 3) {
+            agentExecutor.executeAgent(any(), any(), any())
+        }
+    }
+
+    test("exponential backoff strategy should use an increasing delay") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val outputValidator = mockk<OutputValidator>(relaxed = true)
+        val recoveryExecutor = RecoveryExecutor(agentExecutor, registry, outputValidator, logger)
+        val stage = PipelineStage(
+            id = "stage1",
+            agent = AgentReference("primary"),
+            recovery = RecoveryConfig(
+                strategy = RecoveryStrategy.RETRY,
+                maxRetries = 3,
+                retryDelayMs = 100,
+                backoffMultiplier = 2.0,
+                backoffStrategy = BackoffStrategy.EXPONENTIAL,
+                retryOn = listOf("timeout")
+            )
+        )
+
+        coEvery {
+            agentExecutor.executeAgent(any(), any(), any())
+        } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
+
+        runBlocking {
+            recoveryExecutor.executeWithRecovery(stage, "input", null)
+        }
+
+        coVerify(exactly = 3) {
+            agentExecutor.executeAgent(any(), any(), any())
+        }
+    }
+
+    test("retryOn should prevent retries for non-matching errors") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val outputValidator = mockk<OutputValidator>(relaxed = true)
+        val recoveryExecutor = RecoveryExecutor(agentExecutor, registry, outputValidator, logger)
+        val stage = PipelineStage(
+            id = "stage1",
+            agent = AgentReference("primary"),
+            recovery = RecoveryConfig(
+                strategy = RecoveryStrategy.RETRY,
+                maxRetries = 3,
+                retryOn = listOf("5xx")
+            )
+        )
+
+        coEvery {
+            agentExecutor.executeAgent(any(), any(), any())
+        } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
+
+        runBlocking {
+            recoveryExecutor.executeWithRecovery(stage, "input", null)
+        }
+
+        coVerify(exactly = 1) {
+            agentExecutor.executeAgent(any(), any(), any())
+        }
     }
 })

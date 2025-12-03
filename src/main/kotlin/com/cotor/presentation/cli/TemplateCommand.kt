@@ -4,8 +4,8 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.flag
-import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.multiple
+import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
@@ -21,9 +21,9 @@ class TemplateCommand : CliktCommand(
 ) {
     private val templateType by argument(
         name = "type",
-        help = "Template type: compare, chain, review, consensus, custom"
+        help = "Template type: compare, chain, review, consensus, fanout, selfheal, custom"
     ).choice(
-        "compare", "chain", "review", "consensus", "custom",
+        "compare", "chain", "review", "consensus", "fanout", "selfheal", "custom",
         ignoreCase = true
     ).optional()
 
@@ -38,7 +38,7 @@ class TemplateCommand : CliktCommand(
     ).flag(default = false)
 
     private val preview by option("--preview", help = "Preview a template without writing a file")
-        .choice("compare", "chain", "review", "consensus", "custom")
+        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "custom")
 
     private val list by option("--list", help = "List available templates").flag(default = false)
 
@@ -154,7 +154,7 @@ class TemplateCommand : CliktCommand(
             """      - id: ${agent}-stage-${index + 1}
         agent:
           name: $agent
-        input: "YOUR_PROMPT_HERE""""
+        input: "YOUR_PROMPT_HERE"""
         }.joinToString("\n\n")
 
         val allowedExecs = agents.distinct().joinToString("\n") { "    - $it" }
@@ -196,11 +196,13 @@ performance:
             "chain" to "Sequential processing chain (generate → review → optimize)",
             "review" to "Parallel multi-perspective code review (security, performance, best practices)",
             "consensus" to "Multiple AIs provide opinions to reach consensus",
+            "fanout" to "DAG fan-out/fan-in merge pattern",
+            "selfheal" to "Loop-based self-healing/retry pattern",
             "custom" to "Customizable template with common patterns"
         )
 
         templates.forEach { (type, description) ->
-            terminal.println("  ${yellow(type.padEnd(12))} - $description")
+            terminal.println("  ${type.padEnd(12)} - $description")
         }
 
         terminal.println()
@@ -226,11 +228,13 @@ performance:
     }
 
     private fun generateTemplate(type: String): String {
-        return when (type) {
+        return when (type.lowercase()) {
             "compare" -> generateCompareTemplate()
             "chain" -> generateChainTemplate()
             "review" -> generateReviewTemplate()
             "consensus" -> generateConsensusTemplate()
+            "fanout" -> generateFanoutTemplate()
+            "selfheal" -> generateSelfHealTemplate()
             "custom" -> generateCustomTemplate()
             else -> throw IllegalArgumentException("Unknown template type: $type")
         }
@@ -416,6 +420,100 @@ logging:
 
 performance:
   maxConcurrentAgents: 5
+""".trimIndent()
+
+    private fun generateFanoutTemplate() = """
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+
+pipelines:
+  - name: fanout-merge
+    description: "DAG fan-out/fan-in merge"
+    executionMode: DAG
+    stages:
+      - id: seed
+        agent:
+          name: claude
+        input: "공통 입력을 분석"
+
+      - id: branch-a
+        agent:
+          name: claude
+        input: "접근 A 제안"
+        dependencies: [seed]
+
+      - id: branch-b
+        agent:
+          name: gemini
+        input: "접근 B 제안"
+        dependencies: [seed]
+
+      - id: merge
+        agent:
+          name: claude
+        input: "두 접근을 합쳐 최종안을 작성"
+        dependencies: [branch-a, branch-b]
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude
+    - gemini
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 5
+""".trimIndent()
+
+    private fun generateSelfHealTemplate() = """
+version: "1.0"
+
+agents:
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+
+pipelines:
+  - name: self-heal-loop
+    description: "Loop with retry/repair"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: attempt-1
+        agent:
+          name: claude
+        input: "문제를 해결하고 결과를 보고해줘"
+
+      - id: attempt-2
+        agent:
+          name: claude
+        input: "이전 결과를 개선하거나 오류를 고쳐줘"
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - claude
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 2
 """.trimIndent()
 
     private fun generateCustomTemplate() = """

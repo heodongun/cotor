@@ -1,0 +1,23 @@
+{
+    "pipelineId": "47f0adf5-35cf-4ccb-97d5-ddb52c1101a3",
+    "pipelineName": "compare-summaries",
+    "timestamp": "2025-12-03T00:29:37.017442572Z",
+    "completedStages": [
+        {
+            "stageId": "gemini-summary",
+            "agentName": "gemini",
+            "output": null,
+            "isSuccess": false,
+            "duration": 0,
+            "timestamp": "2025-12-03T00:29:37.016371808Z"
+        },
+        {
+            "stageId": "claude-summary",
+            "agentName": "claude",
+            "output": null,
+            "isSuccess": false,
+            "duration": 0,
+            "timestamp": "2025-12-03T00:29:37.016503948Z"
+        }
+    ]
+}

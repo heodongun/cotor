@@ -24,6 +24,16 @@ import org.koin.core.component.inject
 import kotlin.io.path.Path
 import kotlin.io.path.writeText
 
+class CheckpointCommand : CliktCommand(help = "Manage checkpoints.") {
+    init {
+        subcommands(CheckpointGCCommand())
+    }
+
+    override fun run() {
+        // This command does nothing on its own, it only serves as a container for subcommands.
+    }
+}
+
 /**
  * Base CLI command for Cotor
  */
@@ -49,6 +59,10 @@ class CotorCli : CliktCommand(
     invokeWithoutSubcommand = true,
     printHelpOnEmptyArgs = false
 ) {
+    init {
+        subcommands(CheckpointCommand())
+    }
+
     private val short by option("--short", help = "Show 10-line cheat sheet").flag()
 
     override fun run() {

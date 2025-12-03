@@ -11,6 +11,7 @@ import com.cotor.recovery.RecoveryExecutor
 import com.cotor.stats.StatsManager
 import com.cotor.validation.output.OutputValidator
 import com.cotor.checkpoint.CheckpointManager
+import com.cotor.checkpoint.fromCheckpoint
 import com.cotor.checkpoint.toCheckpoint
 import com.cotor.data.config.CotorProperties
 import kotlinx.coroutines.*
@@ -25,9 +26,10 @@ interface PipelineOrchestrator {
     /**
      * Execute a pipeline
      * @param pipeline Pipeline to execute
+     * @param fromStageId Optional stage ID to resume execution from
      * @return AggregatedResult from pipeline execution
      */
-    suspend fun executePipeline(pipeline: Pipeline): AggregatedResult
+    suspend fun executePipeline(pipeline: Pipeline, fromStageId: String? = null): AggregatedResult
 
     /**
      * Cancel a running pipeline
@@ -77,7 +79,7 @@ class DefaultPipelineOrchestrator(
         logger = logger
     )
 
-    override suspend fun executePipeline(pipeline: Pipeline): AggregatedResult = coroutineScope {
+    override suspend fun executePipeline(pipeline: Pipeline, fromStageId: String?): AggregatedResult = coroutineScope {
         if (pipeline.executionMode != ExecutionMode.SEQUENTIAL) {
             val conditionalStages = pipeline.stages.filter { it.type != StageType.EXECUTION }
             if (conditionalStages.isNotEmpty()) {
@@ -91,6 +93,18 @@ class DefaultPipelineOrchestrator(
             pipelineName = pipeline.name,
             totalStages = pipeline.stages.size
         )
+
+        fromStageId?.let {
+            logger.info("Resuming pipeline from stage: $it")
+            val checkpoint = checkpointManager.getLatestCheckpoint(pipeline.name)
+                ?: throw PipelineException("No checkpoint found to resume pipeline ${pipeline.name}")
+
+            checkpoint.completedStages.forEach { stageCheckpoint ->
+                val agentResult = stageCheckpoint.fromCheckpoint()
+                context.addStageResult(stageCheckpoint.stageId, agentResult)
+            }
+        }
+
         logger.info("Starting pipeline: ${pipeline.name} (ID: $pipelineId)")
 
         val deferred = async {
@@ -98,15 +112,23 @@ class DefaultPipelineOrchestrator(
 
             try {
                 val result = when (pipeline.executionMode) {
-                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context)
-                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context)
-                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context)
+                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context, fromStageId)
+                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context, fromStageId)
+                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context, fromStageId)
                 }
 
                 eventBus.emit(PipelineCompletedEvent(pipelineId, result))
 
                 // Record execution statistics
-                statsManager.recordExecution(pipeline.name, result)
+                val stageExecutions = context.stageResults.values.map {
+                    com.cotor.stats.StageExecution(
+                        name = it.agentName,
+                        duration = it.duration,
+                        status = if (it.isSuccess) com.cotor.stats.ExecutionStatus.SUCCESS else com.cotor.stats.ExecutionStatus.FAILURE,
+                        retries = it.metadata["retries"] as? Int ?: 0
+                    )
+                }
+                statsManager.recordExecution(pipeline.name, result, stageExecutions)
 
                 // Save checkpoint for resume functionality
                 saveCheckpoint(pipelineId, pipeline.name, context)
@@ -132,12 +154,18 @@ class DefaultPipelineOrchestrator(
     private suspend fun executeSequential(
         pipeline: Pipeline,
         pipelineId: String,
-        pipelineContext: PipelineContext
+        pipelineContext: PipelineContext,
+        fromStageId: String? = null
     ): AggregatedResult {
-        val results = mutableListOf<AgentResult>()
+        val results = pipelineContext.stageResults.values.toMutableList()
         val stageIndexMap = pipeline.stages.mapIndexed { index, stage -> stage.id to index }.toMap()
-        var previousOutput: String? = null
-        var index = 0
+        var previousOutput: String? = results.lastOrNull()?.output
+
+        val startIndex = fromStageId?.let {
+            stageIndexMap[it] ?: throw PipelineException("Resume stage '$it' not found in pipeline")
+        } ?: 0
+
+        var index = startIndex
         var safetyCounter = 0
 
         while (index in pipeline.stages.indices) {

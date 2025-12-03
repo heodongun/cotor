@@ -120,4 +120,61 @@ class PipelineValidatorTest : FunSpec({
 
         result.warnings.shouldContain("Stage 'stage': Recovery strategy FALLBACK has no fallbackAgents configured")
     }
+
+    test("reports error for invalid stage reference in input") {
+        val pipeline = Pipeline(
+            name = "invalid-ref",
+            stages = listOf(
+                PipelineStage(id = "step1", agent = AgentReference("echo")),
+                PipelineStage(
+                    id = "step2",
+                    agent = AgentReference("echo"),
+                    input = "Using \${stages.nonexistent.output}"
+                )
+            )
+        )
+
+        val validator = PipelineValidator(registry)
+        val result = validator.validate(pipeline) as ValidationResult.Failure
+
+        result.errors.shouldContain("Stage 'step2': Referenced stage 'nonexistent' not found in pipeline.")
+    }
+
+    test("accepts valid stage reference in input") {
+        val pipeline = Pipeline(
+            name = "valid-ref",
+            stages = listOf(
+                PipelineStage(id = "step1", agent = AgentReference("echo")),
+                PipelineStage(
+                    id = "step2",
+                    agent = AgentReference("echo"),
+                    input = "Using \${stages.step1.output}"
+                )
+            )
+        )
+
+        val validator = PipelineValidator(registry)
+        val result = validator.validate(pipeline)
+
+        result.isSuccess shouldBe true
+    }
+
+    test("reports error for invalid property access in input") {
+        val pipeline = Pipeline(
+            name = "invalid-property",
+            stages = listOf(
+                PipelineStage(id = "step1", agent = AgentReference("echo")),
+                PipelineStage(
+                    id = "step2",
+                    agent = AgentReference("echo"),
+                    input = "Using \${stages.step1.foo}"
+                )
+            )
+        )
+
+        val validator = PipelineValidator(registry)
+        val result = validator.validate(pipeline) as ValidationResult.Failure
+
+        result.errors.shouldContain("Stage 'step2': Invalid property access in '\${stages.step1.foo}'. Only '.output' is supported.")
+    }
 })
