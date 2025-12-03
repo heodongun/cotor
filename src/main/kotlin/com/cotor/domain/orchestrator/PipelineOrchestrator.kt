@@ -96,10 +96,22 @@ class DefaultPipelineOrchestrator(
             eventBus.emit(PipelineStartedEvent(pipelineId, pipeline.name))
 
             try {
-                val result = when (pipeline.executionMode) {
+                val result = pipeline.executionTimeoutMs?.let { timeout ->
+                    withTimeoutOrNull(timeout) {
+                        when (pipeline.executionMode) {
+                            ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context)
+                            ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context)
+                            ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context)
+                        }
+                    }
+                } ?: when (pipeline.executionMode) {
                     ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context)
                     ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context)
                     ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context)
+                }
+
+                if (result == null) {
+                    throw PipelineException("Pipeline '${pipeline.name}' timed out after ${pipeline.executionTimeoutMs} ms")
                 }
 
                 eventBus.emit(PipelineCompletedEvent(pipelineId, result))
@@ -159,7 +171,13 @@ class DefaultPipelineOrchestrator(
                     }
 
                     if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT && !stage.optional) {
-                        return aggregateResults(results, pipelineContext)
+                        // If the stage timed out and the policy is to continue, don't abort
+                        val isTimeout = result.metadata["timeout"] == "true"
+                        if (isTimeout && stage.timeoutPolicy == TimeoutPolicy.SKIP_STAGE_AND_CONTINUE) {
+                            // Continue to the next stage
+                        } else {
+                            return aggregateResults(results, pipelineContext)
+                        }
                     }
 
                     index++
@@ -310,18 +328,12 @@ class DefaultPipelineOrchestrator(
         eventBus.emit(StageStartedEvent(stage.id, pipelineId))
         val agentName = stage.agent?.name ?: stage.id
 
-        return try {
-            val result = recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
-            pipelineContext.addStageResult(stage.id, result)
-
-            if (result.isSuccess) {
-                eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
-            } else {
-                val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
-                eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
-            }
-
-            result
+        val result = try {
+            stage.timeoutMs?.let { timeout ->
+                withTimeoutOrNull(timeout) {
+                    recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
+                }
+            } ?: recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
         } catch (e: Exception) {
             val failureResult = AgentResult(
                 agentName = agentName,
@@ -335,6 +347,37 @@ class DefaultPipelineOrchestrator(
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, e))
             throw e
         }
+
+        if (result == null) {
+            val errorMessage = "Stage '${stage.id}' timed out after ${stage.timeoutMs} ms"
+            logger.warn(errorMessage)
+            val timeoutResult = AgentResult(
+                agentName = agentName,
+                isSuccess = false,
+                output = null,
+                error = errorMessage,
+                duration = stage.timeoutMs ?: 0,
+                metadata = mapOf("timeout" to "true")
+            )
+            pipelineContext.addStageResult(stage.id, timeoutResult)
+            eventBus.emit(StageFailedEvent(stage.id, pipelineId, RuntimeException(errorMessage)))
+
+            if (stage.timeoutPolicy == TimeoutPolicy.FAIL_PIPELINE) {
+                throw PipelineException(errorMessage)
+            }
+            return timeoutResult
+        }
+
+        pipelineContext.addStageResult(stage.id, result)
+
+        if (result.isSuccess) {
+            eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+        } else {
+            val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
+            eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
+        }
+
+        return result
     }
 
     private suspend fun executeDecisionStage(

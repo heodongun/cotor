@@ -44,8 +44,18 @@ data class Pipeline(
     val description: String = "",
     val executionMode: ExecutionMode = ExecutionMode.SEQUENTIAL,
     val stages: List<PipelineStage> = emptyList(),
-    val failureStrategy: FailureStrategy = FailureStrategy.ABORT
+    val failureStrategy: FailureStrategy = FailureStrategy.ABORT,
+    val executionTimeoutMs: Long? = null
 )
+
+/**
+ * Timeout handling policy
+ */
+@Serializable
+enum class TimeoutPolicy {
+    FAIL_PIPELINE,
+    SKIP_STAGE_AND_CONTINUE
+}
 
 /**
  * Individual stage in a pipeline
@@ -62,7 +72,9 @@ data class PipelineStage(
     val recovery: RecoveryConfig? = null,
     val validation: StageValidationConfig? = null,
     val condition: StageConditionConfig? = null,
-    val loop: StageLoopConfig? = null
+    val loop: StageLoopConfig? = null,
+    val timeoutMs: Long? = null,
+    val timeoutPolicy: TimeoutPolicy = TimeoutPolicy.FAIL_PIPELINE
 )
 
 /**
