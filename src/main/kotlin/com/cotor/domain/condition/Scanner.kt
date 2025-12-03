@@ -32,6 +32,8 @@ class Scanner(private val source: String) {
             '=' -> if (match('=')) addToken(TokenType.EQUAL_EQUAL)
             '>' -> addToken(if (match('=')) TokenType.GREATER_EQUAL else TokenType.GREATER)
             '<' -> addToken(if (match('=')) TokenType.LESS_EQUAL else TokenType.LESS)
+            '&' -> if (match('&')) addToken(TokenType.AND)
+            '|' -> if (match('|')) addToken(TokenType.OR)
             '"' -> string('"')
             '\'' -> string('\'')
             ' ', '\r', '\t' -> {
