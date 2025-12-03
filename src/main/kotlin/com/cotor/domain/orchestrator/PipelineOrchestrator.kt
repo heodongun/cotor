@@ -133,10 +133,15 @@ class DefaultPipelineOrchestrator(
 
                 // Record execution statistics
                 val stageExecutions = pipelineContext.stageResults.values.map {
+                    val status = when {
+                        it.metadata["timeout"] == "true" -> com.cotor.stats.ExecutionStatus.TIMED_OUT
+                        it.isSuccess -> com.cotor.stats.ExecutionStatus.SUCCESS
+                        else -> com.cotor.stats.ExecutionStatus.FAILURE
+                    }
                     com.cotor.stats.StageExecution(
                         name = it.agentName,
                         duration = it.duration,
-                        status = if (it.isSuccess) com.cotor.stats.ExecutionStatus.SUCCESS else com.cotor.stats.ExecutionStatus.FAILURE,
+                        status = status,
                         retries = it.metadata["retries"] as? Int ?: 0
                     )
                 }
@@ -418,7 +423,7 @@ class DefaultPipelineOrchestrator(
                 metadata = mapOf("timeout" to "true")
             )
             pipelineContext.addStageResult(stage.id, timeoutResult)
-            eventBus.emit(StageFailedEvent(stage.id, pipelineId, RuntimeException(errorMessage)))
+            eventBus.emit(StageTimedOutEvent(stage.id, pipelineId, stage.timeoutMs ?: 0))
 
             if (stage.timeoutPolicy == TimeoutPolicy.FAIL_PIPELINE) {
                 throw PipelineException(errorMessage)

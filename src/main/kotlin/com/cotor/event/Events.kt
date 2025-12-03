@@ -93,3 +93,13 @@ data class StageFailedEvent(
     val error: Throwable,
     override val timestamp: Instant = Instant.now()
 ) : CotorEvent()
+
+/**
+ * Stage timed out event
+ */
+data class StageTimedOutEvent(
+    val stageId: String,
+    val pipelineId: String,
+    val timeoutMs: Long,
+    override val timestamp: Instant = Instant.now()
+) : CotorEvent()

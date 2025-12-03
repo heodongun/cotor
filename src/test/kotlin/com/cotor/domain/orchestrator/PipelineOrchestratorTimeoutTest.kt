@@ -57,6 +57,25 @@ class PipelineOrchestratorTimeoutTest : FunSpec({
         exception.message shouldContain "timed out after 500 ms"
     }
 
+    test("pipeline should time out with multiple stages") {
+        val executor = MappedDelayedAgentExecutor(mapOf("stage1" to 300L, "stage2" to 300L))
+        val orchestrator = createOrchestrator(executor)
+
+        val pipeline = Pipeline(
+            name = "pipeline-timeout-multiple-stages",
+            executionTimeoutMs = 500,
+            stages = listOf(
+                PipelineStage(id = "stage1", agent = AgentReference("alpha")),
+                PipelineStage(id = "stage2", agent = AgentReference("alpha"))
+            )
+        )
+
+        val exception = shouldThrow<PipelineException> {
+            orchestrator.executePipeline(pipeline)
+        }
+        exception.message shouldContain "timed out after 500 ms"
+    }
+
     test("stage should time out and fail pipeline") {
         val executor = MappedDelayedAgentExecutor(mapOf("stage1" to 1000L))
         val orchestrator = createOrchestrator(executor)

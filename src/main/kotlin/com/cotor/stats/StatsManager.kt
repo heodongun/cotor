@@ -229,7 +229,8 @@ data class StageExecution(
 @Serializable
 enum class ExecutionStatus {
     SUCCESS,
-    FAILURE
+    FAILURE,
+    TIMED_OUT
 }
 
 /**
