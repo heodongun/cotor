@@ -7,6 +7,7 @@ import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
 import com.github.ajalt.mordant.terminal.Terminal
@@ -29,6 +30,10 @@ class StatsCommand : CliktCommand(
         "--clear",
         help = "Remove stored stats for the specified pipeline"
     ).flag(default = false)
+    private val history by option(
+        "--history",
+        help = "Show the last N execution trends"
+    ).int()
     private val details by option(
         "--details",
         help = "Show detailed, stage-level statistics"
@@ -59,15 +64,20 @@ class StatsCommand : CliktCommand(
             return
         }
 
+        history?.let {
+            showHistory(pipelineName!!, it)
+            return
+        }
+
         if (details) {
-            val details = statsManager.getStatsDetails(pipelineName!!)
-            if (details == null) {
+            val stageDetails = statsManager.getStatsDetails(pipelineName!!)
+            if (stageDetails == null) {
                 terminal.println(yellow("No statistics found for pipeline: $pipelineName"))
                 terminal.println()
                 terminal.println(dim("Run the pipeline first to collect statistics"))
                 return
             }
-            showStageDetails(details)
+            showStageDetails(stageDetails)
         } else {
             val summary = statsManager.getStatsSummary(pipelineName!!)
             if (summary == null) {
@@ -213,5 +223,39 @@ class StatsCommand : CliktCommand(
             secs > 0 -> "${secs}s"
             else -> "${ms}ms"
         }
+    }
+
+    private fun showHistory(pipelineName: String, count: Int) {
+        val history = statsManager.getExecutionHistory(pipelineName, count)
+
+        if (history.isEmpty()) {
+            terminal.println(yellow("No execution history found for $pipelineName"))
+            return
+        }
+
+        terminal.println(bold(blue("📈 Execution History for $pipelineName (last $count)")))
+        terminal.println("─".repeat(80))
+        terminal.println()
+
+        terminal.println(String.format(
+            "%-28s %10s %10s %12s",
+            "Timestamp", "Success", "Failure", "Duration"
+        ))
+        terminal.println("─".repeat(80))
+
+        history.forEach { exec ->
+            val successText = if (exec.successCount > 0) green(exec.successCount.toString()) else exec.successCount.toString()
+            val failureText = if (exec.failureCount > 0) red(exec.failureCount.toString()) else exec.failureCount.toString()
+
+            terminal.println(String.format(
+                "%-28s %10s %10s %12s",
+                exec.timestamp,
+                successText,
+                failureText,
+                formatDuration(exec.totalDuration)
+            ))
+        }
+
+        terminal.println("─".repeat(80))
     }
 }
