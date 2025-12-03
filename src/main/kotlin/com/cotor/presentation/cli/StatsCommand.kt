@@ -29,6 +29,10 @@ class StatsCommand : CliktCommand(
         "--clear",
         help = "Remove stored stats for the specified pipeline"
     ).flag(default = false)
+    private val details by option(
+        "--details",
+        help = "Show detailed, stage-level statistics"
+    ).flag(default = false)
 
     private val terminal = Terminal()
     private val statsManager: StatsManager by inject()
@@ -55,15 +59,25 @@ class StatsCommand : CliktCommand(
             return
         }
 
-        val summary = statsManager.getStatsSummary(pipelineName!!)
-        if (summary == null) {
-            terminal.println(yellow("No statistics found for pipeline: $pipelineName"))
-            terminal.println()
-            terminal.println(dim("Run the pipeline first to collect statistics"))
-            return
+        if (details) {
+            val details = statsManager.getStatsDetails(pipelineName!!)
+            if (details == null) {
+                terminal.println(yellow("No statistics found for pipeline: $pipelineName"))
+                terminal.println()
+                terminal.println(dim("Run the pipeline first to collect statistics"))
+                return
+            }
+            showStageDetails(details)
+        } else {
+            val summary = statsManager.getStatsSummary(pipelineName!!)
+            if (summary == null) {
+                terminal.println(yellow("No statistics found for pipeline: $pipelineName"))
+                terminal.println()
+                terminal.println(dim("Run the pipeline first to collect statistics"))
+                return
+            }
+            showDetailedStats(summary)
         }
-
-        showDetailedStats(summary)
     }
 
     private fun showAllStats() {
@@ -155,6 +169,37 @@ class StatsCommand : CliktCommand(
 
         terminal.println()
         terminal.println("─".repeat(50))
+    }
+
+    private fun showStageDetails(details: com.cotor.stats.StatsDetails) {
+        terminal.println(bold(blue("📊 Stage-level Statistics: ${details.pipelineName}")))
+        terminal.println("─".repeat(80))
+        terminal.println()
+
+        if (details.stages.isEmpty()) {
+            terminal.println(yellow("No stage-level data available for this pipeline."))
+            terminal.println(dim("Ensure `recordExecution` is called with stage details."))
+            terminal.println("─".repeat(80))
+            return
+        }
+
+        terminal.println(String.format(
+            "%-30s %15s %15s %15s",
+            "Stage Name", "Avg Duration", "Success Rate", "Avg Retries"
+        ))
+        terminal.println("─".repeat(80))
+
+        details.stages.forEach { stage ->
+            terminal.println(String.format(
+                "%-30s %15s %14.1f%% %15.1f",
+                stage.stageName.take(30),
+                formatDuration(stage.avgDuration),
+                stage.successRate,
+                stage.avgRetries
+            ))
+        }
+
+        terminal.println("─".repeat(80))
     }
 
     private fun formatDuration(ms: Long): String {

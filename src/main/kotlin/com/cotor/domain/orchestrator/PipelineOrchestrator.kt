@@ -105,7 +105,15 @@ class DefaultPipelineOrchestrator(
                 eventBus.emit(PipelineCompletedEvent(pipelineId, result))
 
                 // Record execution statistics
-                statsManager.recordExecution(pipeline.name, result)
+                val stageExecutions = context.stageResults.values.map {
+                    com.cotor.stats.StageExecution(
+                        name = it.agentName,
+                        duration = it.duration,
+                        status = if (it.isSuccess) com.cotor.stats.ExecutionStatus.SUCCESS else com.cotor.stats.ExecutionStatus.FAILURE,
+                        retries = it.metadata["retries"] as? Int ?: 0
+                    )
+                }
+                statsManager.recordExecution(pipeline.name, result, stageExecutions)
 
                 // Save checkpoint for resume functionality
                 saveCheckpoint(pipelineId, pipeline.name, context)
