@@ -4,77 +4,102 @@ import com.cotor.model.ConfigurationException
 import com.cotor.model.CotorConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.io.path.extension
+import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
+import kotlin.io.path.extension
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
-import kotlin.io.path.createDirectories
+import kotlin.streams.toList
 
-/**
- * Repository interface for configuration management
- */
 interface ConfigRepository {
-    /**
-     * Load configuration from file
-     * @param path Path to configuration file
-     * @return Parsed CotorConfig
-     */
     suspend fun loadConfig(path: Path): CotorConfig
-
-    /**
-     * Save configuration to file
-     * @param config CotorConfig to save
-     * @param path Path to save configuration
-     */
     suspend fun saveConfig(config: CotorConfig, path: Path)
 }
 
-/**
- * File-based configuration repository implementation
- */
 class FileConfigRepository(
     private val yamlParser: YamlParser,
     private val jsonParser: JsonParser
 ) : ConfigRepository {
 
     override suspend fun loadConfig(path: Path): CotorConfig = withContext(Dispatchers.IO) {
-        try {
-            if (!path.exists()) {
-                throw ConfigurationException("Configuration file not found: $path")
-            }
-            val content = path.readText()
+        val baseConfig = parseConfig(path)
+        val cotorDir = path.parent?.resolve(".cotor")
 
-            when (path.extension.lowercase()) {
-                "yaml", "yml" -> yamlParser.parse(content)
-                "json" -> jsonParser.parse(content)
-                else -> throw ConfigurationException("Unsupported config format: ${path.extension}")
-            }
-        } catch (e: ConfigurationException) {
-            throw e
-        } catch (e: Exception) {
-            throw ConfigurationException("Failed to load config from $path", e)
+        if (cotorDir == null || !cotorDir.isDirectory()) {
+            return@withContext baseConfig
+        }
+
+        val overrideFiles = Files.walk(cotorDir)
+            .filter { it.isRegularFile() && it.extension.lowercase() in listOf("yaml", "yml") }
+            .sorted()
+            .toList()
+
+        overrideFiles.fold(baseConfig) { acc, overrideFile ->
+            val overrideConfig = parseConfig(overrideFile)
+            mergeConfigs(acc, overrideConfig)
         }
     }
 
-    override suspend fun saveConfig(config: CotorConfig, path: Path) = withContext(Dispatchers.IO) {
-        try {
-            val content = when (path.extension.lowercase()) {
-                "yaml", "yml" -> yamlParser.serialize(config)
-                "json" -> jsonParser.serialize(config)
-                else -> throw ConfigurationException("Unsupported config format: ${path.extension}")
-            }
-
-            path.parent?.let { parent ->
-                if (!parent.exists()) {
-                    parent.createDirectories()
-                }
-            }
-            path.writeText(content)
-        } catch (e: ConfigurationException) {
-            throw e
-        } catch (e: Exception) {
-            throw ConfigurationException("Failed to save config to $path", e)
+    private fun parseConfig(path: Path): CotorConfig {
+        if (!path.exists()) {
+            throw ConfigurationException("Configuration file not found: $path")
         }
+        val content = path.readText()
+        return when (path.extension.lowercase()) {
+            "yaml", "yml" -> yamlParser.parse(content)
+            "json" -> jsonParser.parse(content)
+            else -> throw ConfigurationException("Unsupported config format: ${path.extension}")
+        }
+    }
+
+    private fun mergeConfigs(base: CotorConfig, override: CotorConfig): CotorConfig {
+        val mergedAgents = (base.agents + override.agents)
+            .groupBy { it.name }
+            .map { (_, agents) -> agents.last() }
+
+        val mergedPipelines = (base.pipelines + override.pipelines)
+            .groupBy { it.name }
+            .map { (_, pipelines) -> pipelines.last() }
+
+        val defaultConfig = CotorConfig()
+
+        return base.copy(
+            version = if (override.version != defaultConfig.version) override.version else base.version,
+            agents = mergedAgents,
+            pipelines = mergedPipelines,
+            security = base.security.copy(
+                useWhitelist = if (override.security.useWhitelist != defaultConfig.security.useWhitelist) override.security.useWhitelist else base.security.useWhitelist,
+                allowedExecutables = if (override.security.allowedExecutables != defaultConfig.security.allowedExecutables) override.security.allowedExecutables else base.security.allowedExecutables,
+                allowedDirectories = if (override.security.allowedDirectories != defaultConfig.security.allowedDirectories) override.security.allowedDirectories else base.security.allowedDirectories,
+                maxCommandLength = if (override.security.maxCommandLength != defaultConfig.security.maxCommandLength) override.security.maxCommandLength else base.security.maxCommandLength,
+                enablePathValidation = if (override.security.enablePathValidation != defaultConfig.security.enablePathValidation) override.security.enablePathValidation else base.security.enablePathValidation
+            ),
+            logging = base.logging.copy(
+                level = if (override.logging.level != defaultConfig.logging.level) override.logging.level else base.logging.level,
+                file = if (override.logging.file != defaultConfig.logging.file) override.logging.file else base.logging.file,
+                maxFileSize = if (override.logging.maxFileSize != defaultConfig.logging.maxFileSize) override.logging.maxFileSize else base.logging.maxFileSize,
+                maxHistory = if (override.logging.maxHistory != defaultConfig.logging.maxHistory) override.logging.maxHistory else base.logging.maxHistory,
+                format = if (override.logging.format != defaultConfig.logging.format) override.logging.format else base.logging.format
+            ),
+            performance = base.performance.copy(
+                maxConcurrentAgents = if (override.performance.maxConcurrentAgents != defaultConfig.performance.maxConcurrentAgents) override.performance.maxConcurrentAgents else base.performance.maxConcurrentAgents,
+                coroutinePoolSize = if (override.performance.coroutinePoolSize != defaultConfig.performance.coroutinePoolSize) override.performance.coroutinePoolSize else base.performance.coroutinePoolSize,
+                memoryThresholdMB = if (override.performance.memoryThresholdMB != defaultConfig.performance.memoryThresholdMB) override.performance.memoryThresholdMB else base.performance.memoryThresholdMB
+            )
+        )
+    }
+
+    override suspend fun saveConfig(config: CotorConfig, path: Path) = withContext(Dispatchers.IO) {
+        val content = when (path.extension.lowercase()) {
+            "yaml", "yml" -> yamlParser.serialize(config)
+            "json" -> jsonParser.serialize(config)
+            else -> throw ConfigurationException("Unsupported config format: ${path.extension}")
+        }
+        path.parent?.let { Files.createDirectories(it) }
+        path.writeText(content)
     }
 }
