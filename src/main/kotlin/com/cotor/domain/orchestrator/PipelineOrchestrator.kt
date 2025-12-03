@@ -9,6 +9,7 @@ import com.cotor.event.*
 import com.cotor.model.*
 import com.cotor.recovery.RecoveryExecutor
 import com.cotor.stats.StatsManager
+import com.cotor.validation.PipelineTemplateValidator
 import com.cotor.validation.output.OutputValidator
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.checkpoint.toCheckpoint
@@ -69,7 +70,8 @@ class DefaultPipelineOrchestrator(
     private val agentRegistry: com.cotor.data.registry.AgentRegistry,
     private val outputValidator: OutputValidator,
     private val statsManager: StatsManager,
-    private val checkpointManager: CheckpointManager = CheckpointManager()
+    private val checkpointManager: CheckpointManager = CheckpointManager(),
+    private val templateValidator: PipelineTemplateValidator = PipelineTemplateValidator(TemplateEngine())
 ) : PipelineOrchestrator {
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()
@@ -100,6 +102,13 @@ class DefaultPipelineOrchestrator(
             pipelineName = pipeline.name,
             totalStages = pipeline.stages.size
         )
+
+        // Validate pipeline templates before execution
+        val validationResult = templateValidator.validate(pipeline)
+        if (validationResult is ValidationResult.Failure) {
+            val errorMessage = "Pipeline template validation failed:\n" + validationResult.errors.joinToString("\n")
+            throw PipelineException(errorMessage)
+        }
 
         fromStageId?.let {
             logger.info("Resuming pipeline from stage: $it")
