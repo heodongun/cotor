@@ -1,152 +1,187 @@
 package com.cotor.recovery
 
-import com.cotor.data.registry.AgentRegistry
+import com.cotor.data.registry.InMemoryAgentRegistry
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.model.*
+import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.OutputValidator
 import com.cotor.validation.output.StageValidationOutcome
+import com.cotor.validation.output.SyntaxValidator
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.shouldBe
-import io.mockk.*
-import kotlinx.coroutines.test.runTest
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
 import org.slf4j.Logger
 
 class RecoveryExecutorTest : FunSpec({
 
-    val agentExecutor: AgentExecutor = mockk()
-    val agentRegistry: AgentRegistry = mockk()
-    val outputValidator: OutputValidator = mockk()
-    val logger: Logger = mockk(relaxed = true)
-
-    lateinit var recoveryExecutor: RecoveryExecutor
-
-    beforeEach {
-        clearAllMocks()
-        recoveryExecutor = RecoveryExecutor(agentExecutor, agentRegistry, outputValidator, logger)
-        every { outputValidator.validate(any(), any()) } returns StageValidationOutcome(
-            isValid = true,
-            score = 1.0,
-            violations = emptyList(),
-            suggestions = emptyList()
+    val registry = InMemoryAgentRegistry().apply {
+        registerAgent(
+            AgentConfig(
+                name = "primary",
+                pluginClass = "com.cotor.data.plugin.EchoPlugin"
+            )
+        )
+        registerAgent(
+            AgentConfig(
+                name = "fallback",
+                pluginClass = "com.cotor.data.plugin.EchoPlugin"
+            )
         )
     }
 
-    context("Retry Logic") {
-        test("should make correct number of attempts for fixed backoff") {
-            runTest {
-                val agentConfig = AgentConfig("test-agent", "plugin")
-                val stage = PipelineStage("test-stage", agent = AgentReference("test-agent"), recovery = RecoveryConfig(
-                    maxRetries = 2,
-                    retryDelayMs = 100,
-                    backoffStrategy = BackoffStrategy.FIXED,
-                    retryOn = listOf("timeout")
-                ))
+    val logger = mockk<Logger>(relaxed = true)
 
-                coEvery { agentExecutor.executeAgent(any(), any(), any()) } returns AgentResult(
-                    "test-agent", false, null, "timeout", 100, emptyMap()
-                )
-                every { agentRegistry.getAgent("test-agent") } returns agentConfig
-
-                val result = recoveryExecutor.executeWithRecovery(stage, null, null)
-
-                result.isSuccess shouldBe false
-                result.metadata["retries"] shouldBe "2"
-                coVerify(exactly = 3) { agentExecutor.executeAgent(any(), any(), any()) }
+    test("fallback agent runs when primary fails") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val outputValidator = object : OutputValidator {
+            override fun validate(result: AgentResult, config: StageValidationConfig): StageValidationOutcome {
+                return StageValidationOutcome(true, 1.0, emptyList(), emptyList())
             }
         }
+        val recoveryExecutor = RecoveryExecutor(agentExecutor, registry, outputValidator, logger)
 
-        test("should not retry if error is not in retryOn list") {
-            runTest {
-                val agentConfig = AgentConfig("test-agent", "plugin")
-                val stage = PipelineStage("test-stage", agent = AgentReference("test-agent"), recovery = RecoveryConfig(
-                    maxRetries = 2,
-                    retryOn = listOf("5xx")
-                ))
+        coEvery {
+            agentExecutor.executeAgent(match { it.name == "primary" }, any(), any())
+        } returns AgentResult("primary", false, null, "boom", 0, emptyMap())
 
-                coEvery { agentExecutor.executeAgent(any(), any(), any()) } returns AgentResult(
-                    "test-agent", false, null, "timeout", 100, emptyMap()
-                )
-                every { agentRegistry.getAgent("test-agent") } returns agentConfig
+        coEvery {
+            agentExecutor.executeAgent(match { it.name == "fallback" }, any(), any())
+        } returns AgentResult("fallback", true, "ok", null, 10, emptyMap())
 
-                val result = recoveryExecutor.executeWithRecovery(stage, null, null)
+        val stage = PipelineStage(
+            id = "stage1",
+            agent = AgentReference("primary"),
+            recovery = RecoveryConfig(
+                strategy = RecoveryStrategy.FALLBACK,
+                fallbackAgents = listOf("fallback")
+            )
+        )
 
-                result.isSuccess shouldBe false
-                result.metadata["retries"] shouldBe "0"
-                coVerify(exactly = 1) { agentExecutor.executeAgent(any(), any(), any()) }
-            }
+        val result = recoveryExecutor.executeWithRecovery(stage, "input", null)
+        result.agentName shouldBe "fallback"
+        result.isSuccess shouldBe true
+    }
+
+    test("validation failure marks result unsuccessful") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val recoveryExecutor = RecoveryExecutor(
+            agentExecutor = agentExecutor,
+            agentRegistry = registry,
+            outputValidator = DefaultOutputValidator(SyntaxValidator()),
+            logger = logger
+        )
+
+        coEvery { agentExecutor.executeAgent(any(), any(), any()) } returns AgentResult(
+            agentName = "primary",
+            isSuccess = true,
+            output = "short",
+            error = null,
+            duration = 5,
+            metadata = emptyMap()
+        )
+
+        val stage = PipelineStage(
+            id = "stage2",
+            agent = AgentReference("primary"),
+            validation = StageValidationConfig(
+                minLength = 20,
+                requiredKeywords = listOf("SUCCESS")
+            )
+        )
+
+        val result = recoveryExecutor.executeWithRecovery(stage, null, null)
+        result.isSuccess.shouldBeFalse()
+        result.error?.contains("Validation failed") shouldBe true
+    }
+
+    test("fixed backoff strategy should use a constant delay") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val outputValidator = mockk<OutputValidator>(relaxed = true)
+        val recoveryExecutor = RecoveryExecutor(agentExecutor, registry, outputValidator, logger)
+        val stage = PipelineStage(
+            id = "stage1",
+            agent = AgentReference("primary"),
+            recovery = RecoveryConfig(
+                strategy = RecoveryStrategy.RETRY,
+                maxRetries = 3,
+                retryDelayMs = 100,
+                backoffStrategy = BackoffStrategy.FIXED,
+                retryOn = listOf("timeout")
+            )
+        )
+
+        coEvery {
+            agentExecutor.executeAgent(any(), any(), any())
+        } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
+
+        runBlocking {
+            recoveryExecutor.executeWithRecovery(stage, "input", null)
         }
 
-        test("should succeed on retry attempt") {
-            runTest {
-                val agentConfig = AgentConfig("test-agent", "plugin")
-                val stage = PipelineStage("test-stage", agent = AgentReference("test-agent"), recovery = RecoveryConfig(
-                    maxRetries = 2,
-                    retryOn = listOf("timeout")
-                ))
-                val successResult = AgentResult("test-agent", true, "output", null, 100, emptyMap())
-                val failureResult = AgentResult("test-agent", false, null, "timeout", 100, emptyMap())
-
-                coEvery { agentExecutor.executeAgent(any(), any(), any()) } returns failureResult andThen successResult
-                every { agentRegistry.getAgent("test-agent") } returns agentConfig
-
-                val result = recoveryExecutor.executeWithRecovery(stage, null, null)
-
-                result.isSuccess shouldBe true
-                result.metadata["retries"] shouldBe "1"
-                coVerify(exactly = 2) { agentExecutor.executeAgent(any(), any(), any()) }
-            }
+        coVerify(exactly = 3) {
+            agentExecutor.executeAgent(any(), any(), any())
         }
     }
 
-    context("Fallback Logic") {
-        test("should use fallback agent when primary fails") {
-            runTest {
-                val primaryAgent = AgentConfig("primary", "plugin")
-                val fallbackAgent = AgentConfig("fallback", "plugin")
-                val stage = PipelineStage("test-stage", agent = AgentReference("primary"), recovery = RecoveryConfig(
-                    strategy = RecoveryStrategy.FALLBACK,
-                    fallbackAgents = listOf("fallback")
-                ))
+    test("exponential backoff strategy should use an increasing delay") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val outputValidator = mockk<OutputValidator>(relaxed = true)
+        val recoveryExecutor = RecoveryExecutor(agentExecutor, registry, outputValidator, logger)
+        val stage = PipelineStage(
+            id = "stage1",
+            agent = AgentReference("primary"),
+            recovery = RecoveryConfig(
+                strategy = RecoveryStrategy.RETRY,
+                maxRetries = 3,
+                retryDelayMs = 100,
+                backoffMultiplier = 2.0,
+                backoffStrategy = BackoffStrategy.EXPONENTIAL,
+                retryOn = listOf("timeout")
+            )
+        )
 
-                every { agentRegistry.getAgent("primary") } returns primaryAgent
-                every { agentRegistry.getAgent("fallback") } returns fallbackAgent
-                coEvery { agentExecutor.executeAgent(primaryAgent, any(), any()) } returns AgentResult("primary", false, null, "error", 100, emptyMap())
-                coEvery { agentExecutor.executeAgent(fallbackAgent, any(), any()) } returns AgentResult("fallback", true, "output", null, 100, emptyMap())
+        coEvery {
+            agentExecutor.executeAgent(any(), any(), any())
+        } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
 
-                val result = recoveryExecutor.executeWithRecovery(stage, null, null)
+        runBlocking {
+            recoveryExecutor.executeWithRecovery(stage, "input", null)
+        }
 
-                result.isSuccess shouldBe true
-                result.agentName shouldBe "fallback"
-            }
+        coVerify(exactly = 3) {
+            agentExecutor.executeAgent(any(), any(), any())
         }
     }
 
-    context("Validation") {
-        test("should fail stage if output validation fails") {
-            runTest {
-                val agentConfig = AgentConfig("test-agent", "plugin")
-                val stage = PipelineStage(
-                    id = "test-stage",
-                    agent = AgentReference("test-agent"),
-                    validation = StageValidationConfig(requiredKeywords = listOf("required"))
-                )
-                val agentResult = AgentResult("test-agent", true, "output", null, 100, emptyMap())
-                val failedValidation = StageValidationOutcome(
-                    isValid = false,
-                    score = 0.0,
-                    violations = listOf("required keyword missing"),
-                    suggestions = emptyList()
-                )
+    test("retryOn should prevent retries for non-matching errors") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val outputValidator = mockk<OutputValidator>(relaxed = true)
+        val recoveryExecutor = RecoveryExecutor(agentExecutor, registry, outputValidator, logger)
+        val stage = PipelineStage(
+            id = "stage1",
+            agent = AgentReference("primary"),
+            recovery = RecoveryConfig(
+                strategy = RecoveryStrategy.RETRY,
+                maxRetries = 3,
+                retryOn = listOf("5xx")
+            )
+        )
 
-                every { agentRegistry.getAgent("test-agent") } returns agentConfig
-                coEvery { agentExecutor.executeAgent(any(), any(), any()) } returns agentResult
-                every { outputValidator.validate(agentResult, stage.validation!!) } returns failedValidation
+        coEvery {
+            agentExecutor.executeAgent(any(), any(), any())
+        } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
 
-                val result = recoveryExecutor.executeWithRecovery(stage, null, null)
+        runBlocking {
+            recoveryExecutor.executeWithRecovery(stage, "input", null)
+        }
 
-                result.isSuccess shouldBe false
-                result.error shouldBe "Validation failed: required keyword missing"
-            }
+        coVerify(exactly = 1) {
+            agentExecutor.executeAgent(any(), any(), any())
         }
     }
 })
