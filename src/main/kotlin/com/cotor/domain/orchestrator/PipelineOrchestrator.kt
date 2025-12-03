@@ -111,14 +111,25 @@ class DefaultPipelineOrchestrator(
             eventBus.emit(PipelineStartedEvent(pipelineId, pipeline.name))
 
             try {
-                val result = when (pipeline.executionMode) {
-                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, fromStageId)
-                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
-                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
-                    ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
+                val executePipelineBlock: suspend () -> AggregatedResult = {
+                    when (pipeline.executionMode) {
+                        ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, fromStageId)
+                        ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
+                        ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
+                        ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
+                    }
                 }
 
-                eventBus.emit(PipelineCompletedEvent(pipelineId, result))
+                val result: AggregatedResult? = if (pipeline.executionTimeoutMs != null) {
+                    withTimeoutOrNull(pipeline.executionTimeoutMs) { executePipelineBlock() }
+                } else {
+                    executePipelineBlock()
+                }
+
+                val finalResult = result
+                    ?: throw PipelineException("Pipeline '${pipeline.name}' timed out after ${pipeline.executionTimeoutMs} ms")
+
+                eventBus.emit(PipelineCompletedEvent(pipelineId, finalResult))
 
                 // Record execution statistics
                 val stageExecutions = pipelineContext.stageResults.values.map {
@@ -129,12 +140,12 @@ class DefaultPipelineOrchestrator(
                         retries = it.metadata["retries"] as? Int ?: 0
                     )
                 }
-                statsManager.recordExecution(pipeline.name, result, stageExecutions)
+                statsManager.recordExecution(pipeline.name, finalResult, stageExecutions)
 
                 // Save checkpoint for resume functionality
                 saveCheckpoint(pipelineId, pipeline.name, pipelineContext)
 
-                result
+                finalResult
             } catch (e: Exception) {
                 if (e is PipelineAbortedException) {
                     logger.warn("Pipeline aborted at stage ${e.stageId}: ${e.message}")
@@ -189,7 +200,13 @@ class DefaultPipelineOrchestrator(
                     }
 
                     if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT && !stage.optional) {
-                        return aggregateResults(results, pipelineContext)
+                        // If the stage timed out and the policy is to continue, don't abort
+                        val isTimeout = result.metadata["timeout"] == "true"
+                        if (isTimeout && stage.timeoutPolicy == TimeoutPolicy.SKIP_STAGE_AND_CONTINUE) {
+                            // Continue to the next stage
+                        } else {
+                            return aggregateResults(results, pipelineContext)
+                        }
                     }
 
                     index++
@@ -367,18 +384,14 @@ class DefaultPipelineOrchestrator(
         eventBus.emit(StageStartedEvent(stage.id, pipelineId))
         val agentName = stage.agent?.name ?: stage.id
 
-        return try {
-            val result = recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
-            pipelineContext.addStageResult(stage.id, result)
-
-            if (result.isSuccess) {
-                eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+        val result: AgentResult? = try {
+            if (stage.timeoutMs != null) {
+                withTimeoutOrNull(stage.timeoutMs) {
+                    recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
+                }
             } else {
-                val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
-                eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
+                recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
             }
-
-            result
         } catch (e: Exception) {
             val failureResult = AgentResult(
                 agentName = agentName,
@@ -392,6 +405,37 @@ class DefaultPipelineOrchestrator(
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, e))
             throw e
         }
+
+        if (result == null) {
+            val errorMessage = "Stage '${stage.id}' timed out after ${stage.timeoutMs} ms"
+            logger.warn(errorMessage)
+            val timeoutResult = AgentResult(
+                agentName = agentName,
+                isSuccess = false,
+                output = null,
+                error = errorMessage,
+                duration = stage.timeoutMs ?: 0,
+                metadata = mapOf("timeout" to "true")
+            )
+            pipelineContext.addStageResult(stage.id, timeoutResult)
+            eventBus.emit(StageFailedEvent(stage.id, pipelineId, RuntimeException(errorMessage)))
+
+            if (stage.timeoutPolicy == TimeoutPolicy.FAIL_PIPELINE) {
+                throw PipelineException(errorMessage)
+            }
+            return timeoutResult
+        }
+
+        pipelineContext.addStageResult(stage.id, result)
+
+        if (result.isSuccess) {
+            eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+        } else {
+            val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
+            eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
+        }
+
+        return result
     }
 
     private suspend fun executeDecisionStage(
