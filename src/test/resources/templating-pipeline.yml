@@ -1,0 +1,12 @@
+pipelines:
+  - name: templating-test
+    executionMode: SEQUENTIAL
+    stages:
+      - id: step1
+        agent:
+          name: echo-agent
+        input: "Hello"
+      - id: step2
+        agent:
+          name: echo-agent
+        input: "${stages.step1.output}, World!"

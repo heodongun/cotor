@@ -2,8 +2,6 @@ package com.cotor.context
 
 import com.cotor.model.AgentResult
 import com.cotor.model.PipelineContext
-import io.mockk.every
-import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -16,18 +14,13 @@ class TemplateEngineTest {
     @BeforeEach
     fun setUp() {
         templateEngine = TemplateEngine()
-        pipelineContext = mockk<PipelineContext>(relaxed = true)
-
-        // Mock basic context properties
-        every { pipelineContext.pipelineName } returns "test-pipeline"
-        every { pipelineContext.pipelineId } returns "pipeline-123"
+        pipelineContext = PipelineContext("pipeline-123", "test-pipeline", 2)
 
         // Mock stage results
-        every { pipelineContext.getStageOutput("step1") } returns "output from step1"
-        every { pipelineContext.getStageOutput("nonexistent") } returns null
+        pipelineContext.addStageResult("step1", AgentResult("agent1", true, "output from step1", null, 0, emptyMap()))
 
         // Mock shared state
-        every { pipelineContext.sharedState } returns mutableMapOf("user" to "jules")
+        pipelineContext.sharedState["user"] = "jules"
     }
 
     @Test
@@ -41,7 +34,7 @@ class TemplateEngineTest {
     @Test
     fun `should handle nonexistent stage output`() {
         val template = "Input is \${stages.nonexistent.output}"
-        val expected = "Input is [stage:nonexistent output not found]"
+        val expected = "Input is [stage 'nonexistent' not found or not yet executed in expression: \${stages.nonexistent.output}]"
         val actual = templateEngine.interpolate(template, pipelineContext)
         assertEquals(expected, actual)
     }
@@ -76,7 +69,7 @@ class TemplateEngineTest {
     @Test
     fun `should handle invalid expressions gracefully`() {
         val template = "This is an \${invalid.expression}"
-        val expected = "This is an [unknown expression: \${invalid.expression}]"
+        val expected = "This is an [unknown scope 'invalid' in expression: \${invalid.expression}]"
         val actual = templateEngine.interpolate(template, pipelineContext)
         assertEquals(expected, actual)
     }
