@@ -76,10 +76,15 @@ tasks.shadowJar {
     }
 }
 
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(17))
+tasks.register("generateCotorProperties") {
+    doLast {
+        val propertiesFile = file("src/main/resources/cotor.properties")
+        propertiesFile.writeText("version=$version\n")
     }
+}
+
+tasks.processResources {
+    dependsOn("generateCotorProperties")
 }
 
 kotlin {
