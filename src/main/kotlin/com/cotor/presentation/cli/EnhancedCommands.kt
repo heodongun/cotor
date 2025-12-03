@@ -66,6 +66,8 @@ class EnhancedRunCommand : CliktCommand(
         .choice("json", "csv", "text")
         .default("json")
 
+    val fromStage by option("--from-stage", help = "Resume execution from a specific stage ID")
+
     override fun run() = runBlocking {
         try {
             // Check if config exists
@@ -147,7 +149,7 @@ class EnhancedRunCommand : CliktCommand(
                 }
 
                 val timelineResult = timelineCollector.runWithTimeline(pipeline.name) {
-                    orchestrator.executePipeline(pipeline)
+                    orchestrator.executePipeline(pipeline, fromStage)
                 }
                 val pipelineDuration = timelineResult.totalDurationMs ?: timelineResult.result.totalDuration
                 val result = timelineResult.result.copy(totalDuration = pipelineDuration)

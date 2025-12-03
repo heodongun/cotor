@@ -182,6 +182,9 @@ coverage/
 *.lcov
 .nyc_output/
 
+# Local runtime/state
+.cotor/
+
 # Documentation builds
 docs/_build/
 site/
@@ -195,6 +198,3 @@ pids
 *.pid
 *.seed
 *.pid.lock
-
-# Cotor-specific
-.cotor/

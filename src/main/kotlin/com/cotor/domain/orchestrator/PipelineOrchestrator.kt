@@ -12,6 +12,7 @@ import com.cotor.stats.StatsManager
 import com.cotor.validation.output.OutputValidator
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.checkpoint.toCheckpoint
+import com.cotor.data.config.CotorProperties
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import java.util.UUID
@@ -24,9 +25,14 @@ interface PipelineOrchestrator {
     /**
      * Execute a pipeline
      * @param pipeline Pipeline to execute
+     * @param fromStageId Optional stage ID to resume execution from
      * @return AggregatedResult from pipeline execution
      */
-    suspend fun executePipeline(pipeline: Pipeline): AggregatedResult
+    suspend fun executePipeline(
+        pipeline: Pipeline,
+        fromStageId: String? = null,
+        context: PipelineContext? = null
+    ): AggregatedResult
 
     /**
      * Cancel a running pipeline
@@ -76,7 +82,11 @@ class DefaultPipelineOrchestrator(
         logger = logger
     )
 
-    override suspend fun executePipeline(pipeline: Pipeline): AggregatedResult = coroutineScope {
+    override suspend fun executePipeline(
+        pipeline: Pipeline,
+        fromStageId: String?,
+        context: PipelineContext?
+    ): AggregatedResult = coroutineScope {
         if (pipeline.executionMode != ExecutionMode.SEQUENTIAL) {
             val conditionalStages = pipeline.stages.filter { it.type != StageType.EXECUTION }
             if (conditionalStages.isNotEmpty()) {
@@ -84,45 +94,58 @@ class DefaultPipelineOrchestrator(
                 throw PipelineException("Conditional stages ($ids) require SEQUENTIAL execution mode")
             }
         }
-        val pipelineId = UUID.randomUUID().toString()
-        val context = PipelineContext(
+        val pipelineId = context?.pipelineId ?: UUID.randomUUID().toString()
+        val pipelineContext = context ?: PipelineContext(
             pipelineId = pipelineId,
             pipelineName = pipeline.name,
             totalStages = pipeline.stages.size
         )
+
+        fromStageId?.let {
+            logger.info("Resuming pipeline from stage: $it")
+        }
+
         logger.info("Starting pipeline: ${pipeline.name} (ID: $pipelineId)")
 
         val deferred = async {
             eventBus.emit(PipelineStartedEvent(pipelineId, pipeline.name))
 
             try {
-                val result = pipeline.executionTimeoutMs?.let { timeout ->
-                    withTimeoutOrNull(timeout) {
-                        when (pipeline.executionMode) {
-                            ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context)
-                            ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context)
-                            ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context)
-                        }
+                val executePipelineBlock: suspend () -> AggregatedResult = {
+                    when (pipeline.executionMode) {
+                        ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, fromStageId)
+                        ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
+                        ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
+                        ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
                     }
-                } ?: when (pipeline.executionMode) {
-                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context)
-                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context)
-                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context)
                 }
 
-                if (result == null) {
-                    throw PipelineException("Pipeline '${pipeline.name}' timed out after ${pipeline.executionTimeoutMs} ms")
+                val result: AggregatedResult? = if (pipeline.executionTimeoutMs != null) {
+                    withTimeoutOrNull(pipeline.executionTimeoutMs) { executePipelineBlock() }
+                } else {
+                    executePipelineBlock()
                 }
 
-                eventBus.emit(PipelineCompletedEvent(pipelineId, result))
+                val finalResult = result
+                    ?: throw PipelineException("Pipeline '${pipeline.name}' timed out after ${pipeline.executionTimeoutMs} ms")
+
+                eventBus.emit(PipelineCompletedEvent(pipelineId, finalResult))
 
                 // Record execution statistics
-                statsManager.recordExecution(pipeline.name, result)
+                val stageExecutions = pipelineContext.stageResults.values.map {
+                    com.cotor.stats.StageExecution(
+                        name = it.agentName,
+                        duration = it.duration,
+                        status = if (it.isSuccess) com.cotor.stats.ExecutionStatus.SUCCESS else com.cotor.stats.ExecutionStatus.FAILURE,
+                        retries = it.metadata["retries"] as? Int ?: 0
+                    )
+                }
+                statsManager.recordExecution(pipeline.name, finalResult, stageExecutions)
 
                 // Save checkpoint for resume functionality
-                saveCheckpoint(pipelineId, pipeline.name, context)
+                saveCheckpoint(pipelineId, pipeline.name, pipelineContext)
 
-                result
+                finalResult
             } catch (e: Exception) {
                 if (e is PipelineAbortedException) {
                     logger.warn("Pipeline aborted at stage ${e.stageId}: ${e.message}")
@@ -143,12 +166,18 @@ class DefaultPipelineOrchestrator(
     private suspend fun executeSequential(
         pipeline: Pipeline,
         pipelineId: String,
-        pipelineContext: PipelineContext
+        pipelineContext: PipelineContext,
+        fromStageId: String? = null
     ): AggregatedResult {
-        val results = mutableListOf<AgentResult>()
+        val results = pipelineContext.stageResults.values.toMutableList()
         val stageIndexMap = pipeline.stages.mapIndexed { index, stage -> stage.id to index }.toMap()
-        var previousOutput: String? = null
-        var index = 0
+        var previousOutput: String? = results.lastOrNull()?.output
+
+        val startIndex = fromStageId?.let {
+            stageIndexMap[it] ?: throw PipelineException("Resume stage '$it' not found in pipeline")
+        } ?: 0
+
+        var index = startIndex
         var safetyCounter = 0
 
         while (index in pipeline.stages.indices) {
@@ -279,6 +308,33 @@ class DefaultPipelineOrchestrator(
         return sorted
     }
 
+    private suspend fun executeMap(
+        pipeline: Pipeline,
+        pipelineId: String,
+        pipelineContext: PipelineContext
+    ): AggregatedResult = coroutineScope {
+        val fanoutStages = pipeline.stages.filter { it.fanout != null }
+        if (fanoutStages.size != 1) {
+            throw PipelineException("MAP execution mode requires exactly one stage with a fanout configuration")
+        }
+        val fanoutStage = fanoutStages.first()
+
+        val sourceName = fanoutStage.fanout?.source
+            ?: throw PipelineException("Fanout stage ${fanoutStage.id} is missing a source")
+
+        val sourceData = pipelineContext.sharedState[sourceName] as? List<*>
+            ?: throw PipelineException("Fanout source '$sourceName' not found in shared state or is not a list")
+
+        val results = sourceData.map { item ->
+            async(Dispatchers.Default) {
+                val stageInput = item.toString()
+                executeStageWithGuards(fanoutStage, pipelineId, pipelineContext, stageInput)
+            }
+        }.awaitAll()
+
+        aggregateResults(results, pipelineContext)
+    }
+
     private fun resolveDependencies(
         dependencies: List<String>,
         results: Map<String, AgentResult>
@@ -328,12 +384,14 @@ class DefaultPipelineOrchestrator(
         eventBus.emit(StageStartedEvent(stage.id, pipelineId))
         val agentName = stage.agent?.name ?: stage.id
 
-        val result = try {
-            stage.timeoutMs?.let { timeout ->
-                withTimeoutOrNull(timeout) {
+        val result: AgentResult? = try {
+            if (stage.timeoutMs != null) {
+                withTimeoutOrNull(stage.timeoutMs) {
                     recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
                 }
-            } ?: recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
+            } else {
+                recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
+            }
         } catch (e: Exception) {
             val failureResult = AgentResult(
                 agentName = agentName,
@@ -518,12 +576,25 @@ class DefaultPipelineOrchestrator(
                 val checkpointPath = checkpointManager.saveCheckpoint(
                     pipelineId = pipelineId,
                     pipelineName = pipelineName,
-                    completedStages = completedStages
+                    completedStages = completedStages,
+                    cotorVersion = CotorProperties.version,
+                    gitCommit = getGitCommit(),
+                    os = System.getProperty("os.name"),
+                    jvm = System.getProperty("java.version")
                 )
                 logger.info("Checkpoint saved: $checkpointPath")
             }
         } catch (e: Exception) {
             logger.warn("Failed to save checkpoint for pipeline $pipelineId: ${e.message}")
+        }
+    }
+
+    private fun getGitCommit(): String {
+        return try {
+            val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD").start()
+            process.inputStream.bufferedReader().readText().trim()
+        } catch (e: Exception) {
+            "unknown"
         }
     }
 

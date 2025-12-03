@@ -50,6 +50,7 @@ fun main(args: Array<String>) {
                 DoctorCommand(),
                 StatusCommand(),
                 ListCommand(),
+                WebCommand(),
                 VersionCommand(),
                 CompletionCommand()
             )

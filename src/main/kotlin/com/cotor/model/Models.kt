@@ -74,7 +74,16 @@ data class PipelineStage(
     val condition: StageConditionConfig? = null,
     val loop: StageLoopConfig? = null,
     val timeoutMs: Long? = null,
-    val timeoutPolicy: TimeoutPolicy = TimeoutPolicy.FAIL_PIPELINE
+    val timeoutPolicy: TimeoutPolicy = TimeoutPolicy.FAIL_PIPELINE,
+    val fanout: FanoutConfig? = null
+)
+
+/**
+ * Configuration for fanning out a stage over a list of items.
+ */
+@Serializable
+data class FanoutConfig(
+    val source: String
 )
 
 /**
@@ -143,7 +152,8 @@ data class AgentReference(
 enum class ExecutionMode {
     SEQUENTIAL,  // Sequential execution
     PARALLEL,    // Parallel execution
-    DAG          // Dependency graph-based execution
+    DAG,         // Dependency graph-based execution
+    MAP          // Map/fan-out execution
 }
 
 /**
@@ -179,8 +189,19 @@ data class RecoveryConfig(
     val backoffMultiplier: Double = 2.0,
     val fallbackAgents: List<String> = emptyList(),
     val strategy: RecoveryStrategy = RecoveryStrategy.RETRY,
-    val retryableErrors: List<String> = listOf("timeout", "connection", "api", "rate_limit", "validation")
+    val retryableErrors: List<String> = listOf("timeout", "connection", "api", "rate_limit", "validation"),
+    val backoffStrategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
+    val retryOn: List<String> = listOf("timeout", "5xx")
 )
+
+/**
+ * Backoff strategy for retries
+ */
+@Serializable
+enum class BackoffStrategy {
+    FIXED,
+    EXPONENTIAL
+}
 
 /**
  * Custom validator configuration
@@ -213,7 +234,9 @@ data class StageValidationConfig(
 data class RetryPolicy(
     val maxRetries: Int = 3,
     val retryDelay: Long = 1000, // 1 second
-    val backoffMultiplier: Double = 2.0
+    val backoffMultiplier: Double = 2.0,
+    val backoffStrategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
+    val retryOn: List<String> = listOf("timeout", "5xx")
 )
 
 /**
