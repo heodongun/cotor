@@ -92,32 +92,58 @@ class CheckpointManager(
         return checkpointFile.delete()
     }
 
+
     /**
-     * Clean old checkpoints (older than specified days)
+     * Get all checkpoints
      */
-    fun cleanOldCheckpoints(daysToKeep: Int = 7): Int {
+    fun getCheckpoints(): List<PipelineCheckpoint> {
         val dir = File(checkpointDir)
-        if (!dir.exists()) return 0
+        if (!dir.exists()) return emptyList()
 
-        val cutoffTime = Instant.now().minusSeconds((daysToKeep * 24 * 60 * 60).toLong())
-        var deletedCount = 0
-
-        dir.listFiles()
+        return dir.listFiles()
             ?.filter { it.extension == "json" }
-            ?.forEach { file ->
+            ?.mapNotNull { file ->
                 try {
-                    val checkpoint = json.decodeFromString<PipelineCheckpoint>(file.readText())
-                    val checkpointTime = Instant.parse(checkpoint.timestamp)
-                    if (checkpointTime.isBefore(cutoffTime)) {
-                        if (file.delete()) {
-                            deletedCount++
-                        }
-                    }
+                    json.decodeFromString<PipelineCheckpoint>(file.readText())
                 } catch (e: Exception) {
-                    // Skip invalid checkpoints
+                    null
                 }
             }
+            ?.sortedByDescending { it.timestamp }
+            ?: emptyList()
+    }
 
+    /**
+     * Garbage collect checkpoints
+     */
+    fun gc(config: CheckpointConfig): Int {
+        val checkpoints = getCheckpoints()
+        val toDelete = mutableSetOf<String>()
+
+        config.maxCount?.let { maxCount ->
+            if (checkpoints.size > maxCount) {
+                checkpoints.drop(maxCount).forEach {
+                    toDelete.add(it.pipelineId)
+                }
+            }
+        }
+
+        config.maxAgeDays?.let { maxAgeDays ->
+            val cutoffTime = Instant.now().minusSeconds((maxAgeDays * 24 * 60 * 60).toLong())
+            checkpoints.forEach {
+                val checkpointTime = Instant.parse(it.timestamp)
+                if (checkpointTime.isBefore(cutoffTime)) {
+                    toDelete.add(it.pipelineId)
+                }
+            }
+        }
+
+        var deletedCount = 0
+        toDelete.forEach {
+            if (deleteCheckpoint(it)) {
+                deletedCount++
+            }
+        }
         return deletedCount
     }
 }
