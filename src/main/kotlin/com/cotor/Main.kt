@@ -2,7 +2,7 @@ package com.cotor
 
 import com.cotor.di.initializeCotor
 import com.cotor.presentation.cli.*
-import com.cotor.presentation.web.WebServer
+import com.cotor.presentation.web.stream.WebServer
 import com.github.ajalt.clikt.core.subcommands
 import org.koin.core.context.stopKoin
 

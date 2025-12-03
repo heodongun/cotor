@@ -36,11 +36,12 @@ dependencies {
     implementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
 
     // Web Server (Ktor)
-    implementation("io.ktor:ktor-server-core:2.3.7")
-    implementation("io.ktor:ktor-server-netty:2.3.7")
-    implementation("io.ktor:ktor-server-content-negotiation:2.3.7")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.7")
-    implementation("io.ktor:ktor-server-cors:2.3.7")
+    implementation("io.ktor:ktor-server-core:3.0.0-beta-1")
+    implementation("io.ktor:ktor-server-netty:3.0.0-beta-1")
+    implementation("io.ktor:ktor-server-content-negotiation:3.0.0-beta-1")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0-beta-1")
+    implementation("io.ktor:ktor-server-cors:3.0.0-beta-1")
+    implementation("io.ktor:ktor-server-sse:3.0.0-beta-1")
 
     // Testing
     testImplementation("io.kotest:kotest-runner-junit5:5.8.0")
