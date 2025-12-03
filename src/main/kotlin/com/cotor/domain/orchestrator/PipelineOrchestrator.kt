@@ -314,25 +314,26 @@ class DefaultPipelineOrchestrator(
         pipelineContext: PipelineContext
     ): AggregatedResult = coroutineScope {
         val fanoutStages = pipeline.stages.filter { it.fanout != null }
-        if (fanoutStages.size != 1) {
-            throw PipelineException("MAP execution mode requires exactly one stage with a fanout configuration")
+        if (fanoutStages.isEmpty()) {
+            throw PipelineException("MAP execution mode requires at least one stage with a fanout configuration")
         }
-        val fanoutStage = fanoutStages.first()
 
-        val sourceName = fanoutStage.fanout?.source
-            ?: throw PipelineException("Fanout stage ${fanoutStage.id} is missing a source")
+        val allResults = fanoutStages.flatMap { fanoutStage ->
+            val sourceName = fanoutStage.fanout?.source
+                ?: throw PipelineException("Fanout stage ${fanoutStage.id} is missing a source")
 
-        val sourceData = pipelineContext.sharedState[sourceName] as? List<*>
-            ?: throw PipelineException("Fanout source '$sourceName' not found in shared state or is not a list")
+            val sourceData = pipelineContext.sharedState[sourceName] as? List<*>
+                ?: throw PipelineException("Fanout source '$sourceName' not found in shared state or is not a list")
 
-        val results = sourceData.map { item ->
-            async(Dispatchers.Default) {
-                val stageInput = item.toString()
-                executeStageWithGuards(fanoutStage, pipelineId, pipelineContext, stageInput)
+            sourceData.map { item ->
+                async(Dispatchers.Default) {
+                    val stageInput = item.toString()
+                    executeStageWithGuards(fanoutStage, pipelineId, pipelineContext, stageInput)
+                }
             }
         }.awaitAll()
 
-        aggregateResults(results, pipelineContext)
+        aggregateResults(allResults, pipelineContext)
     }
 
     private fun resolveDependencies(
