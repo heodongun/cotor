@@ -27,14 +27,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
     implementation("com.charleskorn.kaml:kaml:0.55.0")
 
-    // Web server (Ktor)
-    val ktorVersion = "2.3.7"
-    implementation("io.ktor:ktor-server-core-jvm:$ktorVersion")
-    implementation("io.ktor:ktor-server-netty-jvm:$ktorVersion")
-    implementation("io.ktor:ktor-server-content-negotiation-jvm:$ktorVersion")
-    implementation("io.ktor:ktor-serialization-kotlinx-json-jvm:$ktorVersion")
-    implementation("io.ktor:ktor-server-cors-jvm:$ktorVersion")
-
     // Dependency Injection
     implementation("io.insert-koin:koin-core:3.5.0")
 
@@ -46,7 +38,6 @@ dependencies {
     // Web Server (Ktor)
     implementation("io.ktor:ktor-server-core:2.3.7")
     implementation("io.ktor:ktor-server-netty:2.3.7")
-    implementation("io.ktor:ktor-server-html-builder:2.3.7")
     implementation("io.ktor:ktor-server-content-negotiation:2.3.7")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.7")
     implementation("io.ktor:ktor-server-cors:2.3.7")

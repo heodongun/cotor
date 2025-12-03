@@ -393,9 +393,10 @@ class WebServer : KoinComponent {
         pipeline: Pipeline,
         result: AggregatedResult
     ): List<Map<String, Any?>> {
-        val resultByAgent = result.results.groupBy { it.agentName }
-        return pipeline.stages.map { stage ->
-            val stageResult = resultByAgent[stage.agent?.name]?.firstOrNull()
+        return pipeline.stages.mapIndexed { index, stage ->
+            // Prefer positional mapping (execution order) and fall back to agent name matching.
+            val stageResult = result.results.getOrNull(index)
+                ?: result.results.lastOrNull { it.agentName == stage.agent?.name }
             val state = when {
                 stageResult == null -> "FAILED"
                 stageResult.isSuccess -> "COMPLETED"
