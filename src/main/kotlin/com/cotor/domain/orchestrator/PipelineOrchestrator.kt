@@ -12,6 +12,7 @@ import com.cotor.stats.StatsManager
 import com.cotor.validation.output.OutputValidator
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.checkpoint.toCheckpoint
+import com.cotor.data.config.CotorProperties
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import java.util.UUID
@@ -475,12 +476,25 @@ class DefaultPipelineOrchestrator(
                 val checkpointPath = checkpointManager.saveCheckpoint(
                     pipelineId = pipelineId,
                     pipelineName = pipelineName,
-                    completedStages = completedStages
+                    completedStages = completedStages,
+                    cotorVersion = CotorProperties.version,
+                    gitCommit = getGitCommit(),
+                    os = System.getProperty("os.name"),
+                    jvm = System.getProperty("java.version")
                 )
                 logger.info("Checkpoint saved: $checkpointPath")
             }
         } catch (e: Exception) {
             logger.warn("Failed to save checkpoint for pipeline $pipelineId: ${e.message}")
+        }
+    }
+
+    private fun getGitCommit(): String {
+        return try {
+            val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD").start()
+            process.inputStream.bufferedReader().readText().trim()
+        } catch (e: Exception) {
+            "unknown"
         }
     }
 
