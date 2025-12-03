@@ -1,33 +1,40 @@
 package com.cotor.presentation.cli
 
 import com.cotor.checkpoint.CheckpointManager
-import com.github.ajalt.clikt.core.CliktCommand
+import com.cotor.data.config.ConfigRepository
+import com.cotor.data.registry.AgentRegistry
+import com.cotor.domain.orchestrator.PipelineOrchestrator
+import com.cotor.model.AgentResult
+import com.cotor.model.PipelineContext
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
 import com.github.ajalt.mordant.table.table
 import com.github.ajalt.mordant.terminal.Terminal
+import kotlinx.coroutines.runBlocking
+import org.koin.core.component.inject
 
 /**
  * Command to resume pipeline from checkpoint
  */
-class ResumeCommand : CliktCommand(
-    name = "resume",
-    help = "Resume pipeline execution from checkpoint"
-) {
+class ResumeCommand : CotorCommand(help = "Resume pipeline execution from checkpoint") {
+    private val orchestrator: PipelineOrchestrator by inject()
+    private val configRepository: ConfigRepository by inject()
+    private val agentRegistry: AgentRegistry by inject()
+    private val checkpointManager: CheckpointManager by inject()
+
     private val pipelineId by argument(
         name = "pipeline-id",
         help = "Pipeline ID to resume"
     ).optional()
 
     private val terminal = Terminal()
-    private val checkpointManager = CheckpointManager()
 
-    override fun run() {
+    override fun run() = runBlocking {
         if (pipelineId == null) {
             listCheckpoints()
-            return
+            return@runBlocking
         }
 
         val checkpoint = checkpointManager.loadCheckpoint(pipelineId!!)
@@ -36,7 +43,7 @@ class ResumeCommand : CliktCommand(
             terminal.println()
             terminal.println(dim("Available checkpoints:"))
             listCheckpoints()
-            return
+            return@runBlocking
         }
 
         terminal.println(bold(blue("📦 Pipeline Checkpoint")))
@@ -67,8 +74,63 @@ class ResumeCommand : CliktCommand(
         }
 
         terminal.println()
-        terminal.println(yellow("⚠️  Resume functionality requires integration with pipeline orchestrator"))
-        terminal.println(dim("This will be available in the next update"))
+        // Reconstruct pipeline context from checkpoint
+        val context = PipelineContext(
+            pipelineId = checkpoint.pipelineId,
+            pipelineName = checkpoint.pipelineName,
+            totalStages = 0 // Will be updated when pipeline is loaded
+        )
+        checkpoint.completedStages.forEach { stageCheckpoint ->
+            val agentResult = AgentResult(
+                agentName = stageCheckpoint.agentName,
+                isSuccess = stageCheckpoint.isSuccess,
+                output = stageCheckpoint.output,
+                error = if (stageCheckpoint.isSuccess) null else "Resumed from failed stage",
+                duration = stageCheckpoint.duration,
+                metadata = mapOf("resumedFrom" to checkpoint.createdAt)
+            )
+            context.addStageResult(stageCheckpoint.stageId, agentResult)
+        }
+
+        // Load configuration and find the pipeline
+        val config = configRepository.loadConfig(configPath)
+        val pipeline = config.pipelines.find { it.name == checkpoint.pipelineName }
+            ?: throw IllegalArgumentException("Pipeline '${checkpoint.pipelineName}' not found in config")
+
+        // Register agents
+        config.agents.forEach { agentRegistry.registerAgent(it) }
+
+        // Determine the stage to resume from
+        val lastCompletedStage = checkpoint.completedStages.lastOrNull { it.isSuccess }
+        val fromStageId = if (lastCompletedStage != null) {
+            val lastStageIndex = pipeline.stages.indexOfFirst { it.id == lastCompletedStage.stageId }
+            if (lastStageIndex != -1 && lastStageIndex + 1 < pipeline.stages.size) {
+                pipeline.stages[lastStageIndex + 1].id
+            } else {
+                null // Pipeline was already completed
+            }
+        } else {
+            pipeline.stages.firstOrNull()?.id // Nothing completed successfully, start from the beginning
+        }
+
+        if (fromStageId == null) {
+            terminal.println(green("✅ Pipeline already completed. Nothing to resume."))
+            return@runBlocking
+        }
+
+        // Update total stages in context
+        context.totalStages = pipeline.stages.size
+
+        terminal.println(green("🚀 Resuming pipeline execution from stage: $fromStageId"))
+
+        // Execute the pipeline from the specified stage
+        orchestrator.executePipeline(
+            pipeline = pipeline,
+            fromStageId = fromStageId,
+            context = context
+        )
+
+        terminal.println(green("✅ Pipeline execution resumed successfully."))
     }
 
     private fun listCheckpoints() {

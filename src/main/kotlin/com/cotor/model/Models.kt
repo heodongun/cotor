@@ -384,7 +384,7 @@ data class AgentExecutionMetadata(
 data class PipelineContext(
     val pipelineId: String,
     val pipelineName: String,
-    val totalStages: Int,
+    var totalStages: Int,
     val stageResults: MutableMap<String, AgentResult> = java.util.concurrent.ConcurrentHashMap(),
     val sharedState: MutableMap<String, Any> = java.util.concurrent.ConcurrentHashMap(),
     val metadata: MutableMap<String, Any> = java.util.concurrent.ConcurrentHashMap(),

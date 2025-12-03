@@ -37,7 +37,9 @@ class CheckpointCommand : CliktCommand(help = "Manage checkpoints.") {
 /**
  * Base CLI command for Cotor
  */
-abstract class CotorCommand : CliktCommand(), KoinComponent {
+abstract class CotorCommand(
+    help: String = ""
+) : CliktCommand(help = help), KoinComponent {
     val configPath by option("--config", "-c", help = "Path to configuration file")
         .path(mustExist = false)
         .default(Path("cotor.yaml"))
@@ -81,7 +83,7 @@ class CotorCli : CliktCommand(
 /**
  * Initialize Cotor with default configuration
  */
-class InitCommand : CotorCommand() {
+class InitCommand : CotorCommand(help = "Initialize Cotor with default configuration") {
     private val interactive by option("--interactive", "-i", help = "대화형으로 기본 파이프라인 설정").flag()
     private val terminal = Terminal()
 
@@ -205,7 +207,7 @@ performance:
 /**
  * Run a pipeline
  */
-class RunCommand : CotorCommand() {
+class RunCommand : CotorCommand(help = "Run a pipeline") {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val orchestrator: PipelineOrchestrator by inject()
@@ -248,7 +250,7 @@ class RunCommand : CotorCommand() {
 /**
  * Show status of running and recent pipelines
  */
-class StatusCommand : CotorCommand() {
+class StatusCommand : CotorCommand(help = "Show status of running and recent pipelines") {
     private val terminal = Terminal()
     private val runTracker: PipelineRunTracker by inject()
 
@@ -321,7 +323,7 @@ class StatusCommand : CotorCommand() {
 /**
  * List registered agents
  */
-class ListCommand : CotorCommand() {
+class ListCommand : CotorCommand(help = "List registered agents") {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
 
