@@ -1,6 +1,7 @@
 package com.cotor.stats
 
 import com.cotor.model.AggregatedResult
+import com.cotor.model.FailureCategory
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
@@ -41,13 +42,21 @@ class StatsManager(
         val statsFile = getStatsFile(pipelineName)
         val stats = loadStats(pipelineName) ?: PipelineStats(pipelineName = pipelineName)
 
+        val updatedFailureCounts = stats.failureCategoryCounts.toMutableMap()
+        result.results.filter { !it.isSuccess }.forEach {
+            val categoryString = it.metadata["failureCategory"] ?: FailureCategory.UNKNOWN.name
+            val category = FailureCategory.valueOf(categoryString)
+            updatedFailureCounts[category] = (updatedFailureCounts[category] ?: 0) + 1
+        }
+
         val updatedStats = stats.copy(
             executions = stats.executions + execution,
             totalExecutions = stats.totalExecutions + 1,
             totalSuccesses = stats.totalSuccesses + result.successCount,
             totalFailures = stats.totalFailures + result.failureCount,
             totalDuration = stats.totalDuration + result.totalDuration,
-            lastExecuted = execution.timestamp
+            lastExecuted = execution.timestamp,
+            failureCategoryCounts = updatedFailureCounts
         )
 
         statsFile.writeText(json.encodeToString(updatedStats))
@@ -95,7 +104,8 @@ class StatsManager(
             avgDuration = avgDuration,
             avgRecentDuration = avgRecentDuration,
             lastExecuted = stats.lastExecuted,
-            trend = calculateTrend(recentExecutions)
+            trend = calculateTrend(recentExecutions),
+            failureCategoryCounts = stats.failureCategoryCounts
         )
     }
 
@@ -201,7 +211,8 @@ data class PipelineStats(
     val totalSuccesses: Int = 0,
     val totalFailures: Int = 0,
     val totalDuration: Long = 0,
-    val lastExecuted: String? = null
+    val lastExecuted: String? = null,
+    val failureCategoryCounts: Map<FailureCategory, Int> = emptyMap()
 )
 
 /**
@@ -242,7 +253,8 @@ data class StatsSummary(
     val avgDuration: Long,
     val avgRecentDuration: Long,
     val lastExecuted: String?,
-    val trend: PerformanceTrend
+    val trend: PerformanceTrend,
+    val failureCategoryCounts: Map<FailureCategory, Int> = emptyMap()
 )
 
 /**

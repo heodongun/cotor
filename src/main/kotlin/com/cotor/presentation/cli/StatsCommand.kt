@@ -157,6 +157,15 @@ class StatsCommand : CliktCommand(
         terminal.println("  Trend: $trendText")
         terminal.println()
 
+        // Failure Analysis
+        if (summary.failureCategoryCounts.isNotEmpty()) {
+            terminal.println(bold("Failure Analysis:"))
+            summary.failureCategoryCounts.forEach { (category, count) ->
+                terminal.println("  ${category.name.padEnd(20)}: ${red(count.toString())}")
+            }
+            terminal.println()
+        }
+
         // Recommendations
         terminal.println(bold("Recommendations:"))
         when (summary.trend) {
