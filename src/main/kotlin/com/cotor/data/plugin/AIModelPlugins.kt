@@ -7,9 +7,9 @@ import com.cotor.model.*
  * Claude AI Plugin (Anthropic)
  * Executes: claude --dangerously-skip-permissions --print <prompt>
  */
-class ClaudePlugin : AgentPlugin {
+class ClaudeCodePlugin : AgentPlugin {
     override val metadata = AgentMetadata(
-        name = "claude",
+        name = "claudecode",
         version = "1.0.0",
         description = "Claude AI by Anthropic for code generation and analysis",
         author = "Cotor Team",

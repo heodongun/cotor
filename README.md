@@ -357,65 +357,22 @@ tail -f cotor.log
 java -jar /path/to/cotor-1.0.0.jar status
 ```
 
-### Example 7: Multi-AI Model Pipeline (Claude, Codex, Gemini, Copilot)
+### Example 7: Multi-AI Model Pipeline (Claude, Codex, Gemini, Copilot, Cursor, Opencode)
 
 This advanced example demonstrates how to orchestrate multiple AI models in a single pipeline for comprehensive code generation and review.
 
 **Use Case**: Generate code with multiple AI models and compare/merge results
 
-**Step 1: Create AI model agent plugins**
+**Step 1: Configure multi-AI pipeline**
 
-First, create wrapper plugins for each AI model:
-
-```kotlin
-// ClaudePlugin.kt
-class ClaudePlugin : AgentPlugin {
-    override val metadata = AgentMetadata(
-        name = "claude-code-generator",
-        version = "1.0.0",
-        description = "Claude AI for code generation",
-        author = "Cotor Team",
-        supportedFormats = listOf(DataFormat.JSON, DataFormat.TEXT)
-    )
-
-    override suspend fun execute(
-        context: ExecutionContext,
-        processManager: ProcessManager
-    ): String {
-        // Call Claude API or CLI
-        val command = listOf(
-            "claude-cli",
-            "generate",
-            "--prompt", context.input ?: ""
-        )
-        
-        val result = processManager.executeProcess(
-            command = command,
-            input = context.input,
-            environment = context.environment,
-            timeout = context.timeout
-        )
-        
-        return result.stdout
-    }
-}
-
-// Similar plugins for Codex, Gemini, and Copilot
-class CodexPlugin : AgentPlugin { /* ... */ }
-class GeminiPlugin : AgentPlugin { /* ... */ }
-class CopilotPlugin : AgentPlugin { /* ... */ }
-```
-
-**Step 2: Configure multi-AI pipeline**
-
-Create `multi-ai-pipeline.yaml`:
+Create `cotor.yaml` with the following content:
 
 ```yaml
 version: "1.0"
 
 agents:
-  - name: claude-agent
-    pluginClass: com.cotor.plugins.ClaudePlugin
+  - name: claudecode
+    pluginClass: com.cotor.data.plugin.ClaudeCodePlugin
     timeout: 60000
     parameters:
       model: claude-3-opus
@@ -425,8 +382,8 @@ agents:
       - code-generation
       - claude
 
-  - name: codex-agent
-    pluginClass: com.cotor.plugins.CodexPlugin
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
     timeout: 60000
     parameters:
       model: gpt-4
@@ -436,8 +393,8 @@ agents:
       - code-generation
       - openai
 
-  - name: gemini-agent
-    pluginClass: com.cotor.plugins.GeminiPlugin
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
     timeout: 60000
     parameters:
       model: gemini-pro
@@ -447,8 +404,8 @@ agents:
       - code-generation
       - google
 
-  - name: copilot-agent
-    pluginClass: com.cotor.plugins.CopilotPlugin
+  - name: copilot
+    pluginClass: com.cotor.data.plugin.CopilotPlugin
     timeout: 60000
     parameters:
       model: copilot
@@ -457,11 +414,19 @@ agents:
       - code-generation
       - github
 
-  - name: code-merger
-    pluginClass: com.cotor.plugins.CodeMergerPlugin
-    timeout: 30000
+  - name: cursor
+    pluginClass: com.cotor.data.plugin.CursorPlugin
+    timeout: 60000
     tags:
-      - utility
+      - ai
+      - code-generation
+
+  - name: opencode
+    pluginClass: com.cotor.data.plugin.OpenCodePlugin
+    timeout: 60000
+    tags:
+      - ai
+      - code-generation
 
 pipelines:
   # Parallel execution - all AI models generate code simultaneously
@@ -469,111 +434,35 @@ pipelines:
     description: "Generate code with multiple AI models in parallel"
     executionMode: PARALLEL
     stages:
-      - id: claude-generation
+      - id: claudecode-generation
         agent:
-          name: claude-agent
-          pluginClass: com.cotor.plugins.ClaudePlugin
+          name: claudecode
         input: "Create a REST API endpoint for user authentication with JWT"
 
       - id: codex-generation
         agent:
-          name: codex-agent
-          pluginClass: com.cotor.plugins.CodexPlugin
+          name: codex
         input: "Create a REST API endpoint for user authentication with JWT"
 
       - id: gemini-generation
         agent:
-          name: gemini-agent
-          pluginClass: com.cotor.plugins.GeminiPlugin
+          name: gemini
         input: "Create a REST API endpoint for user authentication with JWT"
 
       - id: copilot-generation
         agent:
-          name: copilot-agent
-          pluginClass: com.cotor.plugins.CopilotPlugin
+          name: copilot
         input: "Create a REST API endpoint for user authentication with JWT"
 
-  # Sequential execution with review chain
-  - name: multi-ai-review-chain
-    description: "Generate code and review through multiple AI models"
-    executionMode: SEQUENTIAL
-    stages:
-      - id: initial-generation
+      - id: cursor-generation
         agent:
-          name: claude-agent
-          pluginClass: com.cotor.plugins.ClaudePlugin
+          name: cursor
         input: "Create a REST API endpoint for user authentication with JWT"
 
-      - id: codex-review
+      - id: opencode-generation
         agent:
-          name: codex-agent
-          pluginClass: com.cotor.plugins.CodexPlugin
-          parameters:
-            task: review
-        # Input will be Claude's output
-
-      - id: gemini-optimization
-        agent:
-          name: gemini-agent
-          pluginClass: com.cotor.plugins.GeminiPlugin
-          parameters:
-            task: optimize
-        # Input will be Codex's reviewed code
-
-      - id: copilot-final-check
-        agent:
-          name: copilot-agent
-          pluginClass: com.cotor.plugins.CopilotPlugin
-          parameters:
-            task: security-check
-        # Input will be Gemini's optimized code
-
-  # DAG-based workflow - complex dependencies
-  - name: multi-ai-dag
-    description: "Complex AI workflow with dependencies"
-    executionMode: DAG
-    stages:
-      - id: requirement-analysis
-        agent:
-          name: claude-agent
-          pluginClass: com.cotor.plugins.ClaudePlugin
-        input: "Analyze requirements for user authentication system"
-
-      - id: architecture-design
-        agent:
-          name: gemini-agent
-          pluginClass: com.cotor.plugins.GeminiPlugin
-        dependencies:
-          - requirement-analysis
-
-      - id: backend-code
-        agent:
-          name: codex-agent
-          pluginClass: com.cotor.plugins.CodexPlugin
-        dependencies:
-          - architecture-design
-
-      - id: frontend-code
-        agent:
-          name: copilot-agent
-          pluginClass: com.cotor.plugins.CopilotPlugin
-        dependencies:
-          - architecture-design
-
-      - id: integration-code
-        agent:
-          name: claude-agent
-          pluginClass: com.cotor.plugins.ClaudePlugin
-        dependencies:
-          - backend-code
-          - frontend-code
-
-      - id: final-review
-        agent:
-          name: gemini-agent
-          pluginClass: com.cotor.plugins.GeminiPlugin
-        dependencies:
-          - integration-code
+          name: opencode
+        input: "Create a REST API endpoint for user authentication with JWT"
 
 security:
   useWhitelist: true
@@ -582,6 +471,8 @@ security:
     - openai
     - gemini-cli
     - gh
+    - cursor-cli
+    - opencode
   allowedDirectories:
     - /usr/local/bin
     - /opt/ai-tools
@@ -592,99 +483,15 @@ logging:
   format: json
 
 performance:
-  maxConcurrentAgents: 4
+  maxConcurrentAgents: 6
   coroutinePoolSize: 8
 ```
 
-**Step 3: Run parallel AI generation**
+**Step 2: Run parallel AI generation**
 
 ```bash
-# Generate code with all 4 AI models simultaneously
-java -jar cotor-1.0.0.jar run multi-ai-parallel \
-  --config multi-ai-pipeline.yaml \
-  --output-format text
-```
-
-**Expected Output:**
-```
-================================================================================
-Pipeline Execution Results
-================================================================================
-
-Summary:
-  Total Agents:  4
-  Success Count: 4
-  Failure Count: 0
-  Total Duration: 8500ms
-  Timestamp:     2025-11-12T11:00:00.000000Z
-
-Agent Results:
-
-  [1] claude-agent
-      Status:   ✓ SUCCESS
-      Duration: 8200ms
-      Output:
-        // Claude's implementation
-        @RestController
-        @RequestMapping("/api/auth")
-        public class AuthController {
-            @PostMapping("/login")
-            public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest request) {
-                // JWT authentication logic
-                ...
-            }
-        }
-
-  [2] codex-agent
-      Status:   ✓ SUCCESS
-      Duration: 7800ms
-      Output:
-        // Codex's implementation
-        class AuthController {
-            async login(req, res) {
-                // JWT authentication with Express
-                ...
-            }
-        }
-
-  [3] gemini-agent
-      Status:   ✓ SUCCESS
-      Duration: 8100ms
-      Output:
-        // Gemini's implementation
-        func LoginHandler(w http.ResponseWriter, r *http.Request) {
-            // JWT authentication in Go
-            ...
-        }
-
-  [4] copilot-agent
-      Status:   ✓ SUCCESS
-      Duration: 7500ms
-      Output:
-        // Copilot's implementation
-        def login(request):
-            # JWT authentication in Python
-            ...
-
-================================================================================
-```
-
-**Step 4: Run sequential review chain**
-
-```bash
-# Generate with Claude, then review through other models
-java -jar cotor-1.0.0.jar run multi-ai-review-chain \
-  --config multi-ai-pipeline.yaml \
-  --output-format json
-```
-
-**Step 5: Run complex DAG workflow**
-
-```bash
-# Execute complex workflow with dependencies
-java -jar cotor-1.0.0.jar run multi-ai-dag \
-  --config multi-ai-pipeline.yaml \
-  --output-format text
+# Generate code with all 6 AI models simultaneously
+./shell/cotor run multi-ai-parallel --output-format text
 ```
 
 **Benefits of Multi-AI Pipeline:**
@@ -709,21 +516,10 @@ java -jar cotor-1.0.0.jar run multi-ai-dag \
 **For Unix/Linux/macOS:**
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
-alias cotor='java -jar /path/to/cotor-1.0.0.jar'
+alias cotor='./shell/cotor'
 
 # Reload shell configuration
 source ~/.bashrc  # or source ~/.zshrc
-
-# Now you can use it directly
-cotor init
-cotor run example-pipeline
-cotor list
-```
-
-**For Windows (PowerShell):**
-```powershell
-# Add to PowerShell profile
-function cotor { java -jar C:\path\to\cotor-1.0.0.jar $args }
 
 # Now you can use it directly
 cotor init
@@ -903,30 +699,71 @@ Create `cotor.yaml`:
 version: "1.0"
 
 agents:
-  - name: my-agent
-    pluginClass: com.cotor.data.plugin.ClaudePlugin
+  - name: claudecode
+    pluginClass: com.cotor.data.plugin.ClaudeCodePlugin
     timeout: 60000
     parameters:
-      model: claude-3-sonnet
+      model: claude-3-opus
     tags:
       - ai
       - claude
 
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+    parameters:
+      model: gpt-4
+    tags:
+      - ai
+      - openai
+
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 60000
+    parameters:
+      model: gemini-pro
+    tags:
+      - ai
+      - google
+
+  - name: copilot
+    pluginClass: com.cotor.data.plugin.CopilotPlugin
+    timeout: 60000
+    tags:
+      - ai
+      - github
+
+  - name: cursor
+    pluginClass: com.cotor.data.plugin.CursorPlugin
+    timeout: 60000
+    tags:
+      - ai
+
+  - name: opencode
+    pluginClass: com.cotor.data.plugin.OpenCodePlugin
+    timeout: 60000
+    tags:
+      - ai
+
 pipelines:
-  - name: my-pipeline
-    description: "My first pipeline"
+  - name: single-ai-pipeline
+    description: "Run a single AI model"
     executionMode: SEQUENTIAL
     stages:
       - id: step1
         agent:
-          name: my-agent
+          name: claudecode
         input: "Analyze this code"
 
 security:
   useWhitelist: true
   allowedExecutables:
-    - claude
-    - gemini
+    - claude-cli
+    - openai
+    - gemini-cli
+    - gh
+    - cursor-cli
+    - opencode
   allowedDirectories:
     - /usr/local/bin
 

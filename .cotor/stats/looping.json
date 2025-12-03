@@ -64,10 +64,66 @@
             "successCount": 7,
             "failureCount": 0,
             "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T01:54:24.141162517Z",
+            "totalDuration": 15,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T01:56:44.447506292Z",
+            "totalDuration": 13,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
         }
     ],
-    "totalExecutions": 8,
-    "totalSuccesses": 56,
-    "totalDuration": 125,
-    "lastExecuted": "2025-12-03T00:42:23.883614997Z"
+    "totalExecutions": 10,
+    "totalSuccesses": 70,
+    "totalDuration": 153,
+    "lastExecuted": "2025-12-03T01:56:44.447506292Z"
 }

@@ -1,0 +1,9 @@
+com.cotor.data.plugin.ClaudeCodePlugin
+com.cotor.data.plugin.CodexPlugin
+com.cotor.data.plugin.CopilotPlugin
+com.cotor.data.plugin.GeminiPlugin
+com.cotor.data.plugin.CursorPlugin
+com.cotor.data.plugin.OpenCodePlugin
+com.cotor.data.plugin.EchoPlugin
+com.cotor.data.plugin.FailPlugin
+com.cotor.data.plugin.TimeoutPlugin
