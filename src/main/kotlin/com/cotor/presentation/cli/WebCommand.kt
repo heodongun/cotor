@@ -1,6 +1,6 @@
 package com.cotor.presentation.cli
 
-import com.cotor.presentation.web.WebServer
+import com.cotor.presentation.web.stream.WebServer
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
