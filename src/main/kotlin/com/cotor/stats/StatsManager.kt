@@ -235,6 +235,7 @@ enum class ExecutionStatus {
 /**
  * Statistics summary
  */
+@Serializable
 data class StatsSummary(
     val pipelineName: String,
     val totalExecutions: Int,
@@ -248,6 +249,7 @@ data class StatsSummary(
 /**
  * Performance trend
  */
+@Serializable
 enum class PerformanceTrend {
     IMPROVING,
     STABLE,
@@ -257,6 +259,7 @@ enum class PerformanceTrend {
 /**
  * Detailed statistics, including stage-level data
  */
+@Serializable
 data class StatsDetails(
     val pipelineName: String,
     val totalExecutions: Int,
@@ -266,6 +269,7 @@ data class StatsDetails(
 /**
  * Stage statistics
  */
+@Serializable
 data class StageStats(
     val stageName: String,
     val avgDuration: Long,
