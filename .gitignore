@@ -191,6 +191,7 @@ site/
 *.old
 
 # Runtime data
+.cotor/
 pids
 *.pid
 *.seed
