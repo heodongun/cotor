@@ -88,7 +88,7 @@ class DefaultPipelineOrchestrator(
             }
         }
         val pipelineId = UUID.randomUUID().toString()
-        val context = PipelineContext(
+        val pipelineContext = PipelineContext(
             pipelineId = pipelineId,
             pipelineName = pipeline.name,
             totalStages = pipeline.stages.size
@@ -101,7 +101,7 @@ class DefaultPipelineOrchestrator(
 
             checkpoint.completedStages.forEach { stageCheckpoint ->
                 val agentResult = stageCheckpoint.fromCheckpoint()
-                context.addStageResult(stageCheckpoint.stageId, agentResult)
+                pipelineContext.addStageResult(stageCheckpoint.stageId, agentResult)
             }
         }
 
@@ -112,15 +112,16 @@ class DefaultPipelineOrchestrator(
 
             try {
                 val result = when (pipeline.executionMode) {
-                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, context, fromStageId)
-                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, context, fromStageId)
-                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, context, fromStageId)
+                    ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, fromStageId)
+                    ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
+                    ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
+                    ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
                 }
 
                 eventBus.emit(PipelineCompletedEvent(pipelineId, result))
 
                 // Record execution statistics
-                val stageExecutions = context.stageResults.values.map {
+                val stageExecutions = pipelineContext.stageResults.values.map {
                     com.cotor.stats.StageExecution(
                         name = it.agentName,
                         duration = it.duration,
@@ -131,7 +132,7 @@ class DefaultPipelineOrchestrator(
                 statsManager.recordExecution(pipeline.name, result, stageExecutions)
 
                 // Save checkpoint for resume functionality
-                saveCheckpoint(pipelineId, pipeline.name, context)
+                saveCheckpoint(pipelineId, pipeline.name, pipelineContext)
 
                 result
             } catch (e: Exception) {
@@ -288,6 +289,33 @@ class DefaultPipelineOrchestrator(
 
         stages.forEach { visit(it) }
         return sorted
+    }
+
+    private suspend fun executeMap(
+        pipeline: Pipeline,
+        pipelineId: String,
+        pipelineContext: PipelineContext
+    ): AggregatedResult = coroutineScope {
+        val fanoutStages = pipeline.stages.filter { it.fanout != null }
+        if (fanoutStages.size != 1) {
+            throw PipelineException("MAP execution mode requires exactly one stage with a fanout configuration")
+        }
+        val fanoutStage = fanoutStages.first()
+
+        val sourceName = fanoutStage.fanout?.source
+            ?: throw PipelineException("Fanout stage ${fanoutStage.id} is missing a source")
+
+        val sourceData = pipelineContext.sharedState[sourceName] as? List<*>
+            ?: throw PipelineException("Fanout source '$sourceName' not found in shared state or is not a list")
+
+        val results = sourceData.map { item ->
+            async(Dispatchers.Default) {
+                val stageInput = item.toString()
+                executeStageWithGuards(fanoutStage, pipelineId, pipelineContext, stageInput)
+            }
+        }.awaitAll()
+
+        aggregateResults(results, pipelineContext)
     }
 
     private fun resolveDependencies(

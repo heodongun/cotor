@@ -199,6 +199,4 @@ pids
 *.pid
 *.seed
 *.pid.lock
-
-# Cotor specific
 .cotor/
