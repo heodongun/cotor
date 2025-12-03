@@ -16,14 +16,40 @@ class ClaudePlugin : AgentPlugin {
         supportedFormats = listOf(DataFormat.JSON, DataFormat.TEXT)
     )
 
+    override val parameterSchema = AgentParameterSchema(
+        parameters = listOf(
+            AgentParameter(
+                name = "model",
+                type = ParameterType.STRING,
+                required = false,
+                description = "The Claude model to use.",
+                defaultValue = "claude-2"
+            ),
+            AgentParameter(
+                name = "temperature",
+                type = ParameterType.NUMBER,
+                required = false,
+                description = "The temperature to use for the model.",
+                defaultValue = "0.7"
+            )
+        )
+    )
+
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
+
+        val model = context.parameters.getOrDefault("model", "claude-2")
+        val temperature = context.parameters.getOrDefault("temperature", "0.7")
         
         // Execute Claude CLI with auto-approval (skip all permission prompts)
-        val command = listOf("claude", "--dangerously-skip-permissions", "--print", prompt)
+        val command = mutableListOf("claude", "--dangerously-skip-permissions", "--print", prompt)
+        command.add("--model")
+        command.add(model)
+        command.add("--temperature")
+        command.add(temperature)
         
         val result = processManager.executeProcess(
             command = command,
