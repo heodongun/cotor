@@ -60,7 +60,7 @@ class CotorCli : CliktCommand(
     printHelpOnEmptyArgs = false
 ) {
     init {
-        subcommands(CheckpointCommand())
+        subcommands(CheckpointCommand(), WebCommand())
     }
 
     private val short by option("--short", help = "Show 10-line cheat sheet").flag()

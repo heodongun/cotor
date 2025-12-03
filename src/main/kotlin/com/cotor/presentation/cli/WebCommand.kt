@@ -16,8 +16,9 @@ class WebCommand : CliktCommand(
 ) {
     private val port by option("--port", "-p", help = "Port to run the web server").int().default(8080)
     private val openBrowser by option("--open", help = "자동으로 브라우저를 엽니다").flag(default = false)
+    private val readOnly by option("--read-only", help = "읽기 전용 모드로 실행합니다").flag(default = false)
 
     override fun run() {
-        WebServer().start(port = port, openBrowser = openBrowser)
+        WebServer().start(port = port, openBrowser = openBrowser, readOnly = readOnly)
     }
 }

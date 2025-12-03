@@ -17,14 +17,7 @@ fun main(args: Array<String>) {
         // Simple mode - just run pipeline directly
         if (args.isNotEmpty() && !args[0].startsWith("-")) {
             when (args[0]) {
-                "web" -> {
-                    println("🌐 Starting Cotor Web UI...")
-                    println("   Open http://localhost:8080 in your browser")
-                    println()
-                    WebServer().start()
-                    return
-                }
-                "init", "list", "status", "version", "run", "validate", "test", "dash", "template", "resume", "checkpoint", "stats", "completion", "doctor" -> {
+                "init", "list", "status", "version", "run", "validate", "test", "dash", "template", "resume", "checkpoint", "stats", "completion", "doctor", "web" -> {
                     // Use full CLI for these commands
                 }
                 else -> {
