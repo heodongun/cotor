@@ -198,3 +198,4 @@ pids
 *.pid
 *.seed
 *.pid.lock
+/.cotor/stats/
