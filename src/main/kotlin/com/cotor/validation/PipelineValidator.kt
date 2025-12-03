@@ -91,8 +91,39 @@ class PipelineValidator(
         }
 
         // Validate input for execution stages only
-        if (stage.type == StageType.EXECUTION && stage.input?.isBlank() != false) {
-            warnings.add("Stage '${stage.id}': Empty input, will use previous stage output")
+        if (stage.type == StageType.EXECUTION) {
+            if (stage.input?.isBlank() != false) {
+                warnings.add("Stage '${stage.id}': Empty input, will use previous stage output")
+            } else {
+                validateTemplateReferences(stage, errors, stageIds)
+            }
+        }
+    }
+
+    /**
+     * Validate template expressions `${...}` in stage inputs.
+     */
+    private fun validateTemplateReferences(
+        stage: PipelineStage,
+        errors: MutableList<String>,
+        stageIds: Set<String>
+    ) {
+        val expressionPattern = Regex("\\\$\\{\\s*([^}]+)\\s*\\}")
+        stage.input?.let { input ->
+            expressionPattern.findAll(input).forEach { matchResult ->
+                val expression = matchResult.groupValues[1].trim()
+                val parts = expression.split('.')
+                if (parts.getOrNull(0) == "stages") {
+                    val referencedStageId = parts.getOrNull(1)
+                    if (referencedStageId == null) {
+                        errors.add("Stage '${stage.id}': Invalid stage reference in input: '${matchResult.value}'")
+                    } else if (referencedStageId !in stageIds) {
+                        errors.add("Stage '${stage.id}': Referenced stage '$referencedStageId' not found in pipeline.")
+                    } else if (parts.getOrNull(2) != "output") {
+                        errors.add("Stage '${stage.id}': Invalid property access in '${matchResult.value}'. Only '.output' is supported.")
+                    }
+                }
+            }
         }
     }
 

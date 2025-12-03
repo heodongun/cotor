@@ -1,0 +1,31 @@
+{
+    "pipelineId": "16453cb7-0586-4b82-8835-150339667a25",
+    "pipelineName": "looping",
+    "timestamp": "2025-12-03T00:36:19.466157458Z",
+    "completedStages": [
+        {
+            "stageId": "loop-controller",
+            "agentName": "loop:loop-controller",
+            "output": "Loop loop-controller completed after 2 iteration(s)",
+            "isSuccess": true,
+            "duration": 0,
+            "timestamp": "2025-12-03T00:36:19.466036966Z"
+        },
+        {
+            "stageId": "review",
+            "agentName": "alpha",
+            "output": "output:review#1",
+            "isSuccess": true,
+            "duration": 5,
+            "timestamp": "2025-12-03T00:36:19.466095390Z"
+        },
+        {
+            "stageId": "draft",
+            "agentName": "alpha",
+            "output": "output:draft#3",
+            "isSuccess": true,
+            "duration": 5,
+            "timestamp": "2025-12-03T00:36:19.466130972Z"
+        }
+    ]
+}

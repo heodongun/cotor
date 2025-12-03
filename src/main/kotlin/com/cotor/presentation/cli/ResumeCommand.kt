@@ -84,35 +84,3 @@ class ResumeCommand : CliktCommand(
     }
 }
 
-/**
- * Command to manage checkpoints
- */
-class CheckpointCommand : CliktCommand(
-    name = "checkpoint",
-    help = "Manage pipeline checkpoints"
-) {
-    private val terminal = Terminal()
-    private val checkpointManager = CheckpointManager()
-
-    override fun run() {
-        terminal.println(bold(blue("🔖 Checkpoint Management")))
-        terminal.println()
-
-        val checkpoints = checkpointManager.listCheckpoints()
-        terminal.println("Total checkpoints: ${checkpoints.size}")
-        terminal.println()
-
-        if (checkpoints.isNotEmpty()) {
-            terminal.println(bold("Recent Checkpoints:"))
-            checkpoints.take(5).forEach { checkpoint ->
-                terminal.println("  ${green("●")} ${checkpoint.pipelineName} (${checkpoint.timestamp})")
-            }
-            terminal.println()
-        }
-
-        terminal.println(dim("Commands:"))
-        terminal.println(dim("  cotor resume <id>       - Resume from checkpoint"))
-        terminal.println(dim("  cotor checkpoint clean  - Clean old checkpoints"))
-        terminal.println(dim("  cotor checkpoint list   - List all checkpoints"))
-    }
-}

@@ -1,0 +1,39 @@
+{
+    "pipelineId": "98ecf624-9132-4cd5-b37c-9a4ee30fbaeb",
+    "pipelineName": "conditional",
+    "timestamp": "2025-12-03T00:42:23.830590602Z",
+    "completedStages": [
+        {
+            "stageId": "initial",
+            "agentName": "alpha",
+            "output": "output:initial#1",
+            "isSuccess": true,
+            "duration": 5,
+            "timestamp": "2025-12-03T00:42:23.823435327Z"
+        },
+        {
+            "stageId": "improve",
+            "agentName": "alpha",
+            "output": "output:improve#1",
+            "isSuccess": true,
+            "duration": 5,
+            "timestamp": "2025-12-03T00:42:23.823518105Z"
+        },
+        {
+            "stageId": "final",
+            "agentName": "alpha",
+            "output": "output:final#1",
+            "isSuccess": true,
+            "duration": 5,
+            "timestamp": "2025-12-03T00:42:23.823547679Z"
+        },
+        {
+            "stageId": "quality-check",
+            "agentName": "decision:quality-check",
+            "output": "Condition: initial.qualityScore >= 80\nResult: FALSE → GOTO (improve)",
+            "isSuccess": true,
+            "duration": 0,
+            "timestamp": "2025-12-03T00:42:23.823574977Z"
+        }
+    ]
+}
