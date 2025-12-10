@@ -21,7 +21,9 @@ import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.nio.file.Files
 import kotlin.io.path.Path
+import kotlin.io.path.exists
 import kotlin.io.path.writeText
 
 class CheckpointCommand : CliktCommand(help = "Manage checkpoints.") {
@@ -113,7 +115,6 @@ pipelines:
       - id: step1
         agent:
           name: example-agent
-          pluginClass: com.cotor.data.plugin.EchoPlugin
         input: "test input"
 
 # Security settings
@@ -144,31 +145,48 @@ performance:
     private fun writeInteractiveConfig() {
         terminal.println("🧭 대화형 설정을 시작합니다. 기본값은 Enter 로 유지하세요.")
 
+        val agentType = prompt(
+            label = "에이전트 종류 선택 (claude, gemini, openai, echo)",
+            default = "claude",
+            options = setOf("claude", "gemini", "openai", "echo")
+        )
         val pipelineName = prompt("파이프라인 이름", "my-pipeline")
-        val description = prompt("파이프라인 설명", "Interactive pipeline")
-        val agentName = prompt("에이전트 이름", "claude")
-        val pluginClass = prompt("플러그인 클래스", "com.cotor.data.plugin.ClaudePlugin")
-        val timeout = prompt("타임아웃(ms)", "60000").toLongOrNull() ?: 60000L
-        val executionMode = prompt("실행 모드(SEQUENTIAL/PARALLEL/DAG)", "SEQUENTIAL").uppercase()
-        val promptText = prompt("프롬프트 내용", "Hello from Cotor!")
+        val description = prompt("파이프라인 설명", "An interactive-generated pipeline")
+        val executionMode = prompt(
+            label = "실행 모드 (SEQUENTIAL, PARALLEL, DAG)",
+            default = "SEQUENTIAL",
+            options = setOf("SEQUENTIAL", "PARALLEL", "DAG")
+        ).uppercase()
+        val promptText = prompt("첫 단계 프롬프트", "Hello, Cotor!")
 
-        val yaml = """
+        val (agentName, pluginClass) = when (agentType.lowercase()) {
+            "gemini" -> "gemini" to "com.cotor.data.plugin.GeminiPlugin"
+            "openai" -> "openai" to "com.cotor.data.plugin.OpenAIPlugin"
+            "echo" -> "echo-agent" to "com.cotor.data.plugin.EchoPlugin"
+            else -> "claude" to "com.cotor.data.plugin.ClaudePlugin"
+        }
+
+        val pipelinesDir = Path("pipelines")
+        if (!pipelinesDir.exists()) {
+            try {
+                Files.createDirectories(pipelinesDir)
+                terminal.println("📁 'pipelines' 디렉토리를 생성했습니다.")
+            } catch (e: Exception) {
+                terminal.println(red("❌ 'pipelines' 디렉토리 생성에 실패했습니다: ${e.message}"))
+                return
+            }
+        }
+
+        val cotorYamlContent = """
 version: "1.0"
+
+imports:
+  - "pipelines/default.yaml"
 
 agents:
   - name: $agentName
     pluginClass: $pluginClass
-    timeout: $timeout
-
-pipelines:
-  - name: $pipelineName
-    description: "$description"
-    executionMode: $executionMode
-    stages:
-      - id: ${agentName}-stage-1
-        agent:
-          name: $agentName
-        input: "$promptText"
+    timeout: 60000
 
 security:
   useWhitelist: true
@@ -188,17 +206,43 @@ performance:
   coroutinePoolSize: 4
 """.trimIndent()
 
-        configPath.writeText(yaml)
-        terminal.println("✅ 대화형 설정이 생성되었습니다: $configPath")
+        val pipelineYamlContent = """
+pipelines:
+  - name: $pipelineName
+    description: "$description"
+    executionMode: $executionMode
+    stages:
+      - id: ${agentName}-stage-1
+        agent:
+          name: $agentName
+        input: "$promptText"
+""".trimIndent()
+
+        val pipelinePath = pipelinesDir.resolve("default.yaml")
+        configPath.writeText(cotorYamlContent)
+        pipelinePath.writeText(pipelineYamlContent)
+
+        terminal.println()
+        terminal.println(green("✅ 대화형 설정이 완료되었습니다!"))
+        terminal.println("   - 기본 설정: $configPath")
+        terminal.println("   - 파이프라인: $pipelinePath")
+        terminal.println()
         terminal.println("다음 명령을 시도해보세요:")
-        terminal.println("  cotor validate $pipelineName -c $configPath")
-        terminal.println("  cotor run $pipelineName -c $configPath --output-format text")
+        terminal.println(bold("  cotor validate $pipelineName"))
+        terminal.println(bold("  cotor run $pipelineName --output-format text"))
     }
 
-    private fun prompt(label: String, default: String): String {
-        terminal.print("$label [$default]: ")
-        val input = readLine()?.trim()
-        return if (input.isNullOrBlank()) default else input
+    private fun prompt(label: String, default: String, options: Set<String>? = null): String {
+        while (true) {
+            terminal.print("$label [$default]: ")
+            val input = readLine()?.trim()
+            val result = if (input.isNullOrBlank()) default else input
+
+            if (options == null || options.contains(result.lowercase())) {
+                return result
+            }
+            terminal.println(red("   잘못된 입력입니다. ${options.joinToString(", ")} 중 하나를 선택하세요."))
+        }
     }
 }
 
