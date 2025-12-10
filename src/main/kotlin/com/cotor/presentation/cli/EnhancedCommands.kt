@@ -89,7 +89,7 @@ class EnhancedRunCommand : CliktCommand(
                 )
 
             // Validate pipeline
-            val validator = PipelineValidator(agentRegistry)
+            val validator = PipelineValidator(agentRegistry, com.cotor.data.plugin.ReflectionPluginLoader(org.slf4j.LoggerFactory.getLogger(com.cotor.data.plugin.ReflectionPluginLoader::class.java)))
             val validationResult = validator.validate(pipeline)
 
             if (validationResult.isFailure) {
@@ -269,7 +269,7 @@ class ValidateCommand : CliktCommand(
                 )
 
             // Validate
-            val validator = PipelineValidator(agentRegistry)
+            val validator = PipelineValidator(agentRegistry, com.cotor.data.plugin.ReflectionPluginLoader(org.slf4j.LoggerFactory.getLogger(com.cotor.data.plugin.ReflectionPluginLoader::class.java)))
             val result = validator.validate(pipeline)
 
             when (result) {

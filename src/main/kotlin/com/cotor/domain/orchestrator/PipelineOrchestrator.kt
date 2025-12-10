@@ -9,6 +9,7 @@ import com.cotor.event.*
 import com.cotor.model.*
 import com.cotor.recovery.RecoveryExecutor
 import com.cotor.stats.StatsManager
+import com.cotor.validation.PipelineTemplateValidator
 import com.cotor.validation.output.OutputValidator
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.checkpoint.toCheckpoint
@@ -69,7 +70,8 @@ class DefaultPipelineOrchestrator(
     private val agentRegistry: com.cotor.data.registry.AgentRegistry,
     private val outputValidator: OutputValidator,
     private val statsManager: StatsManager,
-    private val checkpointManager: CheckpointManager = CheckpointManager()
+    private val checkpointManager: CheckpointManager = CheckpointManager(),
+    private val templateValidator: PipelineTemplateValidator = PipelineTemplateValidator(TemplateEngine())
 ) : PipelineOrchestrator {
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()
@@ -101,6 +103,13 @@ class DefaultPipelineOrchestrator(
             totalStages = pipeline.stages.size
         )
 
+        // Validate pipeline templates before execution
+        val validationResult = templateValidator.validate(pipeline)
+        if (validationResult is ValidationResult.Failure) {
+            val errorMessage = "Pipeline template validation failed:\n" + validationResult.errors.joinToString("\n")
+            throw PipelineException(errorMessage)
+        }
+
         fromStageId?.let {
             logger.info("Resuming pipeline from stage: $it")
         }
@@ -112,11 +121,24 @@ class DefaultPipelineOrchestrator(
 
             try {
                 val executePipelineBlock: suspend () -> AggregatedResult = {
-                    when (pipeline.executionMode) {
-                        ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, fromStageId)
-                        ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
-                        ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
-                        ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
+                    try {
+                        when (pipeline.executionMode) {
+                            ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, fromStageId)
+                            ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
+                            ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
+                            ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
+                        }
+                    } catch (e: IllegalArgumentException) {
+                        val configErrorResult = AgentResult(
+                            agentName = "pipeline-config",
+                            isSuccess = false,
+                            output = null,
+                            error = e.message,
+                            duration = 0,
+                            metadata = mapOf("failureCategory" to FailureCategory.CONFIG_ERROR.name)
+                        )
+                        pipelineContext.addStageResult("pipeline-config", configErrorResult)
+                        throw e
                     }
                 }
 
@@ -415,7 +437,10 @@ class DefaultPipelineOrchestrator(
                 output = null,
                 error = errorMessage,
                 duration = stage.timeoutMs ?: 0,
-                metadata = mapOf("timeout" to "true")
+                metadata = mapOf(
+                    "timeout" to "true",
+                    "failureCategory" to FailureCategory.TIMEOUT.name
+                )
             )
             pipelineContext.addStageResult(stage.id, timeoutResult)
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, RuntimeException(errorMessage)))

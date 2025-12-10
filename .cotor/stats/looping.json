@@ -1,0 +1,101 @@
+{
+    "pipelineName": "looping",
+    "executions": [
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T00:30:38.194291564Z",
+            "totalDuration": 16,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T00:32:27.995737886Z",
+            "totalDuration": 14,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T00:34:15.159848289Z",
+            "totalDuration": 14,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T00:36:19.463144319Z",
+            "totalDuration": 18,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T00:38:29.920805735Z",
+            "totalDuration": 13,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T00:40:23.132808493Z",
+            "totalDuration": 21,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T00:41:33.723176409Z",
+            "totalDuration": 13,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T00:42:23.883614997Z",
+            "totalDuration": 16,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2025-12-03T02:36:02.832866718Z",
+            "totalDuration": 10,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        }
+    ],
+    "totalExecutions": 9,
+    "totalSuccesses": 63,
+    "totalDuration": 135,
+    "lastExecuted": "2025-12-03T02:36:02.832866718Z"
+}

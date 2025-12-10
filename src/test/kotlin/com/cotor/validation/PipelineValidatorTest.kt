@@ -1,12 +1,32 @@
 package com.cotor.validation
 
+import com.cotor.data.plugin.AgentPlugin
+import com.cotor.data.plugin.PluginLoader
 import com.cotor.data.registry.InMemoryAgentRegistry
 import com.cotor.model.*
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
 
 class PipelineValidatorTest : FunSpec({
+
+    val mockPluginLoader = mockk<PluginLoader>()
+    val mockClaudePlugin = mockk<AgentPlugin>()
+    val mockEchoPlugin = mockk<AgentPlugin>()
+
+    beforeTest {
+        every { mockPluginLoader.loadPlugin("com.cotor.data.plugin.ClaudePlugin") } returns mockClaudePlugin
+        every { mockClaudePlugin.parameterSchema } returns AgentParameterSchema(
+            parameters = listOf(
+                AgentParameter("model", ParameterType.STRING, required = true),
+                AgentParameter("temperature", ParameterType.NUMBER, required = false)
+            )
+        )
+        every { mockPluginLoader.loadPlugin("com.cotor.data.plugin.EchoPlugin") } returns mockEchoPlugin
+        every { mockEchoPlugin.parameterSchema } returns AgentParameterSchema(emptyList())
+    }
 
     val registry = InMemoryAgentRegistry().apply {
         registerAgent(
@@ -19,6 +39,13 @@ class PipelineValidatorTest : FunSpec({
             AgentConfig(
                 name = "alt",
                 pluginClass = "com.cotor.data.plugin.EchoPlugin"
+            )
+        )
+        registerAgent(
+            AgentConfig(
+                name = "claude",
+                pluginClass = "com.cotor.data.plugin.ClaudePlugin",
+                parameters = mapOf("model" to "claude-2", "temperature" to "0.8")
             )
         )
     }
@@ -35,7 +62,7 @@ class PipelineValidatorTest : FunSpec({
             )
         )
 
-        val validator = PipelineValidator(registry)
+        val validator = PipelineValidator(registry, mockPluginLoader)
         val result = validator.validate(pipeline)
 
         result.isSuccess shouldBe true
@@ -52,7 +79,7 @@ class PipelineValidatorTest : FunSpec({
             )
         )
 
-        val validator = PipelineValidator(registry)
+        val validator = PipelineValidator(registry, mockPluginLoader)
         val result = validator.validate(pipeline) as ValidationResult.Failure
 
         result.errors.shouldContain("Stage 'a': Circular dependency detected")
@@ -70,7 +97,7 @@ class PipelineValidatorTest : FunSpec({
             )
         )
 
-        val validator = PipelineValidator(registry)
+        val validator = PipelineValidator(registry, mockPluginLoader)
         val estimate = validator.estimateDuration(pipeline)
 
         // Default 30s per stage. Critical path start -> slow -> finish = 90 seconds.
@@ -93,7 +120,7 @@ class PipelineValidatorTest : FunSpec({
             )
         )
 
-        val validator = PipelineValidator(registry)
+        val validator = PipelineValidator(registry, mockPluginLoader)
         val result = validator.validate(pipeline) as ValidationResult.Failure
 
         result.errors.shouldContain("Stage 'stage': Fallback agent 'ghost-agent' not defined")
@@ -115,7 +142,7 @@ class PipelineValidatorTest : FunSpec({
             )
         )
 
-        val validator = PipelineValidator(registry)
+        val validator = PipelineValidator(registry, mockPluginLoader)
         val result = validator.validate(pipeline) as ValidationResult.Success
 
         result.warnings.shouldContain("Stage 'stage': Recovery strategy FALLBACK has no fallbackAgents configured")
@@ -134,7 +161,7 @@ class PipelineValidatorTest : FunSpec({
             )
         )
 
-        val validator = PipelineValidator(registry)
+        val validator = PipelineValidator(registry, mockPluginLoader)
         val result = validator.validate(pipeline) as ValidationResult.Failure
 
         result.errors.shouldContain("Stage 'step2': Referenced stage 'nonexistent' not found in pipeline.")
@@ -153,7 +180,7 @@ class PipelineValidatorTest : FunSpec({
             )
         )
 
-        val validator = PipelineValidator(registry)
+        val validator = PipelineValidator(registry, mockPluginLoader)
         val result = validator.validate(pipeline)
 
         result.isSuccess shouldBe true
@@ -172,9 +199,35 @@ class PipelineValidatorTest : FunSpec({
             )
         )
 
-        val validator = PipelineValidator(registry)
+        val validator = PipelineValidator(registry, mockPluginLoader)
         val result = validator.validate(pipeline) as ValidationResult.Failure
 
         result.errors.shouldContain("Stage 'step2': Invalid property access in '\${stages.step1.foo}'. Only '.output' is supported.")
+    }
+
+    test("reports error for missing required parameter") {
+        val pipeline = Pipeline(
+            name = "missing-param",
+            stages = listOf(
+                PipelineStage(
+                    id = "stage",
+                    agent = AgentReference("claude")
+                )
+            )
+        )
+        // unregister the claude agent with the parameters
+        registry.unregisterAgent("claude")
+        registry.registerAgent(
+            AgentConfig(
+                name = "claude",
+                pluginClass = "com.cotor.data.plugin.ClaudePlugin",
+                parameters = mapOf("temperature" to "0.8")
+            )
+        )
+
+        val validator = PipelineValidator(registry, mockPluginLoader)
+        val result = validator.validate(pipeline) as ValidationResult.Failure
+
+        result.errors.shouldContain("Stage 'stage': Missing required parameter 'model' for agent 'claude'")
     }
 })
