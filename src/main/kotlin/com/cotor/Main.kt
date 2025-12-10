@@ -2,7 +2,7 @@ package com.cotor
 
 import com.cotor.di.initializeCotor
 import com.cotor.presentation.cli.*
-import com.cotor.presentation.web.stream.WebServer
+import com.cotor.presentation.web.WebServer
 import com.github.ajalt.clikt.core.subcommands
 import org.koin.core.context.stopKoin
 
@@ -17,7 +17,7 @@ fun main(args: Array<String>) {
         // Simple mode - just run pipeline directly
         if (args.isNotEmpty() && !args[0].startsWith("-")) {
             when (args[0]) {
-                "init", "list", "status", "version", "run", "validate", "test", "dash", "template", "resume", "checkpoint", "stats", "completion", "doctor", "web" -> {
+                "init", "list", "status", "version", "run", "validate", "test", "dash", "template", "resume", "checkpoint", "stats", "completion", "doctor", "web", "lint", "explain" -> {
                     // Use full CLI for these commands
                 }
                 else -> {
@@ -44,6 +44,8 @@ fun main(args: Array<String>) {
                 StatusCommand(),
                 ListCommand(),
                 WebCommand(),
+                LintCommand(),
+                ExplainCommand(),
                 VersionCommand(),
                 CompletionCommand()
             )
