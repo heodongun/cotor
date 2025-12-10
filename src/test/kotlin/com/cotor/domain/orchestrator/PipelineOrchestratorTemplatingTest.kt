@@ -56,7 +56,7 @@ class PipelineOrchestratorTemplatingTest : StringSpec({
         )
 
         coEvery { agentRegistry.getAgent("echo-agent") } returns AgentConfig("echo-agent", "com.cotor.agents.EchoAgent")
-        coEvery { templateValidator.validate(any(), any()) } returns com.cotor.model.ValidationResult.Success
+        coEvery { templateValidator.validate(any()) } returns com.cotor.model.ValidationResult.Success
 
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } coAnswers {
             val input = secondArg<String?>()

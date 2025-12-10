@@ -1,10 +1,12 @@
 package com.cotor.validation
 
 import com.cotor.context.TemplateEngine
-import com.cotor.model.*
+import com.cotor.model.AgentReference
+import com.cotor.model.Pipeline
+import com.cotor.model.PipelineStage
+import com.cotor.model.ValidationResult
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.collections.shouldContainExactly
-import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 
 class TemplateValidatorTest : StringSpec({
@@ -17,11 +19,9 @@ class TemplateValidatorTest : StringSpec({
                 PipelineStage(id = "step2", agent = AgentReference("agent2"), input = "\${stages.step1.output}")
             )
         )
-        val context = PipelineContext("test", "test", 2)
-        context.addStageResult("step1", AgentResult("agent1", true, "output", null, 0, emptyMap()))
 
         val validator = PipelineTemplateValidator(TemplateEngine())
-        val result = validator.validate(pipeline, context)
+        val result = validator.validate(pipeline)
 
         result.shouldBeInstanceOf<ValidationResult.Success>()
     }
@@ -34,13 +34,11 @@ class TemplateValidatorTest : StringSpec({
                 PipelineStage(id = "step2", agent = AgentReference("agent2"), input = "\${stages.nonexistent.output}")
             )
         )
-        val context = PipelineContext("test", "test", 2)
-        context.addStageResult("step1", AgentResult("agent1", true, "output", null, 0, emptyMap()))
 
         val validator = PipelineTemplateValidator(TemplateEngine())
-        val result = validator.validate(pipeline, context)
+        val result = validator.validate(pipeline)
 
         result.shouldBeInstanceOf<ValidationResult.Failure>()
-        (result as ValidationResult.Failure).errors shouldContainExactly listOf("[stage 'nonexistent' not found or not yet executed in expression: \${stages.nonexistent.output}]")
+        (result as ValidationResult.Failure).errors shouldContainExactly listOf("Invalid stage reference in stage 'step2': Stage 'nonexistent' not found in pipeline.")
     }
 })
