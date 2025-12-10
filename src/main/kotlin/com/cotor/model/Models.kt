@@ -447,3 +447,15 @@ data class AgentMetrics(
     val successRate: Double
         get() = if (totalExecutions > 0) successCount.toDouble() / totalExecutions * 100 else 0.0
 }
+
+/**
+ * Categories for pipeline failures
+ */
+@Serializable
+enum class FailureCategory {
+    CONFIG_ERROR,
+    VALIDATION_FAILED,
+    AGENT_ERROR,
+    TIMEOUT,
+    UNKNOWN
+}

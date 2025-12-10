@@ -155,6 +155,10 @@ class RecoveryExecutor(
             stageId = stage.id
         )
         val result = agentExecutor.executeAgent(agentConfig, input, metadata)
+        if (!result.isSuccess && result.metadata["failureCategory"] == null) {
+            val updatedMetadata = result.metadata + ("failureCategory" to FailureCategory.AGENT_ERROR.name)
+            return applyValidation(stage, result.copy(metadata = updatedMetadata))
+        }
         return applyValidation(stage, result)
     }
 
@@ -174,7 +178,10 @@ class RecoveryExecutor(
             result.copy(
                 isSuccess = false,
                 error = "Validation failed: $violationSummary",
-                metadata = metadata + mapOf("validationViolations" to violationSummary)
+                metadata = metadata + mapOf(
+                    "validationViolations" to violationSummary,
+                    "failureCategory" to FailureCategory.VALIDATION_FAILED.name
+                )
             )
         }
     }
