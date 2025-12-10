@@ -6,6 +6,7 @@ import com.cotor.error.UserFriendlyError
 import com.cotor.presentation.DiagramGenerator
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
@@ -25,18 +26,25 @@ class ExplainCommand : CliktCommand(
         .path(mustExist = false)
         .default(Path("cotor.yaml"))
 
-    val pipelineName by argument("pipeline", help = "Name of pipeline to explain")
+    private val pipelineName by argument("pipeline", help = "Name of pipeline to explain").optional()
 
     override fun run() = runBlocking {
         try {
+            if (pipelineName == null) {
+                echo("Usage: cotor explain <pipeline> [--config <path>]")
+                echo()
+                echo("Run 'cotor explain --help' for more information.")
+                return@runBlocking
+            }
+
             if (!configPath.exists()) {
                 throw ErrorMessages.configNotFound(configPath.toString())
             }
 
             val config = configRepository.loadConfig(configPath)
-            val pipeline = config.pipelines.find { it.name == pipelineName }
+            val pipeline = config.pipelines.find { it.name == pipelineName!! }
                 ?: throw ErrorMessages.pipelineNotFound(
-                    pipelineName,
+                    pipelineName!!,
                     config.pipelines.map { it.name }
                 )
 

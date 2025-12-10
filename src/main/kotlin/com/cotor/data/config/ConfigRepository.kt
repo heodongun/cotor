@@ -50,7 +50,7 @@ class FileConfigRepository(
         }
         val content = path.readText()
         return when (path.extension.lowercase()) {
-            "yaml", "yml" -> yamlParser.parse(content)
+            "yaml", "yml" -> yamlParser.parse(content, path.toString())
             "json" -> jsonParser.parse(content)
             else -> throw ConfigurationException("Unsupported config format: ${path.extension}")
         }

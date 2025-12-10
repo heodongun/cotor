@@ -200,11 +200,11 @@ class StatsCommand : CliktCommand(
 
         // Failure Analysis
         if (summary.failureCategoryCounts.isNotEmpty()) {
-            terminal.println(bold("Failure Analysis:"))
+            echo(bold("Failure Analysis:"))
             summary.failureCategoryCounts.forEach { (category, count) ->
-                terminal.println("  ${category.name.padEnd(20)}: ${red(count.toString())}")
+                echo("  ${category.name.padEnd(20)}: ${red(count.toString())}")
             }
-            terminal.println()
+            echo()
         }
 
         // Recommendations
