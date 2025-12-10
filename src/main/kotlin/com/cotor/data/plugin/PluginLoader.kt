@@ -12,6 +12,12 @@ interface AgentPlugin {
     val metadata: com.cotor.model.AgentMetadata
 
     /**
+     * The schema for the parameters that this agent accepts.
+     */
+    val parameterSchema: com.cotor.model.AgentParameterSchema
+        get() = com.cotor.model.AgentParameterSchema(emptyList())
+
+    /**
      * Execute the agent with given context
      * @param context Execution context
      * @param processManager Process manager for executing external processes

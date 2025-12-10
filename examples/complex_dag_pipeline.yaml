@@ -1,0 +1,61 @@
+version: "1.0"
+agents:
+  - name: code-generator
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+  - name: test-runner
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+  - name: code-reviewer
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+  - name: deployer
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+  - name: notifier
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+
+pipelines:
+  - name: complex-dag-pipeline
+    description: "A complex DAG pipeline for demonstration"
+    executionMode: DAG
+    stages:
+      - id: generate-code
+        agent:
+          name: code-generator
+        recovery:
+          maxRetries: 2
+      - id: run-unit-tests
+        agent:
+          name: test-runner
+        dependencies:
+          - generate-code
+      - id: run-integration-tests
+        agent:
+          name: test-runner
+        dependencies:
+          - generate-code
+      - id: review-code
+        agent:
+          name: code-reviewer
+        dependencies:
+          - generate-code
+        condition:
+          expression: "true"
+          onTrue:
+            action: CONTINUE
+          onFalse:
+            action: ABORT
+      - id: deploy-staging
+        agent:
+          name: deployer
+        dependencies:
+          - run-unit-tests
+          - run-integration-tests
+          - review-code
+      - id: deploy-production
+        agent:
+          name: deployer
+        dependencies:
+          - deploy-staging
+      - id: notify-slack
+        agent:
+          name: notifier
+        dependencies:
+          - deploy-production
