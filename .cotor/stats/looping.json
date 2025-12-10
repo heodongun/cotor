@@ -67,8 +67,8 @@
         },
         {
             "pipelineName": "looping",
-            "timestamp": "2025-12-03T02:50:52.428327928Z",
-            "totalDuration": 16,
+            "timestamp": "2025-12-03T02:36:02.832866718Z",
+            "totalDuration": 10,
             "successCount": 7,
             "failureCount": 0,
             "totalAgents": 7,
@@ -96,6 +96,6 @@
     ],
     "totalExecutions": 9,
     "totalSuccesses": 63,
-    "totalDuration": 141,
-    "lastExecuted": "2025-12-03T02:50:52.428327928Z"
+    "totalDuration": 135,
+    "lastExecuted": "2025-12-03T02:36:02.832866718Z"
 }

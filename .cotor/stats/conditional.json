@@ -67,8 +67,8 @@
         },
         {
             "pipelineName": "conditional",
-            "timestamp": "2025-12-03T02:50:52.353195658Z",
-            "totalDuration": 61,
+            "timestamp": "2025-12-03T02:36:02.678191038Z",
+            "totalDuration": 49,
             "successCount": 4,
             "failureCount": 0,
             "totalAgents": 4,
@@ -102,6 +102,6 @@
     ],
     "totalExecutions": 9,
     "totalSuccesses": 36,
-    "totalDuration": 546,
-    "lastExecuted": "2025-12-03T02:50:52.353195658Z"
+    "totalDuration": 534,
+    "lastExecuted": "2025-12-03T02:36:02.678191038Z"
 }
