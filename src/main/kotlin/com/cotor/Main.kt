@@ -1,6 +1,7 @@
 package com.cotor
 
 import com.cotor.di.initializeCotor
+import com.cotor.error.UserFriendlyError
 import com.cotor.presentation.cli.*
 import com.cotor.presentation.web.WebServer
 import com.github.ajalt.clikt.core.subcommands
@@ -50,6 +51,9 @@ fun main(args: Array<String>) {
                 CompletionCommand()
             )
             .main(args)
+    } catch (e: UserFriendlyError) {
+        // UserFriendlyError는 이미 명령어에서 출력했으므로 조용히 종료
+        System.exit(1)
     } catch (e: Exception) {
         // Enhanced error handling with suggestions
         val errorInfo = com.cotor.error.ErrorHelper.getErrorMessage(e)
