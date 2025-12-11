@@ -439,7 +439,7 @@ class CompletionCommand : CliktCommand(
     }
 
     private val commonSubcommands = listOf(
-        "init", "list", "run", "validate", "template", "dash", "web", "resume", "checkpoint", "stats", "doctor", "version", "completion"
+        "init", "list", "run", "validate", "template", "dash", "web", "resume", "checkpoint", "stats", "doctor", "status", "lint", "explain", "version", "completion"
     )
 
     private val bashCompletion: String
