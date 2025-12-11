@@ -79,7 +79,13 @@ class CotorCli : CliktCommand(
 /**
  * Initialize Cotor with default configuration
  */
-class InitCommand : CotorCommand() {
+class InitCommand : CliktCommand(
+    name = "init",
+    help = "Initialize Cotor with default configuration"
+), KoinComponent {
+    val configPath by option("--config", "-c", help = "Path to configuration file")
+        .path(mustExist = false)
+        .default(Path("cotor.yaml"))
     private val interactive by option("--interactive", "-i", help = "대화형으로 기본 파이프라인 설정").flag()
     private val terminal = Terminal()
 
@@ -288,7 +294,10 @@ class RunCommand : CotorCommand() {
 /**
  * Show status of running and recent pipelines
  */
-class StatusCommand : CotorCommand() {
+class StatusCommand : CliktCommand(
+    name = "status",
+    help = "Show status of running and recent pipelines"
+), KoinComponent {
     private val terminal = Terminal()
     private val runTracker: PipelineRunTracker by inject()
 
@@ -361,9 +370,16 @@ class StatusCommand : CotorCommand() {
 /**
  * List registered agents
  */
-class ListCommand : CotorCommand() {
+class ListCommand : CliktCommand(
+    name = "list",
+    help = "List registered agents and pipelines"
+), KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
+
+    private val configPath by option("--config", "-c", help = "Path to configuration file")
+        .path(mustExist = false)
+        .default(Path("cotor.yaml"))
 
     override fun run() = runBlocking {
         try {
