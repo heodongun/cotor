@@ -9,6 +9,7 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.path
 import com.cotor.data.config.ConfigRepository
+import com.cotor.data.config.CotorProperties
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
 import com.cotor.presentation.formatter.OutputFormatter
@@ -412,7 +413,7 @@ class VersionCommand : CliktCommand(
     help = "Show version information"
 ) {
     override fun run() {
-        echo("Cotor version 1.0.0")
+        echo("Cotor version ${CotorProperties.version}")
         echo("Kotlin ${KotlinVersion.CURRENT}")
         echo("JVM ${System.getProperty("java.version")}")
     }
