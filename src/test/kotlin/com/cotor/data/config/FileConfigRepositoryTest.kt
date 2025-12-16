@@ -121,6 +121,30 @@ class FileConfigRepositoryTest : FunSpec({
         loadedConfig.security.allowedExecutables.size shouldBe 0
     }
 
+    test("can override List<Path> with empty list") {
+        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val baseDir = Files.createTempDirectory("config-empty-path-list")
+        val cotorDir = baseDir.resolve(".cotor").createDirectory()
+
+        val mainConfigPath = baseDir.resolve("cotor.yaml")
+        mainConfigPath.writeText("""
+            security:
+              allowedDirectories:
+                - "/tmp"
+                - "/var/log"
+        """.trimIndent())
+
+        val overrideConfigPath = cotorDir.resolve("restrict.yaml")
+        overrideConfigPath.writeText("""
+            security:
+              allowedDirectories: []
+        """.trimIndent())
+
+        val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
+
+        loadedConfig.security.allowedDirectories.size shouldBe 0
+    }
+
     test("throws friendly error when config file is missing") {
         val repo = FileConfigRepository(yamlParser, jsonParser)
         val missing = Files.createTempDirectory("config-missing").resolve("nope.yaml")
