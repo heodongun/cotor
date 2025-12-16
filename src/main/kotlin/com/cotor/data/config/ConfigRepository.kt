@@ -73,8 +73,17 @@ class FileConfigRepository(
             pipelines = mergedPipelines,
             security = base.security.copy(
                 useWhitelist = if (override.security.useWhitelist != defaultConfig.security.useWhitelist) override.security.useWhitelist else base.security.useWhitelist,
-                allowedExecutables = if (override.security.allowedExecutables != defaultConfig.security.allowedExecutables) override.security.allowedExecutables else base.security.allowedExecutables,
-                allowedDirectories = if (override.security.allowedDirectories != defaultConfig.security.allowedDirectories) override.security.allowedDirectories else base.security.allowedDirectories,
+                // For collection types: treat empty override as explicit empty when base has items
+                allowedExecutables = mergeCollection(
+                    base.security.allowedExecutables,
+                    override.security.allowedExecutables,
+                    defaultConfig.security.allowedExecutables
+                ),
+                allowedDirectories = mergeCollection(
+                    base.security.allowedDirectories,
+                    override.security.allowedDirectories,
+                    defaultConfig.security.allowedDirectories
+                ),
                 maxCommandLength = if (override.security.maxCommandLength != defaultConfig.security.maxCommandLength) override.security.maxCommandLength else base.security.maxCommandLength,
                 enablePathValidation = if (override.security.enablePathValidation != defaultConfig.security.enablePathValidation) override.security.enablePathValidation else base.security.enablePathValidation
             ),
@@ -91,6 +100,20 @@ class FileConfigRepository(
                 memoryThresholdMB = if (override.performance.memoryThresholdMB != defaultConfig.performance.memoryThresholdMB) override.performance.memoryThresholdMB else base.performance.memoryThresholdMB
             )
         )
+    }
+
+    /**
+     * Merge collections with proper handling of explicit empty overrides.
+     * If override is empty but base has items, treat as explicit empty override.
+     * If override has items, use override.
+     * If both are empty (default), use base (which is also empty).
+     */
+    private fun <T, C : Collection<T>> mergeCollection(base: C, override: C, default: C): C {
+        return when {
+            override.isNotEmpty() -> override  // Override has items, use it
+            override.isEmpty() && base.isNotEmpty() -> override  // Explicit empty override
+            else -> base  // Both empty or override matches default
+        }
     }
 
     override suspend fun saveConfig(config: CotorConfig, path: Path) = withContext(Dispatchers.IO) {
