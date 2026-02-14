@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.validation.LinterTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-02-14T13:08:12" hostname="MacBook-Pro.local" time="0.007">
+  <properties/>
+  <testcase name="lint should return no errors or warnings for a valid config" classname="com.cotor.validation.LinterTest" time="0.004"/>
+  <testcase name="lint should detect duplicate agent names" classname="com.cotor.validation.LinterTest" time="0.001"/>
+  <testcase name="lint should detect unused agents" classname="com.cotor.validation.LinterTest" time="0.0"/>
+  <testcase name="lint should detect duplicate stage IDs in a pipeline" classname="com.cotor.validation.LinterTest" time="0.0"/>
+  <testcase name="lint should detect undefined agent references in a pipeline" classname="com.cotor.validation.LinterTest" time="0.001"/>
+  <testcase name="lint should handle multiple errors and warnings correctly" classname="com.cotor.validation.LinterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

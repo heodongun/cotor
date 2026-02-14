@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.analysis.DefaultResultAnalyzerTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-02-14T13:06:53" hostname="MacBook-Pro.local" time="0.025">
+  <properties/>
+  <testcase name="detects consensus and best agent using validation score" classname="com.cotor.analysis.DefaultResultAnalyzerTest" time="0.017"/>
+  <testcase name="flags disagreements and produces recommendations" classname="com.cotor.analysis.DefaultResultAnalyzerTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

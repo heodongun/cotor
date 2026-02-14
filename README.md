@@ -868,6 +868,7 @@ cotor web --open
 | `checkpoint` | Checkpoint management | `cotor checkpoint` |
 | `resume` | Resume from checkpoint | `cotor resume <id>` |
 | `dash` | TUI dashboard | `cotor dash` |
+| `interactive` | Chat with the master agent (TUI) | `cotor interactive` |
 | `web` | Web interface | `cotor web` |
 | `completion` | Shell completion | `cotor completion zsh` |
 

@@ -108,6 +108,7 @@ cotor doctor
 | `checkpoint` | 체크포인트 관리 | `cotor checkpoint` |
 | `resume` | 체크포인트에서 재개 | `cotor resume <id>` |
 | `dash` | TUI 대시보드 | `cotor dash` |
+| `interactive` | 마스터 에이전트 대화형 채팅 (TUI) | `cotor interactive` |
 | `web` | 웹 인터페이스 | `cotor web` |
 | `completion` | 쉘 자동완성 | `cotor completion zsh` |
 

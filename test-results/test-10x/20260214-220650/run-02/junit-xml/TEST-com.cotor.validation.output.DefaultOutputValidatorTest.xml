@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.validation.output.DefaultOutputValidatorTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-02-14T13:07:06" hostname="MacBook-Pro.local" time="0.002">
+  <properties/>
+  <testcase name="detects missing required file" classname="com.cotor.validation.output.DefaultOutputValidatorTest" time="0.001"/>
+  <testcase name="validates keyword presence" classname="com.cotor.validation.output.DefaultOutputValidatorTest" time="0.001"/>
+  <testcase name="fails when keyword missing" classname="com.cotor.validation.output.DefaultOutputValidatorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

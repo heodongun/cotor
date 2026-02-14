@@ -1,0 +1,35 @@
+%$è22:07:36.084 [pool-1-thread-1 @coroutine#63] INFO  ConditionalTest - Starting pipeline: conditional (ID: 31ab36dc-50ec-46cf-8bdc-82a0a180b483)
+%$™22:07:36.129 [pool-1-thread-1 @coroutine#64] INFO  ConditionalTest - Checkpoint saved: /Users/Projects/cotor/.cotor/checkpoints/31ab36dc-50ec-46cf-8bdc-82a0a180b483.json
+%&ã22:07:36.137 [pool-1-thread-1 @coroutine#67] INFO  ConditionalTest - Starting pipeline: looping (ID: 07d56684-82a0-4839-ab80-4d7bb18912b2)
+%&™22:07:36.151 [pool-1-thread-1 @coroutine#68] INFO  ConditionalTest - Checkpoint saved: /Users/Projects/cotor/.cotor/checkpoints/07d56684-82a0-4839-ab80-4d7bb18912b2.json
+*)ê22:07:36.411 [pool-1-thread-1 @coroutine#79] INFO  TimeoutTest - Starting pipeline: timeout-pipeline (ID: 3594d3e6-df9e-494a-8209-f10a64d6f3c8)
+*)c22:07:36.919 [pool-1-thread-1 @coroutine#81] ERROR TimeoutTest - Pipeline failed: timeout-pipeline
+*)Vcom.cotor.model.PipelineException: Pipeline 'timeout-pipeline' timed out after 500 ms
+*)Ü	at com.cotor.domain.orchestrator.DefaultPipelineOrchestrator$executePipeline$2$deferred$1.invokeSuspend(PipelineOrchestrator.kt:152)
+*)[	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+*)I	at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:28)
+*)N	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:100)
+*)[	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
+*)@	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:99)
+*)^	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+*)^	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+*)4	at java.base/java.lang.Thread.run(Thread.java:840)
+*+í22:07:36.926 [pool-1-thread-1 @coroutine#82] INFO  TimeoutTest - Starting pipeline: stage-timeout-fail (ID: a128eb42-e385-435b-b69f-63b0210091bb)
+*+g22:07:37.433 [pool-1-thread-1 @coroutine#84] WARN  TimeoutTest - Stage 'stage1' timed out after 500 ms
+*+e22:07:37.434 [pool-1-thread-1 @coroutine#84] ERROR TimeoutTest - Pipeline failed: stage-timeout-fail
+*+Icom.cotor.model.PipelineException: Stage 'stage1' timed out after 500 ms
+*+d	at com.cotor.domain.orchestrator.DefaultPipelineOrchestrator.runStage(PipelineOrchestrator.kt:449)
+*+j	at com.cotor.domain.orchestrator.DefaultPipelineOrchestrator.access$runStage(PipelineOrchestrator.kt:65)
+*+p	at com.cotor.domain.orchestrator.DefaultPipelineOrchestrator$runStage$1.invokeSuspend(PipelineOrchestrator.kt)
+*+[	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+*+I	at kotlinx.coroutines.internal.ScopeCoroutine.afterResume(Scopes.kt:28)
+*+N	at kotlinx.coroutines.AbstractCoroutine.resumeWith(AbstractCoroutine.kt:100)
+*+[	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:46)
+*+@	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:99)
+*+^	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+*+^	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+*+4	at java.base/java.lang.Thread.run(Thread.java:840)
+*,ñ22:07:37.436 [pool-1-thread-1 @coroutine#85] INFO  TimeoutTest - Starting pipeline: stage-timeout-continue (ID: 7ef1bfd5-27b7-4a45-a78b-c1377ba389d0)
+*,g22:07:37.939 [pool-1-thread-1 @coroutine#87] WARN  TimeoutTest - Stage 'stage1' timed out after 500 ms
+*,¶22:07:37.964 [pool-1-thread-1 @coroutine#87] INFO  TimeoutTest - Checkpoint saved: /Users/Projects/cotor/.cotor/checkpoints/7ef1bfd5-27b7-4a45-a78b-c1377ba389d0.json
+10z22:07:38.218 [DefaultDispatcher-worker-3 @coroutine#93] INFO  CotorTest - Loaded plugin: com.cotor.data.plugin.EchoPlugin
