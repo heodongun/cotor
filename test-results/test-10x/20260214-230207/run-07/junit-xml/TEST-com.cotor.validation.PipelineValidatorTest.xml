@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.validation.PipelineValidatorTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-02-14T14:03:07" hostname="MacBook-Pro.local" time="0.013">
+  <properties/>
+  <testcase name="valid DAG pipeline does not report circular dependency" classname="com.cotor.validation.PipelineValidatorTest" time="0.002"/>
+  <testcase name="detects circular dependencies" classname="com.cotor.validation.PipelineValidatorTest" time="0.001"/>
+  <testcase name="dag duration estimate uses critical path" classname="com.cotor.validation.PipelineValidatorTest" time="0.001"/>
+  <testcase name="reports error when fallback agent is missing" classname="com.cotor.validation.PipelineValidatorTest" time="0.001"/>
+  <testcase name="warns when fallback strategy has no fallback agents" classname="com.cotor.validation.PipelineValidatorTest" time="0.001"/>
+  <testcase name="reports error for invalid stage reference in input" classname="com.cotor.validation.PipelineValidatorTest" time="0.001"/>
+  <testcase name="accepts valid stage reference in input" classname="com.cotor.validation.PipelineValidatorTest" time="0.0"/>
+  <testcase name="reports error for invalid property access in input" classname="com.cotor.validation.PipelineValidatorTest" time="0.001"/>
+  <testcase name="reports error for missing required parameter" classname="com.cotor.validation.PipelineValidatorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

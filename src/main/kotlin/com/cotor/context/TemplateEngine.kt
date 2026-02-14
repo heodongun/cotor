@@ -10,6 +10,8 @@ class TemplateEngine {
     // Legacy patterns
     private val stageOutputPattern =
         Regex("\\{\\{\\s*context\\.stageResults\\.([^.\\s}]+)\\.output\\s*\\}\\}")
+    private val stageOutputShorthandPattern =
+        Regex("\\{\\{\\s*([^.\\s}]+)\\.output\\s*\\}\\}")
     private val sharedStatePattern =
         Regex("\\{\\{\\s*context\\.sharedState\\.([^.\\s}]+)\\s*\\}\\}")
     private val metadataPattern =
@@ -30,6 +32,12 @@ class TemplateEngine {
 
         // Legacy support
         result = stageOutputPattern.replace(result) { matchResult ->
+            val stageId = matchResult.groupValues[1]
+            context.getStageOutput(stageId) ?: "[stage:$stageId output not found]"
+        }
+
+        // Shorthand support: {{stageId.output}}
+        result = stageOutputShorthandPattern.replace(result) { matchResult ->
             val stageId = matchResult.groupValues[1]
             context.getStageOutput(stageId) ?: "[stage:$stageId output not found]"
         }
@@ -107,13 +115,24 @@ class TemplateEngine {
         val property = parts.getOrNull(2)
             ?: return handleError("[missing property for stage in expression: $original]")
 
-        if (context.stageResults[stageId] == null) {
+        val stageResult = context.stageResults[stageId]
+        if (stageResult == null) {
             return handleError("[stage '$stageId' not found or not yet executed in expression: $original]")
         }
 
         return when (property) {
-            "output" -> context.getStageOutput(stageId)
+            "output" -> stageResult.output
                 ?: handleError("[stage '$stageId' output not found for expression: $original]")
+            "error" -> stageResult.error
+                ?: handleError("[stage '$stageId' error not found for expression: $original]")
+            "success" -> stageResult.isSuccess.toString()
+            "duration" -> stageResult.duration.toString()
+            "metadata" -> {
+                val key = parts.drop(3).takeIf { it.isNotEmpty() }?.joinToString(".")
+                    ?: return stageResult.metadata.toString()
+                stageResult.metadata[key]
+                    ?: handleError("[stage '$stageId' metadata '$key' not found for expression: $original]")
+            }
             else -> handleError("[invalid property '$property' for stage in expression: $original]")
         }
     }

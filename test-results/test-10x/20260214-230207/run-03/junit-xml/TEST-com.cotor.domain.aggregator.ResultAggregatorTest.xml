@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.domain.aggregator.ResultAggregatorTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-02-14T14:02:28" hostname="MacBook-Pro.local" time="0.001">
+  <properties/>
+  <testcase name="includes analysis summary in aggregated result" classname="com.cotor.domain.aggregator.ResultAggregatorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

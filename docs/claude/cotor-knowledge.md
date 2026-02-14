@@ -329,6 +329,18 @@ security:
 - **명령어**: `opencode generate`
 - **상태**: 🔄 테스트 필요
 
+### OpenAIPlugin
+- **클래스**: `com.cotor.data.plugin.OpenAIPlugin`
+- **연동**: OpenAI HTTP API (Chat Completions)
+- **상태**: 🔄 API 키 필요 (`OPENAI_API_KEY`)
+- **특징**: 외부 CLI 설치 없이 사용 가능 (네트워크 필요)
+
+### CommandPlugin (Generic Sub-Agent)
+- **클래스**: `com.cotor.data.plugin.CommandPlugin`
+- **연동**: 임의 CLI 실행 (argvJson으로 설정)
+- **상태**: ✅ 로컬 커맨드 기반 서브 에이전트 확장
+- **특징**: Kotlin 코드 없이 서브 에이전트를 무제한 추가 가능
+
 ## 템플릿
 
 ### compare-solutions

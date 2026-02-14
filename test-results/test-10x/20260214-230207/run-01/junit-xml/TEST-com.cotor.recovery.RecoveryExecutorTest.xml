@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.recovery.RecoveryExecutorTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-02-14T14:02:15" hostname="MacBook-Pro.local" time="0.845">
+  <properties/>
+  <testcase name="fallback agent runs when primary fails" classname="com.cotor.recovery.RecoveryExecutorTest" time="0.005"/>
+  <testcase name="validation failure marks result unsuccessful" classname="com.cotor.recovery.RecoveryExecutorTest" time="0.004"/>
+  <testcase name="fixed backoff strategy should use a constant delay" classname="com.cotor.recovery.RecoveryExecutorTest" time="0.215"/>
+  <testcase name="exponential backoff strategy should use an increasing delay" classname="com.cotor.recovery.RecoveryExecutorTest" time="0.614"/>
+  <testcase name="retryOn should prevent retries for non-matching errors" classname="com.cotor.recovery.RecoveryExecutorTest" time="0.003"/>
+  <testcase name="validation failure retries with a self-repair prompt that includes violations and prior output" classname="com.cotor.recovery.RecoveryExecutorTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

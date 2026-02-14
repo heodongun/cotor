@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.data.config.FileConfigRepositoryTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-02-14T14:02:46" hostname="MacBook-Pro.local" time="0.079">
+  <properties/>
+  <testcase name="merges configs from .cotor directory" classname="com.cotor.data.config.FileConfigRepositoryTest" time="0.049"/>
+  <testcase name="deep merges nested config objects" classname="com.cotor.data.config.FileConfigRepositoryTest" time="0.003"/>
+  <testcase name="can override with empty list" classname="com.cotor.data.config.FileConfigRepositoryTest" time="0.003"/>
+  <testcase name="can override List&lt;Path&gt; with empty list" classname="com.cotor.data.config.FileConfigRepositoryTest" time="0.002"/>
+  <testcase name="throws friendly error when config file is missing" classname="com.cotor.data.config.FileConfigRepositoryTest" time="0.005"/>
+  <testcase name="creates parent directories when saving configuration" classname="com.cotor.data.config.FileConfigRepositoryTest" time="0.016"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

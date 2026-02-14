@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.monitoring.PipelineRunTrackerTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-02-14T14:03:14" hostname="MacBook-Pro.local" time="0.007">
+  <properties/>
+  <testcase name="tracks running and completed pipelines" classname="com.cotor.monitoring.PipelineRunTrackerTest" time="0.005"/>
+  <testcase name="captures failure reason when pipeline fails before completion" classname="com.cotor.monitoring.PipelineRunTrackerTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

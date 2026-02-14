@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.presentation.cli.InteractiveCommandTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-02-14T14:02:50" hostname="MacBook-Pro.local" time="0.218">
+  <properties/>
+  <testcase name="interactive --prompt (single) runs agent and writes transcript" classname="com.cotor.presentation.cli.InteractiveCommandTest" time="0.205"/>
+  <testcase name="interactive --prompt (compare) returns aggregated output for multiple agents" classname="com.cotor.presentation.cli.InteractiveCommandTest" time="0.013"/>
+  <system-out><![CDATA[23:02:50.422 [DefaultDispatcher-worker-1 @coroutine#93] INFO  CotorTest - Loaded plugin: com.cotor.data.plugin.EchoPlugin
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
