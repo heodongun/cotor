@@ -149,9 +149,9 @@ performance:
         terminal.println("🧭 대화형 설정을 시작합니다. 기본값은 Enter 로 유지하세요.")
 
         val agentType = prompt(
-            label = "에이전트 종류 선택 (claude, gemini, openai, echo)",
-            default = "claude",
-            options = setOf("claude", "gemini", "openai", "echo")
+            label = "에이전트 종류 선택 (codex, claude, gemini, openai, echo)",
+            default = "codex",
+            options = setOf("codex", "claude", "gemini", "openai", "echo")
         )
         val pipelineName = prompt("파이프라인 이름", "my-pipeline")
         val description = prompt("파이프라인 설명", "An interactive-generated pipeline")
@@ -163,6 +163,7 @@ performance:
         val promptText = prompt("첫 단계 프롬프트", "Hello, Cotor!")
 
         val (agentName, pluginClass) = when (agentType.lowercase()) {
+            "codex" -> "codex" to "com.cotor.data.plugin.CodexPlugin"
             "gemini" -> "gemini" to "com.cotor.data.plugin.GeminiPlugin"
             "openai" -> "openai" to "com.cotor.data.plugin.OpenAIPlugin"
             "echo" -> "echo-agent" to "com.cotor.data.plugin.EchoPlugin"

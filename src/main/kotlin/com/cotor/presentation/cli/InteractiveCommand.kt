@@ -22,6 +22,9 @@ import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -235,6 +238,39 @@ class InteractiveCommand : CliktCommand(
         }
     }
 
+    private suspend fun runTurnWithSpinner(
+        session: ChatSession,
+        chatMode: ChatMode,
+        activeAgent: AgentConfig?,
+        selectedAgents: List<AgentConfig>,
+        userInput: String,
+        verbose: Boolean
+    ): String = coroutineScope {
+        val spinner = launch {
+            val frames = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+            var i = 0
+            while (isActive) {
+                terminal.print("\r${dim("thinking") } ${frames[i % frames.size]}")
+                i++
+                delay(90)
+            }
+        }
+
+        try {
+            runTurn(
+                session = session,
+                chatMode = chatMode,
+                activeAgent = activeAgent,
+                selectedAgents = selectedAgents,
+                userInput = userInput,
+                verbose = verbose
+            )
+        } finally {
+            spinner.cancel()
+            terminal.print("\r\u001B[2K")
+        }
+    }
+
     private suspend fun runTurn(
         session: ChatSession,
         chatMode: ChatMode,
@@ -347,17 +383,18 @@ class InteractiveCommand : CliktCommand(
                         activeAgent = if (chatMode == ChatMode.SINGLE) (activeAgent ?: selectedAgents.firstOrNull()) else null
                         terminal.println(dim("Mode set to $chatMode"))
                     }
-                    cmd.startsWith("use ", true) -> {
-                        val name = cmd.substringAfter("use ").trim()
+                    cmd.startsWith("use ", true) || cmd.startsWith("model ", true) -> {
+                        val keyword = if (cmd.startsWith("model ", true)) "model " else "use "
+                        val name = cmd.substringAfter(keyword).trim()
                         val resolved = allAgents[name]
                             ?: run {
-                                terminal.println(red("Unknown agent: $name"))
+                                terminal.println(red("Unknown agent/model: $name"))
                                 null
                             }
                         if (resolved != null) {
                             activeAgent = resolved
                             chatMode = ChatMode.SINGLE
-                            terminal.println(dim("Using agent '${resolved.name}' (mode=SINGLE)"))
+                            terminal.println(dim("Using model '${resolved.name}' (mode=SINGLE)"))
                         }
                     }
                     cmd.startsWith("include ", true) -> {
@@ -381,7 +418,7 @@ class InteractiveCommand : CliktCommand(
 
             try {
                 // Only add to session after we have a response; this keeps history consistent when a turn errors.
-                val response = runTurn(
+                val response = runTurnWithSpinner(
                     session = session,
                     chatMode = chatMode,
                     activeAgent = activeAgent,
@@ -401,7 +438,7 @@ class InteractiveCommand : CliktCommand(
                 transcript.writeRawText(session)
             } catch (e: Exception) {
                 terminal.println(red("Error: ${e.message ?: "unknown error"}"))
-                terminal.println(dim("Hint: use ':agents' to list, ':mode auto|compare|single', ':use <name>'"))
+                terminal.println(dim("Hint: use ':agents' to list, ':mode auto|compare|single', ':model <name>'"))
             }
         }
 
@@ -420,6 +457,7 @@ class InteractiveCommand : CliktCommand(
         terminal.println("  :agents               List configured agents")
         terminal.println("  :mode auto|compare|single   Set chat mode")
         terminal.println("  :use <agent>           Use a single agent (sets mode=single)")
+        terminal.println("  :model <name>          Alias of :use (Codex/Gemini/Claude etc.)")
         terminal.println("  :include a,b,c         Set agent set for compare/auto")
         terminal.println("  :clear                Clear session history")
         terminal.println("  :save                 Save transcript now")
@@ -452,11 +490,20 @@ class InteractiveCommand : CliktCommand(
     private fun shouldRefreshStarterConfig(config: com.cotor.model.CotorConfig): Boolean {
         if (config.agents.size != 1) return false
         val only = config.agents.first()
-        if (!only.name.equals("example-agent", ignoreCase = true)) return false
-        if (!only.pluginClass.endsWith("EchoPlugin")) return false
 
-        // If we can run a real AI CLI, upgrade starter automatically.
-        return hasCommand("claude") || hasCommand("gemini") || hasCommand("codex") || !System.getenv("OPENAI_API_KEY").isNullOrBlank()
+        val canUseRealAi = hasCommand("codex") || hasCommand("gemini") || hasCommand("claude") || !System.getenv("OPENAI_API_KEY").isNullOrBlank()
+
+        // Upgrade legacy echo starter when real AI is available.
+        if (only.name.equals("example-agent", ignoreCase = true) && only.pluginClass.endsWith("EchoPlugin")) {
+            return canUseRealAi
+        }
+
+        // Prefer codex over starter-claude when codex exists.
+        if (only.tags.contains("starter") && only.pluginClass.endsWith("ClaudePlugin") && hasCommand("codex")) {
+            return true
+        }
+
+        return false
     }
 
     private fun writeStarterConfig(path: java.nio.file.Path) {
@@ -520,6 +567,16 @@ performance:
 
     private fun resolveStarterAgent(): StarterAgent {
         return when {
+            hasCommand("codex") -> StarterAgent(
+                name = "codex",
+                pluginClass = "com.cotor.data.plugin.CodexPlugin",
+                executable = "codex"
+            )
+            hasCommand("gemini") -> StarterAgent(
+                name = "gemini",
+                pluginClass = "com.cotor.data.plugin.GeminiPlugin",
+                executable = "gemini"
+            )
             hasCommand("claude") -> StarterAgent(
                 name = "claude",
                 pluginClass = "com.cotor.data.plugin.ClaudePlugin",
@@ -527,16 +584,6 @@ performance:
                 parameterBlock = """
 model: claude-3-5-sonnet-20241022
 """.trimIndent()
-            )
-            hasCommand("gemini") -> StarterAgent(
-                name = "gemini",
-                pluginClass = "com.cotor.data.plugin.GeminiPlugin",
-                executable = "gemini"
-            )
-            hasCommand("codex") -> StarterAgent(
-                name = "codex",
-                pluginClass = "com.cotor.data.plugin.CodexPlugin",
-                executable = "codex"
             )
             !System.getenv("OPENAI_API_KEY").isNullOrBlank() -> StarterAgent(
                 name = "openai",

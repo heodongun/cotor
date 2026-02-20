@@ -92,23 +92,34 @@ class CodexPlugin : AgentPlugin {
         processManager: ProcessManager
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
-        
-        // Execute Codex CLI with full auto-approval (bypass all approvals and sandbox)
-        // Codex doesn't use 'exec' subcommand, just pass the prompt directly
-        val command = listOf("codex", "--dangerously-bypass-approvals-and-sandbox", prompt)
-        
+
+        val outputFile = kotlin.io.path.createTempFile("cotor-codex-", ".txt")
+
+        // Execute Codex in non-interactive mode and write only the final assistant message to file.
+        val command = listOf(
+            "codex", "exec",
+            "--skip-git-repo-check",
+            "--full-auto",
+            "--color", "never",
+            "--output-last-message", outputFile.toString(),
+            prompt
+        )
+
         val result = processManager.executeProcess(
             command = command,
             input = null,
             environment = context.environment,
             timeout = context.timeout
         )
-        
+
         if (!result.isSuccess) {
-            throw AgentExecutionException("Codex execution failed: ${result.stderr}")
+            throw AgentExecutionException("Codex execution failed: ${result.stderr.ifBlank { result.stdout }}")
         }
-        
-        return result.stdout
+
+        val finalText = java.nio.file.Files.readString(outputFile).trim()
+        java.nio.file.Files.deleteIfExists(outputFile)
+
+        return if (finalText.isNotBlank()) finalText else result.stdout
     }
 
     override fun validateInput(input: String?): ValidationResult {

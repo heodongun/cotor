@@ -123,7 +123,8 @@ cotor --help       # 전체 명령어 도움말
 ### 기본 TUI 진입
 - 인자 없이 `cotor`를 실행하면 interactive TUI로 바로 진입합니다.
 - 현재 폴더에 `cotor.yaml`이 없으면 starter 설정 파일을 자동 생성합니다.
-  (claude/gemini/codex 설치 여부를 감지해 가능한 AI 에이전트를 우선 선택)
+  (기본 우선순위: codex → gemini → claude → openai → echo)
+- Interactive TUI에서 `:model <name>`으로 모델(에이전트) 전환 가능
 - `cotor tui`도 `cotor interactive`와 동일하게 동작합니다.
 
 ## 📦 예제
