@@ -241,7 +241,7 @@ pipelines:
             val input = readLine()?.trim()
             val result = if (input.isNullOrBlank()) default else input
 
-            if (options == null || options.contains(result.lowercase())) {
+            if (options == null || options.any { it.equals(result, ignoreCase = true) }) {
                 return result
             }
             terminal.println(red("   잘못된 입력입니다. ${options.joinToString(", ")} 중 하나를 선택하세요."))
