@@ -883,7 +883,8 @@ cotor --help       # Full command help
 ### Default TUI Entry
 - Running `cotor` with no arguments opens the interactive TUI directly.
 - If `cotor.yaml` does not exist, Cotor auto-creates a starter config in the current directory.
-  (It prefers detected AI CLIs like claude/gemini/codex over Echo.)
+  (Default preference: codex → gemini → claude → openai → echo.)
+- In Interactive TUI, use `:model <name>` to switch the active model/agent quickly.
 - `cotor tui` is also supported as an alias for `cotor interactive`.
 
 ## 📦 Examples
