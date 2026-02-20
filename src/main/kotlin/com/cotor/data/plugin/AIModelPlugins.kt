@@ -42,14 +42,15 @@ class ClaudePlugin : AgentPlugin {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
         val model = context.parameters.getOrDefault("model", "claude-2")
-        val temperature = context.parameters.getOrDefault("temperature", "0.7")
-        
+
         // Execute Claude CLI with auto-approval (skip all permission prompts)
+        // NOTE: `claude` CLI does not consistently support `--temperature` across versions,
+        // so we avoid passing it here for compatibility.
         val command = mutableListOf("claude", "--dangerously-skip-permissions", "--print", prompt)
-        command.add("--model")
-        command.add(model)
-        command.add("--temperature")
-        command.add(temperature)
+        if (model.isNotBlank()) {
+            command.add("--model")
+            command.add(model)
+        }
         
         val result = processManager.executeProcess(
             command = command,
