@@ -100,7 +100,17 @@ class InteractiveCommand : CliktCommand(
             terminal.println()
         }
 
-        val config = configRepository.loadConfig(configPath)
+        var config = configRepository.loadConfig(configPath)
+
+        if (shouldRefreshStarterConfig(config)) {
+            terminal.println(yellow("⚠ 현재 설정이 Echo starter(example-agent)라 대화형 답변이 제한됩니다."))
+            terminal.println(dim("   감지된 AI CLI 기반 starter로 자동 교체합니다..."))
+            writeStarterConfig(configPath)
+            config = configRepository.loadConfig(configPath)
+            terminal.println(green("✓ starter config를 AI 우선 설정으로 갱신했습니다."))
+            terminal.println()
+        }
+
         if (config.agents.isEmpty()) {
             terminal.println(red("No agents configured. Add agents to your config first (cotor init)."))
             return@runBlocking
@@ -438,6 +448,16 @@ class InteractiveCommand : CliktCommand(
         val executable: String,
         val parameterBlock: String = ""
     )
+
+    private fun shouldRefreshStarterConfig(config: com.cotor.model.CotorConfig): Boolean {
+        if (config.agents.size != 1) return false
+        val only = config.agents.first()
+        if (!only.name.equals("example-agent", ignoreCase = true)) return false
+        if (!only.pluginClass.endsWith("EchoPlugin")) return false
+
+        // If we can run a real AI CLI, upgrade starter automatically.
+        return hasCommand("claude") || hasCommand("gemini") || hasCommand("codex") || !System.getenv("OPENAI_API_KEY").isNullOrBlank()
+    }
 
     private fun writeStarterConfig(path: java.nio.file.Path) {
         val starter = resolveStarterAgent()
