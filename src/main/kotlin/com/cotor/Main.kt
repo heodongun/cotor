@@ -65,7 +65,8 @@ fun main(args: Array<String>) {
             )
             .main(args)
     } catch (e: UserFriendlyError) {
-        // UserFriendlyError는 이미 명령어에서 출력했으므로 조용히 종료
+        // User-friendly message should always be visible to users.
+        System.err.println(e.message ?: "❌ Unknown error")
         System.exit(1)
     } catch (e: Exception) {
         // Enhanced error handling with suggestions

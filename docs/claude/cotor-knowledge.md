@@ -17,6 +17,7 @@ Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기�
 
 ### cotor (기본 진입)
 인자 없이 실행하면 interactive TUI로 바로 진입합니다.
+`cotor.yaml`이 없으면 현재 디렉터리에 starter 설정을 자동 생성한 뒤 진입합니다.
 
 **구문:**
 ```bash

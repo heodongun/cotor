@@ -881,7 +881,8 @@ cotor --help       # Full command help
 ```
 
 ### Default TUI Entry
-- Running `cotor` with no arguments now opens the interactive TUI directly.
+- Running `cotor` with no arguments opens the interactive TUI directly.
+- If `cotor.yaml` does not exist, Cotor auto-creates a starter config in the current directory.
 - `cotor tui` is also supported as an alias for `cotor interactive`.
 
 ## 📦 Examples

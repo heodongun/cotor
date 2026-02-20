@@ -92,7 +92,11 @@ class InteractiveCommand : CliktCommand(
 
     override fun run() = runBlocking {
         if (!configPath.exists()) {
-            throw ErrorMessages.configNotFound(configPath.toString())
+            terminal.println(yellow("⚠ cotor.yaml not found at: $configPath"))
+            terminal.println(dim("Creating a starter config automatically for interactive mode..."))
+            writeStarterConfig(configPath)
+            terminal.println(green("✓ Created starter config: $configPath"))
+            terminal.println()
         }
 
         val config = configRepository.loadConfig(configPath)
@@ -425,5 +429,49 @@ class InteractiveCommand : CliktCommand(
     private fun defaultSaveDir(): java.nio.file.Path {
         val ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
         return Path(".cotor").resolve("interactive").resolve(ts)
+    }
+
+    private fun writeStarterConfig(path: java.nio.file.Path) {
+        val defaultConfig = """
+version: "1.0"
+
+agents:
+  - name: example-agent
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 30000
+    parameters:
+      key: value
+    tags:
+      - example
+
+pipelines:
+  - name: example-pipeline
+    description: "Example sequential pipeline"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: step1
+        agent:
+          name: example-agent
+        input: "test input"
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - python3
+    - node
+  allowedDirectories:
+    - /usr/local/bin
+
+logging:
+  level: INFO
+  file: cotor.log
+  format: json
+
+performance:
+  maxConcurrentAgents: 10
+  coroutinePoolSize: 8
+        """.trimIndent()
+
+        path.writeText(defaultConfig)
     }
 }

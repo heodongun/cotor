@@ -122,6 +122,7 @@ cotor --help       # 전체 명령어 도움말
 
 ### 기본 TUI 진입
 - 인자 없이 `cotor`를 실행하면 interactive TUI로 바로 진입합니다.
+- 현재 폴더에 `cotor.yaml`이 없으면 starter 설정 파일을 자동 생성합니다.
 - `cotor tui`도 `cotor interactive`와 동일하게 동작합니다.
 
 ## 📦 예제
