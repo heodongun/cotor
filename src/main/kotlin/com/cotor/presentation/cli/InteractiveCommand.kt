@@ -304,9 +304,15 @@ class InteractiveCommand : CliktCommand(
         terminal.println(dim("Transcript: ${transcript.ensureDir()}"))
         terminal.println()
 
+        var endedByEof = false
+
         while (true) {
             terminal.print(bold(cyan("you> ")) )
-            val line = readLine() ?: break
+            val line = readLine()
+            if (line == null) {
+                endedByEof = true
+                break
+            }
             val input = line.trimEnd()
             if (input.isBlank()) continue
 
@@ -386,6 +392,9 @@ class InteractiveCommand : CliktCommand(
 
         transcript.writeMarkdown(session, headerLines + "Mode: $chatMode")
         transcript.writeRawText(session)
+        if (endedByEof) {
+            terminal.println(dim("Input stream closed (EOF). Exiting interactive mode."))
+        }
         terminal.println(dim("Bye. Saved transcript to ${transcript.ensureDir()}"))
     }
 
