@@ -869,14 +869,20 @@ cotor web --open
 | `resume` | Resume from checkpoint | `cotor resume <id>` |
 | `dash` | TUI dashboard | `cotor dash` |
 | `interactive` | Chat with the master agent (TUI) | `cotor interactive` |
+| `tui` | Alias of `interactive` | `cotor tui` |
 | `web` | Web interface | `cotor web` |
 | `completion` | Shell completion | `cotor completion zsh` |
 
 ### Quick Help
 ```bash
+cotor              # Launch TUI (interactive mode)
 cotor --short      # 10-line cheat sheet
 cotor --help       # Full command help
 ```
+
+### Default TUI Entry
+- Running `cotor` with no arguments now opens the interactive TUI directly.
+- `cotor tui` is also supported as an alias for `cotor interactive`.
 
 ## 📦 Examples
 

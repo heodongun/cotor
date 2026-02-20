@@ -15,6 +15,19 @@ Cotor는 여러 AI 도구를 통합 인터페이스로 관리하는 Kotlin 기�
 
 ## 명령어 참조
 
+### cotor (기본 진입)
+인자 없이 실행하면 interactive TUI로 바로 진입합니다.
+
+**구문:**
+```bash
+cotor
+```
+
+**별칭:**
+```bash
+cotor tui    # cotor interactive와 동일
+```
+
 ### cotor generate
 목표 설명에서 파이프라인을 자동 생성합니다.
 
