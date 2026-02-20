@@ -25,6 +25,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.io.path.Path
@@ -99,7 +100,17 @@ class InteractiveCommand : CliktCommand(
             terminal.println()
         }
 
-        val config = configRepository.loadConfig(configPath)
+        var config = configRepository.loadConfig(configPath)
+
+        if (shouldRefreshStarterConfig(config)) {
+            terminal.println(yellow("⚠ 현재 설정이 Echo starter(example-agent)라 대화형 답변이 제한됩니다."))
+            terminal.println(dim("   감지된 AI CLI 기반 starter로 자동 교체합니다..."))
+            writeStarterConfig(configPath)
+            config = configRepository.loadConfig(configPath)
+            terminal.println(green("✓ starter config를 AI 우선 설정으로 갱신했습니다."))
+            terminal.println()
+        }
+
         if (config.agents.isEmpty()) {
             terminal.println(red("No agents configured. Add agents to your config first (cotor init)."))
             return@runBlocking
@@ -431,18 +442,43 @@ class InteractiveCommand : CliktCommand(
         return Path(".cotor").resolve("interactive").resolve(ts)
     }
 
+    private data class StarterAgent(
+        val name: String,
+        val pluginClass: String,
+        val executable: String,
+        val parameterBlock: String = ""
+    )
+
+    private fun shouldRefreshStarterConfig(config: com.cotor.model.CotorConfig): Boolean {
+        if (config.agents.size != 1) return false
+        val only = config.agents.first()
+        if (!only.name.equals("example-agent", ignoreCase = true)) return false
+        if (!only.pluginClass.endsWith("EchoPlugin")) return false
+
+        // If we can run a real AI CLI, upgrade starter automatically.
+        return hasCommand("claude") || hasCommand("gemini") || hasCommand("codex") || !System.getenv("OPENAI_API_KEY").isNullOrBlank()
+    }
+
     private fun writeStarterConfig(path: java.nio.file.Path) {
+        val starter = resolveStarterAgent()
+
+        val parameterSection = if (starter.parameterBlock.isBlank()) "" else {
+            """
+    parameters:
+${starter.parameterBlock.prependIndent("      ")}
+""".trimEnd()
+        }
+
         val defaultConfig = """
 version: "1.0"
 
 agents:
-  - name: example-agent
-    pluginClass: com.cotor.data.plugin.EchoPlugin
-    timeout: 30000
-    parameters:
-      key: value
+  - name: ${starter.name}
+    pluginClass: ${starter.pluginClass}
+    timeout: 60000
+$parameterSection
     tags:
-      - example
+      - starter
 
 pipelines:
   - name: example-pipeline
@@ -451,16 +487,16 @@ pipelines:
     stages:
       - id: step1
         agent:
-          name: example-agent
-        input: "test input"
+          name: ${starter.name}
+        input: "Say hello in one short sentence."
 
 security:
   useWhitelist: true
   allowedExecutables:
-    - python3
-    - node
+    - ${starter.executable}
   allowedDirectories:
     - /usr/local/bin
+    - /opt/homebrew/bin
 
 logging:
   level: INFO
@@ -473,5 +509,57 @@ performance:
         """.trimIndent()
 
         path.writeText(defaultConfig)
+
+        if (starter.pluginClass.endsWith("EchoPlugin")) {
+            terminal.println(yellow("⚠ AI CLI(claude/gemini/codex) 미감지로 Echo starter를 생성했습니다."))
+            terminal.println(dim("   실제 답변을 원하면 claude/gemini 설치 후 cotor.yaml의 pluginClass를 바꿔주세요."))
+        } else {
+            terminal.println(dim("Starter agent selected: ${starter.name} (${starter.pluginClass.substringAfterLast('.')})"))
+        }
+    }
+
+    private fun resolveStarterAgent(): StarterAgent {
+        return when {
+            hasCommand("claude") -> StarterAgent(
+                name = "claude",
+                pluginClass = "com.cotor.data.plugin.ClaudePlugin",
+                executable = "claude",
+                parameterBlock = """
+model: claude-3-5-sonnet-20241022
+""".trimIndent()
+            )
+            hasCommand("gemini") -> StarterAgent(
+                name = "gemini",
+                pluginClass = "com.cotor.data.plugin.GeminiPlugin",
+                executable = "gemini"
+            )
+            hasCommand("codex") -> StarterAgent(
+                name = "codex",
+                pluginClass = "com.cotor.data.plugin.CodexPlugin",
+                executable = "codex"
+            )
+            !System.getenv("OPENAI_API_KEY").isNullOrBlank() -> StarterAgent(
+                name = "openai",
+                pluginClass = "com.cotor.data.plugin.OpenAIPlugin",
+                executable = "java",
+                parameterBlock = """
+model: gpt-4o-mini
+apiKeyEnv: OPENAI_API_KEY
+""".trimIndent()
+            )
+            else -> StarterAgent(
+                name = "example-agent",
+                pluginClass = "com.cotor.data.plugin.EchoPlugin",
+                executable = "echo"
+            )
+        }
+    }
+
+    private fun hasCommand(command: String): Boolean {
+        val path = System.getenv("PATH") ?: return false
+        return path.split(File.pathSeparator).any { dir ->
+            val file = File(dir, command)
+            file.exists() && file.canExecute()
+        }
     }
 }
