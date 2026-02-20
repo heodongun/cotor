@@ -115,10 +115,14 @@ class CodexDashboardCommand : CliktCommand(
     private fun promptLine(message: String, default: String? = null): String? {
         val suffix = if (default != null) " [$default]" else ""
         terminal.print("${message}$suffix: ")
-        val input = readLine()
-        if (input.isNullOrBlank()) {
-            return default
+        return resolvePromptInput(readLine(), default)
+    }
+
+    companion object {
+        internal fun resolvePromptInput(input: String?, default: String? = null): String? {
+            if (input == null) return null
+            if (input.isBlank()) return default ?: ""
+            return input.trim()
         }
-        return input.trim()
     }
 }
