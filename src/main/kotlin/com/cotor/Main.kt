@@ -15,10 +15,22 @@ fun main(args: Array<String>) {
     initializeCotor()
 
     try {
+        // Default entry: launch TUI (interactive mode) when no args are provided.
+        if (args.isEmpty()) {
+            InteractiveCommand().main(emptyArray())
+            return
+        }
+
+        // Support `cotor tui` as a friendly alias to interactive mode.
+        if (args[0] == "tui") {
+            InteractiveCommand().main(args.drop(1).toTypedArray())
+            return
+        }
+
         // Simple mode - just run pipeline directly
-        if (args.isNotEmpty() && !args[0].startsWith("-")) {
+        if (!args[0].startsWith("-")) {
             when (args[0]) {
-                "init", "list", "status", "version", "run", "validate", "test", "dash", "template", "resume", "checkpoint", "stats", "completion", "doctor", "web", "lint", "explain" -> {
+                "init", "list", "status", "version", "run", "validate", "test", "dash", "interactive", "template", "resume", "checkpoint", "stats", "completion", "doctor", "web", "lint", "explain" -> {
                     // Use full CLI for these commands
                 }
                 else -> {
@@ -35,6 +47,7 @@ fun main(args: Array<String>) {
                 InitCommand(),
                 EnhancedRunCommand(),
                 CodexDashboardCommand(),
+                InteractiveCommand(),
                 ValidateCommand(),
                 TestCommand(),
                 TemplateCommand(),
@@ -52,7 +65,8 @@ fun main(args: Array<String>) {
             )
             .main(args)
     } catch (e: UserFriendlyError) {
-        // UserFriendlyError는 이미 명령어에서 출력했으므로 조용히 종료
+        // User-friendly message should always be visible to users.
+        System.err.println(e.message ?: "❌ Unknown error")
         System.exit(1)
     } catch (e: Exception) {
         // Enhanced error handling with suggestions

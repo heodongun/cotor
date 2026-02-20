@@ -868,14 +868,22 @@ cotor web --open
 | `checkpoint` | Checkpoint management | `cotor checkpoint` |
 | `resume` | Resume from checkpoint | `cotor resume <id>` |
 | `dash` | TUI dashboard | `cotor dash` |
+| `interactive` | Chat with the master agent (TUI) | `cotor interactive` |
+| `tui` | Alias of `interactive` | `cotor tui` |
 | `web` | Web interface | `cotor web` |
 | `completion` | Shell completion | `cotor completion zsh` |
 
 ### Quick Help
 ```bash
+cotor              # Launch TUI (interactive mode)
 cotor --short      # 10-line cheat sheet
 cotor --help       # Full command help
 ```
+
+### Default TUI Entry
+- Running `cotor` with no arguments opens the interactive TUI directly.
+- If `cotor.yaml` does not exist, Cotor auto-creates a starter config in the current directory.
+- `cotor tui` is also supported as an alias for `cotor interactive`.
 
 ## 📦 Examples
 

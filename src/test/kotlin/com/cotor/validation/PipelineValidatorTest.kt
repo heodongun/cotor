@@ -7,6 +7,7 @@ import com.cotor.model.*
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
 
@@ -202,7 +203,7 @@ class PipelineValidatorTest : FunSpec({
         val validator = PipelineValidator(registry, mockPluginLoader)
         val result = validator.validate(pipeline) as ValidationResult.Failure
 
-        result.errors.shouldContain("Stage 'step2': Invalid property access in '\${stages.step1.foo}'. Only '.output' is supported.")
+        result.errors.joinToString("\n").shouldContain("Stage 'step2': Invalid property access in '\${stages.step1.foo}'")
     }
 
     test("reports error for missing required parameter") {

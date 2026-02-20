@@ -184,4 +184,69 @@ class RecoveryExecutorTest : FunSpec({
             agentExecutor.executeAgent(any(), any(), any())
         }
     }
+
+    test("validation failure retries with a self-repair prompt that includes violations and prior output") {
+        val agentExecutor = mockk<AgentExecutor>()
+        val inputs = mutableListOf<String?>()
+        var attempt = 0
+
+        val outputValidator = object : OutputValidator {
+            private var calls = 0
+            override fun validate(result: AgentResult, config: StageValidationConfig): StageValidationOutcome {
+                calls++
+                return if (calls == 1) {
+                    StageValidationOutcome(
+                        isValid = false,
+                        score = 0.4,
+                        violations = listOf("Output missing code block"),
+                        suggestions = listOf("Wrap the answer in ``` fences")
+                    )
+                } else {
+                    StageValidationOutcome(true, 1.0, emptyList(), emptyList())
+                }
+            }
+        }
+
+        val recoveryExecutor = RecoveryExecutor(agentExecutor, registry, outputValidator, logger)
+
+        coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
+            val input = secondArg<String?>()
+            inputs += input
+            attempt++
+            AgentResult(
+                agentName = "primary",
+                isSuccess = true,
+                output = "attempt-$attempt",
+                error = null,
+                duration = 1,
+                metadata = emptyMap()
+            )
+        }
+
+        val stage = PipelineStage(
+            id = "stage3",
+            agent = AgentReference("primary"),
+            validation = StageValidationConfig(requiresCodeBlock = true),
+            recovery = RecoveryConfig(
+                strategy = RecoveryStrategy.RETRY,
+                maxRetries = 2,
+                retryOn = listOf("validation"),
+                retryDelayMs = 0,
+                backoffStrategy = BackoffStrategy.FIXED
+            )
+        )
+
+        val result = runBlocking { recoveryExecutor.executeWithRecovery(stage, "ORIGINAL_INPUT", null) }
+        result.isSuccess shouldBe true
+
+        inputs.size shouldBe 2
+        inputs[0] shouldBe "ORIGINAL_INPUT"
+        inputs[1]!!.contains("previous output failed validation", ignoreCase = true) shouldBe true
+        inputs[1]!!.contains("Violations:", ignoreCase = true) shouldBe true
+        inputs[1]!!.contains("Output missing code block") shouldBe true
+        inputs[1]!!.contains("Suggestions:", ignoreCase = true) shouldBe true
+        inputs[1]!!.contains("Wrap the answer") shouldBe true
+        inputs[1]!!.contains("Previous output:", ignoreCase = true) shouldBe true
+        inputs[1]!!.contains("attempt-1") shouldBe true
+    }
 })

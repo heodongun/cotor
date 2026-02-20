@@ -108,14 +108,22 @@ cotor doctor
 | `checkpoint` | 체크포인트 관리 | `cotor checkpoint` |
 | `resume` | 체크포인트에서 재개 | `cotor resume <id>` |
 | `dash` | TUI 대시보드 | `cotor dash` |
+| `interactive` | 마스터 에이전트 대화형 채팅 (TUI) | `cotor interactive` |
+| `tui` | `interactive` 별칭 | `cotor tui` |
 | `web` | 웹 인터페이스 | `cotor web` |
 | `completion` | 쉘 자동완성 | `cotor completion zsh` |
 
 ### 빠른 도움말
 ```bash
+cotor              # 기본 TUI(interactive) 실행
 cotor --short      # 10줄 치트시트
 cotor --help       # 전체 명령어 도움말
 ```
+
+### 기본 TUI 진입
+- 인자 없이 `cotor`를 실행하면 interactive TUI로 바로 진입합니다.
+- 현재 폴더에 `cotor.yaml`이 없으면 starter 설정 파일을 자동 생성합니다.
+- `cotor tui`도 `cotor interactive`와 동일하게 동작합니다.
 
 ## 📦 예제
 

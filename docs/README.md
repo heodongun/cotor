@@ -28,12 +28,14 @@ Claude Code integration (slash commands + knowledge base):
 ## Use It Fast
 
 ```bash
+cotor                              # launch interactive TUI (default)
 cotor init                         # create cotor.yaml
 cotor list                         # view registered agents
 cotor validate <pipeline> -c <yaml>
 cotor run <pipeline> -c <yaml> --output-format text
 cotor template                     # list built-in templates
 cotor dash -c <yaml>               # TUI dashboard
+cotor tui                          # alias of `cotor interactive`
 cotor web                          # launch web pipeline studio
 cotor completion zsh|bash|fish     # shell autocompletion
 alias co="cotor"                   # faster typing

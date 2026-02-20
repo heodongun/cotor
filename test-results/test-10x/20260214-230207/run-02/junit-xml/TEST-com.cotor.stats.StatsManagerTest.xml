@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.stats.StatsManagerTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-02-14T14:02:24" hostname="MacBook-Pro.local" time="0.005">
+  <properties/>
+  <testcase name="getStatsDetails calculates correct stage-level statistics" classname="com.cotor.stats.StatsManagerTest" time="0.003"/>
+  <testcase name="clearStats removes stored statistics" classname="com.cotor.stats.StatsManagerTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

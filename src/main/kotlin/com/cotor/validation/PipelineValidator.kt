@@ -120,8 +120,13 @@ class PipelineValidator(
                         errors.add("Stage '${stage.id}': Invalid stage reference in input: '${matchResult.value}'")
                     } else if (referencedStageId !in stageIds) {
                         errors.add("Stage '${stage.id}': Referenced stage '$referencedStageId' not found in pipeline.")
-                    } else if (parts.getOrNull(2) != "output") {
-                        errors.add("Stage '${stage.id}': Invalid property access in '${matchResult.value}'. Only '.output' is supported.")
+                    } else {
+                        val allowed = setOf("output", "error", "success", "duration", "metadata")
+                        val property = parts.getOrNull(2)
+                        if (property == null || !allowed.contains(property)) {
+                            val supported = allowed.joinToString(", ") { ".$it" }
+                            errors.add("Stage '${stage.id}': Invalid property access in '${matchResult.value}'. Supported: $supported.")
+                        }
                     }
                 }
             }

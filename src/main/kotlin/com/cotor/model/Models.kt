@@ -191,7 +191,7 @@ data class RecoveryConfig(
     val strategy: RecoveryStrategy = RecoveryStrategy.RETRY,
     val retryableErrors: List<String> = listOf("timeout", "connection", "api", "rate_limit", "validation"),
     val backoffStrategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
-    val retryOn: List<String> = listOf("timeout", "5xx")
+    val retryOn: List<String> = listOf("timeout", "connection", "api", "rate_limit", "validation", "5xx")
 )
 
 /**

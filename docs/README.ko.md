@@ -28,12 +28,14 @@ Claude Code 통합:
 ## 바로 사용하기
 
 ```bash
+cotor                              # 기본 interactive TUI 실행
 cotor init                         # cotor.yaml 생성
 cotor list                         # 등록된 에이전트 확인
 cotor validate <pipeline> -c <yaml>
 cotor run <pipeline> -c <yaml> --output-format text
 cotor template                     # 내장 템플릿 목록
 cotor dash -c <yaml>               # TUI 대시보드
+cotor tui                          # `cotor interactive` 별칭
 cotor web                          # 웹 파이프라인 스튜디오 실행
 cotor completion zsh|bash|fish     # 쉘 자동완성
 alias co="cotor"                   # 짧은 별칭

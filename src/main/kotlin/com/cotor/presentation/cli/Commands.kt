@@ -440,7 +440,7 @@ class CompletionCommand : CliktCommand(
     }
 
     private val commonSubcommands = listOf(
-        "init", "list", "run", "validate", "template", "dash", "web", "resume", "checkpoint", "stats", "doctor", "status", "lint", "explain", "version", "completion"
+        "init", "list", "run", "validate", "template", "dash", "interactive", "web", "resume", "checkpoint", "stats", "doctor", "status", "lint", "explain", "version", "completion"
     )
 
     private val bashCompletion: String
@@ -493,7 +493,7 @@ object CheatSheetPrinter {
         terminal.println("3) cotor list  |  cotor template")
         terminal.println("4) cotor validate <pipeline> -c <yaml>")
         terminal.println("5) cotor run <pipeline> -c <yaml> --output-format text")
-        terminal.println("6) cotor dash -c <yaml>  |  cotor web")
+        terminal.println("6) cotor interactive  |  cotor dash -c <yaml>  |  cotor web")
         terminal.println("7) 예제 실행: examples/run-examples.sh")
         terminal.println("8) Claude 연동: ./shell/install-claude-integration.sh")
         terminal.println("9) 문제 발생 시 cotor doctor, --debug, docs/QUICK_START.md")

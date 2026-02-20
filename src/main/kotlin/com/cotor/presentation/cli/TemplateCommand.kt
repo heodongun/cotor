@@ -21,9 +21,9 @@ class TemplateCommand : CliktCommand(
 ) {
     private val templateType by argument(
         name = "type",
-        help = "Template type: compare, chain, review, consensus, fanout, selfheal, custom"
+        help = "Template type: compare, chain, review, consensus, fanout, selfheal, verified, custom"
     ).choice(
-        "compare", "chain", "review", "consensus", "fanout", "selfheal", "custom",
+        "compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "custom",
         ignoreCase = true
     ).optional()
 
@@ -38,7 +38,7 @@ class TemplateCommand : CliktCommand(
     ).flag(default = false)
 
     private val preview by option("--preview", help = "Preview a template without writing a file")
-        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "custom")
+        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "custom")
 
     private val list by option("--list", help = "List available templates").flag(default = false)
 
@@ -102,7 +102,7 @@ class TemplateCommand : CliktCommand(
 
         val agents = mutableListOf<String>()
         repeat(numAgents) { i ->
-            terminal.print(yellow("Agent ${i + 1} name (claude/gemini/codex): "))
+            terminal.print(yellow("Agent ${i + 1} name (claude/gemini/codex/openai): "))
             val agent = readLine()?.trim() ?: "claude"
             agents.add(agent)
         }
@@ -143,6 +143,7 @@ class TemplateCommand : CliktCommand(
                 "gemini" -> "com.cotor.data.plugin.GeminiPlugin"
                 "codex" -> "com.cotor.data.plugin.CodexPlugin"
                 "copilot" -> "com.cotor.data.plugin.CopilotPlugin"
+                "openai" -> "com.cotor.data.plugin.OpenAIPlugin"
                 else -> "com.cotor.data.plugin.ClaudePlugin"
             }
             """  - name: $agent
@@ -198,6 +199,7 @@ performance:
             "consensus" to "Multiple AIs provide opinions to reach consensus",
             "fanout" to "DAG fan-out/fan-in merge pattern",
             "selfheal" to "Loop-based self-healing/retry pattern",
+            "verified" to "Generate → test/verify → fix loop (uses CommandPlugin to run a command)",
             "custom" to "Customizable template with common patterns"
         )
 
@@ -235,6 +237,7 @@ performance:
             "consensus" -> generateConsensusTemplate()
             "fanout" -> generateFanoutTemplate()
             "selfheal" -> generateSelfHealTemplate()
+            "verified" -> generateVerifiedTemplate()
             "custom" -> generateCustomTemplate()
             else -> throw IllegalArgumentException("Unknown template type: $type")
         }
@@ -514,6 +517,93 @@ logging:
 
 performance:
   maxConcurrentAgents: 2
+""".trimIndent()
+
+    private fun generateVerifiedTemplate() = """
+version: "1.0"
+
+agents:
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 600000
+
+  - name: verifier
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 600000
+    parameters:
+      # Update this to your project's test/verify command.
+      argvJson: '["./gradlew","test","--console=plain"]'
+
+  - name: echo
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 30000
+
+pipelines:
+  - name: verified-implementation
+    description: "Generate code, verify via command, and auto-fix until it passes"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: implement
+        agent:
+          name: codex
+        input: |
+          YOUR_PROMPT_HERE
+          - Make the required code changes in the repo (edit files).
+          - Keep changes minimal and focused.
+
+      - id: test
+        agent:
+          name: verifier
+        input: ""
+        failureStrategy: CONTINUE
+        optional: true
+
+      - id: decide
+        type: DECISION
+        condition:
+          expression: "!test.success"
+          onTrue:
+            action: CONTINUE
+            message: "Tests failed, attempting fix"
+          onFalse:
+            action: GOTO
+            targetStageId: done
+            message: "Tests passed"
+
+      - id: fix
+        agent:
+          name: codex
+        input: |
+          Tests failed. Fix the code until tests pass.
+          
+          Test output:
+          ${'$'}{stages.test.output}
+          
+          Test error:
+          ${'$'}{stages.test.error}
+
+      - id: loop
+        type: LOOP
+        loop:
+          targetStageId: test
+          maxIterations: 5
+          untilExpression: "test.success == true"
+
+      - id: done
+        agent:
+          name: echo
+        input: "✅ Verified: tests passed"
+
+security:
+  useWhitelist: false
+  allowedExecutables: []
+  allowedDirectories: []
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 3
 """.trimIndent()
 
     private fun generateCustomTemplate() = """

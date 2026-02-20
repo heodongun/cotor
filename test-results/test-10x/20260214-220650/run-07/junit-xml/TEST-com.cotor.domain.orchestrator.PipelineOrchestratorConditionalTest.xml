@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.domain.orchestrator.PipelineOrchestratorConditionalTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-02-14T13:07:44" hostname="MacBook-Pro.local" time="0.108">
+  <properties/>
+  <testcase name="decision stage reroutes pipeline when condition fails" classname="com.cotor.domain.orchestrator.PipelineOrchestratorConditionalTest" time="0.091"/>
+  <testcase name="loop stage repeats target stage until max iterations" classname="com.cotor.domain.orchestrator.PipelineOrchestratorConditionalTest" time="0.015"/>
+  <system-out><![CDATA[22:07:44.109 [pool-1-thread-1 @coroutine#63] INFO  ConditionalTest - Starting pipeline: conditional (ID: c58c06c3-a186-469b-b2ee-5dbbdaec51f9)
+22:07:44.148 [pool-1-thread-1 @coroutine#64] INFO  ConditionalTest - Checkpoint saved: /Users/Projects/cotor/.cotor/checkpoints/c58c06c3-a186-469b-b2ee-5dbbdaec51f9.json
+22:07:44.155 [pool-1-thread-1 @coroutine#67] INFO  ConditionalTest - Starting pipeline: looping (ID: 9f4aa168-bf73-4353-827e-8316ee8e7288)
+22:07:44.168 [pool-1-thread-1 @coroutine#68] INFO  ConditionalTest - Checkpoint saved: /Users/Projects/cotor/.cotor/checkpoints/9f4aa168-bf73-4353-827e-8316ee8e7288.json
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

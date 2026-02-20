@@ -110,6 +110,18 @@ class DefaultAgentExecutor(
                     duration = agent.timeout,
                     metadata = emptyMap()
                 )
+            } catch (e: ProcessExecutionException) {
+                logger.error("Agent process execution failed: ${agent.name}", e)
+                val stderr = e.stderr.trim().ifEmpty { "(no stderr)" }
+                val message = e.message?.trim().orEmpty().ifEmpty { "Process failed" }
+                AgentResult(
+                    agentName = agent.name,
+                    isSuccess = false,
+                    output = e.stdout.takeIf { it.isNotBlank() },
+                    error = "$message (exit=${e.exitCode}): $stderr",
+                    duration = 0,
+                    metadata = emptyMap()
+                )
             } catch (e: Exception) {
                 logger.error("Agent execution failed: ${agent.name}", e)
                 AgentResult(

@@ -59,7 +59,11 @@ class CodexDashboardCommand : CliktCommand(
             }
             terminal.println(dim("q를 입력하면 종료합니다."))
 
-            val input = promptLine("실행할 파이프라인 번호") ?: break
+            val input = promptLine("실행할 파이프라인 번호")
+            if (input == null) {
+                terminal.println(dim("입력 스트림이 닫혀 대시보드를 종료합니다. (TTY에서 실행 권장)"))
+                break
+            }
             if (input.equals("q", true)) break
 
             val index = input.toIntOrNull()

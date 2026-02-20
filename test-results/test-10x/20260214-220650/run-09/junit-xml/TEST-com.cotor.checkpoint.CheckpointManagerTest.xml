@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.checkpoint.CheckpointManagerTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-02-14T13:07:59" hostname="MacBook-Pro.local" time="0.193">
+  <properties/>
+  <testcase name="save and load checkpoint with metadata" classname="com.cotor.checkpoint.CheckpointManagerTest" time="0.036"/>
+  <testcase name="list checkpoints with metadata" classname="com.cotor.checkpoint.CheckpointManagerTest" time="0.004"/>
+  <testcase name="gc deletes checkpoints based on maxCount" classname="com.cotor.checkpoint.CheckpointManagerTest" time="0.071"/>
+  <testcase name="gc deletes checkpoints based on maxAgeDays" classname="com.cotor.checkpoint.CheckpointManagerTest" time="0.002"/>
+  <testcase name="gc deletes using both maxCount and maxAgeDays" classname="com.cotor.checkpoint.CheckpointManagerTest" time="0.075"/>
+  <testcase name="gc does nothing when no policies are specified" classname="com.cotor.checkpoint.CheckpointManagerTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

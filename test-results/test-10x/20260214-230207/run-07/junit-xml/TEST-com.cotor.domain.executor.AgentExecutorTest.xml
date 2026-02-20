@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.domain.executor.AgentExecutorTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-02-14T14:03:03" hostname="MacBook-Pro.local" time="0.537">
+  <properties/>
+  <testcase name="should execute agent successfully" classname="com.cotor.domain.executor.AgentExecutorTest" time="0.415"/>
+  <testcase name="should handle agent timeout" classname="com.cotor.domain.executor.AgentExecutorTest" time="0.117"/>
+  <testcase name="should handle validation failure" classname="com.cotor.domain.executor.AgentExecutorTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

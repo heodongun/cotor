@@ -40,6 +40,17 @@ class PluginLoadException(message: String, cause: Throwable? = null) : CotorExce
 class AgentExecutionException(message: String, cause: Throwable? = null) : CotorException(message, cause)
 
 /**
+ * Exception for failures when running an external process, carrying stdout/stderr for diagnostics.
+ */
+class ProcessExecutionException(
+    message: String,
+    val exitCode: Int,
+    val stdout: String,
+    val stderr: String,
+    cause: Throwable? = null
+) : CotorException(message, cause)
+
+/**
  * Exception thrown when security validation fails
  */
 class SecurityException(message: String, cause: Throwable? = null) : CotorException(message, cause)

@@ -57,11 +57,12 @@ class RecoveryExecutor(
         val attempts = recovery.maxRetries.coerceAtLeast(1)
         var delayMs = recovery.retryDelayMs
         var lastResult: AgentResult? = null
+        var currentInput = input
 
         repeat(attempts) { attempt ->
             val currentAttempt = attempt + 1
             logger.debug("Executing stage ${stage.id} attempt $currentAttempt/$attempts")
-            val result = runAgent(agentConfig, stage, input, pipelineContext)
+            val result = runAgent(agentConfig, stage, currentInput, pipelineContext)
             if (result.isSuccess) {
                 return result
             }
@@ -73,12 +74,28 @@ class RecoveryExecutor(
             }
 
             if (currentAttempt < attempts) {
-                delayMs = when (recovery.backoffStrategy) {
-                    BackoffStrategy.FIXED -> recovery.retryDelayMs
-                    BackoffStrategy.EXPONENTIAL -> (delayMs * recovery.backoffMultiplier).toLong().coerceAtLeast(delayMs)
+                currentInput = if (shouldAttemptSelfRepair(stage, result)) {
+                    buildSelfRepairInput(
+                        originalInput = input,
+                        lastResult = result
+                    )
+                } else {
+                    currentInput
+                }
+
+                val shouldBackoff = result.metadata["failureCategory"] != FailureCategory.VALIDATION_FAILED.name
+                delayMs = if (!shouldBackoff) {
+                    0
+                } else {
+                    when (recovery.backoffStrategy) {
+                        BackoffStrategy.FIXED -> recovery.retryDelayMs
+                        BackoffStrategy.EXPONENTIAL -> (delayMs * recovery.backoffMultiplier).toLong().coerceAtLeast(delayMs)
+                    }
                 }
                 logger.warn("Stage ${stage.id} failed (attempt $currentAttempt). Retrying after ${delayMs}ms...")
-                delay(delayMs)
+                if (delayMs > 0) {
+                    delay(delayMs)
+                }
             }
         }
 
@@ -169,7 +186,10 @@ class RecoveryExecutor(
         }
 
         val validation = outputValidator.validate(result, validationConfig)
-        val metadata = result.metadata + mapOf("validationScore" to validation.score.toString())
+        val metadata = result.metadata + mapOf(
+            "validationScore" to validation.score.toString(),
+            "validationSuggestions" to validation.suggestions.joinToString("; ")
+        )
 
         return if (validation.isValid) {
             result.copy(metadata = metadata)
@@ -183,6 +203,37 @@ class RecoveryExecutor(
                     "failureCategory" to FailureCategory.VALIDATION_FAILED.name
                 )
             )
+        }
+    }
+
+    private fun shouldAttemptSelfRepair(stage: PipelineStage, result: AgentResult): Boolean {
+        if (stage.validation == null) return false
+        val category = result.metadata["failureCategory"]
+        return category == FailureCategory.VALIDATION_FAILED.name && !result.output.isNullOrBlank()
+    }
+
+    private fun buildSelfRepairInput(originalInput: String?, lastResult: AgentResult): String {
+        val violations = lastResult.metadata["validationViolations"] ?: "(unknown)"
+        val suggestions = lastResult.metadata["validationSuggestions"]?.takeIf { it.isNotBlank() }
+        val previousOutput = lastResult.output ?: ""
+
+        return buildString {
+            originalInput?.takeIf { it.isNotBlank() }?.let { base ->
+                appendLine(base.trimEnd())
+                appendLine()
+            }
+            appendLine("The previous output failed validation. Please fix it and output a corrected result.")
+            appendLine()
+            appendLine("Violations:")
+            appendLine("- $violations")
+            suggestions?.let {
+                appendLine()
+                appendLine("Suggestions:")
+                appendLine("- $it")
+            }
+            appendLine()
+            appendLine("Previous output:")
+            appendLine(previousOutput.trimEnd())
         }
     }
 

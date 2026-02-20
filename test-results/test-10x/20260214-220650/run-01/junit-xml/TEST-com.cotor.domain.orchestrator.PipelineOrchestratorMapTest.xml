@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cotor.domain.orchestrator.PipelineOrchestratorMapTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-02-14T13:06:58" hostname="MacBook-Pro.local" time="0.026">
+  <properties/>
+  <testcase name="executePipeline with MAP execution mode should fan out and aggregate results()" classname="com.cotor.domain.orchestrator.PipelineOrchestratorMapTest" time="0.026"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
