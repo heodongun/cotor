@@ -199,3 +199,10 @@ pids
 *.seed
 *.pid.lock
 /.cotor/stats/
+
+# Accidental shell-redirection artifacts at repo root
+/claude
+/codex
+/gemini
+/openai
+/echo
