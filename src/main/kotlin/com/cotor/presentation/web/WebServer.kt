@@ -56,6 +56,8 @@ data class EditorPipelineSummary(
     val description: String,
     val executionMode: String,
     val stageCount: Int,
+    val agents: List<String>,
+    val tags: List<String>,
     val path: String,
     val updatedAt: Long
 )
@@ -318,6 +320,8 @@ class WebServer : KoinComponent {
                     description = pipeline.description.ifBlank { "설명 없음" },
                     executionMode = pipeline.executionMode.name,
                     stageCount = pipeline.stages.size,
+                    agents = pipeline.stages.mapNotNull { it.agent?.name }.distinct(),
+                    tags = config.agents.flatMap { it.tags }.distinct(),
                     path = file.path,
                     updatedAt = file.lastModified()
                 )
@@ -598,6 +602,11 @@ private val editorHtml = """
         <h3>템플릿 & 저장본</h3>
         <div class="list" id="templateList"></div>
         <h3 style="margin-top:12px;">저장된 파이프라인</h3>
+        <div class="field" style="margin-bottom:10px;">
+          <label>파이프라인/에이전트 검색</label>
+          <input class="input" id="pipelineSearch" placeholder="이름, 설명, 실행모드, 에이전트, 태그 검색" oninput="renderSavedPipelines()" />
+        </div>
+        <div class="tags" id="savedTagFilters" style="margin-bottom:10px;"></div>
         <div class="list" id="savedList"></div>
         <h3 style="margin-top:12px;">결과</h3>
         <div id="resultBox" class="result">실행 결과가 여기에 표시됩니다.</div>
@@ -631,6 +640,7 @@ private val editorHtml = """
 
     let templates = [];
     let saved = [];
+    let selectedSavedTags = [];
     let dragIndex = null;
 
     function uuid(prefix = "stage") {
@@ -733,25 +743,74 @@ private val editorHtml = """
       }
     }
 
+    function toggleSavedTag(tag) {
+      if (selectedSavedTags.includes(tag)) {
+        selectedSavedTags = selectedSavedTags.filter(t => t !== tag);
+      } else {
+        selectedSavedTags = [...selectedSavedTags, tag];
+      }
+      renderSavedTagFilters();
+      renderSavedPipelines();
+    }
+
+    function renderSavedTagFilters() {
+      const box = document.getElementById("savedTagFilters");
+      const tags = [...new Set(saved.flatMap(p => p.tags || []))].sort();
+      if (!tags.length) {
+        box.innerHTML = '<span style="color:var(--muted);font-size:0.85rem;">태그 없음</span>';
+        return;
+      }
+      box.innerHTML = tags.map(tag => {
+        const active = selectedSavedTags.includes(tag);
+        const style = active
+          ? 'background:linear-gradient(135deg,#8b5cf6,#6d28d9);border:none;color:white;'
+          : '';
+        return `<button class="btn" style="padding:6px 10px;${'$'}{style}" onclick="toggleSavedTag('${'$'}{tag.replace(/'/g, "\\'")}')">#${'$'}{tag}</button>`;
+      }).join("");
+    }
+
+    function renderSavedPipelines() {
+      const query = (document.getElementById("pipelineSearch")?.value || "").trim().toLowerCase();
+      const list = document.getElementById("savedList");
+      const filtered = saved.filter(p => {
+        const tags = p.tags || [];
+        const agents = p.agents || [];
+        const haystack = [p.name, p.description, p.executionMode, ...agents, ...tags]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        const matchesQuery = !query || haystack.includes(query);
+        const matchesTags = selectedSavedTags.every(tag => tags.includes(tag));
+        return matchesQuery && matchesTags;
+      });
+      if (!saved.length) {
+        list.innerHTML = '<div class="template-card" style="border-style:dashed;color:var(--muted);">저장된 파이프라인이 없습니다.</div>';
+        return;
+      }
+      if (!filtered.length) {
+        list.innerHTML = '<div class="template-card" style="border-style:dashed;color:var(--muted);">검색/태그 조건과 일치하는 파이프라인이 없습니다.</div>';
+        return;
+      }
+      list.innerHTML = filtered.map(p => `
+        <div class="saved-card" onclick="loadPipeline('${'$'}{p.name}')">
+          <div style="font-weight:700;">${'$'}{p.name}</div>
+          <div style="color:var(--muted);font-size:0.9rem;">${'$'}{p.description}</div>
+          <div class="tags">
+            <span class="pill">${'$'}{p.executionMode}</span>
+            <span class="pill">${'$'}{p.stageCount} stages</span>
+            ${'$'}{(p.agents || []).map(a => `<span class="pill">@${'$'}{a}</span>`).join("")}
+            ${'$'}{(p.tags || []).map(tag => `<span class="pill">#${'$'}{tag}</span>`).join("")}
+          </div>
+        </div>
+      `).join("");
+    }
+
     async function loadPipelines() {
       try {
         const res = await fetch("/api/editor/pipelines");
         saved = await res.json();
-        const list = document.getElementById("savedList");
-        if (!saved.length) {
-          list.innerHTML = '<div class="template-card" style="border-style:dashed;color:var(--muted);">저장된 파이프라인이 없습니다.</div>';
-          return;
-        }
-        list.innerHTML = saved.map(p => `
-          <div class="saved-card" onclick="loadPipeline('${'$'}{p.name}')">
-            <div style="font-weight:700;">${'$'}{p.name}</div>
-            <div style="color:var(--muted);font-size:0.9rem;">${'$'}{p.description}</div>
-            <div class="tags">
-              <span class="pill">${'$'}{p.executionMode}</span>
-              <span class="pill">${'$'}{p.stageCount} stages</span>
-            </div>
-          </div>
-        `).join("");
+        renderSavedTagFilters();
+        renderSavedPipelines();
       } catch (e) {
         console.error(e);
       }
