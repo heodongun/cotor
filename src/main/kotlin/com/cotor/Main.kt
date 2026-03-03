@@ -30,7 +30,7 @@ fun main(args: Array<String>) {
         // Simple mode - just run pipeline directly
         if (!args[0].startsWith("-")) {
             when (args[0]) {
-                "init", "list", "status", "version", "run", "validate", "test", "dash", "interactive", "template", "resume", "checkpoint", "stats", "completion", "doctor", "web", "lint", "explain" -> {
+                "init", "list", "status", "version", "run", "validate", "test", "dash", "interactive", "template", "resume", "checkpoint", "stats", "completion", "doctor", "web", "lint", "explain", "plugin" -> {
                     // Use full CLI for these commands
                 }
                 else -> {
@@ -60,6 +60,7 @@ fun main(args: Array<String>) {
                 WebCommand(),
                 LintCommand(),
                 ExplainCommand(),
+                PluginCommand(),
                 VersionCommand(),
                 CompletionCommand()
             )
