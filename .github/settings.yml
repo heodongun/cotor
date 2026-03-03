@@ -1,0 +1,4 @@
+repository:
+  description: "Kotlin CLI for orchestrating AI multi-agent workflows."
+  homepage: "https://github.com/heodongun/cotor/tree/main/docs"
+  topics: kotlin, cli, ai-agents, multi-agent, workflow-automation
