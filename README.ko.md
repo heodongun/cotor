@@ -285,6 +285,13 @@ cotor/
 ./gradlew jacocoTestReport  # 커버리지 리포트
 ```
 
+### 코드 포맷팅
+
+```bash
+./gradlew format       # Spotless + ktlint 포맷 적용
+./gradlew formatCheck  # 포맷 위반이 있으면 실패
+```
+
 ## 📈 로드맵
 
 ### v1.1.0 (다음 버전)
