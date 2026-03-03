@@ -62,6 +62,7 @@ alias co="cotor"                   # 짧은 별칭
 - 릴리스: `release/CHANGELOG.md` · `release/FEATURES_v1.1.md`
 - 리포트: `reports/TEST_REPORT.md` · `reports/IMPLEMENTATION_SUMMARY.md`
 - 빠른 시작: `QUICK_START.md`
+- 아키텍처: `ARCHITECTURE.md`
 - Claude 설정: `CLAUDE_SETUP.md`
 - Claude Code 통합: `shell/install-claude-integration.sh`
 - 사용 팁: `USAGE_TIPS.md`
