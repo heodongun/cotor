@@ -1,6 +1,8 @@
 # Cotor - AI CLI 마스터-에이전트 시스템
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/yourusername/cotor)
+[![CI](https://github.com/heodongun/cotor/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/heodongun/cotor/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/heodongun/cotor/branch/master/graph/badge.svg)](https://codecov.io/gh/heodongun/cotor)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/heodongun/cotor)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-purple)](https://kotlinlang.org/)
 [![JVM](https://img.shields.io/badge/jvm-23-orange)](https://openjdk.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
