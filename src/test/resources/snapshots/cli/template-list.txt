@@ -1,0 +1,15 @@
+[34;1m📋 Available Pipeline Templates[39;22m
+
+  compare      - Multiple AIs solve the same problem in parallel for comparison
+  chain        - Sequential processing chain (generate → review → optimize)
+  review       - Parallel multi-perspective code review (security, performance, best practices)
+  consensus    - Multiple AIs provide opinions to reach consensus
+  fanout       - DAG fan-out/fan-in merge pattern
+  selfheal     - Loop-based self-healing/retry pattern
+  verified     - Generate → test/verify → fix loop (uses CommandPlugin to run a command)
+  custom       - Customizable template with common patterns
+
+[2mUsage: cotor template <type> [output-file] [--preview] [--fill key=value][22m
+[2mExample: cotor template compare my-pipeline.yaml --fill prompt="Write tests"[22m
+[2mPreview: cotor template --preview chain[22m
+[2mList:    cotor template --list[22m
