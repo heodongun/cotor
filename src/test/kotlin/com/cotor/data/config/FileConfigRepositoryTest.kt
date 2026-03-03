@@ -121,6 +121,32 @@ class FileConfigRepositoryTest : FunSpec({
         loadedConfig.security.allowedExecutables.size shouldBe 0
     }
 
+
+    test("keeps base list when override omits collection field") {
+        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val baseDir = Files.createTempDirectory("config-omit-list")
+        val cotorDir = baseDir.resolve(".cotor").createDirectory()
+
+        val mainConfigPath = baseDir.resolve("cotor.yaml")
+        mainConfigPath.writeText("""
+            security:
+              allowedExecutables:
+                - "bash"
+                - "python"
+        """.trimIndent())
+
+        val overrideConfigPath = cotorDir.resolve("dev.yaml")
+        overrideConfigPath.writeText("""
+            logging:
+              level: "DEBUG"
+        """.trimIndent())
+
+        val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
+
+        loadedConfig.security.allowedExecutables shouldBe listOf("bash", "python")
+        loadedConfig.logging.level shouldBe "DEBUG"
+    }
+
     test("can override List<Path> with empty list") {
         val repo = FileConfigRepository(yamlParser, jsonParser)
         val baseDir = Files.createTempDirectory("config-empty-path-list")
