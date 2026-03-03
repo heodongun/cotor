@@ -16,6 +16,7 @@
 ### 상세 가이드
 - [English Guide](README.md) - 영문 상세 가이드
 - [한글 가이드](README.ko.md) - 한글 상세 가이드
+- [Architecture](ARCHITECTURE.md) - 시스템 아키텍처 다이어그램
 
 ---
 

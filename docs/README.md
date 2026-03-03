@@ -62,6 +62,7 @@ alias co="cotor"                   # faster typing
 - Releases: `release/CHANGELOG.md` · `release/FEATURES_v1.1.md`
 - Reports: `reports/TEST_REPORT.md` · `reports/IMPLEMENTATION_SUMMARY.md`
 - Quick start: `QUICK_START.md`
+- Architecture: `ARCHITECTURE.md`
 - Claude setup: `CLAUDE_SETUP.md`
 - Claude Code integration: `shell/install-claude-integration.sh`
 - Usage tips: `USAGE_TIPS.md`
