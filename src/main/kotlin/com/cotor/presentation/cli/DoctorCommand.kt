@@ -11,13 +11,15 @@ import kotlin.io.path.exists
 /**
  * Doctor command: checks environment readiness and gives quick tips
  */
-class DoctorCommand : CliktCommand(
+class DoctorCommand(
+    private val terminal: Terminal = Terminal(),
+    private val projectRootProvider: () -> Path = { Path(".").toAbsolutePath().normalize() },
+    private val javaVersionProvider: () -> String = { System.getProperty("java.version") ?: "unknown" },
+    private val commandAvailable: (String) -> Boolean = ::defaultCommandAvailable
+) : CliktCommand(
     name = "doctor",
     help = "Check environment, prerequisites, and examples"
 ) {
-    private val terminal = Terminal()
-    private val projectRoot = Path(".").toAbsolutePath().normalize()
-
     override fun run() {
         terminal.println(bold("🩺 Cotor Doctor"))
         terminal.println(dim("환경 점검을 수행합니다. OK 항목이 하나라도 실패해도 명령은 계속됩니다."))
@@ -49,7 +51,7 @@ class DoctorCommand : CliktCommand(
     }
 
     private fun checkJava(): Triple<String, Boolean, String?> {
-        val version = System.getProperty("java.version") ?: "unknown"
+        val version = javaVersionProvider()
         val major = version.substringBefore(".").toIntOrNull() ?: 0
         val ok = major >= 17
         val hint = if (!ok) "Java 17 이상이 필요합니다. 현재: $version" else "Java $version"
@@ -57,20 +59,21 @@ class DoctorCommand : CliktCommand(
     }
 
     private fun checkJar(): Triple<String, Boolean, String?> {
-        val jarPath = projectRoot.resolve("build/libs/cotor-1.0.0-all.jar")
+        val jarPath = projectRootProvider().resolve("build/libs/cotor-1.0.0-all.jar")
         val ok = jarPath.exists()
         val hint = if (ok) "빌드 결과 발견: ${jarPath.fileName}" else "shadowJar 실행 필요: ./gradlew shadowJar"
         return Triple("CLI JAR 존재 여부", ok, hint)
     }
 
     private fun checkConfig(): Triple<String, Boolean, String?> {
-        val path = projectRoot.resolve("cotor.yaml")
+        val path = projectRootProvider().resolve("cotor.yaml")
         val ok = path.exists()
         val hint = if (ok) "구성 파일 발견: cotor.yaml" else "구성이 없습니다. cotor init 또는 cotor init --interactive 실행"
         return Triple("cotor.yaml 확인", ok, hint)
     }
 
     private fun checkExamples(): Triple<String, Boolean, String?> {
+        val projectRoot = projectRootProvider()
         val required = listOf(
             "examples/single-agent.yaml",
             "examples/parallel-compare.yaml",
@@ -84,21 +87,23 @@ class DoctorCommand : CliktCommand(
     }
 
     private fun checkBinary(name: String): Triple<String, Boolean, String?> {
-        val ok = isCommandAvailable(name)
+        val ok = commandAvailable(name)
         val label = "$name 명령 확인"
         val hint = if (ok) "$name 사용 가능" else "$name 가 PATH에 없습니다 (필요시 설치)"
         return Triple(label, ok, hint)
     }
 
-    private fun isCommandAvailable(name: String): Boolean {
-        val cmd = if (isWindows()) listOf("where", name) else listOf("which", name)
-        return try {
-            ProcessBuilder(cmd).start().waitFor() == 0
-        } catch (_: Exception) {
-            false
+    companion object {
+        private fun defaultCommandAvailable(name: String): Boolean {
+            val cmd = if (isWindows()) listOf("where", name) else listOf("which", name)
+            return try {
+                ProcessBuilder(cmd).start().waitFor() == 0
+            } catch (_: Exception) {
+                false
+            }
         }
-    }
 
-    private fun isWindows(): Boolean =
-        System.getProperty("os.name").lowercase().contains("win")
+        private fun isWindows(): Boolean =
+            System.getProperty("os.name").lowercase().contains("win")
+    }
 }

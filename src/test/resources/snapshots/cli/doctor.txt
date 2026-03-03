@@ -1,0 +1,22 @@
+[1m🩺 Cotor Doctor[22m
+[2m환경 점검을 수행합니다. OK 항목이 하나라도 실패해도 명령은 계속됩니다.[22m
+
+[32m✓[39m Java 버전 확인
+[2m   Java 21.0.2[22m
+[32m✓[39m CLI JAR 존재 여부
+[2m   빌드 결과 발견: cotor-1.0.0-all.jar[22m
+[32m✓[39m cotor.yaml 확인
+[2m   구성 파일 발견: cotor.yaml[22m
+[32m✓[39m 예제 번들 확인
+[2m   예제 준비 완료[22m
+[33m⚠[39m claude 명령 확인
+[2m   claude 가 PATH에 없습니다 (필요시 설치)[22m
+[33m⚠[39m gemini 명령 확인
+[2m   gemini 가 PATH에 없습니다 (필요시 설치)[22m
+[32m✓[39m cotor 명령 확인
+[2m   cotor 사용 가능[22m
+
+[2m팁:[22m
+[2m  - 자동완성: cotor completion zsh|bash|fish > /tmp/cotor && source /tmp/cotor[22m
+[2m  - 샘플 실행: examples/run-examples.sh[22m
+[2m  - Claude 연동: ./shell/install-claude-integration.sh[22m

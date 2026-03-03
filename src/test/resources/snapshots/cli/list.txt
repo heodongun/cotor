@@ -1,0 +1,7 @@
+Registered Agents (2):
+  - claude (com.cotor.data.plugin.ClaudePlugin)
+    Timeout: 60000ms
+    Tags: primary, reasoning
+  - gemini (com.cotor.data.plugin.GeminiPlugin)
+    Timeout: 45000ms
+    Tags: secondary

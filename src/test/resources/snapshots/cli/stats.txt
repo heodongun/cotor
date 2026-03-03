@@ -1,0 +1,9 @@
+📊 Pipeline Statistics Overview
+────────────────────────────────────────────────────────────────────────────────
+
+Pipeline                       Executions    Success     Avg Time    Trend
+────────────────────────────────────────────────────────────────────────────────
+compare-solutions                      12      91.7%           2s ↗
+────────────────────────────────────────────────────────────────────────────────
+
+Usage: cotor stats <pipeline-name> for detailed statistics
