@@ -1,8 +1,8 @@
 plugins {
-    kotlin("jvm") version "2.1.0"
-    kotlin("plugin.serialization") version "2.1.0"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
     application
-    id("com.gradleup.shadow") version "8.3.5"
+    alias(libs.plugins.shadow)
     jacoco
     id("com.diffplug.spotless") version "6.25.0"
 }
@@ -17,39 +17,39 @@ repositories {
 dependencies {
     // Kotlin
     implementation(kotlin("stdlib"))
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation(libs.kotlinx.coroutines.core)
 
     // CLI
-    implementation("com.github.ajalt.clikt:clikt:4.2.1")
-    implementation("com.github.ajalt.mordant:mordant:2.2.0")  // Terminal UI
-    implementation("me.tongfei:progressbar:0.9.5")            // Progress bar
+    implementation(libs.clikt)
+    implementation(libs.mordant)  // Terminal UI
+    implementation(libs.progressbar)            // Progress bar
 
     // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-    implementation("com.charleskorn.kaml:kaml:0.55.0")
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kaml)
 
     // Dependency Injection
-    implementation("io.insert-koin:koin-core:3.5.0")
+    implementation(libs.koin.core)
 
     // Logging
-    implementation("org.slf4j:slf4j-api:2.0.9")
-    implementation("ch.qos.logback:logback-classic:1.4.11")
-    implementation("io.github.microutils:kotlin-logging-jvm:3.0.5")
+    implementation(libs.slf4j.api)
+    implementation(libs.logback.classic)
+    implementation(libs.kotlin.logging.jvm)
 
     // Web Server (Ktor)
-    implementation("io.ktor:ktor-server-core:3.0.3")
-    implementation("io.ktor:ktor-server-netty:3.0.3")
-    implementation("io.ktor:ktor-server-content-negotiation:3.0.3")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.3")
-    implementation("io.ktor:ktor-server-cors:3.0.3")
-    implementation("io.ktor:ktor-server-sse:3.0.3")
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.netty)
+    implementation(libs.ktor.server.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.ktor.server.cors)
+    implementation(libs.ktor.server.sse)
 
     // Testing
-    testImplementation("io.kotest:kotest-runner-junit5:5.8.0")
-    testImplementation("io.kotest:kotest-assertions-core:5.8.0")
-    testImplementation("io.kotest:kotest-property:5.8.0")
-    testImplementation("io.mockk:mockk:1.13.8")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation(libs.kotest.runner.junit5)
+    testImplementation(libs.kotest.assertions.core)
+    testImplementation(libs.kotest.property)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 application {
