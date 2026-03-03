@@ -12,6 +12,7 @@
 - [README (한글)](../README.ko.md) - 프로젝트 개요 (한글)
 - [Quick Start](QUICK_START.md) - 빠른 시작 가이드
 - [Usage Tips](USAGE_TIPS.md) - 사용 팁
+- [Cookbook](cookbook.md) - 실전 시나리오 파이프라인 모음
 
 ### 상세 가이드
 - [English Guide](README.md) - 영문 상세 가이드
