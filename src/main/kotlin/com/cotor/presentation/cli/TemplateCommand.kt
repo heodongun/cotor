@@ -15,7 +15,9 @@ import java.io.File
 /**
  * Command to generate pipeline templates
  */
-class TemplateCommand : CliktCommand(
+class TemplateCommand(
+    private val terminal: Terminal = Terminal()
+) : CliktCommand(
     name = "template",
     help = "Generate pipeline templates from pre-defined patterns"
 ) {
@@ -44,7 +46,6 @@ class TemplateCommand : CliktCommand(
 
     private val fills by option("--fill", "-F", help = "Replace placeholders: key=value").multiple()
 
-    private val terminal = Terminal()
 
     override fun run() {
         if (list && templateType == null && preview == null) {

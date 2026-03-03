@@ -7,12 +7,12 @@ Get up and running with Cotor in 5 minutes!
 2. `cotor init` (또는 `cotor init --interactive`)
 3. `cotor list` 로 에이전트 확인
 4. `cotor template` 으로 YAML 예제 만들기
-5. `cotor validate <pipeline> -c <yaml>`
-6. `cotor run <pipeline> -c <yaml> --output-format text`
-7. `cotor dash -c <yaml>` TUI, `cotor web` 웹 UI
-8. 예제: `examples/run-examples.sh`
-9. 점검: `cotor doctor`, 문제시 `--debug` 또는 docs/README*
-10. Claude 연동: `./shell/install-claude-integration.sh`
+5. `cotor plugin init my-plugin` 으로 Kotlin 플러그인 스캐폴딩 생성
+6. `cotor validate <pipeline> -c <yaml>`
+7. `cotor run <pipeline> -c <yaml> --output-format text`
+8. `cotor dash -c <yaml>` TUI, `cotor web` 웹 UI
+9. 예제: `examples/run-examples.sh`
+10. 점검: `cotor doctor`, 문제시 `--debug` 또는 docs/README*, Claude 연동: `./shell/install-claude-integration.sh`
 
 ## Prerequisites
 

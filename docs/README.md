@@ -67,6 +67,7 @@ alias co="cotor"                   # faster typing
 - Claude Code integration: `shell/install-claude-integration.sh`
 - Usage tips: `USAGE_TIPS.md`
 - Templates: `templates/`
+- Contribution rule + EN/KR sync checklist: `../CONTRIBUTING.md`
 
 ## Run Checks
 

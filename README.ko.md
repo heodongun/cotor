@@ -60,7 +60,7 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
-### 방법 3: Docker (준비 중)
+### 방법 3: Docker
 
 ```bash
 docker run -it cotor/cli version
@@ -283,6 +283,13 @@ cotor/
 ```bash
 ./gradlew test
 ./gradlew jacocoTestReport  # 커버리지 리포트
+```
+
+### 코드 포맷팅
+
+```bash
+./gradlew format       # Spotless + ktlint 포맷 적용
+./gradlew formatCheck  # 포맷 위반이 있으면 실패
 ```
 
 ## 📈 로드맵

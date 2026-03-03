@@ -67,6 +67,7 @@ alias co="cotor"                   # 짧은 별칭
 - Claude Code 통합: `shell/install-claude-integration.sh`
 - 사용 팁: `USAGE_TIPS.md`
 - 템플릿: `templates/`
+- 기여 규칙 + 한/영 동기화 체크리스트: `../CONTRIBUTING.md`
 
 ## 점검하기
 
