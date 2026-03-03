@@ -60,7 +60,7 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
-### Option 3: Docker (Coming Soon)
+### Option 3: Docker
 
 ```bash
 docker run -it cotor/cli version
@@ -817,7 +817,7 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
-### Option 3: Docker (Coming Soon)
+### Option 3: Docker
 
 ```bash
 docker run -it cotor/cli version

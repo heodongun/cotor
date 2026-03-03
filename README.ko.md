@@ -60,7 +60,7 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
-### 방법 3: Docker (준비 중)
+### 방법 3: Docker
 
 ```bash
 docker run -it cotor/cli version

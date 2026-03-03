@@ -1,0 +1,12 @@
+.git
+.github
+.gradle
+build
+out
+bin
+.idea
+.vscode
+*.iml
+*.log
+test-results
+coverage
