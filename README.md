@@ -1029,6 +1029,13 @@ cotor/
 ./gradlew jacocoTestReport  # Coverage report
 ```
 
+### Code Formatting
+
+```bash
+./gradlew format       # Apply ktlint formatting via Spotless
+./gradlew formatCheck  # Fail if formatting violations exist
+```
+
 ## 📈 Roadmap
 
 ### v1.1.0 (Next)

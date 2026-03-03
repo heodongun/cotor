@@ -4,6 +4,7 @@ plugins {
     application
     id("com.gradleup.shadow") version "8.3.5"
     jacoco
+    id("com.diffplug.spotless") version "6.25.0"
 }
 
 group = "com.cotor"
@@ -55,9 +56,53 @@ application {
     mainClass.set("com.cotor.MainKt")
 }
 
+
+spotless {
+    kotlin {
+        target("src/**/*.kt")
+        ktlint().editorConfigOverride(
+            mapOf(
+                "ktlint_standard_max-line-length" to "disabled",
+                "ktlint_standard_no-wildcard-imports" to "disabled",
+                "ktlint_standard_value-parameter-comment" to "disabled",
+                "ktlint_standard_trailing-comma-on-call-site" to "disabled",
+                "ktlint_standard_trailing-comma-on-declaration-site" to "disabled",
+            ),
+        )
+    }
+    kotlinGradle {
+        target("*.gradle.kts")
+        ktlint().editorConfigOverride(
+            mapOf(
+                "ktlint_standard_max-line-length" to "disabled",
+                "ktlint_standard_no-wildcard-imports" to "disabled",
+                "ktlint_standard_value-parameter-comment" to "disabled",
+                "ktlint_standard_trailing-comma-on-call-site" to "disabled",
+                "ktlint_standard_trailing-comma-on-declaration-site" to "disabled",
+            ),
+        )
+    }
+}
+
+tasks.register("format") {
+    group = "formatting"
+    description = "Formats Kotlin and Gradle Kotlin files with Spotless."
+    dependsOn("spotlessApply")
+}
+
+tasks.register("formatCheck") {
+    group = "verification"
+    description = "Checks whether Kotlin and Gradle Kotlin files are properly formatted."
+    dependsOn("spotlessCheck")
+}
+
 tasks.test {
     useJUnitPlatform()
     finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.named("check") {
+    dependsOn("spotlessCheck")
 }
 
 tasks.jacocoTestReport {
