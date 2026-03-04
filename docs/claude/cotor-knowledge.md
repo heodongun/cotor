@@ -74,6 +74,19 @@ cotor validate <pipeline-file>
 cotor validate pipeline.yaml
 ```
 
+### cotor lint
+파이프라인 YAML 파일에 대한 정적 린트를 수행합니다.
+
+**구문:**
+```bash
+cotor lint <pipeline-file>
+```
+
+**예시:**
+```bash
+cotor lint pipeline.yaml
+```
+
 ### cotor run
 파이프라인을 실행합니다 (전통적인 방식).
 
@@ -106,6 +119,24 @@ cotor list [--config <config-file>]
 ```bash
 cotor init
 ```
+
+## CI/린트 규칙 (중요)
+
+새로운 CI에서는 아래 순서가 기본 게이트입니다.
+
+1. `gradle formatCheck`
+2. `gradle test`
+
+AI가 코드 변경을 제안하거나 생성할 때는 아래 체크리스트를 우선 적용합니다.
+
+- Kotlin/Gradle 변경 시:
+  - `gradle format`으로 포맷 적용 후 `gradle formatCheck` 재검증
+  - `gradle test` 실행
+- 파이프라인 YAML 변경 시:
+  - `cotor validate <file>`
+  - `cotor lint <file>`
+
+CI 실패를 줄이기 위해 포맷/테스트/린트 명령을 먼저 제안하고, 실패 시 해당 명령의 출력에 근거해 수정합니다.
 
 ## 파이프라인 생성 규칙
 
