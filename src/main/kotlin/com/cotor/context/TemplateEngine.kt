@@ -99,7 +99,7 @@ class TemplateEngine {
         return when (val scope = parts.getOrNull(0)) {
             "stages" -> handleStageScope(parts, context, original, handleError)
             "pipeline" -> handlePipelineScope(parts, context, original, handleError)
-            "env" -> handleEnvScope(parts, original, handleError)
+            "env" -> handleEnvScope(parts, original, mode, handleError)
             else -> handleError("[unknown scope '$scope' in expression: $original]")
         }
     }
@@ -153,12 +153,17 @@ class TemplateEngine {
     private fun handleEnvScope(
         parts: List<String>,
         original: String,
+        mode: InterpolationMode,
         handleError: (String) -> Any
     ): Any {
         val varName = parts.getOrNull(1)
             ?: return handleError("[missing environment variable name in expression: $original]")
 
         return System.getenv(varName)
-            ?: handleError("[env variable '$varName' not found for expression: $original]")
+            ?: if (mode == InterpolationMode.INTERPOLATE) {
+                "unknown"
+            } else {
+                handleError("[env variable '$varName' not found for expression: $original]")
+            }
     }
 }
