@@ -7,7 +7,6 @@ import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.aggregator.ResultAggregator
 import com.cotor.domain.executor.AgentExecutor
-import com.cotor.error.ErrorMessages
 import com.cotor.model.AgentConfig
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
@@ -45,10 +44,12 @@ import kotlin.io.path.writeText
  *
  * This intentionally avoids YAML pipelines; it dispatches directly to configured agents.
  */
-class InteractiveCommand : CliktCommand(
-    name = "interactive",
-    help = "Chat with the master agent via a terminal UI (no YAML pipeline required)"
-), KoinComponent {
+class InteractiveCommand :
+    CliktCommand(
+        name = "interactive",
+        help = "Chat with the master agent via a terminal UI (no YAML pipeline required)"
+    ),
+    KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val agentExecutor: AgentExecutor by inject()
@@ -86,7 +87,6 @@ class InteractiveCommand : CliktCommand(
     private val maxHistory by option("--max-history", help = "Max number of previous messages to include as context")
         .int()
         .default(20)
-
 
     private val bootstrapMaxChars by option(
         "--bootstrap-max-chars",
@@ -361,7 +361,7 @@ class InteractiveCommand : CliktCommand(
                 val best = bestName?.let { name -> aggregated.results.firstOrNull { it.agentName == name && it.isSuccess } }
                 if (best != null && best.output != null) {
                     val consensus = aggregated.analysis?.consensusScore?.let { (it * 100).toInt() }
-                    val header = if (consensus != null) "best=$bestName consensus=${consensus}%" else "best=$bestName"
+                    val header = if (consensus != null) "best=$bestName consensus=$consensus%" else "best=$bestName"
                     if (verbose) {
                         return@coroutineScope "[$header]\n\n${best.output}"
                     }
@@ -404,7 +404,7 @@ class InteractiveCommand : CliktCommand(
         while (true) {
             val line = try {
                 lineReader?.readLine("you> ") ?: run {
-                    terminal.print(bold(cyan("you> ")) )
+                    terminal.print(bold(cyan("you> ")))
                     readLine()
                 }
             } catch (_: UserInterruptException) {
@@ -513,7 +513,6 @@ class InteractiveCommand : CliktCommand(
         terminal.println(dim("Bye. Saved transcript to ${transcript.ensureDir()}"))
     }
 
-
     private fun buildLineReader(agentNames: List<String>) = runCatching {
         val jlineTerminal = TerminalBuilder.builder()
             .system(true)
@@ -544,11 +543,10 @@ class InteractiveCommand : CliktCommand(
         terminal.println(bold("Configured Agents (${allAgents.size})"))
         allAgents.values.sortedBy { it.name }.forEach { a ->
             val tags = if (a.tags.isEmpty()) "" else dim(" tags=" + a.tags.joinToString(","))
-            terminal.println("  - ${cyan(a.name)}${tags}")
+            terminal.println("  - ${cyan(a.name)}$tags")
         }
         terminal.println()
     }
-
 
     private fun loadBootstrapContext(maxChars: Int): String {
         val candidates = listOf(
@@ -560,7 +558,7 @@ class InteractiveCommand : CliktCommand(
 
         val merged = buildString {
             candidates.filter { it.exists() }.forEach { file ->
-                appendLine("## ${file.toString()}")
+                appendLine("## $file")
                 appendLine(file.readText().trim())
                 appendLine()
             }
@@ -603,7 +601,9 @@ class InteractiveCommand : CliktCommand(
     private fun writeStarterConfig(path: java.nio.file.Path) {
         val starter = resolveStarterAgent()
 
-        val parameterSection = if (starter.parameterBlock.isBlank()) "" else {
+        val parameterSection = if (starter.parameterBlock.isBlank()) {
+            ""
+        } else {
             """
     parameters:
 ${starter.parameterBlock.prependIndent("      ")}
@@ -677,7 +677,7 @@ performance:
                 executable = "claude",
                 parameterBlock = """
 model: claude-3-5-sonnet-20241022
-""".trimIndent()
+                """.trimIndent()
             )
             !System.getenv("OPENAI_API_KEY").isNullOrBlank() -> StarterAgent(
                 name = "openai",
@@ -686,7 +686,7 @@ model: claude-3-5-sonnet-20241022
                 parameterBlock = """
 model: gpt-4o-mini
 apiKeyEnv: OPENAI_API_KEY
-""".trimIndent()
+                """.trimIndent()
             )
             else -> StarterAgent(
                 name = "example-agent",

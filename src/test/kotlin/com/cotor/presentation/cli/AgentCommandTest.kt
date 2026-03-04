@@ -17,7 +17,7 @@ class AgentCommandTest : FunSpec({
 
     test("agent add writes preset yaml under .cotor/agents") {
         val root = Path("build/tmp/agent-add-${System.currentTimeMillis()}")
-        createdRoots += root
+        createdRoots.add(root)
         root.createDirectories()
         val config = root.resolve("cotor.yaml")
         config.writeText("version: \"1.0\"\nagents: []\n")
@@ -33,7 +33,7 @@ class AgentCommandTest : FunSpec({
 
     test("agent list shows merged agents") {
         val root = Path("build/tmp/agent-list-${System.currentTimeMillis()}")
-        createdRoots += root
+        createdRoots.add(root)
         root.createDirectories()
         val config = root.resolve("cotor.yaml")
         config.writeText(
@@ -64,7 +64,7 @@ class AgentCommandTest : FunSpec({
 
     test("agent add qwen writes command plugin parameters") {
         val root = Path("build/tmp/agent-qwen-${System.currentTimeMillis()}")
-        createdRoots += root
+        createdRoots.add(root)
         root.createDirectories()
         val config = root.resolve("cotor.yaml")
         config.writeText("version: \"1.0\"\nagents: []\n")
@@ -81,7 +81,7 @@ class AgentCommandTest : FunSpec({
 
     test("agent add codex uses updated default model") {
         val root = Path("build/tmp/agent-codex-${System.currentTimeMillis()}")
-        createdRoots += root
+        createdRoots.add(root)
         root.createDirectories()
         val config = root.resolve("cotor.yaml")
         config.writeText("version: \"1.0\"\nagents: []\n")

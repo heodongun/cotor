@@ -290,6 +290,8 @@ cotor/
 ```bash
 ./gradlew format       # Spotless + ktlint 포맷 적용
 ./gradlew formatCheck  # 포맷 위반이 있으면 실패
+./shell/auto-fix-lint.sh     # 린트/포맷 자동 수정 스크립트
+./shell/install-git-hooks.sh # 커밋 시 자동 린트 수정을 위한 pre-commit 훅 설치
 ```
 
 ## 📈 로드맵

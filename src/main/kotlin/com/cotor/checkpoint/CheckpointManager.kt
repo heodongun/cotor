@@ -2,9 +2,9 @@ package com.cotor.checkpoint
 
 import com.cotor.model.AgentResult
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
 import java.io.File
 import java.time.Instant
@@ -107,7 +107,6 @@ class CheckpointManager(
         val checkpointFile = File(checkpointDir, "$pipelineId.json")
         return checkpointFile.delete()
     }
-
 
     /**
      * Get all checkpoints

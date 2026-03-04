@@ -1,6 +1,5 @@
 package com.cotor.domain.condition
 
-import com.cotor.model.AgentResult
 import com.cotor.model.PipelineContext
 import org.slf4j.LoggerFactory
 
@@ -116,9 +115,13 @@ class ConditionEvaluator : Expression.Visitor<Any?> {
     private fun attemptCoercion(value: Any?): Any? {
         if (value !is String) return value
         return value.toDoubleOrNull()
-            ?: if (value.equals("true", ignoreCase = true)) true
-            else if (value.equals("false", ignoreCase = true)) false
-            else value
+            ?: if (value.equals("true", ignoreCase = true)) {
+                true
+            } else if (value.equals("false", ignoreCase = true)) {
+                false
+            } else {
+                value
+            }
     }
 
     private fun resolveValue(token: String, context: PipelineContext): Any? {

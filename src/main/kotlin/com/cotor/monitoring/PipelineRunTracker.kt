@@ -46,6 +46,7 @@ class PipelineRunTracker(
 ) {
     private val runs = ConcurrentHashMap<String, PipelineRunSnapshot>()
     private val history = ConcurrentLinkedDeque<String>()
+
     @Suppress("unused")
     private val subscriptions: List<EventSubscription>
 
@@ -88,13 +89,15 @@ class PipelineRunTracker(
 
     private fun handleCompleted(event: PipelineCompletedEvent) {
         val existing = runs[event.pipelineId]
-        val snapshot = (existing ?: PipelineRunSnapshot(
-            pipelineId = event.pipelineId,
-            pipelineName = event.pipelineId,
-            status = PipelineRunStatus.RUNNING,
-            startedAt = event.timestamp,
-            updatedAt = event.timestamp
-        )).copy(
+        val snapshot = (
+            existing ?: PipelineRunSnapshot(
+                pipelineId = event.pipelineId,
+                pipelineName = event.pipelineId,
+                status = PipelineRunStatus.RUNNING,
+                startedAt = event.timestamp,
+                updatedAt = event.timestamp
+            )
+            ).copy(
             status = PipelineRunStatus.COMPLETED,
             updatedAt = event.timestamp,
             totalDurationMs = event.result.totalDuration,
@@ -109,13 +112,15 @@ class PipelineRunTracker(
 
     private fun handleFailed(event: PipelineFailedEvent) {
         val existing = runs[event.pipelineId]
-        val snapshot = (existing ?: PipelineRunSnapshot(
-            pipelineId = event.pipelineId,
-            pipelineName = event.pipelineId,
-            status = PipelineRunStatus.RUNNING,
-            startedAt = event.timestamp,
-            updatedAt = event.timestamp
-        )).copy(
+        val snapshot = (
+            existing ?: PipelineRunSnapshot(
+                pipelineId = event.pipelineId,
+                pipelineName = event.pipelineId,
+                status = PipelineRunStatus.RUNNING,
+                startedAt = event.timestamp,
+                updatedAt = event.timestamp
+            )
+            ).copy(
             status = PipelineRunStatus.FAILED,
             updatedAt = event.timestamp,
             message = event.error.message ?: event.error::class.simpleName ?: "Unknown error"

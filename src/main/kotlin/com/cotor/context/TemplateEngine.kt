@@ -121,10 +121,12 @@ class TemplateEngine {
         }
 
         return when (property) {
-            "output" -> stageResult.output
-                ?: handleError("[stage '$stageId' output not found for expression: $original]")
-            "error" -> stageResult.error
-                ?: handleError("[stage '$stageId' error not found for expression: $original]")
+            "output" ->
+                stageResult.output
+                    ?: handleError("[stage '$stageId' output not found for expression: $original]")
+            "error" ->
+                stageResult.error
+                    ?: handleError("[stage '$stageId' error not found for expression: $original]")
             "success" -> stageResult.isSuccess.toString()
             "duration" -> stageResult.duration.toString()
             "metadata" -> {

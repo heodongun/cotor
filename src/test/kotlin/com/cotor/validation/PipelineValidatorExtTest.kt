@@ -6,7 +6,6 @@ import com.cotor.data.registry.InMemoryAgentRegistry
 import com.cotor.model.*
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
-import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 

@@ -31,10 +31,10 @@ class SimpleCLI : KoinComponent {
         try {
             // Load config
             val config = configRepository.loadConfig(Path(configFile))
-            
+
             // Register agents
             config.agents.forEach { agentRegistry.registerAgent(it) }
-            
+
             // Find pipeline
             val pipeline = config.pipelines.find { it.name == pipelineName }
                 ?: throw IllegalArgumentException("❌ Pipeline not found: $pipelineName")
@@ -46,19 +46,19 @@ class SimpleCLI : KoinComponent {
                 println("👉 수정 후 다시 실행하거나, --dry-run 으로 흐름만 확인하세요.")
                 return@runBlocking
             }
-            
+
             // Execute
             println("🚀 Running: $pipelineName")
             println()
-            
+
             val result = orchestrator.executePipeline(pipeline)
-            
+
             // Simple output
             println()
             println("✅ Completed in ${result.totalDuration}ms")
             println("   Success: ${result.successCount}/${result.totalAgents}")
             println()
-            
+
             result.results.forEach { agentResult ->
                 if (agentResult.isSuccess) {
                     println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -70,14 +70,14 @@ class SimpleCLI : KoinComponent {
                     println("❌ ${agentResult.agentName}: ${agentResult.error}")
                 }
             }
-            
         } catch (e: Exception) {
             println("❌ Error: ${e.message}")
         }
     }
 
     private fun printHelp() {
-        println("""
+        println(
+            """
             🤖 Cotor - AI CLI Master-Agent System
             
             Usage:
@@ -91,6 +91,7 @@ class SimpleCLI : KoinComponent {
               cotor init              # Create default config
               cotor list              # List available pipelines
               cotor web               # Start web UI
-        """.trimIndent())
+            """.trimIndent()
+        )
     }
 }
