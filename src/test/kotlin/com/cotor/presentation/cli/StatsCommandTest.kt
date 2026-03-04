@@ -8,9 +8,9 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
-import org.koin.dsl.module
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
+import org.koin.dsl.module
 
 class StatsCommandTest : FunSpec({
 
@@ -18,9 +18,11 @@ class StatsCommandTest : FunSpec({
 
     beforeSpec {
         startKoin {
-            modules(module {
-                single { statsManager }
-            })
+            modules(
+                module {
+                    single { statsManager }
+                }
+            )
         }
     }
 

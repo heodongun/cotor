@@ -1,6 +1,7 @@
 package com.cotor.chat
 
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
@@ -32,5 +33,46 @@ class ChatSessionTest : FunSpec({
         prompt.shouldNotContain("User: u1")
         prompt.shouldNotContain("Assistant: a1")
     }
-})
 
+    test("buildPrompt includes bootstrap and memory contexts") {
+        val session = ChatSession(includeContext = true, maxHistoryMessages = 5)
+        val prompt = session.buildPrompt(
+            currentUserInput = "status?",
+            bootstrapContext = "AGENTS: keep code clean",
+            memoryContext = listOf("지난번에는 retry를 켰다")
+        )
+
+        prompt.shouldContain("Workspace bootstrap context:")
+        prompt.shouldContain("AGENTS: keep code clean")
+        prompt.shouldContain("Relevant long-term memory:")
+        prompt.shouldContain("- 지난번에는 retry를 켰다")
+    }
+
+    test("compactHistory preserves head and tail with summary in middle") {
+        val session = ChatSession(includeContext = true, maxHistoryMessages = 100)
+        repeat(20) { i ->
+            session.addUser("u$i")
+            session.addAssistant("a$i")
+        }
+
+        session.compactHistory(keepHead = 2, keepTail = 4)
+        val snapshot = session.snapshot()
+
+        snapshot.shouldHaveSize(7)
+        snapshot.first().content shouldBe "u0"
+        snapshot[1].content shouldBe "a0"
+        snapshot[2].content.shouldContain("[Summary of earlier conversation]")
+        snapshot.takeLast(4).map { it.content } shouldBe listOf("u18", "a18", "u19", "a19")
+    }
+
+    test("buildPrompt prunes oversized older assistant outputs") {
+        val session = ChatSession(includeContext = true, maxHistoryMessages = 10, toolOutputPruneChars = 20)
+        session.addUser("show details")
+        session.addAssistant("x".repeat(100))
+        session.addUser("ok and now?")
+        session.addAssistant("short")
+
+        val prompt = session.buildPrompt("next")
+        prompt.shouldContain("cache-aware-pruned assistant output")
+    }
+})

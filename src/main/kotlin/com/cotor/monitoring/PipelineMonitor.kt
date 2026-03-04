@@ -33,7 +33,9 @@ data class StageExecutionInfo(
     val duration: Duration?
         get() = if (startTime != null && endTime != null) {
             Duration.between(startTime, endTime)
-        } else null
+        } else {
+            null
+        }
 }
 
 /**
@@ -124,7 +126,7 @@ class PipelineMonitor(
 
         pipeline.stages.forEachIndexed { index, stage ->
             val info = stageStates[stage.id]!!
-            val icon = when(info.state) {
+            val icon = when (info.state) {
                 StageState.COMPLETED -> green("✅")
                 StageState.RUNNING -> yellow("🔄")
                 StageState.FAILED -> red("❌")
@@ -207,7 +209,7 @@ class PipelineMonitor(
             terminal.println("Stage Details:")
             pipeline.stages.forEach { stage ->
                 val info = stageStates[stage.id]!!
-                val icon = when(info.state) {
+                val icon = when (info.state) {
                     StageState.COMPLETED -> green("✅")
                     StageState.FAILED -> red("❌")
                     else -> gray("⏳")
@@ -231,7 +233,7 @@ class PipelineMonitor(
 
         return when {
             minutes > 0 -> "${minutes}m ${secs}s"
-            secs > 0 -> "${secs}.${millis / 100}s"
+            secs > 0 -> "$secs.${millis / 100}s"
             else -> "${millis}ms"
         }
     }

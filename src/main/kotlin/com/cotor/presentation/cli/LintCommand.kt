@@ -20,10 +20,12 @@ import kotlin.system.exitProcess
 /**
  * Lint command to statically check configuration files
  */
-class LintCommand : CliktCommand(
-    name = "lint",
-    help = "Statically check configuration for schema violations and best practices."
-), KoinComponent {
+class LintCommand :
+    CliktCommand(
+        name = "lint",
+        help = "Statically check configuration for schema violations and best practices."
+    ),
+    KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val linter = Linter()
 
@@ -60,7 +62,6 @@ class LintCommand : CliktCommand(
                     terminal.println(green("🎉 No warnings found!"))
                 }
             }
-
         } catch (e: UserFriendlyError) {
             terminal.println(red(e.message ?: "An unknown user-friendly error occurred."))
             exitProcess(1)

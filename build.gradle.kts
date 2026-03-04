@@ -21,8 +21,9 @@ dependencies {
 
     // CLI
     implementation(libs.clikt)
-    implementation(libs.mordant)  // Terminal UI
-    implementation(libs.progressbar)            // Progress bar
+    implementation(libs.mordant) // Terminal UI
+    implementation(libs.progressbar) // Progress bar
+    implementation(libs.jline) // Interactive line editing/completion
 
     // Serialization
     implementation(libs.kotlinx.serialization.json)
@@ -55,7 +56,6 @@ dependencies {
 application {
     mainClass.set("com.cotor.MainKt")
 }
-
 
 spotless {
     kotlin {

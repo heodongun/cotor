@@ -16,10 +16,12 @@ import org.koin.core.component.inject
 import kotlin.io.path.Path
 import kotlin.io.path.exists
 
-class ExplainCommand : CliktCommand(
-    name = "explain",
-    help = "Explain the execution plan of a pipeline"
-), KoinComponent {
+class ExplainCommand :
+    CliktCommand(
+        name = "explain",
+        help = "Explain the execution plan of a pipeline"
+    ),
+    KoinComponent {
     private val configRepository: ConfigRepository by inject()
 
     private val configPath by option("--config", "-c", help = "Path to configuration file")
@@ -50,7 +52,6 @@ class ExplainCommand : CliktCommand(
 
             val diagram = DiagramGenerator.generate(pipeline)
             echo(diagram)
-
         } catch (e: UserFriendlyError) {
             echo(e.message, err = true)
         } catch (e: Exception) {

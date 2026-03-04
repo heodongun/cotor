@@ -6,9 +6,9 @@ import com.cotor.domain.aggregator.DefaultResultAggregator
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.event.CoroutineEventBus
 import com.cotor.model.*
+import com.cotor.stats.StatsManager
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.SyntaxValidator
-import com.cotor.stats.StatsManager
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe

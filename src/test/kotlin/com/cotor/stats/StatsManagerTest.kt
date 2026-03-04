@@ -2,12 +2,12 @@ package com.cotor.stats
 
 import com.cotor.model.AggregatedResult
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.doubles.plusOrMinus
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import java.nio.file.Files
 import java.time.Instant
-import io.kotest.matchers.doubles.plusOrMinus
 
 class StatsManagerTest : FunSpec({
 

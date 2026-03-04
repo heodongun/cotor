@@ -1,25 +1,23 @@
 package com.cotor.domain.orchestrator
 
+import com.cotor.checkpoint.CheckpointManager
+import com.cotor.domain.aggregator.ResultAggregator
+import com.cotor.domain.executor.AgentExecutor
+import com.cotor.event.EventBus
+import com.cotor.model.AgentConfig
+import com.cotor.model.AgentReference
 import com.cotor.model.AgentResult
+import com.cotor.model.ExecutionMode
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineStage
-import com.cotor.model.AgentReference
-import com.cotor.model.ExecutionMode
-import com.cotor.domain.executor.AgentExecutor
-import com.cotor.domain.aggregator.ResultAggregator
-import com.cotor.event.EventBus
+import com.cotor.stats.StatsManager
+import com.cotor.validation.PipelineTemplateValidator
+import com.cotor.validation.output.OutputValidator
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.mockk
 import org.slf4j.Logger
-import com.cotor.model.ExecutionContext
-import com.cotor.model.PipelineContext
-import com.cotor.stats.StatsManager
-import com.cotor.validation.output.OutputValidator
-import com.cotor.model.AgentConfig
-import com.cotor.validation.PipelineTemplateValidator
-import com.cotor.checkpoint.CheckpointManager
 
 class PipelineOrchestratorTemplatingTest : StringSpec({
 

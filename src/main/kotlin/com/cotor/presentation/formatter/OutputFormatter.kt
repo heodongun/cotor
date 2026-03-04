@@ -1,7 +1,6 @@
 package com.cotor.presentation.formatter
 
 import com.cotor.model.AggregatedResult
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
@@ -82,10 +81,10 @@ class CsvOutputFormatter : OutputFormatter {
         result.results.forEach { agentResult ->
             sb.appendLine(
                 "${agentResult.agentName}," +
-                        "${agentResult.isSuccess}," +
-                        "${agentResult.duration}," +
-                        "\"${agentResult.output?.replace("\"", "\"\"")}\"," +
-                        "\"${agentResult.error?.replace("\"", "\"\"")}\""
+                    "${agentResult.isSuccess}," +
+                    "${agentResult.duration}," +
+                    "\"${agentResult.output?.replace("\"", "\"\"")}\"," +
+                    "\"${agentResult.error?.replace("\"", "\"\"")}\""
             )
         }
 
@@ -131,7 +130,7 @@ class TextOutputFormatter : OutputFormatter {
             if (agentResult.isSuccess && agentResult.output != null) {
                 sb.appendLine("      Output:")
                 agentResult.output.lines().forEach { line ->
-                        sb.appendLine("        $line")
+                    sb.appendLine("        $line")
                 }
             }
 

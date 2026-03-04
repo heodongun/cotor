@@ -23,7 +23,8 @@ class NaturalLanguageProcessorPlugin : AgentPlugin {
         val command = listOf(
             "python3",
             "/path/to/nlp_tool.py",
-            "--mode", context.parameters["mode"] ?: "analyze"
+            "--mode",
+            context.parameters["mode"] ?: "analyze"
         )
 
         val result = processManager.executeProcess(
@@ -80,8 +81,10 @@ class CodeGeneratorPlugin : AgentPlugin {
         val command = listOf(
             "node",
             "/path/to/code_generator.js",
-            "--language", language,
-            "--framework", framework
+            "--language",
+            language,
+            "--framework",
+            framework
         )
 
         val result = processManager.executeProcess(

@@ -59,11 +59,15 @@ class SpinnerAnimation(
             } else {
                 " (timeout exceeded)"
             }
-        } else ""
+        } else {
+            ""
+        }
 
         val elapsedInfo = if (showElapsed) {
             " [${formatDuration(elapsed)}]"
-        } else ""
+        } else {
+            ""
+        }
 
         clearLine()
         terminal.print("\r${cyan(frame)} $message$elapsedInfo${dim(timeoutInfo)}")

@@ -49,12 +49,16 @@ class TemplateEngineTest {
 
     @Test
     fun `should interpolate environment variables`() {
-        // This test relies on the underlying environment where the test is run.
-        // Let's assume USER is a common variable.
-        val user = System.getenv("USER") ?: "unknown"
         val template = "Running as user: \${env.USER}"
-        val expected = "Running as user: $user"
         val actual = templateEngine.interpolate(template, pipelineContext)
+
+        val user = System.getenv("USER")
+        val expected = if (user.isNullOrBlank()) {
+            "Running as user: [env variable 'USER' not found for expression: \${env.USER}]"
+        } else {
+            "Running as user: $user"
+        }
+
         assertEquals(expected, actual)
     }
 

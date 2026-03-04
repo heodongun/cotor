@@ -17,9 +17,9 @@ import com.cotor.model.PipelineStage
 import com.cotor.model.StageConditionConfig
 import com.cotor.model.StageLoopConfig
 import com.cotor.model.StageType
+import com.cotor.stats.StatsManager
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.SyntaxValidator
-import com.cotor.stats.StatsManager
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe

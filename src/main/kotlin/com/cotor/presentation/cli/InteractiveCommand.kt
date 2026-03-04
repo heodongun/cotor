@@ -7,7 +7,6 @@ import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.aggregator.ResultAggregator
 import com.cotor.domain.executor.AgentExecutor
-import com.cotor.error.ErrorMessages
 import com.cotor.model.AgentConfig
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
@@ -26,15 +25,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.jline.reader.EndOfFileException
+import org.jline.reader.LineReaderBuilder
+import org.jline.reader.UserInterruptException
+import org.jline.terminal.TerminalBuilder
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.io.File
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readLines
+import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 /**
@@ -42,10 +44,12 @@ import kotlin.io.path.writeText
  *
  * This intentionally avoids YAML pipelines; it dispatches directly to configured agents.
  */
-class InteractiveCommand : CliktCommand(
-    name = "interactive",
-    help = "Chat with the master agent via a terminal UI (no YAML pipeline required)"
-), KoinComponent {
+class InteractiveCommand :
+    CliktCommand(
+        name = "interactive",
+        help = "Chat with the master agent via a terminal UI (no YAML pipeline required)"
+    ),
+    KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val agentExecutor: AgentExecutor by inject()
@@ -83,6 +87,16 @@ class InteractiveCommand : CliktCommand(
     private val maxHistory by option("--max-history", help = "Max number of previous messages to include as context")
         .int()
         .default(20)
+
+    private val bootstrapMaxChars by option(
+        "--bootstrap-max-chars",
+        help = "Max chars loaded from workspace bootstrap docs (AGENTS/README)"
+    ).int().default(20_000)
+
+    private val memorySearchLimit by option(
+        "--memory-search-limit",
+        help = "How many MEMORY.md entries to inject per turn"
+    ).int().default(3)
 
     private val showAll by option(
         "--show-all",
@@ -126,9 +140,14 @@ class InteractiveCommand : CliktCommand(
         val selectedAgents = parseAgentsOption(agents, allAgents.values.toList())
         val activeAgent = resolveActiveAgent(chatMode, agent, selectedAgents, allAgents)
 
-        val session = ChatSession(includeContext = !noContext, maxHistoryMessages = maxHistory)
         val outputDir = (saveDir ?: defaultSaveDir()).also { it.createDirectories() }
         val transcript = ChatTranscriptWriter(outputDir)
+        val bootstrapContext = loadBootstrapContext(bootstrapMaxChars)
+        val session = ChatSession(
+            includeContext = !noContext,
+            maxHistoryMessages = maxHistory,
+            initialMessages = transcript.loadSessionMessages()
+        )
 
         val headerLines = buildList {
             add("Config: $configPath")
@@ -145,12 +164,16 @@ class InteractiveCommand : CliktCommand(
                     activeAgent = activeAgent,
                     selectedAgents = selectedAgents,
                     userInput = prompt!!,
-                    verbose = false
+                    verbose = false,
+                    bootstrapContext = bootstrapContext,
+                    memoryContext = transcript.searchMemory(prompt!!, memorySearchLimit)
                 )
                 session.addUser(prompt!!)
                 session.addAssistant(response)
                 transcript.writeMarkdown(session, headerLines)
                 transcript.writeRawText(session)
+                transcript.writeJsonl(session)
+                transcript.flushMemoryIfNeeded(session)
                 echo(response)
             }
 
@@ -167,7 +190,9 @@ class InteractiveCommand : CliktCommand(
                         activeAgent = activeAgent,
                         selectedAgents = selectedAgents,
                         userInput = line,
-                        verbose = false
+                        verbose = false,
+                        bootstrapContext = bootstrapContext,
+                        memoryContext = transcript.searchMemory(line, memorySearchLimit)
                     )
                     session.addUser(line)
                     session.addAssistant(response)
@@ -175,6 +200,8 @@ class InteractiveCommand : CliktCommand(
                 }
                 transcript.writeMarkdown(session, headerLines)
                 transcript.writeRawText(session)
+                transcript.writeJsonl(session)
+                transcript.flushMemoryIfNeeded(session)
                 echo(outputs.joinToString("\n\n"))
             }
 
@@ -186,7 +213,8 @@ class InteractiveCommand : CliktCommand(
                     selectedAgentsInitial = selectedAgents,
                     allAgents = allAgents,
                     transcript = transcript,
-                    headerLines = headerLines
+                    headerLines = headerLines,
+                    bootstrapContext = bootstrapContext
                 )
             }
         }
@@ -244,7 +272,9 @@ class InteractiveCommand : CliktCommand(
         activeAgent: AgentConfig?,
         selectedAgents: List<AgentConfig>,
         userInput: String,
-        verbose: Boolean
+        verbose: Boolean,
+        bootstrapContext: String,
+        memoryContext: List<String>
     ): String = coroutineScope {
         val spinner = launch {
             val frames = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
@@ -263,7 +293,9 @@ class InteractiveCommand : CliktCommand(
                 activeAgent = activeAgent,
                 selectedAgents = selectedAgents,
                 userInput = userInput,
-                verbose = verbose
+                verbose = verbose,
+                bootstrapContext = bootstrapContext,
+                memoryContext = memoryContext
             )
         } finally {
             spinner.cancel()
@@ -277,9 +309,15 @@ class InteractiveCommand : CliktCommand(
         activeAgent: AgentConfig?,
         selectedAgents: List<AgentConfig>,
         userInput: String,
-        verbose: Boolean
+        verbose: Boolean,
+        bootstrapContext: String,
+        memoryContext: List<String>
     ): String = coroutineScope {
-        val effectivePrompt = session.buildPrompt(userInput)
+        val effectivePrompt = session.buildPrompt(
+            currentUserInput = userInput,
+            bootstrapContext = bootstrapContext,
+            memoryContext = memoryContext
+        )
         when (chatMode) {
             ChatMode.SINGLE -> {
                 val target = activeAgent ?: selectedAgents.firstOrNull()
@@ -323,7 +361,7 @@ class InteractiveCommand : CliktCommand(
                 val best = bestName?.let { name -> aggregated.results.firstOrNull { it.agentName == name && it.isSuccess } }
                 if (best != null && best.output != null) {
                     val consensus = aggregated.analysis?.consensusScore?.let { (it * 100).toInt() }
-                    val header = if (consensus != null) "best=$bestName consensus=${consensus}%" else "best=$bestName"
+                    val header = if (consensus != null) "best=$bestName consensus=$consensus%" else "best=$bestName"
                     if (verbose) {
                         return@coroutineScope "[$header]\n\n${best.output}"
                     }
@@ -343,7 +381,8 @@ class InteractiveCommand : CliktCommand(
         selectedAgentsInitial: List<AgentConfig>,
         allAgents: Map<String, AgentConfig>,
         transcript: ChatTranscriptWriter,
-        headerLines: List<String>
+        headerLines: List<String>,
+        bootstrapContext: String
     ) {
         var chatMode = chatModeInitial
         var selectedAgents = selectedAgentsInitial
@@ -353,13 +392,28 @@ class InteractiveCommand : CliktCommand(
         terminal.println(bold("◎ Cotor Interactive"))
         terminal.println(dim("Type ':help' for commands, ':exit' to quit."))
         terminal.println(dim("Transcript: ${transcript.ensureDir()}"))
+        if (session.snapshot().isNotEmpty()) {
+            terminal.println(dim("Loaded ${session.snapshot().size} messages from session.jsonl"))
+        }
         terminal.println()
 
         var endedByEof = false
 
+        val lineReader = buildLineReader(allAgents.keys.toList())
+
         while (true) {
-            terminal.print(bold(cyan("you> ")) )
-            val line = readLine()
+            val line = try {
+                lineReader?.readLine("you> ") ?: run {
+                    terminal.print(bold(cyan("you> ")))
+                    readLine()
+                }
+            } catch (_: UserInterruptException) {
+                terminal.println()
+                continue
+            } catch (_: EndOfFileException) {
+                null
+            }
+
             if (line == null) {
                 endedByEof = true
                 break
@@ -375,6 +429,7 @@ class InteractiveCommand : CliktCommand(
                     cmd.equals("agents", true) -> printAgents(allAgents)
                     cmd.equals("clear", true) -> {
                         session.clear()
+                        transcript.clearJsonl()
                         terminal.println(dim("Cleared session history."))
                     }
                     cmd.startsWith("mode ", true) -> {
@@ -409,6 +464,8 @@ class InteractiveCommand : CliktCommand(
                     cmd.equals("save", true) -> {
                         transcript.writeMarkdown(session, headerLines + "Mode: $chatMode")
                         transcript.writeRawText(session)
+                        transcript.writeJsonl(session)
+                        transcript.flushMemoryIfNeeded(session)
                         terminal.println(green("Saved transcript to ${transcript.ensureDir()}"))
                     }
                     else -> terminal.println(dim("Unknown command. Try ':help'"))
@@ -424,7 +481,9 @@ class InteractiveCommand : CliktCommand(
                     activeAgent = activeAgent,
                     selectedAgents = selectedAgents,
                     userInput = input,
-                    verbose = true
+                    verbose = true,
+                    bootstrapContext = bootstrapContext,
+                    memoryContext = transcript.searchMemory(input, memorySearchLimit)
                 )
                 session.addUser(input)
                 session.addAssistant(response)
@@ -436,6 +495,8 @@ class InteractiveCommand : CliktCommand(
                 // Persist after each successful turn.
                 transcript.writeMarkdown(session, headerLines + "Mode: $chatMode")
                 transcript.writeRawText(session)
+                transcript.writeJsonl(session)
+                transcript.flushMemoryIfNeeded(session)
             } catch (e: Exception) {
                 terminal.println(red("Error: ${e.message ?: "unknown error"}"))
                 terminal.println(dim("Hint: use ':agents' to list, ':mode auto|compare|single', ':model <name>'"))
@@ -444,11 +505,23 @@ class InteractiveCommand : CliktCommand(
 
         transcript.writeMarkdown(session, headerLines + "Mode: $chatMode")
         transcript.writeRawText(session)
+        transcript.writeJsonl(session)
+        transcript.flushMemoryIfNeeded(session)
         if (endedByEof) {
             terminal.println(dim("Input stream closed (EOF). Exiting interactive mode."))
         }
         terminal.println(dim("Bye. Saved transcript to ${transcript.ensureDir()}"))
     }
+
+    private fun buildLineReader(agentNames: List<String>) = runCatching {
+        val jlineTerminal = TerminalBuilder.builder()
+            .system(true)
+            .build()
+        LineReaderBuilder.builder()
+            .terminal(jlineTerminal)
+            .completer(InteractiveCommandCompleter { agentNames })
+            .build()
+    }.getOrNull()
 
     private fun printHelp() {
         terminal.println()
@@ -470,14 +543,33 @@ class InteractiveCommand : CliktCommand(
         terminal.println(bold("Configured Agents (${allAgents.size})"))
         allAgents.values.sortedBy { it.name }.forEach { a ->
             val tags = if (a.tags.isEmpty()) "" else dim(" tags=" + a.tags.joinToString(","))
-            terminal.println("  - ${cyan(a.name)}${tags}")
+            terminal.println("  - ${cyan(a.name)}$tags")
         }
         terminal.println()
     }
 
+    private fun loadBootstrapContext(maxChars: Int): String {
+        val candidates = listOf(
+            Path("AGENTS.md"),
+            Path("README.md"),
+            Path("README.ko.md"),
+            Path("docs/README.md")
+        )
+
+        val merged = buildString {
+            candidates.filter { it.exists() }.forEach { file ->
+                appendLine("## $file")
+                appendLine(file.readText().trim())
+                appendLine()
+            }
+        }
+
+        if (merged.isBlank()) return ""
+        return merged.take(maxChars)
+    }
+
     private fun defaultSaveDir(): java.nio.file.Path {
-        val ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-        return Path(".cotor").resolve("interactive").resolve(ts)
+        return Path(".cotor").resolve("interactive").resolve("default")
     }
 
     private data class StarterAgent(
@@ -509,7 +601,9 @@ class InteractiveCommand : CliktCommand(
     private fun writeStarterConfig(path: java.nio.file.Path) {
         val starter = resolveStarterAgent()
 
-        val parameterSection = if (starter.parameterBlock.isBlank()) "" else {
+        val parameterSection = if (starter.parameterBlock.isBlank()) {
+            ""
+        } else {
             """
     parameters:
 ${starter.parameterBlock.prependIndent("      ")}
@@ -583,7 +677,7 @@ performance:
                 executable = "claude",
                 parameterBlock = """
 model: claude-3-5-sonnet-20241022
-""".trimIndent()
+                """.trimIndent()
             )
             !System.getenv("OPENAI_API_KEY").isNullOrBlank() -> StarterAgent(
                 name = "openai",
@@ -592,7 +686,7 @@ model: claude-3-5-sonnet-20241022
                 parameterBlock = """
 model: gpt-4o-mini
 apiKeyEnv: OPENAI_API_KEY
-""".trimIndent()
+                """.trimIndent()
             )
             else -> StarterAgent(
                 name = "example-agent",
