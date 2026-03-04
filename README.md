@@ -1036,6 +1036,20 @@ cotor/
 ./gradlew formatCheck  # Fail if formatting violations exist
 ```
 
+### Auto-fix lint on commit (like JS projects)
+
+```bash
+bash shell/setup-git-hooks.sh  # one-time setup
+```
+
+After setup, every `git commit` automatically runs Spotless (`spotlessApply`) and re-stages formatted `*.kt` / `*.kts` files.
+
+You can also run the formatter manually anytime:
+
+```bash
+bash shell/auto-fix-lint.sh
+```
+
 ## 📈 Roadmap
 
 ### v1.1.0 (Next)

@@ -49,4 +49,3 @@ class ChatSession(
         return sb.toString()
     }
 }
-

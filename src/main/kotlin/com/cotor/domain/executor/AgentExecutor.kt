@@ -99,7 +99,6 @@ class DefaultAgentExecutor(
                     duration = duration,
                     metadata = mapOf("executedAt" to Instant.now().toString())
                 )
-
             } catch (e: TimeoutCancellationException) {
                 logger.error("Agent timeout: ${agent.name}", e)
                 AgentResult(

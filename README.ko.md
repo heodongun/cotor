@@ -292,6 +292,21 @@ cotor/
 ./gradlew formatCheck  # 포맷 위반이 있으면 실패
 ```
 
+### 커밋 시 린트 자동 수정 (JS 프로젝트처럼)
+
+```bash
+bash shell/setup-git-hooks.sh  # 1회 설정
+```
+
+설정 후에는 `git commit` 때마다 Spotless(`spotlessApply`)가 자동 실행되고,
+포맷된 `*.kt` / `*.kts` 파일이 자동으로 다시 스테이징됩니다.
+
+수동으로 포맷만 돌리고 싶으면 다음 스크립트를 실행하세요:
+
+```bash
+bash shell/auto-fix-lint.sh
+```
+
 ## 📈 로드맵
 
 ### v1.1.0 (다음 버전)

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+bash shell/auto-fix-lint.sh
+
+# Re-stage formatting changes so commit includes auto-fixed files.
+git add -A -- '*.kt' '*.kts'
+
+echo "✅ pre-commit: lint auto-fix done and formatted files re-staged."

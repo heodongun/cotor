@@ -23,10 +23,12 @@ import kotlin.io.path.exists
 /**
  * Simple Codex-style dashboard to run pipelines interactively
  */
-class CodexDashboardCommand : CliktCommand(
-    name = "dash",
-    help = "Run pipelines via an interactive Codex-style dashboard"
-), KoinComponent {
+class CodexDashboardCommand :
+    CliktCommand(
+        name = "dash",
+        help = "Run pipelines via an interactive Codex-style dashboard"
+    ),
+    KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val orchestrator: PipelineOrchestrator by inject()

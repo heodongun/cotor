@@ -49,14 +49,14 @@ object DiagramGenerator {
 
         fun printStage(stageId: String, prefix: String) {
             if (stageId in visited && entryPoints.none { it.id == stageId }) {
-                sb.appendLine("$prefix- ${stageId} (already rendered)")
+                sb.appendLine("$prefix- $stageId (already rendered)")
                 return
             }
             visited.add(stageId)
 
             val stage = stageMap[stageId]
             if (stage == null) {
-                sb.appendLine("$prefix- ${stageId} (stage not found!)")
+                sb.appendLine("$prefix- $stageId (stage not found!)")
                 return
             }
 

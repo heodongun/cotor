@@ -3,9 +3,9 @@ package com.cotor.stats
 import com.cotor.model.AggregatedResult
 import com.cotor.model.FailureCategory
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.time.Instant
 
@@ -86,16 +86,22 @@ class StatsManager(
 
         val avgDuration = if (stats.totalExecutions > 0) {
             stats.totalDuration / stats.totalExecutions
-        } else 0L
+        } else {
+            0L
+        }
 
         val successRate = if (stats.totalExecutions > 0) {
             (stats.totalSuccesses.toDouble() / (stats.totalSuccesses + stats.totalFailures)) * 100
-        } else 0.0
+        } else {
+            0.0
+        }
 
         val recentExecutions = stats.executions.takeLast(10)
         val avgRecentDuration = if (recentExecutions.isNotEmpty()) {
             recentExecutions.map { it.totalDuration }.average().toLong()
-        } else 0L
+        } else {
+            0L
+        }
 
         return StatsSummary(
             pipelineName = stats.pipelineName,

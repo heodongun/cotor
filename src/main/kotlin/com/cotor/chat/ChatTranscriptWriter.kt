@@ -1,6 +1,5 @@
 package com.cotor.chat
 
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.io.path.createDirectories
@@ -61,4 +60,3 @@ class ChatTranscriptWriter(
         saveDir.resolve("transcript.txt").writeText(txt)
     }
 }
-

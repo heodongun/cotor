@@ -150,10 +150,10 @@ data class AgentReference(
  */
 @Serializable
 enum class ExecutionMode {
-    SEQUENTIAL,  // Sequential execution
-    PARALLEL,    // Parallel execution
-    DAG,         // Dependency graph-based execution
-    MAP          // Map/fan-out execution
+    SEQUENTIAL, // Sequential execution
+    PARALLEL, // Parallel execution
+    DAG, // Dependency graph-based execution
+    MAP // Map/fan-out execution
 }
 
 /**
@@ -161,10 +161,10 @@ enum class ExecutionMode {
  */
 @Serializable
 enum class FailureStrategy {
-    ABORT,       // Abort immediately
-    CONTINUE,    // Continue execution
-    RETRY,       // Retry failed operation
-    FALLBACK     // Execute fallback operation
+    ABORT, // Abort immediately
+    CONTINUE, // Continue execution
+    RETRY, // Retry failed operation
+    FALLBACK // Execute fallback operation
 }
 
 /**
@@ -429,7 +429,9 @@ sealed class ValidationResult {
  * Memory usage status
  */
 enum class MemoryStatus {
-    NORMAL, HIGH, CRITICAL
+    NORMAL,
+    HIGH,
+    CRITICAL
 }
 
 /**

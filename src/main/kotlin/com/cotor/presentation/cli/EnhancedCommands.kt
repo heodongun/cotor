@@ -5,11 +5,11 @@ import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
 import com.cotor.error.ErrorMessages
 import com.cotor.error.UserFriendlyError
-import com.cotor.event.EventBus
 import com.cotor.event.*
+import com.cotor.event.EventBus
 import com.cotor.monitoring.PipelineMonitor
-import com.cotor.monitoring.TimelineCollector
 import com.cotor.monitoring.StageState
+import com.cotor.monitoring.TimelineCollector
 import com.cotor.presentation.formatter.OutputFormatter
 import com.cotor.presentation.timeline.StageTimelineEntry
 import com.cotor.presentation.timeline.StageTimelineState
@@ -28,17 +28,19 @@ import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.nio.file.Path
-import kotlin.math.roundToInt
 import kotlin.io.path.Path
 import kotlin.io.path.exists
+import kotlin.math.roundToInt
 
 /**
  * Enhanced Run Command with monitoring, validation, and dry-run support
  */
-class EnhancedRunCommand : CliktCommand(
-    name = "run",
-    help = "Run a pipeline with real-time monitoring"
-), KoinComponent {
+class EnhancedRunCommand :
+    CliktCommand(
+        name = "run",
+        help = "Run a pipeline with real-time monitoring"
+    ),
+    KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val orchestrator: PipelineOrchestrator by inject()
@@ -165,11 +167,9 @@ class EnhancedRunCommand : CliktCommand(
                 terminal.println()
                 terminal.println(bold("📄 Aggregated Output"))
                 echo(formatter.format(result))
-
             } finally {
                 monitorSubscriptions.forEach { eventBus.unsubscribe(it) }
             }
-
         } catch (e: UserFriendlyError) {
             echo(e.message, err = true)
             throw e
@@ -235,10 +235,12 @@ class EnhancedRunCommand : CliktCommand(
 /**
  * Validate command to check pipeline configuration
  */
-class ValidateCommand : CliktCommand(
-    name = "validate",
-    help = "Validate pipeline configuration"
-), KoinComponent {
+class ValidateCommand :
+    CliktCommand(
+        name = "validate",
+        help = "Validate pipeline configuration"
+    ),
+    KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
 
@@ -300,7 +302,6 @@ class ValidateCommand : CliktCommand(
                     }
                 }
             }
-
         } catch (e: UserFriendlyError) {
             echo(e.message, err = true)
         } catch (e: Exception) {
@@ -313,10 +314,12 @@ class ValidateCommand : CliktCommand(
 /**
  * Test command to run cotor pipeline in test environment
  */
-class TestCommand : CliktCommand(
-    name = "test",
-    help = "Test cotor pipeline functionality"
-), KoinComponent {
+class TestCommand :
+    CliktCommand(
+        name = "test",
+        help = "Test cotor pipeline functionality"
+    ),
+    KoinComponent {
     private val testDir by option("--test-dir", help = "Test directory")
         .default("test")
 

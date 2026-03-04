@@ -33,4 +33,3 @@ class ChatSessionTest : FunSpec({
         prompt.shouldNotContain("Assistant: a1")
     }
 })
-
