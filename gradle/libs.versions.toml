@@ -15,6 +15,7 @@ kotlinLogging = "3.0.5"
 ktor = "3.0.3"
 kotest = "5.8.0"
 mockk = "1.13.8"
+jline = "3.26.3"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -38,6 +39,7 @@ kotest-assertions-core = { module = "io.kotest:kotest-assertions-core", version.
 kotest-property = { module = "io.kotest:kotest-property", version.ref = "kotest" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+jline = { module = "org.jline:jline", version.ref = "jline" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

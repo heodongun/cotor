@@ -23,6 +23,7 @@ dependencies {
     implementation(libs.clikt)
     implementation(libs.mordant)  // Terminal UI
     implementation(libs.progressbar)            // Progress bar
+    implementation(libs.jline)                  // Interactive line editing/completion
 
     // Serialization
     implementation(libs.kotlinx.serialization.json)
