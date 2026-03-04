@@ -18,7 +18,8 @@ category: cotor
 
 1. 파이프라인 파일 경로 확인
 2. `cotor validate [파일]` 실행
-3. 검증 결과 표시
+3. `cotor lint [파일]` 실행
+4. 검증/린트 결과 표시
 
 ## 예시
 
@@ -31,3 +32,4 @@ category: cotor
 - `/cotor-generate`: 파이프라인 생성
 - `/cotor-execute`: 검증 후 실행
 - `/cotor-template`: 검증된 템플릿 사용
+- `cotor lint`: 정적 린트 점검
