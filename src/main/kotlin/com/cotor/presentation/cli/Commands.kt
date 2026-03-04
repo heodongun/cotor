@@ -1,5 +1,13 @@
 package com.cotor.presentation.cli
 
+import com.cotor.data.config.ConfigRepository
+import com.cotor.data.config.CotorProperties
+import com.cotor.data.registry.AgentRegistry
+import com.cotor.domain.orchestrator.PipelineOrchestrator
+import com.cotor.monitoring.PipelineRunSnapshot
+import com.cotor.monitoring.PipelineRunStatus
+import com.cotor.monitoring.PipelineRunTracker
+import com.cotor.presentation.formatter.OutputFormatter
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
@@ -8,14 +16,6 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.path
-import com.cotor.data.config.ConfigRepository
-import com.cotor.data.config.CotorProperties
-import com.cotor.data.registry.AgentRegistry
-import com.cotor.domain.orchestrator.PipelineOrchestrator
-import com.cotor.presentation.formatter.OutputFormatter
-import com.cotor.monitoring.PipelineRunSnapshot
-import com.cotor.monitoring.PipelineRunStatus
-import com.cotor.monitoring.PipelineRunTracker
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
 import com.github.ajalt.mordant.terminal.Terminal
@@ -80,10 +80,12 @@ class CotorCli : CliktCommand(
 /**
  * Initialize Cotor with default configuration
  */
-class InitCommand : CliktCommand(
-    name = "init",
-    help = "Initialize Cotor with default configuration"
-), KoinComponent {
+class InitCommand :
+    CliktCommand(
+        name = "init",
+        help = "Initialize Cotor with default configuration"
+    ),
+    KoinComponent {
     val configPath by option("--config", "-c", help = "Path to configuration file")
         .path(mustExist = false)
         .default(Path("cotor.yaml"))
@@ -208,7 +210,7 @@ logging:
 performance:
   maxConcurrentAgents: 5
   coroutinePoolSize: 4
-""".trimIndent()
+        """.trimIndent()
 
         val pipelineYamlContent = """
 pipelines:
@@ -216,11 +218,11 @@ pipelines:
     description: "$description"
     executionMode: $executionMode
     stages:
-      - id: ${agentName}-stage-1
+      - id: $agentName-stage-1
         agent:
           name: $agentName
         input: "$promptText"
-""".trimIndent()
+        """.trimIndent()
 
         val pipelinePath = pipelinesDir.resolve("default.yaml")
         configPath.writeText(cotorYamlContent)
@@ -296,10 +298,12 @@ class RunCommand : CotorCommand() {
 /**
  * Show status of running and recent pipelines
  */
-class StatusCommand : CliktCommand(
-    name = "status",
-    help = "Show status of running and recent pipelines"
-), KoinComponent {
+class StatusCommand :
+    CliktCommand(
+        name = "status",
+        help = "Show status of running and recent pipelines"
+    ),
+    KoinComponent {
     private val terminal = Terminal()
     private val runTracker: PipelineRunTracker by inject()
 
@@ -322,7 +326,7 @@ class StatusCommand : CliktCommand(
 
         active.forEach { run ->
             val elapsed = formatDuration(run.elapsed.toMillis())
-            terminal.println(" - ${yellow("🔄")} ${run.pipelineName} ${dim("(${run.pipelineId.take(8)})")} • ${elapsed}")
+            terminal.println(" - ${yellow("🔄")} ${run.pipelineName} ${dim("(${run.pipelineId.take(8)})")} • $elapsed")
         }
     }
 
@@ -343,7 +347,9 @@ class StatusCommand : CliktCommand(
             val duration = run.totalDurationMs?.let { formatDuration(it) } ?: formatDuration(run.elapsed.toMillis())
             val counts = if (run.successCount != null && run.failureCount != null) {
                 "success ${run.successCount}/${run.successCount + run.failureCount}"
-            } else null
+            } else {
+                null
+            }
             val message = run.message?.let { " • ${it.take(80)}" } ?: ""
 
             val summary = buildString {
@@ -372,10 +378,12 @@ class StatusCommand : CliktCommand(
 /**
  * List registered agents
  */
-class ListCommand : CliktCommand(
-    name = "list",
-    help = "List registered agents and pipelines"
-), KoinComponent {
+class ListCommand :
+    CliktCommand(
+        name = "list",
+        help = "List registered agents and pipelines"
+    ),
+    KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
 
@@ -458,7 +466,7 @@ _cotor_completions() {
   return 0
 }
 complete -F _cotor_completions cotor
-""".trimIndent()
+        """.trimIndent()
 
     private val zshCompletion: String
         get() = """
@@ -474,12 +482,12 @@ _cotor_completions() {
   esac
 }
 _cotor_completions "${'$'}@"
-""".trimIndent()
+        """.trimIndent()
 
     private val fishCompletion: String
         get() = """
 complete -c cotor -n "__fish_is_first_arg" -f -a "${commonSubcommands.joinToString(" ")}"
-""".trimIndent()
+        """.trimIndent()
 }
 
 /**

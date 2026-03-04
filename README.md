@@ -1034,6 +1034,8 @@ cotor/
 ```bash
 ./gradlew format       # Apply ktlint formatting via Spotless
 ./gradlew formatCheck  # Fail if formatting violations exist
+./shell/auto-fix-lint.sh     # One-command lint auto-fix script
+./shell/install-git-hooks.sh # Install pre-commit hook for automatic lint fixes on commit
 ```
 
 ## 📈 Roadmap

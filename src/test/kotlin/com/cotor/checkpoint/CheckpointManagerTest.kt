@@ -6,10 +6,10 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import kotlinx.serialization.json.Json
 
 class CheckpointManagerTest : FunSpec({
     val checkpointDir = ".cotor/test-checkpoints"

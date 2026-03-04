@@ -1,8 +1,8 @@
 package com.cotor.data.config
 
 import com.cotor.model.AgentConfig
-import com.cotor.model.CotorConfig
 import com.cotor.model.ConfigurationException
+import com.cotor.model.CotorConfig
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -23,7 +23,8 @@ class FileConfigRepositoryTest : FunSpec({
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
         val mainConfigPath = baseDir.resolve("cotor.yaml")
-        mainConfigPath.writeText("""
+        mainConfigPath.writeText(
+            """
             version: "1.0"
             agents:
               - name: agent1
@@ -31,26 +32,31 @@ class FileConfigRepositoryTest : FunSpec({
             pipelines:
               - name: pipeline1
                 description: "Main pipeline"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val serviceConfigPath = cotorDir.resolve("service.yaml")
-        serviceConfigPath.writeText("""
+        serviceConfigPath.writeText(
+            """
             agents:
               - name: agent2
                 pluginClass: "com.cotor.Agent2"
             logging:
               level: "DEBUG"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val devConfigPath = cotorDir.resolve("dev.yaml")
-        devConfigPath.writeText("""
+        devConfigPath.writeText(
+            """
             version: "1.1"
             agents:
               - name: agent1
                 pluginClass: "com.cotor.Agent1.dev"
               - name: agent3
                 pluginClass: "com.cotor.Agent3"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
 
@@ -77,18 +83,22 @@ class FileConfigRepositoryTest : FunSpec({
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
         val mainConfigPath = baseDir.resolve("cotor.yaml")
-        mainConfigPath.writeText("""
+        mainConfigPath.writeText(
+            """
             logging:
               level: "INFO"
               file: "/var/log/cotor.log"
               format: "json"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val overrideConfigPath = cotorDir.resolve("dev.yaml")
-        overrideConfigPath.writeText("""
+        overrideConfigPath.writeText(
+            """
             logging:
               level: "DEBUG"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
 
@@ -103,24 +113,27 @@ class FileConfigRepositoryTest : FunSpec({
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
         val mainConfigPath = baseDir.resolve("cotor.yaml")
-        mainConfigPath.writeText("""
+        mainConfigPath.writeText(
+            """
             security:
               allowedExecutables:
                 - "bash"
                 - "python"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val overrideConfigPath = cotorDir.resolve("lockdown.yaml")
-        overrideConfigPath.writeText("""
+        overrideConfigPath.writeText(
+            """
             security:
               allowedExecutables: []
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
 
         loadedConfig.security.allowedExecutables.size shouldBe 0
     }
-
 
     test("keeps base list when override omits collection field") {
         val repo = FileConfigRepository(yamlParser, jsonParser)
@@ -128,18 +141,22 @@ class FileConfigRepositoryTest : FunSpec({
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
         val mainConfigPath = baseDir.resolve("cotor.yaml")
-        mainConfigPath.writeText("""
+        mainConfigPath.writeText(
+            """
             security:
               allowedExecutables:
                 - "bash"
                 - "python"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val overrideConfigPath = cotorDir.resolve("dev.yaml")
-        overrideConfigPath.writeText("""
+        overrideConfigPath.writeText(
+            """
             logging:
               level: "DEBUG"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
 
@@ -153,18 +170,22 @@ class FileConfigRepositoryTest : FunSpec({
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
         val mainConfigPath = baseDir.resolve("cotor.yaml")
-        mainConfigPath.writeText("""
+        mainConfigPath.writeText(
+            """
             security:
               allowedDirectories:
                 - "/tmp"
                 - "/var/log"
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val overrideConfigPath = cotorDir.resolve("restrict.yaml")
-        overrideConfigPath.writeText("""
+        overrideConfigPath.writeText(
+            """
             security:
               allowedDirectories: []
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
 

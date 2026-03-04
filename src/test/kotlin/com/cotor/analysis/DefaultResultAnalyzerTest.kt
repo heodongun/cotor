@@ -1,7 +1,6 @@
 package com.cotor.analysis
 
 import com.cotor.model.AgentResult
-import com.cotor.model.ResultAnalysis
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldHaveSize

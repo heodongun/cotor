@@ -166,7 +166,7 @@ agents:
     timeout: ${agent.timeout}
     parameters:
 $parameterLines
-""".trimIndent() + "\n"
+        """.trimIndent() + "\n"
     }
 
     private fun yamlScalar(value: String): String {

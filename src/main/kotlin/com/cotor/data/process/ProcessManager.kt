@@ -37,7 +37,6 @@ class CoroutineProcessManager(
         environment: Map<String, String>,
         timeout: Long
     ): ProcessResult = withContext(Dispatchers.IO) {
-
         val processBuilder = ProcessBuilder(command)
             .redirectErrorStream(false)
 

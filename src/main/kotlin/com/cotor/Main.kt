@@ -3,7 +3,6 @@ package com.cotor
 import com.cotor.di.initializeCotor
 import com.cotor.error.UserFriendlyError
 import com.cotor.presentation.cli.*
-import com.cotor.presentation.web.WebServer
 import com.github.ajalt.clikt.core.subcommands
 import org.koin.core.context.stopKoin
 
@@ -40,7 +39,7 @@ fun main(args: Array<String>) {
                 }
             }
         }
-        
+
         // Full CLI mode
         CotorCli()
             .subcommands(

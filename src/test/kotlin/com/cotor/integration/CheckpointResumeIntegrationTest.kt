@@ -24,11 +24,11 @@ import io.kotest.matchers.shouldNotBe
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
+import org.slf4j.Logger
 import java.nio.file.Files
 import java.time.Instant
 import java.util.UUID
-import kotlinx.coroutines.runBlocking
-import org.slf4j.Logger
 
 class CheckpointResumeIntegrationTest : StringSpec({
 

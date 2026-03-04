@@ -1,19 +1,18 @@
 package com.cotor.presentation.cli
 
 import com.cotor.stats.PerformanceTrend
+import com.cotor.stats.StatsDetails
 import com.cotor.stats.StatsManager
+import com.cotor.stats.StatsSummary
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.choice
-import com.cotor.stats.StatsDetails
-import com.cotor.stats.StatsSummary
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
-import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
@@ -23,10 +22,12 @@ import java.time.Duration
 /**
  * Command to show pipeline statistics
  */
-class StatsCommand : CliktCommand(
-    name = "stats",
-    help = "Show pipeline execution statistics"
-), KoinComponent {
+class StatsCommand :
+    CliktCommand(
+        name = "stats",
+        help = "Show pipeline execution statistics"
+    ),
+    KoinComponent {
     private val pipelineName by argument(
         name = "pipeline",
         help = "Pipeline name to show stats for"
@@ -145,10 +146,16 @@ class StatsCommand : CliktCommand(
         echo("─".repeat(80))
         echo()
 
-        echo(String.format(
-            "%-30s %10s %10s %12s %8s",
-            "Pipeline", "Executions", "Success", "Avg Time", "Trend"
-        ))
+        echo(
+            String.format(
+                "%-30s %10s %10s %12s %8s",
+                "Pipeline",
+                "Executions",
+                "Success",
+                "Avg Time",
+                "Trend"
+            )
+        )
         echo("─".repeat(80))
 
         allStats.forEach { stats ->
@@ -158,14 +165,16 @@ class StatsCommand : CliktCommand(
                 PerformanceTrend.DEGRADING -> red("↘")
             }
 
-            echo(String.format(
-                "%-30s %10d %9.1f%% %12s %8s",
-                stats.pipelineName.take(30),
-                stats.totalExecutions,
-                stats.successRate,
-                formatDuration(stats.avgDuration),
-                trendIcon
-            ))
+            echo(
+                String.format(
+                    "%-30s %10d %9.1f%% %12s %8s",
+                    stats.pipelineName.take(30),
+                    stats.totalExecutions,
+                    stats.successRate,
+                    formatDuration(stats.avgDuration),
+                    trendIcon
+                )
+            )
         }
 
         echo("─".repeat(80))
@@ -243,20 +252,27 @@ class StatsCommand : CliktCommand(
             return
         }
 
-        echo(String.format(
-            "%-30s %15s %15s %15s",
-            "Stage Name", "Avg Duration", "Success Rate", "Avg Retries"
-        ))
+        echo(
+            String.format(
+                "%-30s %15s %15s %15s",
+                "Stage Name",
+                "Avg Duration",
+                "Success Rate",
+                "Avg Retries"
+            )
+        )
         echo("─".repeat(80))
 
         details.stages.forEach { stage ->
-            echo(String.format(
-                "%-30s %15s %14.1f%% %15.1f",
-                stage.stageName.take(30),
-                formatDuration(stage.avgDuration),
-                stage.successRate,
-                stage.avgRetries
-            ))
+            echo(
+                String.format(
+                    "%-30s %15s %14.1f%% %15.1f",
+                    stage.stageName.take(30),
+                    formatDuration(stage.avgDuration),
+                    stage.successRate,
+                    stage.avgRetries
+                )
+            )
         }
 
         echo("─".repeat(80))
@@ -287,23 +303,30 @@ class StatsCommand : CliktCommand(
         echo("─".repeat(80))
         echo()
 
-        echo(String.format(
-            "%-28s %10s %10s %12s",
-            "Timestamp", "Success", "Failure", "Duration"
-        ))
+        echo(
+            String.format(
+                "%-28s %10s %10s %12s",
+                "Timestamp",
+                "Success",
+                "Failure",
+                "Duration"
+            )
+        )
         echo("─".repeat(80))
 
         history.forEach { exec ->
             val successText = if (exec.successCount > 0) green(exec.successCount.toString()) else exec.successCount.toString()
             val failureText = if (exec.failureCount > 0) red(exec.failureCount.toString()) else exec.failureCount.toString()
 
-            echo(String.format(
-                "%-28s %10s %10s %12s",
-                exec.timestamp,
-                successText,
-                failureText,
-                formatDuration(exec.totalDuration)
-            ))
+            echo(
+                String.format(
+                    "%-28s %10s %10s %12s",
+                    exec.timestamp,
+                    successText,
+                    failureText,
+                    formatDuration(exec.totalDuration)
+                )
+            )
         }
 
         echo("─".repeat(80))

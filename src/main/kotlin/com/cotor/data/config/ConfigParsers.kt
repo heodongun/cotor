@@ -6,8 +6,8 @@ import com.charleskorn.kaml.YamlException
 import com.cotor.model.CotorConfig
 import com.cotor.model.YamlParsingException
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 
 /**
  * Parser for YAML configuration files

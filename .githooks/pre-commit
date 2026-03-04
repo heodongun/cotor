@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+./shell/auto-fix-lint.sh
+
+# Stage formatting changes automatically.
+git add -A

@@ -3,8 +3,8 @@ package com.cotor.validation
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineStage
-import com.cotor.model.StageType
 import com.cotor.model.RecoveryStrategy
+import com.cotor.model.StageType
 
 /**
  * Validation result

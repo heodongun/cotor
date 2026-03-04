@@ -35,7 +35,8 @@ class TemplateCommand(
     ).optional()
 
     private val interactive by option(
-        "--interactive", "-i",
+        "--interactive",
+        "-i",
         help = "Interactive mode with prompts for customization"
     ).flag(default = false)
 
@@ -45,7 +46,6 @@ class TemplateCommand(
     private val list by option("--list", help = "List available templates").flag(default = false)
 
     private val fills by option("--fill", "-F", help = "Replace placeholders: key=value").multiple()
-
 
     override fun run() {
         if (list && templateType == null && preview == null) {
@@ -72,7 +72,7 @@ class TemplateCommand(
             return
         }
 
-        val filename = outputFile ?: "cotor-${targetType}.yaml"
+        val filename = outputFile ?: "cotor-$targetType.yaml"
 
         File(filename).writeText(template)
 
@@ -153,7 +153,7 @@ class TemplateCommand(
         }
 
         val stages = agents.mapIndexed { index, agent ->
-            """      - id: ${agent}-stage-${index + 1}
+            """      - id: $agent-stage-${index + 1}
         agent:
           name: $agent
         input: "YOUR_PROMPT_HERE"""
@@ -186,7 +186,7 @@ logging:
 
 performance:
   maxConcurrentAgents: ${agents.size}
-""".trimIndent()
+        """.trimIndent()
     }
 
     private fun showTemplateList() {
@@ -222,7 +222,7 @@ performance:
             val (key, value) = pair.split("=", limit = 2).let {
                 if (it.size == 2) it[0].trim() to it[1].trim() else return@forEach
             }
-            output = output.replace("{{${key}}}", value, ignoreCase = false)
+            output = output.replace("{{$key}}", value, ignoreCase = false)
             if (key.equals("prompt", true)) {
                 output = output.replace("YOUR_PROMPT_HERE", value)
             }
@@ -285,7 +285,7 @@ logging:
 
 performance:
   maxConcurrentAgents: 5
-""".trimIndent()
+    """.trimIndent()
 
     private fun generateChainTemplate() = """
 version: "1.0"
@@ -333,7 +333,7 @@ logging:
 
 performance:
   maxConcurrentAgents: 1
-""".trimIndent()
+    """.trimIndent()
 
     private fun generateReviewTemplate() = """
 version: "1.0"
@@ -381,7 +381,7 @@ logging:
 
 performance:
   maxConcurrentAgents: 5
-""".trimIndent()
+    """.trimIndent()
 
     private fun generateConsensusTemplate() = """
 version: "1.0"
@@ -424,7 +424,7 @@ logging:
 
 performance:
   maxConcurrentAgents: 5
-""".trimIndent()
+    """.trimIndent()
 
     private fun generateFanoutTemplate() = """
 version: "1.0"
@@ -480,7 +480,7 @@ logging:
 
 performance:
   maxConcurrentAgents: 5
-""".trimIndent()
+    """.trimIndent()
 
     private fun generateSelfHealTemplate() = """
 version: "1.0"
@@ -518,7 +518,7 @@ logging:
 
 performance:
   maxConcurrentAgents: 2
-""".trimIndent()
+    """.trimIndent()
 
     private fun generateVerifiedTemplate() = """
 version: "1.0"
@@ -605,7 +605,7 @@ logging:
 
 performance:
   maxConcurrentAgents: 3
-""".trimIndent()
+    """.trimIndent()
 
     private fun generateCustomTemplate() = """
 version: "1.0"
@@ -642,5 +642,5 @@ logging:
 
 performance:
   maxConcurrentAgents: 5
-""".trimIndent()
+    """.trimIndent()
 }

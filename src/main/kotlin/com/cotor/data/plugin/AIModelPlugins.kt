@@ -51,18 +51,18 @@ class ClaudePlugin : AgentPlugin {
             command.add("--model")
             command.add(model)
         }
-        
+
         val result = processManager.executeProcess(
             command = command,
             input = null,
             environment = context.environment,
             timeout = context.timeout
         )
-        
+
         if (!result.isSuccess) {
             throw AgentExecutionException("Claude execution failed: ${result.stderr}")
         }
-        
+
         return result.stdout
     }
 
@@ -149,22 +149,22 @@ class CopilotPlugin : AgentPlugin {
         processManager: ProcessManager
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
-        
+
         // Execute GitHub Copilot CLI with all tools allowed
         // Note: Full auto-approval not supported, requires pre-authenticated session
         val command = listOf("copilot", "-p", prompt, "--allow-all-tools")
-        
+
         val result = processManager.executeProcess(
             command = command,
             input = null,
             environment = context.environment,
             timeout = context.timeout
         )
-        
+
         if (!result.isSuccess) {
             throw AgentExecutionException("GitHub Copilot execution failed: ${result.stderr}")
         }
-        
+
         return result.stdout
     }
 
@@ -195,22 +195,22 @@ class GeminiPlugin : AgentPlugin {
         processManager: ProcessManager
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
-        
+
         // Execute Gemini CLI with auto-approval
         // --yolo flag enables alwaysAllow mode for all tools
         val command = listOf("gemini", "--yolo", prompt)
-        
+
         val result = processManager.executeProcess(
             command = command,
             input = null,
             environment = context.environment,
             timeout = context.timeout
         )
-        
+
         if (!result.isSuccess) {
             throw AgentExecutionException("Gemini execution failed: ${result.stderr}")
         }
-        
+
         return result.stdout
     }
 
@@ -241,22 +241,22 @@ class CursorPlugin : AgentPlugin {
         processManager: ProcessManager
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
-        
+
         // Execute Cursor CLI with Auto-Run mode
         // Uses Denylist approach: auto-runs everything except dangerous commands (rm, etc)
         val command = listOf("cursor-cli", "generate", "--auto-run", prompt)
-        
+
         val result = processManager.executeProcess(
             command = command,
             input = null,
             environment = context.environment,
             timeout = context.timeout
         )
-        
+
         if (!result.isSuccess) {
             throw AgentExecutionException("Cursor execution failed: ${result.stderr}")
         }
-        
+
         return result.stdout
     }
 
@@ -287,23 +287,23 @@ class OpenCodePlugin : AgentPlugin {
         processManager: ProcessManager
     ): String {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
-        
+
         // Execute OpenCode CLI
         // Default permission is "allow" for all methods (configured in opencode.json)
         // Example config: { "permission": { "bash": "allow", "file": "allow" } }
         val command = listOf("opencode", "generate", prompt)
-        
+
         val result = processManager.executeProcess(
             command = command,
             input = null,
             environment = context.environment,
             timeout = context.timeout
         )
-        
+
         if (!result.isSuccess) {
             throw AgentExecutionException("OpenCode execution failed: ${result.stderr}")
         }
-        
+
         return result.stdout
     }
 
