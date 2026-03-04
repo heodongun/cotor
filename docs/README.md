@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/Language-English-blue)](README.md)
 [![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
 
-Kotlin-based CLI for orchestrating multi-agent AI pipelines with realtime monitoring, validation, and dashboards.
+Cotor is a Kotlin-based CLI/TUI tool for orchestrating AI-agent pipelines with validation, timeline monitoring, checkpoints, and recovery.
 
 ## Quick Install
 
@@ -13,92 +13,58 @@ cd cotor
 ./shell/install-global.sh
 ```
 
-Local-only (no symlink):
+Local-only setup:
 ```bash
 ./gradlew shadowJar
 chmod +x shell/cotor
 ./shell/cotor version
 ```
 
-Claude Code integration (slash commands + knowledge base):
-```bash
-./shell/install-claude-integration.sh
-```
-
 ## Use It Fast
 
 ```bash
-cotor                              # launch interactive TUI (default)
-cotor init                         # create cotor.yaml
-cotor list                         # view registered agents
+cotor                            # launch interactive mode (default)
+cotor --short                    # 10-line cheat sheet
+cotor init --interactive         # interactive bootstrap
+cotor list -c cotor.yaml         # list registered agents
 cotor validate <pipeline> -c <yaml>
+cotor run <pipeline> -c <yaml> --dry-run
 cotor run <pipeline> -c <yaml> --output-format text
-cotor template                     # list built-in templates
-cotor dash -c <yaml>               # TUI dashboard
-cotor tui                          # alias of `cotor interactive`
-cotor web                          # launch web pipeline studio
-cotor completion zsh|bash|fish     # shell autocompletion
-alias co="cotor"                   # faster typing
+cotor template --list            # list built-in templates
+cotor agent add claude --yes     # create .cotor/agents preset
+cotor plugin list                # inspect plugin metadata
+cotor stats                      # pipeline statistics
+cotor doctor                     # environment diagnostics
+cotor dash -c <yaml>             # codex-style dashboard
+cotor web                        # web pipeline studio
 ```
 
-### Ready-to-run examples
-- `examples/single-agent.yaml` – 단일 에이전트 Hello
-- `examples/parallel-compare.yaml` – 병렬 비교
-- `examples/decision-loop.yaml` – 조건/루프
-- `examples/run-examples.sh` – 위 3개를 한 번에 실행
+## Command Surface (current)
+
+Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `dash`, `interactive`, `web`, `lint`, `explain`, `plugin`, `agent`, `version`, `completion`.
 
 ## Core Highlights
 
-- Coroutine-based async execution across sequential, parallel, and DAG flows
-- Decision/loop stages, checkpoints, and recovery strategies
-- Timeline monitor with summaries and aggregated outputs
-- YAML-friendly configs with validation and syntax checks
-- Web dashboard + CLI/TUI for discovery and execution
+- Sequential / Parallel / DAG orchestration with stage dependencies
+- Decision and loop stage execution support
+- Real-time timeline collection + watch mode monitoring
+- Checkpoint save/resume and checkpoint garbage collection
+- Output formatting in `json`, `csv`, `text`
+- Template generation (`compare`, `chain`, `review`, `consensus`, `fanout`, `selfheal`, `verified`, `custom`)
+- Agent preset management and plugin metadata inspection
 
 ## Docs Map
 
-- Overview: `README.md` (this file) · `README.ko.md`
-- Upgrades: `UPGRADE_GUIDE.md` · `UPGRADE_RECOMMENDATIONS.md`
-- Releases: `release/CHANGELOG.md` · `release/FEATURES_v1.1.md`
-- Reports: `reports/TEST_REPORT.md` · `reports/IMPLEMENTATION_SUMMARY.md`
+- Korean guide: `README.ko.md`
 - Quick start: `QUICK_START.md`
 - Architecture: `ARCHITECTURE.md`
-- Claude setup: `CLAUDE_SETUP.md`
-- Claude Code integration: `shell/install-claude-integration.sh`
+- Features: `FEATURES.md`
 - Usage tips: `USAGE_TIPS.md`
-- Templates: `templates/`
-- Contribution rule + EN/KR sync checklist: `../CONTRIBUTING.md`
+- Changelog: `release/CHANGELOG.md`
+- Reports: `reports/`
+- Claude integration docs: `CLAUDE_SETUP.md`, `claude/`
 
-## Run Checks
+## Notes
 
-```bash
-./gradlew test
-./shell/cotor version
-```
-
-Optional smoke scripts (from repo root):
-```bash
-./shell/test-cotor-enhanced.sh
-./shell/test-cotor-pipeline.sh
-./shell/test-claude-integration.sh
-```
-
-Need a 10-line cheat sheet? Run `cotor --short`.
-
-## Shell Scripts
-
-- `./shell/cotor` – CLI entrypoint (builds the shaded JAR if missing)
-- `./shell/install-global.sh` – build + global install (symlink)
-- `./shell/install.sh` – local install with alias instructions
-- `./shell/install-claude-integration.sh` – Claude Code commands/knowledge base
-- `./shell/test-*` – smoke and integration checks
-
-## Need AI CLIs?
-
-Install per provider as needed:
-```bash
-# Claude CLI (npm)
-# Copilot CLI
-# Gemini / OpenAI / others
-pip install openai
-```
+- If config is omitted, most commands use `cotor.yaml` by default.
+- Running `cotor` with no args starts interactive mode; passing an unknown first argument runs simple direct pipeline execution.
