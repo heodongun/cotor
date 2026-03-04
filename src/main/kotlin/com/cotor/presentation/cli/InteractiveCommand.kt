@@ -26,6 +26,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.jline.reader.EndOfFileException
+import org.jline.reader.LineReaderBuilder
+import org.jline.reader.UserInterruptException
+import org.jline.terminal.TerminalBuilder
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.io.File
@@ -395,9 +399,21 @@ class InteractiveCommand : CliktCommand(
 
         var endedByEof = false
 
+        val lineReader = buildLineReader(allAgents.keys.toList())
+
         while (true) {
-            terminal.print(bold(cyan("you> ")) )
-            val line = readLine()
+            val line = try {
+                lineReader?.readLine("you> ") ?: run {
+                    terminal.print(bold(cyan("you> ")) )
+                    readLine()
+                }
+            } catch (_: UserInterruptException) {
+                terminal.println()
+                continue
+            } catch (_: EndOfFileException) {
+                null
+            }
+
             if (line == null) {
                 endedByEof = true
                 break
@@ -496,6 +512,17 @@ class InteractiveCommand : CliktCommand(
         }
         terminal.println(dim("Bye. Saved transcript to ${transcript.ensureDir()}"))
     }
+
+
+    private fun buildLineReader(agentNames: List<String>) = runCatching {
+        val jlineTerminal = TerminalBuilder.builder()
+            .system(true)
+            .build()
+        LineReaderBuilder.builder()
+            .terminal(jlineTerminal)
+            .completer(InteractiveCommandCompleter { agentNames })
+            .build()
+    }.getOrNull()
 
     private fun printHelp() {
         terminal.println()
