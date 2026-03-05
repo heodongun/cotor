@@ -18,7 +18,7 @@ class FileConfigRepositoryTest : FunSpec({
     val jsonParser = JsonParser()
 
     test("merges configs from .cotor directory") {
-        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val baseDir = Files.createTempDirectory("config-merge")
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
@@ -78,7 +78,7 @@ class FileConfigRepositoryTest : FunSpec({
     }
 
     test("deep merges nested config objects") {
-        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val baseDir = Files.createTempDirectory("config-deep-merge")
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
@@ -108,7 +108,7 @@ class FileConfigRepositoryTest : FunSpec({
     }
 
     test("can override with empty list") {
-        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val baseDir = Files.createTempDirectory("config-empty-list")
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
@@ -136,7 +136,7 @@ class FileConfigRepositoryTest : FunSpec({
     }
 
     test("keeps base list when override omits collection field") {
-        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val baseDir = Files.createTempDirectory("config-omit-list")
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
@@ -165,7 +165,7 @@ class FileConfigRepositoryTest : FunSpec({
     }
 
     test("can override List<Path> with empty list") {
-        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val baseDir = Files.createTempDirectory("config-empty-path-list")
         val cotorDir = baseDir.resolve(".cotor").createDirectory()
 
@@ -192,8 +192,52 @@ class FileConfigRepositoryTest : FunSpec({
         loadedConfig.security.allowedDirectories.size shouldBe 0
     }
 
+
+    test("merges global and local .cotor overrides") {
+        val baseDir = Files.createTempDirectory("config-global-local")
+        val localCotorDir = baseDir.resolve(".cotor").createDirectory()
+        val fakeHome = baseDir.resolve("home").createDirectory()
+        val globalCotorDir = fakeHome.resolve(".cotor").createDirectory()
+        val repo = FileConfigRepository(yamlParser, jsonParser) { fakeHome }
+
+        val mainConfigPath = baseDir.resolve("cotor.yaml")
+        mainConfigPath.writeText(
+            """
+            version: "1.0"
+            agents:
+              - name: base
+                pluginClass: "com.cotor.Base"
+            """.trimIndent()
+        )
+
+        globalCotorDir.resolve("agents.yaml").writeText(
+            """
+            agents:
+              - name: global-agent
+                pluginClass: "com.cotor.Global"
+              - name: shared-agent
+                pluginClass: "com.cotor.GlobalShared"
+            """.trimIndent()
+        )
+
+        localCotorDir.resolve("agents.yaml").writeText(
+            """
+            agents:
+              - name: local-agent
+                pluginClass: "com.cotor.Local"
+              - name: shared-agent
+                pluginClass: "com.cotor.LocalShared"
+            """.trimIndent()
+        )
+
+        val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
+
+        loadedConfig.agents.map { it.name }.toSet() shouldBe setOf("base", "global-agent", "local-agent", "shared-agent")
+        loadedConfig.agents.find { it.name == "shared-agent" }?.pluginClass shouldBe "com.cotor.LocalShared"
+    }
+
     test("throws friendly error when config file is missing") {
-        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val missing = Files.createTempDirectory("config-missing").resolve("nope.yaml")
 
         val error = shouldThrow<ConfigurationException> {
@@ -204,7 +248,7 @@ class FileConfigRepositoryTest : FunSpec({
     }
 
     test("creates parent directories when saving configuration") {
-        val repo = FileConfigRepository(yamlParser, jsonParser)
+        val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val baseDir = Files.createTempDirectory("config-save")
         val target = baseDir.resolve("nested/config.yaml")
         val config = CotorConfig(
