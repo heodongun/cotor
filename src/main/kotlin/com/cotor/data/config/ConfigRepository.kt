@@ -34,9 +34,10 @@ class FileConfigRepository(
 
     override suspend fun loadConfig(path: Path): CotorConfig = withContext(Dispatchers.IO) {
         val baseConfig = parseConfig(path)
-        val cotorDir = path.parent?.resolve(".cotor")
+        val configDir = path.toAbsolutePath().parent ?: java.nio.file.Paths.get(".").toAbsolutePath()
+        val cotorDir = configDir.resolve(".cotor")
 
-        if (cotorDir == null || !cotorDir.isDirectory()) {
+        if (!cotorDir.isDirectory()) {
             return@withContext baseConfig.config
         }
 
