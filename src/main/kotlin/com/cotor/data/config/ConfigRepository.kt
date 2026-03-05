@@ -24,7 +24,10 @@ interface ConfigRepository {
 
 class FileConfigRepository(
     private val yamlParser: YamlParser,
-    private val jsonParser: JsonParser
+    private val jsonParser: JsonParser,
+    private val homeDirectoryProvider: () -> Path = {
+        java.nio.file.Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize()
+    },
 ) : ConfigRepository {
 
     private data class ParsedConfig(
@@ -35,21 +38,30 @@ class FileConfigRepository(
     override suspend fun loadConfig(path: Path): CotorConfig = withContext(Dispatchers.IO) {
         val baseConfig = parseConfig(path)
         val configDir = path.toAbsolutePath().parent ?: java.nio.file.Paths.get(".").toAbsolutePath()
-        val cotorDir = configDir.resolve(".cotor")
+        val globalCotorDir = homeDirectoryProvider().resolve(".cotor")
+        val localCotorDir = configDir.resolve(".cotor")
 
-        if (!cotorDir.isDirectory()) {
+        val overrideFiles = listOverrideFiles(globalCotorDir) + listOverrideFiles(localCotorDir)
+
+        if (overrideFiles.isEmpty()) {
             return@withContext baseConfig.config
         }
-
-        val overrideFiles = Files.walk(cotorDir)
-            .filter { it.isRegularFile() && it.extension.lowercase() in listOf("yaml", "yml") }
-            .sorted()
-            .toList()
 
         overrideFiles.fold(baseConfig.config) { acc, overrideFile ->
             val overrideConfig = parseConfig(overrideFile)
             mergeConfigs(acc, overrideConfig)
         }
+    }
+
+    private fun listOverrideFiles(directory: Path): List<Path> {
+        if (!directory.isDirectory()) {
+            return emptyList()
+        }
+
+        return Files.walk(directory)
+            .filter { it.isRegularFile() && it.extension.lowercase() in listOf("yaml", "yml") }
+            .sorted()
+            .toList()
     }
 
     private fun parseConfig(path: Path): ParsedConfig {
