@@ -17,9 +17,11 @@ category: cotor
 ## 동작
 
 1. 파이프라인 파일 경로 확인
-2. `cotor execute [파일] --monitor` 실행
-3. 실행 출력 실시간 스트리밍
-4. 완료 시 최종 상태 및 결과 표시
+2. `cotor validate [파일]`로 사전 검증
+3. `cotor lint [파일]`로 정적 린트 확인
+4. `cotor execute [파일] --monitor` 실행
+5. 실행 출력 실시간 스트리밍
+6. 완료 시 최종 상태 및 결과 표시
 
 ## 예시
 

@@ -112,3 +112,19 @@ security:
 
 - `/cotor-execute`: 파이프라인 실행
 
+
+## 생성 후 권장 체크
+
+생성 직후에는 아래 순서로 검증합니다.
+
+```bash
+cotor validate [생성된 파일]
+cotor lint [생성된 파일]
+```
+
+코드까지 수정했다면 CI 규칙에 맞춰 아래도 실행합니다.
+
+```bash
+gradle formatCheck
+gradle test
+```

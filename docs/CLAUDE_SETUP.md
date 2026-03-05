@@ -384,3 +384,20 @@ rm -rf ~/.claude/settings/cotor-settings.json
 1. [GitHub Issues](https://github.com/yourusername/cotor/issues)에 문제 보고
 2. 테스트 스크립트 결과 첨부: `./test-claude-integration.sh > test-results.txt`
 3. 파일 구조 첨부: `ls -laR ~/.claude/ > file-structure.txt`
+
+## CI/린트 가드레일
+
+새로운 CI 기준으로 아래 두 명령이 기본 게이트입니다.
+
+```bash
+gradle formatCheck
+gradle test
+```
+
+파이프라인 YAML을 생성/수정하는 슬래시 명령(`/cotor-generate`, `/cotor-template`)을 썼다면 실행 전에 아래를 권장합니다.
+
+```bash
+cotor validate <pipeline.yaml>
+cotor lint <pipeline.yaml>
+```
+
