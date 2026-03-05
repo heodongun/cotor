@@ -38,26 +38,15 @@ class AgentCommandTest : FunSpec({
         root.createDirectories()
         val fakeHome = root.resolve("home")
         fakeHome.createDirectories()
+        val config = root.resolve("cotor.yaml")
+        config.writeText("version: \"1.0\"\nagents: []\n")
 
-        val previousHome = System.getProperty("user.home")
-        try {
-            System.setProperty("user.home", fakeHome.toString())
-            val config = root.resolve("cotor.yaml")
-            config.writeText("version: \"1.0\"\nagents: []\n")
+        val result = AgentCommand { fakeHome }.test("add copilot --config $config --yes")
 
-            val result = AgentCommand().test("add copilot --config $config --yes")
-
-            result.statusCode shouldBe 0
-            val added = fakeHome.resolve(".cotor/agents/copilot.yaml")
-            added.exists() shouldBe true
-            added.readText() shouldContain "pluginClass: com.cotor.data.plugin.CopilotPlugin"
-        } finally {
-            if (previousHome == null) {
-                System.clearProperty("user.home")
-            } else {
-                System.setProperty("user.home", previousHome)
-            }
-        }
+        result.statusCode shouldBe 0
+        val added = fakeHome.resolve(".cotor/agents/copilot.yaml")
+        added.exists() shouldBe true
+        added.readText() shouldContain "pluginClass: com.cotor.data.plugin.CopilotPlugin"
     }
 
     test("agent list shows merged agents") {

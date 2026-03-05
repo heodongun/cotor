@@ -20,18 +20,21 @@ import com.github.ajalt.mordant.rendering.TextColors.yellow
 import com.github.ajalt.mordant.rendering.TextStyles.bold
 import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
+import java.nio.file.Paths
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.name
 import kotlin.io.path.writeText
 
-class AgentCommand : CliktCommand(
+class AgentCommand(
+    private val homeDirectoryProvider: () -> java.nio.file.Path = defaultHomeDirectoryProvider,
+) : CliktCommand(
     name = "agent",
     help = "Manage agent presets and definitions"
 ) {
     init {
-        subcommands(AgentAddCommand(), AgentListCommand())
+        subcommands(AgentAddCommand(homeDirectoryProvider), AgentListCommand())
     }
 
     override fun run() = Unit
@@ -50,6 +53,10 @@ private data class AgentPreset(
     val defaultModel: String,
 )
 
+private val defaultHomeDirectoryProvider: () -> java.nio.file.Path = {
+    Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize()
+}
+
 private val builtinPresets = listOf(
     AgentPreset("gemini", "com.cotor.data.plugin.GeminiPlugin", "gemini", 60000, "gemini-3.0-flash"),
     AgentPreset("claude", "com.cotor.data.plugin.ClaudePlugin", "claude", 60000, "claude-3-7-sonnet-latest"),
@@ -59,7 +66,9 @@ private val builtinPresets = listOf(
     AgentPreset("qwen", "com.cotor.data.plugin.CommandPlugin", "qwen", 60000, "qwen3-coder")
 )
 
-class AgentAddCommand : CliktCommand(
+class AgentAddCommand(
+    private val homeDirectoryProvider: () -> java.nio.file.Path = defaultHomeDirectoryProvider,
+) : CliktCommand(
     name = "add",
     help = "Add an agent from preset into .cotor/agents"
 ) {
@@ -102,7 +111,7 @@ class AgentAddCommand : CliktCommand(
         )
 
         val projectDir = configPath.parent ?: Path(".")
-        val globalDir = Path(System.getProperty("user.home")).resolve(".cotor")
+        val globalDir = homeDirectoryProvider().resolve(".cotor")
         val targetDir = when (installScope) {
             InstallScope.GLOBAL -> globalDir
             InstallScope.LOCAL -> projectDir.resolve(Path(".cotor"))

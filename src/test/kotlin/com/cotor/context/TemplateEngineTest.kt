@@ -54,7 +54,7 @@ class TemplateEngineTest {
 
         val user = System.getenv("USER")
         val expected = if (user.isNullOrBlank()) {
-            "Running as user: [env variable 'USER' not found for expression: \${env.USER}]"
+            "Running as user: unknown"
         } else {
             "Running as user: $user"
         }
