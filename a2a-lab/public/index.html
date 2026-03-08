@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A2A Workflow Lab</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 24px; background:#0b1020; color:#e8ecf3; }
+      h1,h2 { margin: 0 0 12px; }
+      .row { display:flex; gap:16px; flex-wrap:wrap; }
+      .card { border:1px solid #2a3350; border-radius:12px; padding:14px; background:#131a2c; }
+      .agent { width: 220px; }
+      .panel { flex:1; min-width:340px; }
+      input,select,textarea,button { width:100%; margin-top:6px; margin-bottom:10px; padding:8px; border-radius:8px; border:1px solid #394568; background:#0f1425; color:#e8ecf3; }
+      button { background:#3b82f6; border:none; cursor:pointer; font-weight:700; }
+      button.secondary{ background:#26324d; }
+      table { width:100%; border-collapse:collapse; }
+      th,td { border-bottom:1px solid #2b3655; padding:8px; text-align:left; }
+      pre { white-space:pre-wrap; background:#0e1528; border:1px solid #2a3350; border-radius:8px; padding:10px; }
+      .muted { color:#9aa6c2; font-size:13px; }
+    </style>
+  </head>
+  <body>
+    <h1>A2A Workflow Lab</h1>
+    <p class="muted">에이전트 5개를 조합해서 직접 워크플로우(DAG)를 만들고 실행해보는 실습 웹입니다.</p>
+
+    <div class="row" id="agents"></div>
+
+    <div class="row" style="margin-top:16px;">
+      <div class="card panel">
+        <h2>노드 추가</h2>
+        <label>노드 ID</label>
+        <input id="nodeId" placeholder="예: n1" />
+        <label>에이전트</label>
+        <select id="agentId"></select>
+        <label>입력</label>
+        <textarea id="nodeInput" rows="3" placeholder="에이전트에게 전달할 작업 설명"></textarea>
+        <label>의존 노드 ID(쉼표 구분)</label>
+        <input id="deps" placeholder="예: n1,n2" />
+        <button id="addNode">노드 추가</button>
+        <button id="run" class="secondary">워크플로우 실행</button>
+      </div>
+
+      <div class="card panel">
+        <h2>워크플로우 노드</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Agent</th><th>Deps</th><th>Input</th></tr></thead>
+          <tbody id="nodeTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h2>실행 결과</h2>
+      <pre id="result">아직 실행 전</pre>
+    </div>
+
+    <script>
+      const state = { agents: [], nodes: [], edges: [] };
+
+      const nodeTable = document.getElementById('nodeTable');
+      const result = document.getElementById('result');
+
+      function renderAgents() {
+        const root = document.getElementById('agents');
+        root.innerHTML = '';
+        for (const a of state.agents) {
+          const el = document.createElement('div');
+          el.className = 'card agent';
+          el.innerHTML = `<strong>${a.name}</strong><div class="muted">${a.id}</div><div>${a.role}</div>`;
+          root.appendChild(el);
+        }
+
+        const select = document.getElementById('agentId');
+        select.innerHTML = state.agents.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+      }
+
+      function renderNodes() {
+        nodeTable.innerHTML = state.nodes.map(n => {
+          const deps = state.edges.filter(e => e.to === n.id).map(e => e.from).join(', ');
+          return `<tr><td>${n.id}</td><td>${n.agentId}</td><td>${deps}</td><td>${n.input || ''}</td></tr>`;
+        }).join('');
+      }
+
+      async function loadAgents() {
+        const r = await fetch('/api/agents');
+        const data = await r.json();
+        state.agents = data.agents;
+        renderAgents();
+      }
+
+      document.getElementById('addNode').onclick = () => {
+        const nodeId = document.getElementById('nodeId').value.trim();
+        const agentId = document.getElementById('agentId').value;
+        const input = document.getElementById('nodeInput').value.trim();
+        const depsRaw = document.getElementById('deps').value.trim();
+
+        if (!nodeId) return alert('노드 ID 필요');
+        if (state.nodes.some(n => n.id === nodeId)) return alert('중복 노드 ID');
+
+        state.nodes.push({ id: nodeId, agentId, input });
+
+        if (depsRaw) {
+          const deps = depsRaw.split(',').map(v => v.trim()).filter(Boolean);
+          for (const d of deps) {
+            state.edges.push({ from: d, to: nodeId });
+          }
+        }
+
+        document.getElementById('nodeId').value = '';
+        document.getElementById('nodeInput').value = '';
+        document.getElementById('deps').value = '';
+        renderNodes();
+      };
+
+      document.getElementById('run').onclick = async () => {
+        try {
+          const r = await fetch('/api/workflows/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nodes: state.nodes, edges: state.edges }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || '실행 실패');
+          result.textContent = JSON.stringify(data, null, 2);
+        } catch (e) {
+          result.textContent = `오류: ${e.message}`;
+        }
+      };
+
+      loadAgents();
+    </script>
+  </body>
+</html>

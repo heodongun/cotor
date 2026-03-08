@@ -1,0 +1,14 @@
+{
+  "name": "a2a-lab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A2A workflow practice lab with 5 composable agents",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
