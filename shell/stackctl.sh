@@ -9,6 +9,7 @@ set -euo pipefail
 #   ./shell/stackctl.sh start
 #   ./shell/stackctl.sh restart
 #   ./shell/stackctl.sh kill
+#   ./shell/stackctl.sh metrics
 #
 # Optional env:
 #   SYMPHONY_PATTERN   (default: symphony)
@@ -38,6 +39,11 @@ openclaw_start() {
 
 openclaw_stop() {
   have_cmd openclaw && openclaw gateway stop || echo "openclaw CLI not found"
+}
+
+openclaw_kill() {
+  pkill -KILL -f 'openclaw-gateway' >/dev/null 2>&1 || true
+  echo "sent KILL to openclaw-gateway"
 }
 
 openclaw_restart() {
@@ -114,12 +120,24 @@ symphony_start() {
   echo "Start needs compose file path. Set SYMPHONY_COMPOSE=/path/to/docker-compose.yml"
 }
 
+show_metrics() {
+  echo_header "System"
+  top -l 1 -n 0 | head -n 12 || true
+
+  echo_header "Top CPU"
+  ps -axo pid,ppid,%cpu,%mem,rss,etime,command | sort -k3 -nr | head -n 12 || true
+
+  echo_header "Top Memory"
+  ps -axo pid,ppid,%cpu,%mem,rss,etime,command | sort -k4 -nr | head -n 12 || true
+}
+
 case "$ACTION" in
   status)
     echo_header "OpenClaw"
     openclaw_status
     echo_header "Symphony (pattern: ${SYMPHONY_PATTERN})"
     symphony_status
+    show_metrics
     ;;
   stop|off)
     echo_header "Stopping OpenClaw"
@@ -141,14 +159,17 @@ case "$ACTION" in
     symphony_start
     ;;
   kill)
-    echo_header "Stopping OpenClaw"
-    openclaw_stop
+    echo_header "Killing OpenClaw"
+    openclaw_kill
     echo_header "Killing Symphony"
     symphony_kill
     ;;
+  metrics)
+    show_metrics
+    ;;
   *)
     echo "Unknown action: ${ACTION}"
-    echo "Usage: $0 {status|start|stop|restart|kill}"
+    echo "Usage: $0 {status|start|stop|restart|kill|metrics}"
     exit 1
     ;;
 esac

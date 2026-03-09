@@ -13,6 +13,7 @@ CONFIG_PATH = BASE / "services.json"
 
 DEFAULT_TEMPLATES = [
     {"id": "openclaw-gateway", "name": "OpenClaw Gateway", "kind": "openclaw", "match": "openclaw-gateway", "startCmd": ""},
+    {"id": "symphony-process", "name": "Symphony (Process)", "kind": "process", "match": "bin/symphony|/symphony ", "startCmd": ""},
     {"id": "symphony-docker", "name": "Symphony (Docker)", "kind": "docker_name", "match": "symphony", "startCmd": ""},
     {"id": "jagalchi-runserver", "name": "Jagalchi Runserver", "kind": "process", "match": "manage.py runserver", "startCmd": ""},
 ]
@@ -31,6 +32,14 @@ def load_templates():
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         if isinstance(data, list):
+            by_id = {x.get("id"): x for x in data if isinstance(x, dict)}
+            changed = False
+            for d in DEFAULT_TEMPLATES:
+                if d.get("id") not in by_id:
+                    data.append(d)
+                    changed = True
+            if changed:
+                save_templates(data)
             return data
     except Exception:
         pass
@@ -93,10 +102,13 @@ def docker_metrics(name):
 
 
 def openclaw_action(action):
-    if action not in {"start", "stop", "restart", "status"}:
-        return False, "invalid action"
-    rc, out = run(f"openclaw gateway {action}")
-    return rc == 0, out
+    if action in {"start", "stop", "restart", "status"}:
+        rc, out = run(f"openclaw gateway {action}")
+        return rc == 0, out
+    if action == "kill":
+        rc, out = run("pkill -KILL -f 'openclaw-gateway' || true")
+        return True, out or "sent KILL to openclaw-gateway"
+    return False, "invalid action"
 
 
 def docker_name_action(name, action):
@@ -172,10 +184,88 @@ def auto_detect():
     return result
 
 
+def parse_memory_mb(text):
+    m = re.search(r"([0-9.]+)\s*([GMK])B", text, re.IGNORECASE)
+    if not m:
+        return 0.0
+    val = float(m.group(1))
+    unit = m.group(2).upper()
+    if unit == "G":
+        return val * 1024.0
+    if unit == "K":
+        return val / 1024.0
+    return val
+
+
+def system_metrics():
+    rc, top_out = run("top -l 1 -n 0 | head -n 20")
+    cpu_user = cpu_sys = cpu_idle = 0.0
+    mem_used_mb = mem_free_mb = 0.0
+
+    for ln in top_out.splitlines():
+        if "CPU usage:" in ln:
+            m = re.search(r"([0-9.]+)% user,\s*([0-9.]+)% sys,\s*([0-9.]+)% idle", ln)
+            if m:
+                cpu_user, cpu_sys, cpu_idle = map(float, m.groups())
+        if ln.startswith("PhysMem:"):
+            m = re.search(r"PhysMem:\s*([^,]+),\s*([^\.]+)", ln)
+            if m:
+                mem_used_mb = parse_memory_mb(m.group(1))
+                mem_free_mb = parse_memory_mb(m.group(2))
+
+    total_mb = round(mem_used_mb + mem_free_mb, 1)
+
+    rc, ps_out = run("ps -axo pid=,%cpu=,%mem=,rss=,comm= | sort -k2 -nr | head -n 8")
+    top_cpu = []
+    for ln in ps_out.splitlines():
+        p = ln.split(None, 4)
+        if len(p) < 5:
+            continue
+        top_cpu.append({
+            "pid": int(p[0]),
+            "cpu": float(p[1]),
+            "mem": float(p[2]),
+            "rssMB": round(float(p[3]) / 1024.0, 1),
+            "cmd": p[4],
+        })
+
+    rc, ps_mem_out = run("ps -axo pid=,%cpu=,%mem=,rss=,comm= | sort -k3 -nr | head -n 8")
+    top_mem = []
+    for ln in ps_mem_out.splitlines():
+        p = ln.split(None, 4)
+        if len(p) < 5:
+            continue
+        top_mem.append({
+            "pid": int(p[0]),
+            "cpu": float(p[1]),
+            "mem": float(p[2]),
+            "rssMB": round(float(p[3]) / 1024.0, 1),
+            "cmd": p[4],
+        })
+
+    return {
+        "cpu": {
+            "user": round(cpu_user, 2),
+            "sys": round(cpu_sys, 2),
+            "idle": round(cpu_idle, 2),
+            "used": round(cpu_user + cpu_sys, 2),
+        },
+        "memory": {
+            "usedMB": round(mem_used_mb, 1),
+            "freeMB": round(mem_free_mb, 1),
+            "totalMB": total_mb,
+            "usedPct": round((mem_used_mb / total_mb) * 100.0, 2) if total_mb else 0.0,
+        },
+        "topCpu": top_cpu,
+        "topMem": top_mem,
+    }
+
+
 HTML = """<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>Local Stack Control</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:20px;background:#0b0f14;color:#e6edf3}.wrap{max-width:980px;margin:0 auto}.card{background:#111826;border:1px solid #243244;border-radius:12px;padding:14px;margin:10px 0}button{background:#1f6feb;color:#fff;border:none;border-radius:8px;padding:7px 10px;cursor:pointer;margin-right:6px;margin-bottom:6px}.danger{background:#d73a49}.muted{background:#3a4a5f}input,select{background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:8px;margin-right:6px}pre{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px;white-space:pre-wrap}.metric{font-size:13px;color:#9fb1c7}</style></head>
 <body><div class='wrap'><h2>🧰 Local Stack Control</h2>
 <div class='card'><button onclick='refresh()'>새로고침</button><button class='danger' onclick='cleanup()'>전체 정리 (cleanup)</button></div>
+<div id='system'></div>
 <div id='services'></div>
 <div class='card'><h3>서비스 템플릿 추가</h3>
 <input id='name' placeholder='표시 이름'/><select id='kind'><option value='process'>process</option><option value='docker_name'>docker_name</option><option value='openclaw'>openclaw</option></select>
@@ -186,7 +276,18 @@ HTML = """<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name
 const out=document.getElementById('out');
 async function j(url,opt){const r=await fetch(url,opt);return await r.json();}
 function esc(s){return (s||'').replaceAll('<','&lt;')}
-async function refresh(){const d=await j('/api/detect');const box=document.getElementById('services');box.innerHTML='';d.items.forEach(item=>{const t=item.template,m=item.metrics||{};const c=document.createElement('div');c.className='card';c.innerHTML=`<h3>${esc(t.name)} ${item.running?'🟢':'⚪️'}</h3><div class='metric'>CPU: ${m.cpuPercent||0}% | RSS: ${m.rssMB||0} MB | Proc/Container: ${m.count||0}</div><div style='margin-top:8px'><button onclick="act('${t.id}','start')">Start</button><button onclick="act('${t.id}','status')">Status</button><button class='muted' onclick="act('${t.id}','stop')">Stop</button><button class='danger' onclick="act('${t.id}','kill')">Kill</button><button class='muted' onclick="delTpl('${t.id}')">삭제</button></div><small>${esc(t.kind)} / ${esc(t.match||'')}</small>`;box.appendChild(c);});}
+function shortCmd(s){const v=String(s||''); return v.length>80? (v.slice(0,80)+'…') : v;}
+function renderTopRows(title, rows){
+  return `<div style='margin-top:8px'><b>${title}</b><br/>` + rows.map(r => `• PID ${r.pid} | CPU ${r.cpu}% | MEM ${r.mem}% | RSS ${r.rssMB}MB | ${esc(shortCmd(r.cmd))}`).join('<br/>') + '</div>';
+}
+async function refresh(){
+  const [d,sys]=await Promise.all([j('/api/detect'), j('/api/system')]);
+  const s=document.getElementById('system');
+  const c=sys.cpu||{}, m=sys.memory||{};
+  s.innerHTML=`<div class='card'><h3>시스템 리소스</h3><div class='metric'>CPU 사용: ${c.used||0}% (user ${c.user||0}% / sys ${c.sys||0}% / idle ${c.idle||0}%)</div><div class='metric'>메모리 사용: ${m.usedMB||0} MB / ${m.totalMB||0} MB (${m.usedPct||0}%) | 남음: ${m.freeMB||0} MB</div>${renderTopRows('Top CPU', sys.topCpu||[])}${renderTopRows('Top Memory', sys.topMem||[])}</div>`;
+
+  const box=document.getElementById('services');box.innerHTML='';
+  d.items.forEach(item=>{const t=item.template,m=item.metrics||{};const c=document.createElement('div');c.className='card';c.innerHTML=`<h3>${esc(t.name)} ${item.running?'🟢':'⚪️'}</h3><div class='metric'>CPU: ${m.cpuPercent||0}% | RSS: ${m.rssMB||0} MB | Proc/Container: ${m.count||0}</div><div style='margin-top:8px'><button onclick="act('${t.id}','start')">Start</button><button onclick="act('${t.id}','status')">Status</button><button class='muted' onclick="act('${t.id}','stop')">Stop</button><button class='danger' onclick="act('${t.id}','kill')">Kill</button><button class='muted' onclick="delTpl('${t.id}')">삭제</button></div><small>${esc(t.kind)} / ${esc(t.match||'')}</small>`;box.appendChild(c);});}
 async function act(id,action){const d=await j('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action})});out.textContent=(d.ok?'':'ERROR\n')+d.output;setTimeout(refresh,500)}
 async function cleanup(){const d=await j('/api/cleanup',{method:'POST'});out.textContent=(d.ok?'':'ERROR\n')+d.output;setTimeout(refresh,700)}
 async function addTpl(){const name=document.getElementById('name').value.trim();const kind=document.getElementById('kind').value;const match=document.getElementById('match').value.trim();const startCmd=document.getElementById('startCmd').value.trim();const d=await j('/api/templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,kind,match,startCmd})});out.textContent=(d.ok?'':'ERROR\n')+d.output;refresh()}
@@ -215,6 +316,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/detect":
             self._json({"ok": True, "items": auto_detect()})
+            return
+        if self.path == "/api/system":
+            self._json({"ok": True, **system_metrics()})
             return
         self.send_error(404)
 
