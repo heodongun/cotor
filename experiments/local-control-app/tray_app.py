@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
-"""
-Menubar app wrapper for Local Stack Control.
-Requires: rumps
-"""
-import subprocess
+"""Menubar app wrapper for Local Stack Control."""
 import time
 import webbrowser
-from pathlib import Path
+import subprocess
 
 import rumps
+import control_app
 
-BASE = Path(__file__).resolve().parent
-SERVER = BASE / "control_app.py"
 URL = "http://127.0.0.1:18777"
 
 
@@ -22,7 +17,7 @@ def sh(cmd):
 class LocalControlTray(rumps.App):
     def __init__(self):
         super().__init__("🧰", quit_button="Quit")
-        self.server = None
+        self.server_thread = None
         self.menu = [
             "Open Dashboard",
             "Start Server",
@@ -34,10 +29,10 @@ class LocalControlTray(rumps.App):
         ]
 
     def start_server(self):
-        if self.server and self.server.poll() is None:
+        if self.server_thread and self.server_thread.is_alive():
             return
-        self.server = subprocess.Popen(["python3", str(SERVER)], cwd=str(BASE))
-        time.sleep(0.6)
+        self.server_thread = control_app.run_server_background("127.0.0.1", 18777)
+        time.sleep(0.5)
 
     @rumps.clicked("Open Dashboard")
     def open_dashboard(self, _):
@@ -51,11 +46,8 @@ class LocalControlTray(rumps.App):
 
     @rumps.clicked("Stop Server")
     def stop_srv(self, _):
-        if self.server and self.server.poll() is None:
-            self.server.terminate()
-            rumps.notification("Local Stack Control", "Server", "Stopped")
-        else:
-            rumps.notification("Local Stack Control", "Server", "Not running")
+        # lightweight 서버라 트레이 종료 시 같이 끝나는 모델로 운영
+        rumps.notification("Local Stack Control", "Server", "Stop은 앱 종료로 처리 (Quit)")
 
     @rumps.clicked("Quick: OpenClaw Stop")
     def quick_oc(self, _):
@@ -71,11 +63,6 @@ class LocalControlTray(rumps.App):
     def quick_jg(self, _):
         sh("pkill -KILL -f 'manage.py runserver|jagalchi-server-AI.*manage.py runserver' || true")
         rumps.notification("Quick Action", "Jagalchi", "kill sent")
-
-    def quit(self, _=None):
-        if self.server and self.server.poll() is None:
-            self.server.terminate()
-        super().quit()
 
 
 if __name__ == "__main__":

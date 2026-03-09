@@ -2,33 +2,19 @@
 import json
 import re
 import subprocess
+import threading
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-HOST = "0.0.0.0"
+HOST = "127.0.0.1"
 PORT = 18777
 BASE = Path(__file__).resolve().parent
 CONFIG_PATH = BASE / "services.json"
 
 DEFAULT_TEMPLATES = [
-    {
-        "id": "openclaw-gateway",
-        "name": "OpenClaw Gateway",
-        "kind": "openclaw",
-        "match": "openclaw-gateway",
-    },
-    {
-        "id": "symphony-docker",
-        "name": "Symphony (Docker)",
-        "kind": "docker_name",
-        "match": "symphony",
-    },
-    {
-        "id": "jagalchi-runserver",
-        "name": "Jagalchi Runserver",
-        "kind": "process",
-        "match": "manage.py runserver",
-    },
+    {"id": "openclaw-gateway", "name": "OpenClaw Gateway", "kind": "openclaw", "match": "openclaw-gateway", "startCmd": ""},
+    {"id": "symphony-docker", "name": "Symphony (Docker)", "kind": "docker_name", "match": "symphony", "startCmd": ""},
+    {"id": "jagalchi-runserver", "name": "Jagalchi Runserver", "kind": "process", "match": "manage.py runserver", "startCmd": ""},
 ]
 
 
@@ -55,6 +41,57 @@ def save_templates(items):
     CONFIG_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def process_metrics(pattern):
+    rc, out = run(f"ps -axo pid=,rss=,pcpu=,args= | egrep '{pattern}' | egrep -v 'egrep' || true")
+    rss_kb = 0.0
+    cpu = 0.0
+    pids = []
+    for ln in out.splitlines():
+        m = re.match(r"\s*(\d+)\s+(\d+)\s+([0-9.]+)\s+.*", ln)
+        if not m:
+            continue
+        pids.append(int(m.group(1)))
+        rss_kb += float(m.group(2))
+        cpu += float(m.group(3))
+    return {
+        "pids": pids,
+        "count": len(pids),
+        "cpuPercent": round(cpu, 2),
+        "rssMB": round(rss_kb / 1024.0, 1),
+    }
+
+
+def docker_metrics(name):
+    rc, out = run("docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' || true")
+    cpu = 0.0
+    mem = 0.0
+    count = 0
+    for ln in out.splitlines():
+        parts = ln.split("\t")
+        if len(parts) < 3:
+            continue
+        cname, c_cpu, c_mem = parts[0], parts[1], parts[2]
+        if name.lower() not in cname.lower():
+            continue
+        count += 1
+        try:
+            cpu += float(c_cpu.strip().replace("%", ""))
+        except Exception:
+            pass
+        cur = c_mem.split("/")[0].strip()
+        m = re.match(r"([0-9.]+)\s*([A-Za-z]+)", cur)
+        if m:
+            v = float(m.group(1))
+            u = m.group(2).lower()
+            if u.startswith("g"):
+                mem += v * 1024
+            elif u.startswith("m"):
+                mem += v
+            elif u.startswith("k"):
+                mem += v / 1024
+    return {"count": count, "cpuPercent": round(cpu, 2), "rssMB": round(mem, 1)}
+
+
 def openclaw_action(action):
     if action not in {"start", "stop", "restart", "status"}:
         return False, "invalid action"
@@ -64,8 +101,16 @@ def openclaw_action(action):
 
 def docker_name_action(name, action):
     if action == "status":
-        rc, out = run(f"docker ps -a --filter name={name} --format 'table {{.Names}}\\t{{.Image}}\\t{{.Status}}'")
+        rc, out = run(f"docker ps -a --filter name={name} --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'")
         return rc == 0, out
+    if action == "start":
+        rc, ids = run(f"docker ps -aq --filter name={name}")
+        if rc != 0:
+            return False, ids
+        if not ids.strip():
+            return True, f"No containers for: {name}"
+        rc2, out = run(f"echo '{ids}' | xargs docker start")
+        return rc2 == 0, out
     if action in {"stop", "kill"}:
         rc, ids = run(f"docker ps -aq --filter name={name}")
         if rc != 0:
@@ -77,10 +122,15 @@ def docker_name_action(name, action):
     return False, "invalid action"
 
 
-def process_action(pattern, action):
+def process_action(pattern, action, start_cmd=""):
     if action == "status":
         rc, out = run(f"pgrep -af '{pattern}' || true")
         return True, out
+    if action == "start":
+        if not start_cmd:
+            return False, "startCmd not set for this process template"
+        rc, out = run(f"nohup {start_cmd} >/tmp/local-stack-control.log 2>&1 & echo started")
+        return rc == 0, out
     if action in {"stop", "kill"}:
         sig = "-TERM" if action == "stop" else "-KILL"
         rc, out = run(f"pkill {sig} -f '{pattern}' || true")
@@ -95,45 +145,53 @@ def apply_template(tpl, action):
     if kind == "docker_name":
         return docker_name_action(match, action)
     if kind == "process":
-        return process_action(match, action)
+        return process_action(match, action, tpl.get("startCmd", ""))
     return False, f"unknown kind: {kind}"
 
 
+def template_metrics(tpl):
+    kind, match = tpl.get("kind"), tpl.get("match", "")
+    if kind == "openclaw":
+        return process_metrics("openclaw-gateway")
+    if kind == "process":
+        return process_metrics(match)
+    if kind == "docker_name":
+        return docker_metrics(match)
+    return {"count": 0, "cpuPercent": 0.0, "rssMB": 0.0}
+
+
 def auto_detect():
-    templates = load_templates()
     result = []
-    for tpl in templates:
+    for tpl in load_templates():
         ok, out = apply_template(tpl, "status")
-        running = False
-        if tpl.get("kind") == "openclaw":
-            running = "running" in out.lower() or "active" in out.lower()
-        elif tpl.get("kind") == "docker_name":
-            running = bool(re.search(r"Up ", out))
-        elif tpl.get("kind") == "process":
-            running = out != "(no output)"
-        result.append({"template": tpl, "running": running, "status": out, "ok": ok})
+        m = template_metrics(tpl)
+        running = m.get("count", 0) > 0
+        if tpl.get("kind") == "openclaw" and ("running" in out.lower() or "active" in out.lower()):
+            running = True
+        result.append({"template": tpl, "running": running, "status": out, "metrics": m, "ok": ok})
     return result
 
 
 HTML = """<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>Local Stack Control</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:20px;background:#0b0f14;color:#e6edf3}.wrap{max-width:980px;margin:0 auto}.card{background:#111826;border:1px solid #243244;border-radius:12px;padding:14px;margin:10px 0}button{background:#1f6feb;color:#fff;border:none;border-radius:8px;padding:7px 10px;cursor:pointer;margin-right:6px;margin-bottom:6px}.danger{background:#d73a49}.muted{background:#3a4a5f}input,select{background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:8px;margin-right:6px}pre{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px;white-space:pre-wrap}</style></head>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:20px;background:#0b0f14;color:#e6edf3}.wrap{max-width:980px;margin:0 auto}.card{background:#111826;border:1px solid #243244;border-radius:12px;padding:14px;margin:10px 0}button{background:#1f6feb;color:#fff;border:none;border-radius:8px;padding:7px 10px;cursor:pointer;margin-right:6px;margin-bottom:6px}.danger{background:#d73a49}.muted{background:#3a4a5f}input,select{background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:8px;margin-right:6px}pre{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px;white-space:pre-wrap}.metric{font-size:13px;color:#9fb1c7}</style></head>
 <body><div class='wrap'><h2>🧰 Local Stack Control</h2>
-<div class='card'><button onclick='refresh()'>자동탐지 새로고침</button><button class='danger' onclick='cleanup()'>전체 정리 (cleanup)</button></div>
+<div class='card'><button onclick='refresh()'>새로고침</button><button class='danger' onclick='cleanup()'>전체 정리 (cleanup)</button></div>
 <div id='services'></div>
 <div class='card'><h3>서비스 템플릿 추가</h3>
-<input id='name' placeholder='표시 이름'/><select id='kind'><option value='process'>process (pgrep/pkill)</option><option value='docker_name'>docker_name</option><option value='openclaw'>openclaw</option></select><input id='match' placeholder='match/pattern (예: manage.py runserver)'/><button onclick='addTpl()'>추가</button>
+<input id='name' placeholder='표시 이름'/><select id='kind'><option value='process'>process</option><option value='docker_name'>docker_name</option><option value='openclaw'>openclaw</option></select>
+<input id='match' placeholder='match/pattern'/><input id='startCmd' placeholder='start command (옵션)' style='width:320px'/><button onclick='addTpl()'>추가</button>
 </div>
 <div class='card'><h3>Output</h3><pre id='out'>ready</pre></div></div>
 <script>
-const out = document.getElementById('out');
+const out=document.getElementById('out');
 async function j(url,opt){const r=await fetch(url,opt);return await r.json();}
-function esc(s){return (s||'').replaceAll('<','&lt;');}
-async function refresh(){const d=await j('/api/detect');const box=document.getElementById('services');box.innerHTML='';d.items.forEach(item=>{const t=item.template;const card=document.createElement('div');card.className='card';card.innerHTML=`<h3>${esc(t.name)} ${item.running?'🟢':'⚪️'}</h3><div><button onclick="act('${t.id}','status')">Status</button><button class='muted' onclick="act('${t.id}','stop')">Stop</button><button class='danger' onclick="act('${t.id}','kill')">Kill</button><button class='muted' onclick="delTpl('${t.id}')">삭제</button></div><small>${esc(t.kind)} / ${esc(t.match||'')}</small>`;box.appendChild(card);});}
-async function act(id,action){const d=await j('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action})});out.textContent=(d.ok?'':'ERROR\n')+d.output;await refresh();}
-async function cleanup(){const d=await j('/api/cleanup',{method:'POST'});out.textContent=(d.ok?'':'ERROR\n')+d.output;await refresh();}
-async function addTpl(){const name=document.getElementById('name').value.trim();const kind=document.getElementById('kind').value;const match=document.getElementById('match').value.trim();const d=await j('/api/templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,kind,match})});out.textContent=(d.ok?'':'ERROR\n')+d.output;await refresh();}
-async function delTpl(id){const d=await j('/api/templates/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});out.textContent=(d.ok?'':'ERROR\n')+d.output;await refresh();}
-refresh();
+function esc(s){return (s||'').replaceAll('<','&lt;')}
+async function refresh(){const d=await j('/api/detect');const box=document.getElementById('services');box.innerHTML='';d.items.forEach(item=>{const t=item.template,m=item.metrics||{};const c=document.createElement('div');c.className='card';c.innerHTML=`<h3>${esc(t.name)} ${item.running?'🟢':'⚪️'}</h3><div class='metric'>CPU: ${m.cpuPercent||0}% | RSS: ${m.rssMB||0} MB | Proc/Container: ${m.count||0}</div><div style='margin-top:8px'><button onclick="act('${t.id}','start')">Start</button><button onclick="act('${t.id}','status')">Status</button><button class='muted' onclick="act('${t.id}','stop')">Stop</button><button class='danger' onclick="act('${t.id}','kill')">Kill</button><button class='muted' onclick="delTpl('${t.id}')">삭제</button></div><small>${esc(t.kind)} / ${esc(t.match||'')}</small>`;box.appendChild(c);});}
+async function act(id,action){const d=await j('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action})});out.textContent=(d.ok?'':'ERROR\n')+d.output;setTimeout(refresh,500)}
+async function cleanup(){const d=await j('/api/cleanup',{method:'POST'});out.textContent=(d.ok?'':'ERROR\n')+d.output;setTimeout(refresh,700)}
+async function addTpl(){const name=document.getElementById('name').value.trim();const kind=document.getElementById('kind').value;const match=document.getElementById('match').value.trim();const startCmd=document.getElementById('startCmd').value.trim();const d=await j('/api/templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,kind,match,startCmd})});out.textContent=(d.ok?'':'ERROR\n')+d.output;refresh()}
+async function delTpl(id){const d=await j('/api/templates/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});out.textContent=(d.ok?'':'ERROR\n')+d.output;refresh()}
+refresh(); setInterval(refresh, 5000);
 </script></body></html>"""
 
 
@@ -166,42 +224,37 @@ class Handler(BaseHTTPRequestHandler):
         data = json.loads(raw or "{}")
 
         if self.path == "/api/action":
-            templates = load_templates()
-            tid, action = data.get("id"), data.get("action")
-            tpl = next((x for x in templates if x.get("id") == tid), None)
+            tpl = next((x for x in load_templates() if x.get("id") == data.get("id")), None)
             if not tpl:
                 self._json({"ok": False, "output": "template not found"}, 404)
                 return
-            ok, output = apply_template(tpl, action)
+            ok, output = apply_template(tpl, data.get("action"))
             self._json({"ok": ok, "output": output}, 200 if ok else 500)
             return
 
         if self.path == "/api/templates":
-            name, kind, match = data.get("name", "").strip(), data.get("kind"), data.get("match", "").strip()
+            name, kind = data.get("name", "").strip(), data.get("kind")
             if not name or not kind:
                 self._json({"ok": False, "output": "name/kind required"}, 400)
                 return
             items = load_templates()
             tid = re.sub(r"[^a-z0-9-]", "-", name.lower()).strip("-") or "service"
             tid = f"{tid}-{len(items)+1}"
-            items.append({"id": tid, "name": name, "kind": kind, "match": match})
+            items.append({"id": tid, "name": name, "kind": kind, "match": data.get("match", "").strip(), "startCmd": data.get("startCmd", "").strip()})
             save_templates(items)
             self._json({"ok": True, "output": f"added: {name}"})
             return
 
         if self.path == "/api/templates/delete":
             tid = data.get("id")
-            items = [x for x in load_templates() if x.get("id") != tid]
-            save_templates(items)
+            save_templates([x for x in load_templates() if x.get("id") != tid])
             self._json({"ok": True, "output": f"deleted: {tid}"})
             return
 
         if self.path == "/api/cleanup":
-            outputs = []
-            ok_all = True
+            outputs, ok_all = [], True
             for item in auto_detect():
                 tpl = item["template"]
-                # OpenClaw는 stop, 나머지는 kill 우선
                 action = "stop" if tpl.get("kind") == "openclaw" else "kill"
                 ok, out = apply_template(tpl, action)
                 outputs.append(f"[{tpl.get('name')}] {action}\n{out}")
@@ -212,6 +265,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
 
+def run_server(host=HOST, port=PORT):
+    httpd = HTTPServer((host, port), Handler)
+    print(f"Local control app: http://{host}:{port}")
+    httpd.serve_forever()
+
+
+def run_server_background(host=HOST, port=PORT):
+    t = threading.Thread(target=run_server, args=(host, port), daemon=True)
+    t.start()
+    return t
+
+
 if __name__ == "__main__":
-    print(f"Local control app: http://{HOST}:{PORT}")
-    HTTPServer((HOST, PORT), Handler).serve_forever()
+    run_server()
