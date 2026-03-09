@@ -36,7 +36,7 @@ cotor plugin list                # 플러그인 메타데이터 확인
 cotor stats                      # 실행 통계
 cotor doctor                     # 환경 점검
 cotor dash -c <yaml>             # Codex 스타일 대시보드
-cotor web                        # 웹 파이프라인 스튜디오
+cotor web                        # 소개 랜딩 + 웹 파이프라인 스튜디오
 ```
 
 ## 현재 CLI 명령 체계
@@ -68,3 +68,4 @@ cotor web                        # 웹 파이프라인 스튜디오
 
 - `--config`를 생략하면 대부분 `cotor.yaml`을 기본으로 사용합니다.
 - 인자 없이 `cotor`를 실행하면 interactive 모드가 시작됩니다.
+- `cotor web`를 실행하면 소개 랜딩은 `/`, 파이프라인 스튜디오는 `/editor`에서 확인할 수 있습니다.

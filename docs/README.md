@@ -36,7 +36,7 @@ cotor plugin list                # inspect plugin metadata
 cotor stats                      # pipeline statistics
 cotor doctor                     # environment diagnostics
 cotor dash -c <yaml>             # codex-style dashboard
-cotor web                        # web pipeline studio
+cotor web                        # intro landing + web pipeline studio
 ```
 
 ## Command Surface (current)
@@ -68,3 +68,4 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 
 - If config is omitted, most commands use `cotor.yaml` by default.
 - Running `cotor` with no args starts interactive mode; passing an unknown first argument runs simple direct pipeline execution.
+- `cotor web` now opens the intro landing at `/`; the pipeline studio remains at `/editor`.

@@ -141,7 +141,7 @@ class WebServer : KoinComponent {
         if (openBrowser) {
             thread(name = "cotor-web-open") {
                 Thread.sleep(600)
-                openInBrowser("http://localhost:$port/editor")
+                openInBrowser("http://localhost:$port/")
             }
         }
 
@@ -155,7 +155,7 @@ class WebServer : KoinComponent {
 
             routing {
                 get("/") {
-                    call.respondRedirect("/editor")
+                    call.respondText(landingHtml, ContentType.Text.Html)
                 }
 
                 get("/editor") {
@@ -480,6 +480,611 @@ private fun openInBrowser(url: String) {
         // Ignore failures
     }
 }
+
+private val landingHtml = """
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Cotor | Explain, Design, Run</title>
+  <style>
+    :root {
+      --page-bg: #f4efe5;
+      --surface: rgba(255, 252, 246, 0.82);
+      --surface-strong: #fffaf2;
+      --surface-dark: #11231f;
+      --ink: #10201c;
+      --muted: #55645d;
+      --line: rgba(16, 32, 28, 0.12);
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --accent-soft: rgba(15, 118, 110, 0.14);
+      --warm: #dd6b20;
+      --warm-soft: rgba(221, 107, 32, 0.14);
+      --success: #2f855a;
+      --shadow: 0 26px 80px rgba(17, 35, 31, 0.12);
+      --radius-lg: 28px;
+      --radius-md: 20px;
+      --radius-sm: 14px;
+      --max-width: 1180px;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-10: 40px;
+      --space-12: 48px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.22), transparent 32%),
+        radial-gradient(circle at top right, rgba(221, 107, 32, 0.18), transparent 28%),
+        linear-gradient(180deg, #fbf8f1 0%, #f4efe5 54%, #ede6d9 100%);
+      font-family: "Space Grotesk", "Pretendard Variable", "Avenir Next", sans-serif;
+      min-height: 100vh;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { max-width: 100%; }
+    .shell {
+      width: min(calc(100% - 32px), var(--max-width));
+      margin: 0 auto;
+    }
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      padding: 20px 0 14px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-3);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .brand-mark {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, var(--accent), #17a399);
+      color: white;
+      box-shadow: 0 14px 28px rgba(15, 118, 110, 0.22);
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .nav-link {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 14px;
+      border-radius: 999px;
+      color: var(--muted);
+      transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+    .nav-link:hover {
+      background: rgba(255, 255, 255, 0.58);
+      color: var(--ink);
+      transform: translateY(-1px);
+    }
+    .nav-link:focus-visible,
+    .button:focus-visible {
+      outline: 3px solid rgba(17, 94, 89, 0.26);
+      outline-offset: 3px;
+    }
+    .button {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 0 18px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
+    }
+    .button:hover { transform: translateY(-1px); }
+    .button-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: white;
+      box-shadow: 0 18px 30px rgba(17, 94, 89, 0.24);
+    }
+    .button-secondary {
+      background: rgba(255, 255, 255, 0.7);
+      border-color: rgba(16, 32, 28, 0.1);
+      color: var(--ink);
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
+      gap: var(--space-8);
+      padding: 22px 0 64px;
+      align-items: center;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(16, 32, 28, 0.08);
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+    .hero h1 {
+      margin: 18px 0 16px;
+      font-size: clamp(2.8rem, 6vw, 5.4rem);
+      line-height: 0.94;
+      letter-spacing: -0.05em;
+      max-width: 11ch;
+    }
+    .hero p {
+      margin: 0;
+      font-size: 1.05rem;
+      line-height: 1.72;
+      color: var(--muted);
+      max-width: 62ch;
+    }
+    .hero-actions {
+      display: flex;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+      margin-top: var(--space-6);
+    }
+    .hero-meta {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-4);
+      margin-top: var(--space-8);
+    }
+    .hero-stat {
+      padding: 18px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(16, 32, 28, 0.08);
+      box-shadow: 0 14px 34px rgba(16, 32, 28, 0.06);
+    }
+    .hero-stat strong {
+      display: block;
+      font-size: 1.45rem;
+      letter-spacing: -0.04em;
+      margin-bottom: 6px;
+    }
+    .hero-card {
+      position: relative;
+      overflow: hidden;
+      padding: var(--space-6);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(160deg, rgba(17, 35, 31, 0.96), rgba(17, 35, 31, 0.9));
+      color: white;
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .hero-card::before,
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      inset: auto;
+      border-radius: 999px;
+      filter: blur(2px);
+      opacity: 0.72;
+    }
+    .hero-card::before {
+      width: 180px;
+      height: 180px;
+      top: -30px;
+      right: -46px;
+      background: rgba(15, 118, 110, 0.26);
+    }
+    .hero-card::after {
+      width: 160px;
+      height: 160px;
+      bottom: -36px;
+      left: -24px;
+      background: rgba(221, 107, 32, 0.2);
+    }
+    .hero-card > * { position: relative; z-index: 1; }
+    .card-label {
+      display: inline-flex;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      font-size: 0.82rem;
+      color: rgba(255, 255, 255, 0.8);
+    }
+    .card-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .card-item {
+      padding: 16px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .card-item strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 1rem;
+    }
+    .card-item span {
+      color: rgba(255, 255, 255, 0.72);
+      line-height: 1.6;
+      font-size: 0.95rem;
+    }
+    .page-section {
+      padding: 18px 0 22px;
+    }
+    .section-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+      flex-wrap: wrap;
+    }
+    .section-header h2 {
+      margin: 0;
+      font-size: clamp(1.8rem, 3vw, 2.8rem);
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+    .section-header p {
+      margin: 0;
+      max-width: 48ch;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .feature-grid,
+    .step-grid,
+    .proof-grid {
+      display: grid;
+      gap: var(--space-4);
+    }
+    .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .step-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .proof-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .panel {
+      padding: var(--space-6);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+    .panel h3 {
+      margin: 0 0 10px;
+      font-size: 1.16rem;
+      letter-spacing: -0.03em;
+    }
+    .panel p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .panel-accent {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.66)),
+        linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(221, 107, 32, 0.05));
+    }
+    .label {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .label-warm {
+      background: var(--warm-soft);
+      color: var(--warm);
+    }
+    .flow-line {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .flow-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 18px 0 0 rgba(15, 118, 110, 0.45), 36px 0 0 rgba(221, 107, 32, 0.65);
+      margin-right: 40px;
+    }
+    .code-block {
+      margin: 0;
+      border-radius: var(--radius-md);
+      padding: var(--space-5);
+      background: var(--surface-dark);
+      color: #f9fafb;
+      font-family: "SFMono-Regular", "JetBrains Mono", monospace;
+      font-size: 0.92rem;
+      line-height: 1.75;
+      overflow: auto;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+    .cta {
+      margin: 28px 0 56px;
+      padding: var(--space-8);
+      border-radius: var(--radius-lg);
+      background: linear-gradient(135deg, rgba(17, 35, 31, 0.96), rgba(15, 118, 110, 0.92));
+      color: white;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-6);
+      align-items: center;
+      box-shadow: var(--shadow);
+    }
+    .cta p {
+      margin: 10px 0 0;
+      color: rgba(255, 255, 255, 0.78);
+      line-height: 1.7;
+      max-width: 58ch;
+    }
+    .footer {
+      padding: 0 0 44px;
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+    @media (max-width: 1080px) {
+      .hero,
+      .cta {
+        grid-template-columns: 1fr;
+      }
+      .feature-grid,
+      .proof-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    @media (max-width: 840px) {
+      .hero-meta,
+      .step-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    @media (max-width: 720px) {
+      .nav {
+        padding-top: 16px;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .nav-links { width: 100%; justify-content: flex-start; }
+      .hero { padding-bottom: 44px; }
+      .hero h1 { max-width: 13ch; }
+      .shell { width: min(calc(100% - 24px), var(--max-width)); }
+      .panel,
+      .hero-card,
+      .cta {
+        padding: var(--space-5);
+      }
+      .section-header h2 {
+        line-height: 1.06;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="nav" aria-label="Cotor intro navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">C</div>
+        <div>
+          <div>Cotor</div>
+          <div style="font-size:0.85rem;color:var(--muted);font-weight:500;">Master-agent orchestration</div>
+        </div>
+      </div>
+      <nav class="nav-links">
+        <a class="nav-link" href="#why">왜 Cotor인가</a>
+        <a class="nav-link" href="#workflow">어떻게 쓰나</a>
+        <a class="nav-link" href="#proof">무엇이 포함되나</a>
+        <a class="button button-secondary" href="/editor">Flow Studio 열기</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div>
+          <div class="eyebrow">CLI의 제어력 + 웹의 가시성</div>
+          <h1 id="hero-title">설명하고, 설계하고, 검증하고, 바로 실행하는 AI workflow.</h1>
+          <p>
+            Cotor는 여러 에이전트를 한 흐름으로 묶어 실행하는 Kotlin 기반 오케스트레이터입니다.
+            소개 페이지에서 핵심 개념을 빠르게 이해한 뒤, 곧바로 `/editor`에서 노코드 스튜디오와 템플릿 워크플로우로 이어질 수 있습니다.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/editor">Flow Studio 시작</a>
+            <a class="button button-secondary" href="#workflow">핵심 흐름 보기</a>
+          </div>
+          <div class="hero-meta" aria-label="product highlights">
+            <div class="hero-stat">
+              <strong>Sequential / Parallel / DAG</strong>
+              <span>복잡한 협업 구조를 한 도구에서 설계하고 실행합니다.</span>
+            </div>
+            <div class="hero-stat">
+              <strong>Validation + Recovery</strong>
+              <span>사전 검증, 체크포인트, 재개 경로를 기본 제공해 실패 비용을 줄입니다.</span>
+            </div>
+            <div class="hero-stat">
+              <strong>CLI + Web Studio</strong>
+              <span>터미널과 브라우저를 오가며 같은 워크플로우를 다룹니다.</span>
+            </div>
+          </div>
+        </div>
+
+        <aside class="hero-card" aria-label="launch snapshot">
+          <span class="card-label">Quick launch</span>
+          <h2 style="margin:14px 0 10px;font-size:2rem;line-height:1;letter-spacing:-0.05em;">가장 빠른 진입 경로</h2>
+          <p style="margin:0;color:rgba(255,255,255,0.74);line-height:1.7;">
+            `cotor web`를 실행하면 이제 루트(`/`)에서 소개 랜딩을 보고, 이어서 `/editor`에서 파이프라인을 설계할 수 있습니다.
+          </p>
+          <div class="card-list">
+            <div class="card-item">
+              <strong>1. 개념을 빠르게 파악</strong>
+              <span>무엇을 해결하는 도구인지, 어떤 사용 시나리오가 맞는지 몇 화면 안에 정리합니다.</span>
+            </div>
+            <div class="card-item">
+              <strong>2. 템플릿으로 시작</strong>
+              <span>비교, 리뷰 체인, 팬아웃/머지 같은 패턴을 웹 스튜디오에서 즉시 불러옵니다.</span>
+            </div>
+            <div class="card-item">
+              <strong>3. 저장 후 실행</strong>
+              <span>생성된 YAML은 `.cotor/web/`에 저장되고, CLI와 같은 결과 경로로 이어집니다.</span>
+            </div>
+          </div>
+          <div class="flow-line">
+            <span class="flow-dot" aria-hidden="true"></span>
+            <span>Explain</span>
+            <span>Design</span>
+            <span>Validate</span>
+            <span>Run</span>
+          </div>
+        </aside>
+      </section>
+
+      <section id="why" class="page-section" aria-labelledby="why-title">
+        <div class="section-header">
+          <div>
+            <h2 id="why-title">왜 Cotor인가</h2>
+          </div>
+          <p>단순한 실행기보다 한 단계 위의 문제를 겨냥합니다. 설계, 검증, 실행, 모니터링을 같은 흐름 안에서 다루는 것이 핵심입니다.</p>
+        </div>
+        <div class="feature-grid">
+          <article class="panel panel-accent">
+            <span class="label">Orchestration</span>
+            <h3>여러 에이전트를 한 파이프라인으로</h3>
+            <p>순차, 병렬, DAG 모드를 지원해 생성, 리뷰, 비교, 병합 흐름을 깔끔하게 정의할 수 있습니다.</p>
+          </article>
+          <article class="panel">
+            <span class="label label-warm">Guardrails</span>
+            <h3>검증과 보안을 실행 전에</h3>
+            <p>파이프라인 검증, 보안 화이트리스트, 체크포인트/재개 기능으로 실패했을 때의 복구 경로를 남깁니다.</p>
+          </article>
+          <article class="panel">
+            <span class="label">Visibility</span>
+            <h3>CLI와 웹이 같은 모델을 공유</h3>
+            <p>CLI에서 관리하던 YAML과 실행 결과를 웹 스튜디오에서도 다뤄, 도입과 운영의 문턱을 낮춥니다.</p>
+          </article>
+          <article class="panel panel-accent">
+            <span class="label label-warm">Templates</span>
+            <h3>반복 패턴을 빠르게 재사용</h3>
+            <p>비교, 생성→리뷰, 결정 게이트, 자기치유 루프, 팬아웃/머지 같은 템플릿을 기반으로 시작할 수 있습니다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="workflow" class="page-section" aria-labelledby="workflow-title">
+        <div class="section-header">
+          <div>
+            <h2 id="workflow-title">어떻게 사용하는가</h2>
+          </div>
+          <p>첫 방문자도 바로 따라갈 수 있도록, 소개 페이지에서 스튜디오로 이어지는 경로를 짧게 정리했습니다.</p>
+        </div>
+        <div class="step-grid">
+          <article class="panel">
+            <span class="label">Step 1</span>
+            <h3>개념과 흐름 이해</h3>
+            <p>루트 랜딩에서 제품 가치와 실행 모드를 훑고, 자신이 필요한 패턴이 무엇인지 확인합니다.</p>
+          </article>
+          <article class="panel panel-accent">
+            <span class="label label-warm">Step 2</span>
+            <h3>Flow Studio로 이동</h3>
+            <p>`/editor`에서 템플릿을 불러오거나 스테이지를 드래그·드롭으로 구성해 YAML을 설계합니다.</p>
+          </article>
+          <article class="panel">
+            <span class="label">Step 3</span>
+            <h3>저장, 실행, 공유</h3>
+            <p>웹에서 저장된 파이프라인은 CLI와 같은 설정 자산으로 남기 때문에 이후 자동화/버전 관리 흐름으로 자연스럽게 넘어갑니다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="proof" class="page-section" aria-labelledby="proof-title">
+        <div class="section-header">
+          <div>
+            <h2 id="proof-title">무엇이 포함되는가</h2>
+          </div>
+          <p>소개 페이지는 마케팅 문구만 두지 않고, 실제 진입 명령과 핵심 기능 지도를 함께 보여줍니다.</p>
+        </div>
+        <div class="proof-grid">
+          <article class="panel">
+            <h3>Launch commands</h3>
+            <pre class="code-block">./gradlew shadowJar
+java -jar build/libs/cotor-1.0.0.jar web --open
+
+# 소개 랜딩
+http://localhost:8080/
+
+# 웹 스튜디오
+http://localhost:8080/editor</pre>
+          </article>
+          <article class="panel panel-accent">
+            <h3>Included entry points</h3>
+            <p>랜딩 페이지에서 핵심 가치, 템플릿 패턴, 실행 모드, 다음 행동을 먼저 설명하고, 마지막 CTA를 통해 웹 스튜디오로 이동시킵니다.</p>
+            <div style="display:grid;gap:10px;margin-top:14px;">
+              <div class="hero-stat" style="padding:14px;background:rgba(255,255,255,0.56);">
+                <strong style="font-size:1rem;">설명</strong>
+                <span>첫 방문자에게 제품 맥락과 사용 시나리오를 제공</span>
+              </div>
+              <div class="hero-stat" style="padding:14px;background:rgba(255,255,255,0.56);">
+                <strong style="font-size:1rem;">전환</strong>
+                <span>`/editor` CTA로 실제 작업 흐름에 즉시 연결</span>
+              </div>
+              <div class="hero-stat" style="padding:14px;background:rgba(255,255,255,0.56);">
+                <strong style="font-size:1rem;">증명</strong>
+                <span>로컬 명령과 URL을 그대로 적어 누구나 재현 가능</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="cta" aria-labelledby="cta-title">
+        <div>
+          <h2 id="cta-title" style="margin:0;font-size:clamp(1.8rem,3vw,3rem);line-height:1;letter-spacing:-0.05em;">개념 확인이 끝났다면, 이제 바로 설계로 이동합니다.</h2>
+          <p>소개 페이지는 진입점을 설명하고, 실제 파이프라인 편집은 기존 Flow Studio에 맡깁니다. 이 분리를 통해 처음 보는 사용자도 맥락을 잃지 않고 시작할 수 있습니다.</p>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <a class="button button-primary" href="/editor">Flow Studio 열기</a>
+          <a class="button button-secondary" href="#hero-title">위로 돌아가기</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      Cotor intro landing lives inside the existing Ktor web server, so the explanation page and the editor ship from the same local command.
+    </footer>
+  </div>
+</body>
+</html>
+"""
 
 // Lightweight HTML (single file) to keep the web UI self contained.
 private val editorHtml = """

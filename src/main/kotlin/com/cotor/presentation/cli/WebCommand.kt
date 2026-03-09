@@ -8,11 +8,11 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.int
 
 /**
- * Launch the browser-based pipeline editor.
+ * Launch the browser-based intro page and pipeline editor.
  */
 class WebCommand : CliktCommand(
     name = "web",
-    help = "Launch the Cotor web/노코드 편집기"
+    help = "Launch the Cotor intro page and web/노코드 편집기"
 ) {
     private val port by option("--port", "-p", help = "Port to run the web server").int().default(8080)
     private val openBrowser by option("--open", help = "자동으로 브라우저를 엽니다").flag(default = false)

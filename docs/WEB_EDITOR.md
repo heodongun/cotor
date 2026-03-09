@@ -1,6 +1,6 @@
 # Cotor Web / No-Code Editor
 
-웹 에디터는 파이프라인을 드래그·드롭으로 구성하고, 템플릿을 불러와 바로 저장/실행할 수 있는 UI입니다.
+웹 서버는 루트(`/`)에 Cotor 소개 랜딩을 제공하고, `/editor`에서 파이프라인을 드래그·드롭으로 구성하고 템플릿을 불러와 바로 저장/실행할 수 있는 UI를 제공합니다.
 
 ## 시작하기
 
@@ -13,10 +13,11 @@ java -jar build/libs/cotor-1.0.0.jar web --open
 java -jar build/libs/cotor-1.0.0.jar web --port 9090 --open
 ```
 
-브라우저가 자동으로 열리지 않으면 `http://localhost:8080/editor` 로 접속하세요.
+브라우저가 자동으로 열리지 않으면 `http://localhost:8080/` 로 접속하세요. 소개를 건너뛰고 바로 편집하려면 `http://localhost:8080/editor` 를 열면 됩니다.
 
 ## 주요 기능
 
+- 루트 랜딩에서 제품 가치, 실행 흐름, 스튜디오 진입 CTA 제공
 - 템플릿 바로 적용 (비교, 체인, 리뷰, DAG 팬아웃/머지, 자기치유 루프)
 - 스테이지 카드 드래그·드롭으로 순서 변경
 - 병렬/SEQUENTIAL/DAG 모드 설정 및 스테이지 간 dependencies 설정

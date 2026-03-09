@@ -25,6 +25,8 @@ Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 
 ### 빠른 링크
 - [📖 영문 가이드](docs/README.md)
 - [📖 한글 가이드](docs/README.ko.md)
+- [🌐 Cotor 소개 페이지(배포)](https://cotor-guide.pages.dev/)
+- [🧭 로컬 소개 + 에디터 미리보기](docs/WEB_EDITOR.md)
 - [🚀 빠른 시작](docs/QUICK_START.md)
 - [⚡ 기능 목록](docs/FEATURES.md)
 - [📑 문서 인덱스](docs/INDEX.md)
