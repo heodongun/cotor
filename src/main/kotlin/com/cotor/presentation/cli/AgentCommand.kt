@@ -12,6 +12,7 @@ import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.switch
 import com.github.ajalt.clikt.parameters.types.long
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.mordant.rendering.TextColors.green
@@ -19,21 +20,29 @@ import com.github.ajalt.mordant.rendering.TextColors.yellow
 import com.github.ajalt.mordant.rendering.TextStyles.bold
 import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
+import java.nio.file.Paths
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.name
 import kotlin.io.path.writeText
 
-class AgentCommand : CliktCommand(
+class AgentCommand(
+    private val homeDirectoryProvider: () -> java.nio.file.Path = defaultHomeDirectoryProvider,
+) : CliktCommand(
     name = "agent",
     help = "Manage agent presets and definitions"
 ) {
     init {
-        subcommands(AgentAddCommand(), AgentListCommand())
+        subcommands(AgentAddCommand(homeDirectoryProvider), AgentListCommand())
     }
 
     override fun run() = Unit
+}
+
+private enum class InstallScope {
+    GLOBAL,
+    LOCAL,
 }
 
 private data class AgentPreset(
@@ -44,6 +53,10 @@ private data class AgentPreset(
     val defaultModel: String,
 )
 
+private val defaultHomeDirectoryProvider: () -> java.nio.file.Path = {
+    Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize()
+}
+
 private val builtinPresets = listOf(
     AgentPreset("gemini", "com.cotor.data.plugin.GeminiPlugin", "gemini", 60000, "gemini-3.0-flash"),
     AgentPreset("claude", "com.cotor.data.plugin.ClaudePlugin", "claude", 60000, "claude-3-7-sonnet-latest"),
@@ -53,11 +66,12 @@ private val builtinPresets = listOf(
     AgentPreset("qwen", "com.cotor.data.plugin.CommandPlugin", "qwen", 60000, "qwen3-coder")
 )
 
-class AgentAddCommand : CliktCommand(
+class AgentAddCommand(
+    private val homeDirectoryProvider: () -> java.nio.file.Path = defaultHomeDirectoryProvider,
+) : CliktCommand(
     name = "add",
     help = "Add an agent from preset into .cotor/agents"
 ) {
-    private val configRepository = FileConfigRepository(YamlParser(), JsonParser())
     private val terminal = Terminal()
 
     private val presetName by argument("preset")
@@ -70,6 +84,12 @@ class AgentAddCommand : CliktCommand(
     private val force by option("--force", help = "Overwrite existing .cotor/agents/<name>.yaml file").flag(default = false)
     private val dryRun by option("--dry-run", help = "Print planned YAML without writing").flag(default = false)
     private val yes by option("--yes", help = "Skip confirmation prompt").flag(default = false)
+    private val installScope by option("--global", "--local", help = "Install preset globally (~/.cotor) or in project .cotor")
+        .switch(
+            "--global" to InstallScope.GLOBAL,
+            "--local" to InstallScope.LOCAL,
+        )
+        .default(InstallScope.GLOBAL)
 
     override fun run() {
         val preset = builtinPresets.firstOrNull { it.name == presetName.lowercase() }
@@ -77,11 +97,6 @@ class AgentAddCommand : CliktCommand(
 
         val resolvedName = (agentName ?: preset.name).trim()
         require(resolvedName.isNotBlank()) { "Agent name must not be blank" }
-
-        val existingConfig = loadCurrentConfig(configPath)
-        if (existingConfig.agents.any { it.name == resolvedName } && !force) {
-            throw UsageError("Agent '$resolvedName' already exists. Use --force to overwrite.")
-        }
 
         val resolvedModel = (model ?: preset.defaultModel).trim()
         val resolvedTimeout = timeout ?: preset.defaultTimeout
@@ -96,7 +111,16 @@ class AgentAddCommand : CliktCommand(
         )
 
         val projectDir = configPath.parent ?: Path(".")
-        val outPath = projectDir.resolve(Path(".cotor", "agents", "$resolvedName.yaml"))
+        val globalDir = homeDirectoryProvider().resolve(".cotor")
+        val targetDir = when (installScope) {
+            InstallScope.GLOBAL -> globalDir
+            InstallScope.LOCAL -> projectDir.resolve(Path(".cotor"))
+        }
+        val outPath = targetDir.resolve(Path("agents", "$resolvedName.yaml"))
+
+        if (outPath.exists() && !force) {
+            throw UsageError("Agent '$resolvedName' already exists at $outPath. Use --force to overwrite.")
+        }
 
         terminal.println(bold("Planned agent definition"))
         terminal.println(yaml)
@@ -117,14 +141,6 @@ class AgentAddCommand : CliktCommand(
         terminal.println(green("✅ Added agent '$resolvedName' at $outPath"))
         terminal.println("Next step: cotor agent list -c $configPath")
         terminal.println("Tip: ensure '${preset.executable}' is installed, then run 'cotor doctor'.")
-    }
-
-    private fun loadCurrentConfig(path: java.nio.file.Path): CotorConfig = runBlocking {
-        if (!path.exists()) {
-            CotorConfig()
-        } else {
-            configRepository.loadConfig(path)
-        }
     }
 
     private fun confirm(message: String): Boolean {

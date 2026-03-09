@@ -108,6 +108,15 @@ class InteractiveCommand :
         help = "Enable agent-level retries using each agent's configured retryPolicy"
     ).flag(default = false)
 
+    private val startupLogo = listOf(
+        " ██████╗ ██████╗ ████████╗ ██████╗ ██████╗",
+        "██╔════╝██╔═══██╗╚══██╔══╝██╔═══██╗██╔══██╗",
+        "██║     ██║   ██║   ██║   ██║   ██║██████╔╝",
+        "██║     ██║   ██║   ██║   ██║   ██║██╔══██╗",
+        "╚██████╗╚██████╔╝   ██║   ╚██████╔╝██║  ██║",
+        " ╚═════╝ ╚═════╝    ╚═╝    ╚═════╝ ╚═╝  ╚═╝"
+    )
+
     override fun run() = runBlocking {
         if (!configPath.exists()) {
             terminal.println(yellow("⚠ cotor.yaml not found at: $configPath"))
@@ -388,6 +397,8 @@ class InteractiveCommand :
         var selectedAgents = selectedAgentsInitial
         var activeAgent: AgentConfig? = activeAgentInitial
 
+        terminal.println()
+        startupLogo.forEach { terminal.println(cyan(bold(it))) }
         terminal.println()
         terminal.println(bold("◎ Cotor Interactive"))
         terminal.println(dim("Type ':help' for commands, ':exit' to quit."))

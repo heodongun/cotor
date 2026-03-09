@@ -12,11 +12,28 @@ class InteractiveCommandCompleter(
     private val modeValues = listOf("auto", "compare", "single")
 
     override fun complete(reader: LineReader?, line: ParsedLine, candidates: MutableList<Candidate>) {
-        val suggestions = suggest(line.line(), line.cursor())
-        suggestions.forEach { candidates += Candidate(it) }
+        val values = completionValues(line.line(), line.cursor())
+        values.forEach { candidates += Candidate(it) }
     }
 
     fun suggest(input: String, cursor: Int = input.length): List<String> {
+        val values = completionValues(input, cursor)
+        val safeCursor = cursor.coerceIn(0, input.length)
+        val uptoCursor = input.substring(0, safeCursor)
+        if (!uptoCursor.startsWith(":")) return emptyList()
+
+        val raw = uptoCursor.removePrefix(":")
+        if (!raw.contains(" ")) return values
+
+        val command = raw.substringBefore(" ").lowercase()
+        return when (command) {
+            "mode", "use", "model" -> values.map { ":$command $it" }
+            "include" -> values.map { ":include $it" }
+            else -> emptyList()
+        }
+    }
+
+    private fun completionValues(input: String, cursor: Int): List<String> {
         val safeCursor = cursor.coerceIn(0, input.length)
         val uptoCursor = input.substring(0, safeCursor)
         if (!uptoCursor.startsWith(":")) return emptyList()
@@ -34,21 +51,19 @@ class InteractiveCommandCompleter(
         val arg = raw.substringAfter(" ", "")
 
         return when (command) {
-            "mode" -> completeSimpleArg(command, arg, modeValues)
-            "use", "model" -> completeSimpleArg(command, arg, normalizedAgents)
-            "include" -> completeInclude(arg, normalizedAgents)
+            "mode" -> completeSimpleArgValue(arg, modeValues)
+            "use", "model" -> completeSimpleArgValue(arg, normalizedAgents)
+            "include" -> completeIncludeValue(arg, normalizedAgents)
             else -> emptyList()
         }
     }
 
-    private fun completeSimpleArg(command: String, arg: String, options: List<String>): List<String> {
+    private fun completeSimpleArgValue(arg: String, options: List<String>): List<String> {
         val token = arg.trimStart()
-        return options
-            .filter { it.startsWith(token, ignoreCase = true) }
-            .map { ":$command $it" }
+        return options.filter { it.startsWith(token, ignoreCase = true) }
     }
 
-    private fun completeInclude(arg: String, options: List<String>): List<String> {
+    private fun completeIncludeValue(arg: String, options: List<String>): List<String> {
         val parts = arg.split(",")
         val current = parts.lastOrNull()?.trimStart().orEmpty()
         val selected = parts.dropLast(1).map { it.trim() }.filter { it.isNotBlank() }.toSet()
@@ -58,6 +73,6 @@ class InteractiveCommandCompleter(
         return options
             .filterNot { selected.contains(it) }
             .filter { it.startsWith(current, ignoreCase = true) }
-            .map { ":include $prefixWithComma$it" }
+            .map { "$prefixWithComma$it" }
     }
 }

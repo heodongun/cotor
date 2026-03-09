@@ -301,7 +301,12 @@ class OpenCodePlugin : AgentPlugin {
         )
 
         if (!result.isSuccess) {
-            throw AgentExecutionException("OpenCode execution failed: ${result.stderr}")
+            throw ProcessExecutionException(
+                message = "OpenCode execution failed",
+                exitCode = result.exitCode,
+                stdout = result.stdout,
+                stderr = result.stderr
+            )
         }
 
         return result.stdout
