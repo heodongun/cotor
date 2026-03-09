@@ -21,10 +21,11 @@ python3 experiments/local-control-app/control_app.py
 
 - **서비스 자동탐지**: 템플릿별 상태를 한 번에 확인
 - **템플릿 추가/삭제 UI**: 프로세스/도커 이름 패턴 등록
+- **원클릭 전체 켜기(start all)** 버튼
 - **원클릭 전체 정리(cleanup)** 버튼
 - OpenClaw gateway: start / status / stop / restart
-- Symphony docker 컨테이너(name에 `symphony` 포함): status / stop / kill
-- Jagalchi runserver(`manage.py runserver`): status / stop / kill
+- Symphony docker 컨테이너(name에 `symphony` 포함): start / status / stop
+- Jagalchi runserver(`manage.py runserver`): start(템플릿 startCmd 필요) / status / stop
 
 ## Menubar 앱(상단바)
 

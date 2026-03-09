@@ -264,7 +264,7 @@ def system_metrics():
 HTML = """<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>Local Stack Control</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:20px;background:#0b0f14;color:#e6edf3}.wrap{max-width:980px;margin:0 auto}.card{background:#111826;border:1px solid #243244;border-radius:12px;padding:14px;margin:10px 0}button{background:#1f6feb;color:#fff;border:none;border-radius:8px;padding:7px 10px;cursor:pointer;margin-right:6px;margin-bottom:6px}.danger{background:#d73a49}.muted{background:#3a4a5f}input,select{background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:8px;margin-right:6px}pre{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px;white-space:pre-wrap}.metric{font-size:13px;color:#9fb1c7}</style></head>
 <body><div class='wrap'><h2>🧰 Local Stack Control</h2>
-<div class='card'><button onclick='refresh()'>새로고침</button><button class='danger' onclick='cleanup()'>전체 정리 (cleanup)</button></div>
+<div class='card'><button onclick='refresh()'>새로고침</button><button onclick='startAll()'>전체 켜기 (start all)</button><button class='danger' onclick='cleanup()'>전체 정리 (cleanup)</button></div>
 <div id='system'></div>
 <div id='services'></div>
 <div class='card'><h3>서비스 템플릿 추가</h3>
@@ -287,8 +287,9 @@ async function refresh(){
   s.innerHTML=`<div class='card'><h3>시스템 리소스</h3><div class='metric'>CPU 사용: ${c.used||0}% (user ${c.user||0}% / sys ${c.sys||0}% / idle ${c.idle||0}%)</div><div class='metric'>메모리 사용: ${m.usedMB||0} MB / ${m.totalMB||0} MB (${m.usedPct||0}%) | 남음: ${m.freeMB||0} MB</div>${renderTopRows('Top CPU', sys.topCpu||[])}${renderTopRows('Top Memory', sys.topMem||[])}</div>`;
 
   const box=document.getElementById('services');box.innerHTML='';
-  d.items.forEach(item=>{const t=item.template,m=item.metrics||{};const c=document.createElement('div');c.className='card';c.innerHTML=`<h3>${esc(t.name)} ${item.running?'🟢':'⚪️'}</h3><div class='metric'>CPU: ${m.cpuPercent||0}% | RSS: ${m.rssMB||0} MB | Proc/Container: ${m.count||0}</div><div style='margin-top:8px'><button onclick="act('${t.id}','start')">Start</button><button onclick="act('${t.id}','status')">Status</button><button class='muted' onclick="act('${t.id}','stop')">Stop</button><button class='danger' onclick="act('${t.id}','kill')">Kill</button><button class='muted' onclick="delTpl('${t.id}')">삭제</button></div><small>${esc(t.kind)} / ${esc(t.match||'')}</small>`;box.appendChild(c);});}
+  d.items.forEach(item=>{const t=item.template,m=item.metrics||{};const c=document.createElement('div');c.className='card';c.innerHTML=`<h3>${esc(t.name)} ${item.running?'🟢':'⚪️'}</h3><div class='metric'>CPU: ${m.cpuPercent||0}% | RSS: ${m.rssMB||0} MB | Proc/Container: ${m.count||0}</div><div style='margin-top:8px'><button onclick="act('${t.id}','start')">Start</button><button onclick="act('${t.id}','status')">Status</button><button class='muted' onclick="act('${t.id}','stop')">Stop</button><button class='muted' onclick="delTpl('${t.id}')">삭제</button></div><small>${esc(t.kind)} / ${esc(t.match||'')}</small>`;box.appendChild(c);});}
 async function act(id,action){const d=await j('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action})});out.textContent=(d.ok?'':'ERROR\n')+d.output;setTimeout(refresh,500)}
+async function startAll(){const d=await j('/api/start_all',{method:'POST'});out.textContent=(d.ok?'':'ERROR\n')+d.output;setTimeout(refresh,700)}
 async function cleanup(){const d=await j('/api/cleanup',{method:'POST'});out.textContent=(d.ok?'':'ERROR\n')+d.output;setTimeout(refresh,700)}
 async function addTpl(){const name=document.getElementById('name').value.trim();const kind=document.getElementById('kind').value;const match=document.getElementById('match').value.trim();const startCmd=document.getElementById('startCmd').value.trim();const d=await j('/api/templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,kind,match,startCmd})});out.textContent=(d.ok?'':'ERROR\n')+d.output;refresh()}
 async function delTpl(id){const d=await j('/api/templates/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});out.textContent=(d.ok?'':'ERROR\n')+d.output;refresh()}
@@ -353,6 +354,16 @@ class Handler(BaseHTTPRequestHandler):
             tid = data.get("id")
             save_templates([x for x in load_templates() if x.get("id") != tid])
             self._json({"ok": True, "output": f"deleted: {tid}"})
+            return
+
+        if self.path == "/api/start_all":
+            outputs, ok_all = [], True
+            for item in auto_detect():
+                tpl = item["template"]
+                ok, out = apply_template(tpl, "start")
+                outputs.append(f"[{tpl.get('name')}] start\n{out}")
+                ok_all = ok_all and ok
+            self._json({"ok": ok_all, "output": "\n\n".join(outputs)})
             return
 
         if self.path == "/api/cleanup":

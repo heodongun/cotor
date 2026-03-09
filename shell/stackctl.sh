@@ -117,7 +117,14 @@ symphony_start() {
     return 0
   fi
 
-  echo "Start needs compose file path. Set SYMPHONY_COMPOSE=/path/to/docker-compose.yml"
+  local ids
+  ids="$(docker ps -aq --filter "name=${SYMPHONY_PATTERN}")"
+  if [[ -n "$ids" ]]; then
+    echo "$ids" | xargs -n 20 docker start
+    return 0
+  fi
+
+  echo "No Symphony containers found. Set SYMPHONY_COMPOSE=/path/to/docker-compose.yml to create new ones."
 }
 
 show_metrics() {
