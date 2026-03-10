@@ -7,7 +7,14 @@ import com.cotor.model.ProcessResult
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import java.nio.file.Path
 
+/**
+ * Regression test for the OpenCode wrapper.
+ *
+ * The important behavior here is that a failing child process keeps its exit code
+ * and captured streams when translated into a ProcessExecutionException.
+ */
 class OpenCodePluginTest : FunSpec({
     test("throws ProcessExecutionException with exit code and streams on failure") {
         val plugin = OpenCodePlugin()
@@ -16,8 +23,11 @@ class OpenCodePluginTest : FunSpec({
                 command: List<String>,
                 input: String?,
                 environment: Map<String, String>,
-                timeout: Long
+                timeout: Long,
+                workingDirectory: Path?
             ): ProcessResult {
+                // Assert the wrapper builds the expected argv and then simulate
+                // a non-zero child process result without launching the real CLI.
                 command shouldBe listOf("opencode", "generate", "hello")
                 return ProcessResult(
                     exitCode = 2,
@@ -31,6 +41,8 @@ class OpenCodePluginTest : FunSpec({
         val error = shouldThrow<ProcessExecutionException> {
             plugin.execute(
                 ExecutionContext(
+                    // The rest of the execution context is intentionally minimal because
+                    // this test only cares about error propagation from the CLI wrapper.
                     agentName = "opencode",
                     input = "hello",
                     timeout = 1_000,

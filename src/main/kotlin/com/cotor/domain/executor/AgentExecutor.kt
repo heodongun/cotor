@@ -58,13 +58,15 @@ class DefaultAgentExecutor(
 
         return withContext(Dispatchers.IO) {
             try {
-                // Security validation
+                // Validate the static agent configuration before any plugin code or
+                // child process is given a chance to run.
                 securityValidator.validate(agent)
 
-                // Load plugin
+                // Resolve the plugin implementation for this agent name.
                 val plugin = pluginLoader.loadPlugin(agent.pluginClass)
 
-                // Validate input
+                // Let the plugin reject malformed input early with a clear validation error
+                // instead of failing later inside a CLI or network call.
                 val validationResult = plugin.validateInput(input)
                 if (validationResult is ValidationResult.Failure) {
                     throw ValidationException(
@@ -73,20 +75,29 @@ class DefaultAgentExecutor(
                     )
                 }
 
-                // Create execution context
+                // Collapse the agent config plus desktop/pipeline metadata into one
+                // immutable execution snapshot that the plugin can rely on.
                 val context = ExecutionContext(
                     agentName = agent.name,
                     input = input,
                     parameters = agent.parameters,
                     environment = agent.environment,
                     timeout = agent.timeout,
+                    repoRoot = metadata.repoRoot,
+                    workspaceId = metadata.workspaceId,
+                    taskId = metadata.taskId,
+                    agentId = metadata.agentId,
+                    baseBranch = metadata.baseBranch,
+                    branchName = metadata.branchName,
+                    workingDirectory = metadata.workingDirectory,
                     pipelineContext = metadata.pipelineContext,
                     currentStageId = metadata.stageId
                 )
 
-                // Execute agent
+                // Time only the plugin body itself so reported duration reflects the
+                // actual execution window seen by the child process or API call.
                 val startTime = System.currentTimeMillis()
-                val output = withTimeout(agent.timeout) {
+                val pluginOutput = withTimeout(agent.timeout) {
                     plugin.execute(context, processManager)
                 }
                 val duration = System.currentTimeMillis() - startTime
@@ -94,10 +105,16 @@ class DefaultAgentExecutor(
                 AgentResult(
                     agentName = agent.name,
                     isSuccess = true,
-                    output = output,
+                    output = pluginOutput.output,
                     error = null,
                     duration = duration,
-                    metadata = mapOf("executedAt" to Instant.now().toString())
+                    metadata = buildMap {
+                        put("executedAt", Instant.now().toString())
+                        // Mirror the pid into the string metadata map because some
+                        // existing consumers still only inspect this generic field bag.
+                        pluginOutput.processId?.let { put("processId", it.toString()) }
+                    },
+                    processId = pluginOutput.processId
                 )
             } catch (e: TimeoutCancellationException) {
                 logger.error("Agent timeout: ${agent.name}", e)
@@ -145,6 +162,8 @@ class DefaultAgentExecutor(
         var attempt = 0
 
         while (attempt <= retryPolicy.maxRetries) {
+            // Re-run the full execution path so each retry gets the same validation,
+            // plugin resolution, and metadata setup as the initial attempt.
             lastResult = executeAgent(agent, input, metadata)
 
             if (lastResult.isSuccess) {
@@ -154,6 +173,8 @@ class DefaultAgentExecutor(
             attempt++
             if (attempt <= retryPolicy.maxRetries) {
                 logger.warn("Retry attempt $attempt for agent: ${agent.name}")
+                // Exponential backoff is computed here rather than in the plugin layer
+                // so retry policy stays consistent regardless of which agent is running.
                 val delayMs = (retryPolicy.retryDelay * Math.pow(retryPolicy.backoffMultiplier, attempt.toDouble())).toLong()
                 delay(delayMs)
             }

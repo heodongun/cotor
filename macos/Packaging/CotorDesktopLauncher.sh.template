@@ -1,0 +1,63 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+RESOURCES_DIR="$APP_ROOT/Resources"
+BINARY_PATH="$SCRIPT_DIR/CotorDesktopBinary"
+BACKEND_JAR="$RESOURCES_DIR/backend/cotor-backend.jar"
+LOG_DIR="$HOME/Library/Logs/CotorDesktop"
+LOG_FILE="$LOG_DIR/app-server.log"
+SERVER_URL="${COTOR_APP_SERVER_URL:-http://127.0.0.1:8787}"
+SERVER_PORT="$(printf '%s' "$SERVER_URL" | sed -E 's#^https?://[^:/]+:([0-9]+).*$#\1#')"
+
+if [[ ! "$SERVER_PORT" =~ ^[0-9]+$ ]]; then
+    SERVER_PORT="8787"
+fi
+
+mkdir -p "$LOG_DIR"
+
+find_java() {
+    local java_home
+
+    java_home="$(/usr/libexec/java_home -v 17+ 2>/dev/null || true)"
+    if [[ -n "$java_home" && -x "$java_home/bin/java" ]]; then
+        echo "$java_home/bin/java"
+        return 0
+    fi
+
+    command -v java || true
+}
+
+show_alert() {
+    /usr/bin/osascript -e "display alert \"Cotor Desktop\" message \"$1\" as critical" >/dev/null 2>&1 || true
+}
+
+ensure_backend() {
+    if lsof -iTCP:"$SERVER_PORT" -sTCP:LISTEN -n -P >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local java_bin
+    java_bin="$(find_java)"
+
+    if [[ -z "$java_bin" ]]; then
+        show_alert "Java 17 or newer is required to run the bundled Cotor app server."
+        return 1
+    fi
+
+    if [[ ! -f "$BACKEND_JAR" ]]; then
+        show_alert "The bundled Cotor backend could not be found inside the app."
+        return 1
+    fi
+
+    nohup "$java_bin" -jar "$BACKEND_JAR" app-server --port "$SERVER_PORT" >>"$LOG_FILE" 2>&1 &
+}
+
+ensure_backend
+
+# Export the resolved URL so the Swift client and the launcher always agree on
+# which backend endpoint belongs to this installed bundle.
+export COTOR_APP_SERVER_URL="$SERVER_URL"
+
+exec "$BINARY_PATH"

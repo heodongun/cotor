@@ -20,6 +20,22 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+## Desktop App (macOS)
+
+Build the desktop bundle, install it into `Applications`, and refresh the local download package:
+
+```bash
+./shell/install-desktop-app.sh
+```
+
+Then launch it with:
+
+```bash
+open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
+```
+
+Full backend, workspace isolation, and browser/ports details live in `DESKTOP_APP.md`.
+
 ## Use It Fast
 
 ```bash
@@ -57,6 +73,7 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 
 - Korean guide: `README.ko.md`
 - Quick start: `QUICK_START.md`
+- Desktop app: `DESKTOP_APP.md`
 - Architecture: `ARCHITECTURE.md`
 - Features: `FEATURES.md`
 - Usage tips: `USAGE_TIPS.md`

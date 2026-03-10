@@ -9,6 +9,9 @@ import java.util.concurrent.ConcurrentHashMap
  * Agent plugin interface - must be implemented by all agent plugins
  */
 interface AgentPlugin {
+    /**
+     * Static metadata used by discovery UIs, validation, and documentation output.
+     */
     val metadata: com.cotor.model.AgentMetadata
 
     /**
@@ -21,12 +24,12 @@ interface AgentPlugin {
      * Execute the agent with given context
      * @param context Execution context
      * @param processManager Process manager for executing external processes
-     * @return Output string from agent execution
+     * @return Structured output including the final text and any captured runtime metadata
      */
     suspend fun execute(
         context: com.cotor.model.ExecutionContext,
         processManager: com.cotor.data.process.ProcessManager
-    ): String
+    ): com.cotor.model.PluginExecutionOutput
 
     /**
      * Validate input data
@@ -72,11 +75,15 @@ class ReflectionPluginLoader(
     private val logger: Logger
 ) : PluginLoader {
 
+    // Plugin instances are cached because most plugins are stateless wrappers around
+    // CLIs or HTTP clients and do not need to be reflectively recreated per execution.
     private val pluginCache = ConcurrentHashMap<String, AgentPlugin>()
 
     override fun loadPlugin(pluginClass: String): AgentPlugin {
         return pluginCache.computeIfAbsent(pluginClass) {
             try {
+                // Reflection keeps the plugin contract simple: adding a plugin only
+                // requires the class to be on the classpath and implement AgentPlugin.
                 val clazz = Class.forName(pluginClass)
                 val instance = clazz.getDeclaredConstructor().newInstance()
 
@@ -96,7 +103,8 @@ class ReflectionPluginLoader(
     }
 
     override fun loadAllPlugins(): List<AgentPlugin> {
-        // Use ServiceLoader for automatic plugin discovery
+        // ServiceLoader is the bulk discovery path used when we want to enumerate the
+        // whole plugin surface instead of loading a single named implementation.
         val serviceLoader = ServiceLoader.load(AgentPlugin::class.java)
         return serviceLoader.toList().also { plugins ->
             logger.info("Discovered ${plugins.size} plugins")

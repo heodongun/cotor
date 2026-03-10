@@ -71,3 +71,11 @@
 - 기본 실행: 인자 없이 `cotor` → interactive 모드
 - 별칭: `cotor tui` (interactive alias)
 - 단축 안내: `cotor --short`
+
+## 데스크톱 앱 (macOS)
+
+- `cotor app-server` 로컬 API 서버
+- `macos/` SwiftUI 네이티브 셸
+- 좌측 리포지토리/워크스페이스, 중앙 태스크 실행, 우측 변경점/파일/포트/브라우저 3패널 구조
+- 에이전트별 `codex/cotor/<task-slug>/<agent-name>` 브랜치와 `.cotor/worktrees/<task-id>/<agent-name>` 격리 실행
+- `shell/install-desktop-app.sh` 로 `.app` 번들 생성, `Applications` 설치, `~/Downloads` 배포본 동시 갱신

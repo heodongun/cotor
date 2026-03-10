@@ -88,7 +88,7 @@ class OpenAIPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String = withContext(Dispatchers.IO) {
+    ): PluginExecutionOutput = withContext(Dispatchers.IO) {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
         val model = context.parameters["model"] ?: "gpt-4o-mini"
@@ -99,6 +99,8 @@ class OpenAIPlugin : AgentPlugin {
         val temperature = context.parameters["temperature"]?.toDoubleOrNull() ?: 0.2
         val maxTokens = context.parameters["maxTokens"]?.toIntOrNull() ?: 1024
 
+        // Build the request payload in the same shape the Chat Completions API expects
+        // so the plugin stays explicit and easy to diff when the upstream schema changes.
         val messages = buildJsonArray {
             if (system.isNotBlank()) {
                 add(buildMessage("system", system))
@@ -132,7 +134,7 @@ class OpenAIPlugin : AgentPlugin {
         val content = extractContent(body)
             ?: throw AgentExecutionException("OpenAI API response missing content: ${body.take(1000)}")
 
-        content
+        PluginExecutionOutput(content)
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -159,7 +161,8 @@ class OpenAIPlugin : AgentPlugin {
         val element = json.parseToJsonElement(body)
         val root = element.jsonObject
 
-        // Prefer normal success path
+        // Prefer the normal success shape first because that is what callers expect
+        // for generated text and it avoids accidentally surfacing API error blobs as output.
         val choices = root["choices"] as? JsonArray
         val first = choices?.firstOrNull() as? JsonObject
         val message = first?.get("message") as? JsonObject

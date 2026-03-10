@@ -6,6 +6,7 @@
 
 - `README.md` / `README.ko.md`: 전체 개요
 - `QUICK_START.md`: 5분 시작 가이드
+- `DESKTOP_APP.md`: macOS 앱 다운로드/실행 가이드
 - `USAGE_TIPS.md`: 실전 사용 팁
 - `cookbook.md`: 시나리오 모음
 

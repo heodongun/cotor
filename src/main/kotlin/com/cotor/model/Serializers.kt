@@ -1,6 +1,7 @@
 package com.cotor.model
 
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -21,6 +22,31 @@ object PathSerializer : KSerializer<Path> {
 
     override fun deserialize(decoder: Decoder): Path {
         return Path(decoder.decodeString())
+    }
+}
+
+/**
+ * Serializer for nullable java.nio.file.Path values.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+object NullablePathSerializer : KSerializer<Path?> {
+    override val descriptor: SerialDescriptor = String.serializer().descriptor
+
+    override fun serialize(encoder: Encoder, value: Path?) {
+        if (value == null) {
+            encoder.encodeNull()
+        } else {
+            encoder.encodeString(value.toString())
+        }
+    }
+
+    override fun deserialize(decoder: Decoder): Path? {
+        return if (decoder.decodeNotNullMark()) {
+            Path(decoder.decodeString())
+        } else {
+            decoder.decodeNull()
+            null
+        }
     }
 }
 
