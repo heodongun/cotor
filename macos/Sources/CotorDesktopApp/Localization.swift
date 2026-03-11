@@ -136,6 +136,10 @@ enum DesktopTextKey {
     case branch
     case base
     case worktree
+    case commit
+    case pushedBranch
+    case pullRequest
+    case publishError
     case selectTaskAndAgent
     case selectAgent
     case changes
@@ -372,6 +376,10 @@ struct DesktopStrings {
         case .branch: return "Branch"
         case .base: return "Base"
         case .worktree: return "Worktree"
+        case .commit: return "Commit"
+        case .pushedBranch: return "Pushed Branch"
+        case .pullRequest: return "Pull Request"
+        case .publishError: return "Publish Error"
         case .selectTaskAndAgent: return "Select a task and an agent run to inspect the isolated worktree state."
         case .selectAgent: return "Select Agent"
         case .changes: return "Changes"
@@ -500,6 +508,10 @@ struct DesktopStrings {
         case .branch: return "브랜치"
         case .base: return "기준"
         case .worktree: return "워크트리"
+        case .commit: return "커밋"
+        case .pushedBranch: return "푸시된 브랜치"
+        case .pullRequest: return "풀 리퀘스트"
+        case .publishError: return "배포 오류"
         case .selectTaskAndAgent: return "태스크와 에이전트 런을 선택하면 격리된 워크트리 상태를 확인할 수 있습니다."
         case .selectAgent: return "에이전트 선택"
         case .changes: return "변경점"
