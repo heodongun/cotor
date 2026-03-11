@@ -141,7 +141,7 @@ class WebServer : KoinComponent {
         if (openBrowser) {
             thread(name = "cotor-web-open") {
                 Thread.sleep(600)
-                openInBrowser("http://localhost:$port/editor")
+                openInBrowser("http://localhost:$port/")
             }
         }
 
@@ -155,7 +155,7 @@ class WebServer : KoinComponent {
 
             routing {
                 get("/") {
-                    call.respondRedirect("/editor")
+                    call.respondText(landingHtml, ContentType.Text.Html)
                 }
 
                 get("/editor") {
@@ -480,6 +480,100 @@ private fun openInBrowser(url: String) {
         // Ignore failures
     }
 }
+
+private val landingHtml = """
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Cotor | 멀티 에이전트 워크플로 오케스트레이션</title>
+  <style>
+    :root {
+      --bg: #060912;
+      --panel: #0f172a;
+      --border: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --primary: #8b5cf6;
+      --accent: #22d3ee;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 20% 0%, rgba(139,92,246,.16), transparent 30%),
+                  radial-gradient(circle at 90% 10%, rgba(34,211,238,.18), transparent 30%),
+                  var(--bg);
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 64px; }
+    .hero {
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 28px;
+      background: linear-gradient(140deg, rgba(15,23,42,.95), rgba(8,47,73,.75));
+      box-shadow: 0 22px 70px rgba(2,6,23,.45);
+    }
+    h1 { margin: 0; font-size: clamp(2rem, 5vw, 3rem); line-height: 1.1; letter-spacing: -0.03em; }
+    .subtitle { margin: 12px 0 0; color: var(--muted); max-width: 680px; line-height: 1.6; }
+    .actions { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; padding: 11px 16px; text-decoration: none; font-weight: 700; border: 1px solid var(--border); color: var(--text); }
+    .btn.primary { background: linear-gradient(135deg, #8b5cf6, #6d28d9); border: 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-top: 22px; }
+    .card { border: 1px solid var(--border); border-radius: 16px; padding: 16px; background: rgba(15,23,42,.85); }
+    .card h3 { margin: 0 0 8px; font-size: 1rem; }
+    .card p { margin: 0; color: var(--muted); line-height: 1.55; font-size: .95rem; }
+    .section-title { margin: 28px 0 10px; font-size: 1.2rem; }
+    ol { margin: 0; padding-left: 20px; color: var(--muted); line-height: 1.75; }
+    .footer-note { margin-top: 20px; color: var(--muted); font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Cotor 설명 페이지</h1>
+      <p class="subtitle">
+        Cotor는 멀티 에이전트 워크플로를 설계/저장/실행할 수 있는 오케스트레이션 도구입니다.
+        CLI 자동화와 웹 에디터를 함께 제공해, 초안부터 운영까지 한 경로에서 진행할 수 있습니다.
+      </p>
+      <div class="actions">
+        <a class="btn primary" href="/editor">웹 에디터 시작하기</a>
+        <a class="btn" href="https://github.com/heodongun/cotor" target="_blank" rel="noreferrer">GitHub 보기</a>
+      </div>
+    </section>
+
+    <h2 class="section-title">핵심 워크플로</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>1) 설계</h3>
+        <p>템플릿 또는 드래그·드롭 빌더로 파이프라인 스테이지를 빠르게 정의합니다.</p>
+      </article>
+      <article class="card">
+        <h3>2) 저장</h3>
+        <p>파이프라인 YAML을 생성하고 버전 관리 가능한 형태로 누적합니다.</p>
+      </article>
+      <article class="card">
+        <h3>3) 실행</h3>
+        <p>실행 모드(Sequential/Parallel/DAG)와 에이전트 조합으로 자동화를 수행합니다.</p>
+      </article>
+      <article class="card">
+        <h3>4) 점검</h3>
+        <p>타임라인과 단계별 결과를 보고 실패 지점을 파악해 개선합니다.</p>
+      </article>
+    </div>
+
+    <h2 class="section-title">처음 사용하는 경우</h2>
+    <ol>
+      <li><code>cotor web --open</code> 실행 후 이 페이지에서 에디터로 이동하세요.</li>
+      <li>파이프라인 이름과 스테이지를 구성하고 저장합니다.</li>
+      <li>실행 후 결과 패널에서 성공/실패와 출력 미리보기를 확인하세요.</li>
+    </ol>
+    <p class="footer-note">로컬 기본 경로: 소개 페이지 <code>/</code>, 에디터 <code>/editor</code></p>
+  </div>
+</body>
+</html>
+""".trimIndent()
 
 // Lightweight HTML (single file) to keep the web UI self contained.
 private val editorHtml = """
