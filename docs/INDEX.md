@@ -34,6 +34,7 @@
 - `reports/TEST_REPORT.md`
 - `reports/IMPLEMENTATION_SUMMARY.md`
 - `reports/IMPROVEMENTS.md`
+- `reports/PAPERCLIP_BENCHMARK_REPORT.md`
 
 ## 템플릿
 
