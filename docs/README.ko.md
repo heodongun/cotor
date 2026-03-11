@@ -72,6 +72,7 @@ cotor web                        # 웹 파이프라인 스튜디오
 
 ## 문서 안내
 
+- 팀 운영 / 온보딩: `team-ops/README.ko.md`
 - 빠른 시작: `QUICK_START.md`
 - 데스크톱 앱: `DESKTOP_APP.md`
 - 아키텍처: `ARCHITECTURE.md`

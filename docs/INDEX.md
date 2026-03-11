@@ -19,6 +19,7 @@
 
 ## 운영/업그레이드
 
+- `team-ops/README.md` / `team-ops/README.ko.md`: 팀 운영 / 온보딩 패키지
 - `release/CHANGELOG.md`: 변경 이력
 - `UPGRADE_GUIDE.md`: 업그레이드 절차
 - `UPGRADE_RECOMMENDATIONS.md`: 권장안
