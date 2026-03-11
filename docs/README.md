@@ -77,6 +77,7 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 - Architecture: `ARCHITECTURE.md`
 - Differentiated PRD / architecture: `DIFFERENTIATED_PRD_ARCHITECTURE.md`
 - Features: `FEATURES.md`
+- Team ops / onboarding: `team-ops/README.md`
 - Usage tips: `USAGE_TIPS.md`
 - Changelog: `release/CHANGELOG.md`
 - Team ops/onboarding package: `team-ops/README.md`

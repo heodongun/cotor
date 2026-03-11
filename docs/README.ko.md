@@ -76,6 +76,7 @@ cotor web                        # 웹 파이프라인 스튜디오
 - 데스크톱 앱: `DESKTOP_APP.md`
 - 아키텍처: `ARCHITECTURE.md`
 - 기능 목록: `FEATURES.md`
+- 팀 운영 / 온보딩: `team-ops/README.ko.md`
 - 사용 팁: `USAGE_TIPS.md`
 - 변경 이력: `release/CHANGELOG.md`
 - 팀 운영/온보딩 패키지: `team-ops/README.ko.md`
