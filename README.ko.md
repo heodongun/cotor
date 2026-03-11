@@ -39,6 +39,7 @@ Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 
 ### 추가 자료
 - [📋 릴리스 노트](docs/release/CHANGELOG.md)
 - [🔧 업그레이드 가이드](docs/UPGRADE_GUIDE.md)
+- [🧭 팀 운영/온보딩 패키지](docs/team-ops/README.ko.md)
 - [🤖 Claude 연동](docs/CLAUDE_SETUP.md)
 - [💡 사용 팁](docs/USAGE_TIPS.md)
 - [📦 예제](examples/)
