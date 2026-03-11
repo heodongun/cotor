@@ -50,7 +50,7 @@ private data class AgentPreset(
     val pluginClass: String,
     val executable: String,
     val defaultTimeout: Long,
-    val defaultModel: String,
+    val defaultModel: String? = null,
 )
 
 private val defaultHomeDirectoryProvider: () -> java.nio.file.Path = {
@@ -63,7 +63,8 @@ private val builtinPresets = listOf(
     AgentPreset("codex", "com.cotor.data.plugin.CodexPlugin", "codex", 60000, "gpt-5.3-codex-spark"),
     AgentPreset("copilot", "com.cotor.data.plugin.CopilotPlugin", "copilot", 60000, "copilot"),
     AgentPreset("opencode", "com.cotor.data.plugin.OpenCodePlugin", "opencode", 60000, "opencode-default"),
-    AgentPreset("qwen", "com.cotor.data.plugin.CommandPlugin", "qwen", 60000, "qwen3-coder")
+    AgentPreset("qwen", "com.cotor.data.plugin.CommandPlugin", "qwen", 60000, "qwen3-coder"),
+    AgentPreset("qa", "com.cotor.data.plugin.QaVerificationPlugin", "project test tool", 600000)
 )
 
 class AgentAddCommand(
@@ -110,7 +111,7 @@ class AgentAddCommand(
         val resolvedName = (agentName ?: preset.name).trim()
         require(resolvedName.isNotBlank()) { "Agent name must not be blank" }
 
-        val resolvedModel = (model ?: preset.defaultModel).trim()
+        val resolvedModel = (model ?: preset.defaultModel).orEmpty().trim()
         val resolvedTimeout = timeout ?: preset.defaultTimeout
 
         val yaml = renderAgentYaml(
@@ -178,22 +179,26 @@ class AgentAddCommand(
                 "model" to model,
                 "argvJson" to "[\"qwen\",\"--model\",\"$model\",\"{input}\"]"
             )
+            "qa" -> emptyMap()
             else -> mapOf("model" to model)
         }
     }
 
     private fun renderAgentYaml(agent: AgentConfig): String {
-        val parameterLines = agent.parameters.entries
-            .sortedBy { it.key }
-            .joinToString("\n") { (key, value) -> "      $key: ${yamlScalar(value)}" }
+        val parametersBlock = if (agent.parameters.isEmpty()) {
+            ""
+        } else {
+            val parameterLines = agent.parameters.entries
+                .sortedBy { it.key }
+                .joinToString("\n") { (key, value) -> "      $key: ${yamlScalar(value)}" }
+            "\n    parameters:\n$parameterLines"
+        }
 
         return """
 agents:
   - name: ${agent.name}
     pluginClass: ${agent.pluginClass}
-    timeout: ${agent.timeout}
-    parameters:
-$parameterLines
+    timeout: ${agent.timeout}$parametersBlock
         """.trimIndent() + "\n"
     }
 
