@@ -32,6 +32,7 @@ import org.jline.terminal.TerminalBuilder
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.io.File
+import java.io.PrintStream
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -431,7 +432,7 @@ class InteractiveCommand :
         while (true) {
             val line = try {
                 lineReader?.readLine("you> ") ?: run {
-                    terminal.print(bold(cyan("you> ")))
+                    printDesktopPrompt()
                     readLine()
                 }
             } catch (_: UserInterruptException) {
@@ -445,7 +446,7 @@ class InteractiveCommand :
                 endedByEof = true
                 break
             }
-            val input = line.trimEnd()
+            val input = normalizeInteractiveInput(line)
             if (input.isBlank()) continue
 
             if (input.startsWith(":")) {
@@ -540,6 +541,22 @@ class InteractiveCommand :
         terminal.println(dim("Bye. Saved transcript to ${transcript.ensureDir()}"))
     }
 
+    private fun printDesktopPrompt() {
+        if (System.getenv("COTOR_DESKTOP_TUI") == "1") {
+            // Keep the embedded PTY prompt plain so the terminal emulator never has
+            // to reconcile ANSI-styled prompt fragments with raw line input.
+            val out = PrintStream(System.out, true, Charsets.UTF_8)
+            out.print("you> ")
+            out.flush()
+        } else {
+            terminal.print(bold(cyan("you> ")))
+        }
+    }
+
+    private fun normalizeInteractiveInput(line: String): String {
+        return normalizeInteractiveInput(line, isDesktopTui = System.getenv("COTOR_DESKTOP_TUI") == "1")
+    }
+
     private fun buildLineReader(agentNames: List<String>) = runCatching {
         // The desktop app already provides its own PTY surface. JLine prompt redraws
         // and cursor-control sequences look noisy there, so the embedded terminal
@@ -603,6 +620,27 @@ class InteractiveCommand :
 
     private fun defaultSaveDir(): java.nio.file.Path {
         return Path(".cotor").resolve("interactive").resolve("default")
+    }
+
+    companion object {
+        private val ANSI_ESCAPE_REGEX = Regex("""\u001B\[[0-?]*[ -/]*[@-~]""")
+        private val PROMPT_PREFIX_REGEX = Regex("""^\s*(?:you>\s*)+""")
+
+        internal fun normalizeInteractiveInput(line: String, isDesktopTui: Boolean): String {
+            val withoutAnsi = ANSI_ESCAPE_REGEX.replace(line, "")
+                .replace("\u0000", "")
+                .replace("\r", "")
+                .trimEnd()
+
+            if (!isDesktopTui) {
+                return withoutAnsi
+            }
+
+            // PTY-backed desktop sessions can occasionally hand us the rendered prompt
+            // prefix alongside the actual user input. Strip it defensively so command
+            // lines like `:help` are never routed to an AI agent as plain text.
+            return PROMPT_PREFIX_REGEX.replace(withoutAnsi, "").trimStart()
+        }
     }
 
     private data class StarterAgent(

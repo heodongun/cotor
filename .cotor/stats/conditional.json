@@ -744,10 +744,44 @@
                     "retries": 0
                 }
             ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-11T02:35:09.653588Z",
+            "totalDuration": 19,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
         }
     ],
-    "totalExecutions": 28,
-    "totalSuccesses": 112,
-    "totalDuration": 947,
-    "lastExecuted": "2026-03-11T01:00:49.151473Z"
+    "totalExecutions": 29,
+    "totalSuccesses": 116,
+    "totalDuration": 966,
+    "lastExecuted": "2026-03-11T02:35:09.653588Z"
 }

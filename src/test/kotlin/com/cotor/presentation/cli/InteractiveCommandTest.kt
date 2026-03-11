@@ -131,4 +131,14 @@ class InteractiveCommandTest : FunSpec({
         result.stdout.shouldContain("[echo2]")
         result.stdout.shouldContain("ping")
     }
+
+    test("desktop input normalizer strips echoed prompt prefixes from commands") {
+        InteractiveCommand.normalizeInteractiveInput("you> :help", isDesktopTui = true) shouldBe ":help"
+        InteractiveCommand.normalizeInteractiveInput("   you>    :agents  ", isDesktopTui = true) shouldBe ":agents"
+    }
+
+    test("desktop input normalizer strips ANSI-styled prompt prefixes from commands") {
+        val ansiPrompt = "\u001B[36;1myou> \u001B[39;22m:model claude"
+        InteractiveCommand.normalizeInteractiveInput(ansiPrompt, isDesktopTui = true) shouldBe ":model claude"
+    }
 })

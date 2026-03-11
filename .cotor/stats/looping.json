@@ -624,10 +624,38 @@
                     "retries": 0
                 }
             ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-11T02:35:09.685449Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
         }
     ],
-    "totalExecutions": 28,
-    "totalSuccesses": 196,
-    "totalDuration": 221,
-    "lastExecuted": "2026-03-11T01:00:49.192064Z"
+    "totalExecutions": 29,
+    "totalSuccesses": 203,
+    "totalDuration": 224,
+    "lastExecuted": "2026-03-11T02:35:09.685449Z"
 }
