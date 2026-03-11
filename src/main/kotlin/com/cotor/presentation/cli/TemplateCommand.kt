@@ -23,9 +23,9 @@ class TemplateCommand(
 ) {
     private val templateType by argument(
         name = "type",
-        help = "Template type: compare, chain, review, consensus, fanout, selfheal, verified, custom"
+        help = "Template type: compare, chain, review, consensus, fanout, selfheal, verified, release, custom"
     ).choice(
-        "compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "custom",
+        "compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "release", "custom",
         ignoreCase = true
     ).optional()
 
@@ -41,7 +41,7 @@ class TemplateCommand(
     ).flag(default = false)
 
     private val preview by option("--preview", help = "Preview a template without writing a file")
-        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "custom")
+        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "release", "custom")
 
     private val list by option("--list", help = "List available templates").flag(default = false)
 
@@ -201,6 +201,7 @@ performance:
             "fanout" to "DAG fan-out/fan-in merge pattern",
             "selfheal" to "Loop-based self-healing/retry pattern",
             "verified" to "Generate → test/verify → fix loop (uses CommandPlugin to run a command)",
+            "release" to "Verified implementation with explicit commit/push/tag/release CommandPlugin stages",
             "custom" to "Customizable template with common patterns"
         )
 
@@ -239,6 +240,7 @@ performance:
             "fanout" -> generateFanoutTemplate()
             "selfheal" -> generateSelfHealTemplate()
             "verified" -> generateVerifiedTemplate()
+            "release" -> generateReleaseTemplate()
             "custom" -> generateCustomTemplate()
             else -> throw IllegalArgumentException("Unknown template type: $type")
         }
@@ -605,6 +607,132 @@ logging:
 
 performance:
   maxConcurrentAgents: 3
+    """.trimIndent()
+
+
+    private fun generateReleaseTemplate() = """
+version: "1.0"
+
+agents:
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 600000
+
+  - name: verify
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 600000
+    parameters:
+      # Replace with your deterministic verification command.
+      argvJson: '{{verify_argv_json}}'
+
+  - name: git-commit
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["git","commit","-am","{{commit_message}}"]'
+
+  - name: git-push
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["git","push","origin","{{release_branch}}"]'
+
+  - name: git-tag
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["git","tag","-a","{{release_tag}}","-m","{{release_tag_message}}"]'
+
+  - name: git-push-tag
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["git","push","origin","{{release_tag}}"]'
+
+  - name: gh-release
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["gh","release","create","{{release_tag}}","--title","{{release_title}}","--notes-file","{{release_notes_file}}"]'
+
+  - name: echo
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 30000
+
+pipelines:
+  - name: release-automation
+    description: "Implement, verify, and publish release artifacts with explicit command stages"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: implement
+        agent:
+          name: codex
+        input: |
+          YOUR_PROMPT_HERE
+          - Make the required code changes.
+          - Keep edits minimal and production ready.
+
+      - id: verify
+        agent:
+          name: verify
+        input: ""
+
+      - id: verify-gate
+        type: DECISION
+        condition:
+          expression: "!verify.success"
+          onTrue:
+            action: STOP
+            message: "Verification failed; release stages were skipped"
+          onFalse:
+            action: CONTINUE
+            message: "Verification passed; continuing release"
+
+      - id: commit
+        agent:
+          name: git-commit
+        input: ""
+
+      - id: push
+        agent:
+          name: git-push
+        input: ""
+
+      - id: tag
+        agent:
+          name: git-tag
+        input: ""
+
+      - id: push-tag
+        agent:
+          name: git-push-tag
+        input: ""
+
+      - id: create-release
+        agent:
+          name: gh-release
+        input: ""
+
+      - id: done
+        agent:
+          name: echo
+        input: "✅ Release automation completed"
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - git
+    - gh
+    - {{verify_executable}}
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 2
     """.trimIndent()
 
     private fun generateCustomTemplate() = """

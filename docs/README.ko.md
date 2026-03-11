@@ -67,7 +67,9 @@ cotor web                        # 웹 파이프라인 스튜디오
 - 실행 타임라인 수집 + watch 모니터링
 - 체크포인트 저장/재개 및 체크포인트 정리
 - 결과 출력 포맷(`json`, `csv`, `text`)
-- 템플릿 생성 (`compare`, `chain`, `review`, `consensus`, `fanout`, `selfheal`, `verified`, `custom`)
+- 템플릿 생성 (`compare`, `chain`, `review`, `consensus`, `fanout`, `selfheal`, `verified`, `release`, `custom`)
+- `release` 템플릿 플레이스홀더: `{{verify_argv_json}}`, `{{verify_executable}}`, `{{commit_message}}`, `{{release_branch}}`, `{{release_tag}}`, `{{release_tag_message}}`, `{{release_title}}`, `{{release_notes_file}}`
+- `release` 템플릿 필수 도구: `git`, `gh`, 검증 명령(또는 툴체인), 릴리즈 노트 파일
 - 에이전트 프리셋 관리, 플러그인 점검
 
 ## 문서 안내
