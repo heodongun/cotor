@@ -12,6 +12,8 @@ import com.cotor.event.EventBus
 import com.cotor.model.*
 import com.cotor.recovery.RecoveryExecutor
 import com.cotor.stats.StatsManager
+import com.cotor.monitoring.ObservabilityService
+import com.cotor.monitoring.TraceContext
 import com.cotor.validation.PipelineTemplateValidator
 import com.cotor.validation.output.OutputValidator
 import kotlinx.coroutines.*
@@ -70,6 +72,7 @@ class DefaultPipelineOrchestrator(
     private val agentRegistry: com.cotor.data.registry.AgentRegistry,
     private val outputValidator: OutputValidator,
     private val statsManager: StatsManager,
+    private val observabilityService: ObservabilityService,
     private val checkpointManager: CheckpointManager = CheckpointManager(),
     private val templateValidator: PipelineTemplateValidator = PipelineTemplateValidator(TemplateEngine())
 ) : PipelineOrchestrator {
@@ -102,6 +105,7 @@ class DefaultPipelineOrchestrator(
             pipelineName = pipeline.name,
             totalStages = pipeline.stages.size
         )
+        val pipelineTraceContext = observabilityService.startPipelineTrace(pipeline.name, pipelineId)
 
         // Validate pipeline templates before execution
         val validationResult = templateValidator.validate(pipeline)
@@ -123,10 +127,10 @@ class DefaultPipelineOrchestrator(
                 val executePipelineBlock: suspend () -> AggregatedResult = {
                     try {
                         when (pipeline.executionMode) {
-                            ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, fromStageId)
-                            ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext)
-                            ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext)
-                            ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext)
+                            ExecutionMode.SEQUENTIAL -> executeSequential(pipeline, pipelineId, pipelineContext, pipelineTraceContext, fromStageId)
+                            ExecutionMode.PARALLEL -> executeParallel(pipeline, pipelineId, pipelineContext, pipelineTraceContext)
+                            ExecutionMode.DAG -> executeDag(pipeline, pipelineId, pipelineContext, pipelineTraceContext)
+                            ExecutionMode.MAP -> executeMap(pipeline, pipelineId, pipelineContext, pipelineTraceContext)
                         }
                     } catch (e: IllegalArgumentException) {
                         val configErrorResult = AgentResult(
@@ -189,6 +193,7 @@ class DefaultPipelineOrchestrator(
         pipeline: Pipeline,
         pipelineId: String,
         pipelineContext: PipelineContext,
+        pipelineTraceContext: TraceContext,
         fromStageId: String? = null
     ): AggregatedResult {
         val results = pipelineContext.stageResults.values.toMutableList()
@@ -214,7 +219,7 @@ class DefaultPipelineOrchestrator(
                 StageType.EXECUTION -> {
                     val interpolatedInput = stage.input?.let { templateEngine.interpolate(it, pipelineContext) }
                     val stageInput = interpolatedInput ?: previousOutput
-                    val result = executeStageWithGuards(stage, pipelineId, pipelineContext, stageInput)
+                    val result = executeStageWithGuards(stage, pipelineId, pipelineContext, stageInput, pipelineTraceContext)
                     results.add(result)
 
                     if (result.isSuccess && !result.output.isNullOrBlank()) {
@@ -264,7 +269,8 @@ class DefaultPipelineOrchestrator(
     private suspend fun executeParallel(
         pipeline: Pipeline,
         pipelineId: String,
-        pipelineContext: PipelineContext
+        pipelineContext: PipelineContext,
+        pipelineTraceContext: TraceContext
     ): AggregatedResult = coroutineScope {
         pipeline.stages.firstOrNull { it.type != StageType.EXECUTION }?.let {
             throw PipelineException("Stage ${it.id} uses ${it.type} which is not supported in PARALLEL mode")
@@ -272,7 +278,7 @@ class DefaultPipelineOrchestrator(
         val results = pipeline.stages.map { stage ->
             async(Dispatchers.Default) {
                 val interpolatedInput = stage.input?.let { templateEngine.interpolate(it, pipelineContext) }
-                executeStageWithGuards(stage, pipelineId, pipelineContext, interpolatedInput)
+                executeStageWithGuards(stage, pipelineId, pipelineContext, interpolatedInput, pipelineTraceContext)
             }
         }.awaitAll()
 
@@ -282,7 +288,8 @@ class DefaultPipelineOrchestrator(
     private suspend fun executeDag(
         pipeline: Pipeline,
         pipelineId: String,
-        pipelineContext: PipelineContext
+        pipelineContext: PipelineContext,
+        pipelineTraceContext: TraceContext
     ): AggregatedResult {
         pipeline.stages.firstOrNull { it.type != StageType.EXECUTION }?.let {
             throw PipelineException("Stage ${it.id} uses ${it.type} which is not supported in DAG mode")
@@ -299,7 +306,7 @@ class DefaultPipelineOrchestrator(
             }
 
             val stageInput = baseInput ?: dependencyInput
-            val result = executeStageWithGuards(stage, pipelineId, pipelineContext, stageInput)
+            val result = executeStageWithGuards(stage, pipelineId, pipelineContext, stageInput, pipelineTraceContext)
             results[stage.id] = result
 
             if (!result.isSuccess && stage.failureStrategy == FailureStrategy.ABORT && !stage.optional) {
@@ -333,7 +340,8 @@ class DefaultPipelineOrchestrator(
     private suspend fun executeMap(
         pipeline: Pipeline,
         pipelineId: String,
-        pipelineContext: PipelineContext
+        pipelineContext: PipelineContext,
+        pipelineTraceContext: TraceContext
     ): AggregatedResult = coroutineScope {
         val fanoutStages = pipeline.stages.filter { it.fanout != null }
         if (fanoutStages.size != 1) {
@@ -350,7 +358,7 @@ class DefaultPipelineOrchestrator(
         val results = sourceData.map { item ->
             async(Dispatchers.Default) {
                 val stageInput = item.toString()
-                executeStageWithGuards(fanoutStage, pipelineId, pipelineContext, stageInput)
+                executeStageWithGuards(fanoutStage, pipelineId, pipelineContext, stageInput, pipelineTraceContext)
             }
         }.awaitAll()
 
@@ -371,13 +379,14 @@ class DefaultPipelineOrchestrator(
         stage: PipelineStage,
         pipelineId: String,
         pipelineContext: PipelineContext,
-        input: String?
+        input: String?,
+        pipelineTraceContext: TraceContext
     ): AgentResult {
         if (stage.agent == null) {
             throw PipelineException("Stage ${stage.id} requires an agent for execution")
         }
         return try {
-            runStage(stage, pipelineId, pipelineContext, input)
+            runStage(stage, pipelineId, pipelineContext, input, pipelineTraceContext)
         } catch (e: Exception) {
             val failureResult = pipelineContext.getStageResult(stage.id)
                 ?: AgentResult(stage.agent?.name ?: stage.id, false, null, e.message, 0, emptyMap())
@@ -401,18 +410,24 @@ class DefaultPipelineOrchestrator(
         stage: PipelineStage,
         pipelineId: String,
         pipelineContext: PipelineContext,
-        input: String?
+        input: String?,
+        pipelineTraceContext: TraceContext
     ): AgentResult {
         eventBus.emit(StageStartedEvent(stage.id, pipelineId))
         val agentName = stage.agent?.name ?: stage.id
+        val stageTraceContext = observabilityService.childContext(
+            traceId = pipelineTraceContext.traceId,
+            parentSpanId = pipelineTraceContext.spanId
+        )
+        observabilityService.logStageLifecycle("stage_start", stage.id, true, stageTraceContext)
 
         val result: AgentResult? = try {
             if (stage.timeoutMs != null) {
                 withTimeoutOrNull(stage.timeoutMs) {
-                    recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
+                    recoveryExecutor.executeWithRecovery(stage, input, pipelineContext, stageTraceContext)
                 }
             } else {
-                recoveryExecutor.executeWithRecovery(stage, input, pipelineContext)
+                recoveryExecutor.executeWithRecovery(stage, input, pipelineContext, stageTraceContext)
             }
         } catch (e: Exception) {
             val failureResult = AgentResult(
@@ -425,6 +440,7 @@ class DefaultPipelineOrchestrator(
             )
             pipelineContext.addStageResult(stage.id, failureResult)
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, e))
+            observabilityService.logStageLifecycle("stage_complete", stage.id, false, stageTraceContext)
             throw e
         }
 
@@ -444,6 +460,7 @@ class DefaultPipelineOrchestrator(
             )
             pipelineContext.addStageResult(stage.id, timeoutResult)
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, RuntimeException(errorMessage)))
+            observabilityService.logStageLifecycle("stage_complete", stage.id, false, stageTraceContext)
 
             if (stage.timeoutPolicy == TimeoutPolicy.FAIL_PIPELINE) {
                 throw PipelineException(errorMessage)
@@ -455,9 +472,11 @@ class DefaultPipelineOrchestrator(
 
         if (result.isSuccess) {
             eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+            observabilityService.logStageLifecycle("stage_complete", stage.id, true, stageTraceContext)
         } else {
             val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
+            observabilityService.logStageLifecycle("stage_complete", stage.id, false, stageTraceContext)
         }
 
         return result

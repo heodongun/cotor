@@ -3,6 +3,7 @@ package com.cotor.recovery
 import com.cotor.data.registry.InMemoryAgentRegistry
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.model.*
+import com.cotor.monitoring.TraceContext
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.OutputValidator
 import com.cotor.validation.output.StageValidationOutcome
@@ -61,7 +62,7 @@ class RecoveryExecutorTest : FunSpec({
             )
         )
 
-        val result = recoveryExecutor.executeWithRecovery(stage, "input", null)
+        val result = recoveryExecutor.executeWithRecovery(stage, "input", null, TraceContext("trace","span"))
         result.agentName shouldBe "fallback"
         result.isSuccess shouldBe true
     }
@@ -93,7 +94,7 @@ class RecoveryExecutorTest : FunSpec({
             )
         )
 
-        val result = recoveryExecutor.executeWithRecovery(stage, null, null)
+        val result = recoveryExecutor.executeWithRecovery(stage, null, null, TraceContext("trace","span"))
         result.isSuccess.shouldBeFalse()
         result.error?.contains("Validation failed") shouldBe true
     }
@@ -119,7 +120,7 @@ class RecoveryExecutorTest : FunSpec({
         } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
 
         runBlocking {
-            recoveryExecutor.executeWithRecovery(stage, "input", null)
+            recoveryExecutor.executeWithRecovery(stage, "input", null, TraceContext("trace","span"))
         }
 
         coVerify(exactly = 3) {
@@ -149,7 +150,7 @@ class RecoveryExecutorTest : FunSpec({
         } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
 
         runBlocking {
-            recoveryExecutor.executeWithRecovery(stage, "input", null)
+            recoveryExecutor.executeWithRecovery(stage, "input", null, TraceContext("trace","span"))
         }
 
         coVerify(exactly = 3) {
@@ -176,7 +177,7 @@ class RecoveryExecutorTest : FunSpec({
         } returns AgentResult("primary", false, null, "timeout", 0, emptyMap())
 
         runBlocking {
-            recoveryExecutor.executeWithRecovery(stage, "input", null)
+            recoveryExecutor.executeWithRecovery(stage, "input", null, TraceContext("trace","span"))
         }
 
         coVerify(exactly = 1) {
@@ -235,7 +236,7 @@ class RecoveryExecutorTest : FunSpec({
             )
         )
 
-        val result = runBlocking { recoveryExecutor.executeWithRecovery(stage, "ORIGINAL_INPUT", null) }
+        val result = runBlocking { recoveryExecutor.executeWithRecovery(stage, "ORIGINAL_INPUT", null, TraceContext("trace","span")) }
         result.isSuccess shouldBe true
 
         inputs.size shouldBe 2

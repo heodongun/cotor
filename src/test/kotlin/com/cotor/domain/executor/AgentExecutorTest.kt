@@ -6,6 +6,7 @@ import com.cotor.data.process.ProcessManager
 import com.cotor.model.AgentConfig
 import com.cotor.model.PluginExecutionOutput
 import com.cotor.security.SecurityValidator
+import com.cotor.monitoring.ObservabilityService
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
@@ -28,12 +29,14 @@ class AgentExecutorTest : FunSpec({
     val mockPluginLoader = mockk<PluginLoader>()
     val mockSecurityValidator = mockk<SecurityValidator>()
     val mockLogger = mockk<Logger>(relaxed = true)
+    val mockObservabilityService = mockk<ObservabilityService>(relaxed = true)
 
     val executor = DefaultAgentExecutor(
         mockProcessManager,
         mockPluginLoader,
         mockSecurityValidator,
-        mockLogger
+        mockLogger,
+        mockObservabilityService
     )
 
     test("should execute agent successfully") {

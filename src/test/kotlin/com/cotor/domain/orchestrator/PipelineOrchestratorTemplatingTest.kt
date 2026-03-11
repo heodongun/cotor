@@ -11,6 +11,9 @@ import com.cotor.model.ExecutionMode
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineStage
 import com.cotor.stats.StatsManager
+import com.cotor.monitoring.ObservabilityService
+import com.cotor.monitoring.StructuredLogger
+import com.cotor.monitoring.MetricsCollector
 import com.cotor.validation.PipelineTemplateValidator
 import com.cotor.validation.output.OutputValidator
 import io.kotest.core.spec.style.StringSpec
@@ -40,6 +43,7 @@ class PipelineOrchestratorTemplatingTest : StringSpec({
             agentRegistry,
             outputValidator,
             statsManager,
+            ObservabilityService(StructuredLogger(logger), MetricsCollector()),
             checkpointManager,
             templateValidator
         )

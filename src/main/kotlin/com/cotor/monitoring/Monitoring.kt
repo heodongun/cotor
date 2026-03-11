@@ -58,6 +58,26 @@ class StructuredLogger(
 
         logger.info(json.encodeToString(logData))
     }
+
+    fun logLifecycle(
+        event: String,
+        name: String,
+        success: Boolean,
+        context: TraceContext,
+        additionalContext: Map<String, Any> = emptyMap()
+    ) {
+        val logData = mapOf(
+            "event" to event,
+            "name" to name,
+            "success" to success,
+            "trace_id" to context.traceId,
+            "span_id" to context.spanId,
+            "parent_span_id" to (context.parentSpanId ?: ""),
+            "timestamp" to java.time.Instant.now().toString()
+        ) + additionalContext
+
+        logger.info(json.encodeToString(logData))
+    }
 }
 
 /**

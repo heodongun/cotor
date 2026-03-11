@@ -18,6 +18,9 @@ import com.cotor.model.StageConditionConfig
 import com.cotor.model.StageLoopConfig
 import com.cotor.model.StageType
 import com.cotor.stats.StatsManager
+import com.cotor.monitoring.ObservabilityService
+import com.cotor.monitoring.StructuredLogger
+import com.cotor.monitoring.MetricsCollector
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.SyntaxValidator
 import io.kotest.core.spec.style.FunSpec
@@ -45,7 +48,8 @@ class PipelineOrchestratorConditionalTest : FunSpec({
             logger = LoggerFactory.getLogger("ConditionalTest"),
             agentRegistry = registry,
             outputValidator = DefaultOutputValidator(SyntaxValidator()),
-            statsManager = StatsManager()
+            statsManager = StatsManager(),
+            observabilityService = ObservabilityService(StructuredLogger(LoggerFactory.getLogger("TimeoutTest")), MetricsCollector())
         )
     }
 

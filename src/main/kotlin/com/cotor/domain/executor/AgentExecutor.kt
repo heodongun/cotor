@@ -3,6 +3,8 @@ package com.cotor.domain.executor
 import com.cotor.data.plugin.PluginLoader
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
+import com.cotor.monitoring.ObservabilityService
+import com.cotor.monitoring.TraceContext
 import com.cotor.security.SecurityValidator
 import kotlinx.coroutines.*
 import org.slf4j.Logger
@@ -46,7 +48,8 @@ class DefaultAgentExecutor(
     private val processManager: ProcessManager,
     private val pluginLoader: PluginLoader,
     private val securityValidator: SecurityValidator,
-    private val logger: Logger
+    private val logger: Logger,
+    private val observabilityService: ObservabilityService
 ) : AgentExecutor {
     private val isDesktopTui = System.getenv("COTOR_DESKTOP_TUI") == "1"
 
@@ -102,6 +105,14 @@ class DefaultAgentExecutor(
                     plugin.execute(context, processManager)
                 }
                 val duration = System.currentTimeMillis() - startTime
+                val traceContext = TraceContext(
+                    traceId = metadata.traceId ?: "",
+                    spanId = metadata.spanId ?: "",
+                    parentSpanId = metadata.parentSpanId
+                )
+                if (metadata.traceId != null && metadata.spanId != null) {
+                    observabilityService.recordAgentExecution(agent.name, duration, true, traceContext)
+                }
 
                 AgentResult(
                     agentName = agent.name,
@@ -111,6 +122,9 @@ class DefaultAgentExecutor(
                     duration = duration,
                     metadata = buildMap {
                         put("executedAt", Instant.now().toString())
+                        metadata.traceId?.let { put("traceId", it) }
+                        metadata.spanId?.let { put("spanId", it) }
+                        metadata.parentSpanId?.let { put("parentSpanId", it) }
                         // Mirror the pid into the string metadata map because some
                         // existing consumers still only inspect this generic field bag.
                         pluginOutput.processId?.let { put("processId", it.toString()) }
@@ -119,6 +133,14 @@ class DefaultAgentExecutor(
                 )
             } catch (e: TimeoutCancellationException) {
                 logAgentFailure("Agent timeout: ${agent.name}", e)
+                if (metadata.traceId != null && metadata.spanId != null) {
+                    observabilityService.recordAgentExecution(
+                        agent.name,
+                        agent.timeout,
+                        false,
+                        TraceContext(metadata.traceId, metadata.spanId, metadata.parentSpanId)
+                    )
+                }
                 AgentResult(
                     agentName = agent.name,
                     isSuccess = false,
@@ -129,6 +151,14 @@ class DefaultAgentExecutor(
                 )
             } catch (e: ProcessExecutionException) {
                 logAgentFailure("Agent process execution failed: ${agent.name}", e)
+                if (metadata.traceId != null && metadata.spanId != null) {
+                    observabilityService.recordAgentExecution(
+                        agent.name,
+                        0,
+                        false,
+                        TraceContext(metadata.traceId, metadata.spanId, metadata.parentSpanId)
+                    )
+                }
                 val stderr = e.stderr.trim().ifEmpty { "(no stderr)" }
                 val message = e.message?.trim().orEmpty().ifEmpty { "Process failed" }
                 AgentResult(
@@ -141,6 +171,14 @@ class DefaultAgentExecutor(
                 )
             } catch (e: Exception) {
                 logAgentFailure("Agent execution failed: ${agent.name}", e)
+                if (metadata.traceId != null && metadata.spanId != null) {
+                    observabilityService.recordAgentExecution(
+                        agent.name,
+                        0,
+                        false,
+                        TraceContext(metadata.traceId, metadata.spanId, metadata.parentSpanId)
+                    )
+                }
                 AgentResult(
                     agentName = agent.name,
                     isSuccess = false,

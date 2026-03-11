@@ -17,6 +17,9 @@ import com.cotor.domain.aggregator.ResultAggregator
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.domain.executor.DefaultAgentExecutor
 import com.cotor.model.SecurityConfig
+import com.cotor.monitoring.MetricsCollector
+import com.cotor.monitoring.ObservabilityService
+import com.cotor.monitoring.StructuredLogger
 import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
 import com.github.ajalt.clikt.testing.test
@@ -55,7 +58,10 @@ class InteractiveCommandTest : FunSpec({
                         )
                     }
                     single<SecurityValidator> { DefaultSecurityValidator(get(), get()) }
-                    single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get()) }
+                    single<StructuredLogger> { StructuredLogger(get()) }
+                    single<MetricsCollector> { MetricsCollector() }
+                    single<ObservabilityService> { ObservabilityService(get(), get()) }
+                    single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get(), get()) }
                     single<ResultAnalyzer> { DefaultResultAnalyzer() }
                     single<ResultAggregator> { DefaultResultAggregator(get()) }
                 }

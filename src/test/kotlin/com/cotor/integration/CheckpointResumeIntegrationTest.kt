@@ -15,6 +15,9 @@ import com.cotor.model.PipelineContext
 import com.cotor.model.PipelineStage
 import com.cotor.model.ValidationResult
 import com.cotor.stats.StatsManager
+import com.cotor.monitoring.ObservabilityService
+import com.cotor.monitoring.StructuredLogger
+import com.cotor.monitoring.MetricsCollector
 import com.cotor.validation.PipelineTemplateValidator
 import com.cotor.validation.output.OutputValidator
 import io.kotest.core.spec.style.StringSpec
@@ -130,6 +133,7 @@ class CheckpointResumeIntegrationTest : StringSpec({
                 agentRegistry,
                 outputValidator,
                 statsManager,
+                ObservabilityService(StructuredLogger(logger), MetricsCollector()),
                 checkpointManager,
                 templateValidator
             )

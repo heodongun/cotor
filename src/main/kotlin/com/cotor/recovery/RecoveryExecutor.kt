@@ -4,6 +4,7 @@ import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.model.*
 import com.cotor.validation.output.OutputValidator
+import com.cotor.monitoring.TraceContext
 import kotlinx.coroutines.delay
 import org.slf4j.Logger
 
@@ -20,7 +21,8 @@ class RecoveryExecutor(
     suspend fun executeWithRecovery(
         stage: PipelineStage,
         input: String?,
-        pipelineContext: PipelineContext?
+        pipelineContext: PipelineContext?,
+        traceContext: TraceContext
     ): AgentResult {
         val recovery = stage.recovery ?: RecoveryConfig()
         val stageAgent = stage.agent ?: throw IllegalArgumentException(
@@ -30,11 +32,11 @@ class RecoveryExecutor(
             ?: throw IllegalArgumentException("Agent not found: ${stageAgent.name}")
 
         return when (recovery.strategy) {
-            RecoveryStrategy.RETRY -> executeWithRetry(stage, primaryAgent, input, pipelineContext, recovery)
-            RecoveryStrategy.FALLBACK -> executeWithFallback(stage, primaryAgent, input, pipelineContext, recovery)
-            RecoveryStrategy.RETRY_THEN_FALLBACK -> executeRetryThenFallback(stage, primaryAgent, input, pipelineContext, recovery)
-            RecoveryStrategy.SKIP -> executeWithSkip(stage, primaryAgent, input, pipelineContext, recovery)
-            RecoveryStrategy.ABORT -> executeWithoutRecovery(stage, primaryAgent, input, pipelineContext)
+            RecoveryStrategy.RETRY -> executeWithRetry(stage, primaryAgent, input, pipelineContext, traceContext, recovery)
+            RecoveryStrategy.FALLBACK -> executeWithFallback(stage, primaryAgent, input, pipelineContext, traceContext, recovery)
+            RecoveryStrategy.RETRY_THEN_FALLBACK -> executeRetryThenFallback(stage, primaryAgent, input, pipelineContext, traceContext, recovery)
+            RecoveryStrategy.SKIP -> executeWithSkip(stage, primaryAgent, input, pipelineContext, traceContext)
+            RecoveryStrategy.ABORT -> executeWithoutRecovery(stage, primaryAgent, input, pipelineContext, traceContext)
         }
     }
 
@@ -42,9 +44,10 @@ class RecoveryExecutor(
         stage: PipelineStage,
         agentConfig: AgentConfig,
         input: String?,
-        pipelineContext: PipelineContext?
+        pipelineContext: PipelineContext?,
+        traceContext: TraceContext
     ): AgentResult {
-        return runAgent(agentConfig, stage, input, pipelineContext)
+        return runAgent(agentConfig, stage, input, pipelineContext, traceContext)
     }
 
     private suspend fun executeWithRetry(
@@ -52,6 +55,7 @@ class RecoveryExecutor(
         agentConfig: AgentConfig,
         input: String?,
         pipelineContext: PipelineContext?,
+        traceContext: TraceContext,
         recovery: RecoveryConfig
     ): AgentResult {
         val attempts = recovery.maxRetries.coerceAtLeast(1)
@@ -62,7 +66,7 @@ class RecoveryExecutor(
         repeat(attempts) { attempt ->
             val currentAttempt = attempt + 1
             logger.debug("Executing stage ${stage.id} attempt $currentAttempt/$attempts")
-            val result = runAgent(agentConfig, stage, currentInput, pipelineContext)
+            val result = runAgent(agentConfig, stage, currentInput, pipelineContext, traceContext)
             if (result.isSuccess) {
                 return result
             }
@@ -107,9 +111,10 @@ class RecoveryExecutor(
         primaryAgent: AgentConfig,
         input: String?,
         pipelineContext: PipelineContext?,
+        traceContext: TraceContext,
         recovery: RecoveryConfig
     ): AgentResult {
-        val primaryResult = runAgent(primaryAgent, stage, input, pipelineContext)
+        val primaryResult = runAgent(primaryAgent, stage, input, pipelineContext, traceContext)
         if (primaryResult.isSuccess) {
             return primaryResult
         }
@@ -118,7 +123,7 @@ class RecoveryExecutor(
         for ((index, fallbackName) in recovery.fallbackAgents.withIndex()) {
             val fallback = agentRegistry.getAgent(fallbackName) ?: continue
             logger.info("Attempting fallback agent ${index + 1}/${recovery.fallbackAgents.size}: $fallbackName for stage ${stage.id}")
-            val result = runAgent(fallback, stage, input, pipelineContext)
+            val result = runAgent(fallback, stage, input, pipelineContext, traceContext)
             if (result.isSuccess) {
                 return result
             }
@@ -132,9 +137,10 @@ class RecoveryExecutor(
         primaryAgent: AgentConfig,
         input: String?,
         pipelineContext: PipelineContext?,
+        traceContext: TraceContext,
         recovery: RecoveryConfig
     ): AgentResult {
-        val retryResult = executeWithRetry(stage, primaryAgent, input, pipelineContext, recovery)
+        val retryResult = executeWithRetry(stage, primaryAgent, input, pipelineContext, traceContext, recovery)
         if (retryResult.isSuccess) {
             return retryResult
         }
@@ -143,7 +149,7 @@ class RecoveryExecutor(
             return retryResult
         }
 
-        return executeWithFallback(stage, primaryAgent, input, pipelineContext, recovery)
+        return executeWithFallback(stage, primaryAgent, input, pipelineContext, traceContext, recovery)
     }
 
     private suspend fun executeWithSkip(
@@ -151,10 +157,10 @@ class RecoveryExecutor(
         agentConfig: AgentConfig,
         input: String?,
         pipelineContext: PipelineContext?,
-        recovery: RecoveryConfig
+        traceContext: TraceContext
     ): AgentResult {
         return try {
-            runAgent(agentConfig, stage, input, pipelineContext)
+            runAgent(agentConfig, stage, input, pipelineContext, traceContext)
         } catch (e: Exception) {
             logger.warn("Optional stage ${stage.id} failed. Strategy=SKIP. Reason=${e.message}")
             failureResult(agentConfig.name, "Stage skipped: ${e.message}")
@@ -165,11 +171,15 @@ class RecoveryExecutor(
         agentConfig: AgentConfig,
         stage: PipelineStage,
         input: String?,
-        pipelineContext: PipelineContext?
+        pipelineContext: PipelineContext?,
+        traceContext: TraceContext
     ): AgentResult {
         val metadata = AgentExecutionMetadata(
             pipelineContext = pipelineContext,
-            stageId = stage.id
+            stageId = stage.id,
+            traceId = traceContext.traceId,
+            spanId = traceContext.spanId,
+            parentSpanId = traceContext.parentSpanId
         )
         val result = agentExecutor.executeAgent(agentConfig, input, metadata)
         if (!result.isSuccess && result.metadata["failureCategory"] == null) {

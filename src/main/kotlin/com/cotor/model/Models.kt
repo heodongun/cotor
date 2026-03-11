@@ -401,6 +401,9 @@ data class ExecutionContext(
 data class AgentExecutionMetadata(
     val pipelineContext: PipelineContext? = null,
     val stageId: String? = null,
+    val traceId: String? = null,
+    val spanId: String? = null,
+    val parentSpanId: String? = null,
     @Serializable(with = NullablePathSerializer::class)
     val repoRoot: Path? = null,
     val workspaceId: String? = null,

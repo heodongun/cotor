@@ -7,6 +7,9 @@ import com.cotor.domain.executor.AgentExecutor
 import com.cotor.event.EventBus
 import com.cotor.model.*
 import com.cotor.stats.StatsManager
+import com.cotor.monitoring.ObservabilityService
+import com.cotor.monitoring.StructuredLogger
+import com.cotor.monitoring.MetricsCollector
 import com.cotor.validation.output.OutputValidator
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.filter
@@ -40,7 +43,8 @@ class PipelineOrchestratorPropertyTest {
         logger = logger,
         agentRegistry = agentRegistry,
         outputValidator = outputValidator,
-        statsManager = statsManager
+        statsManager = statsManager,
+        observabilityService = ObservabilityService(StructuredLogger(logger), MetricsCollector())
     )
 
     @Test

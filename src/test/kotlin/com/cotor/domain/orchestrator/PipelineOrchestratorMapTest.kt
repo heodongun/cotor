@@ -6,6 +6,9 @@ import com.cotor.domain.executor.AgentExecutor
 import com.cotor.event.EventBus
 import com.cotor.model.*
 import com.cotor.stats.StatsManager
+import com.cotor.monitoring.ObservabilityService
+import com.cotor.monitoring.StructuredLogger
+import com.cotor.monitoring.MetricsCollector
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -45,7 +48,8 @@ class PipelineOrchestratorMapTest {
             logger = logger,
             agentRegistry = agentRegistry,
             outputValidator = outputValidator,
-            statsManager = statsManager
+            statsManager = statsManager,
+            observabilityService = ObservabilityService(StructuredLogger(logger), MetricsCollector())
         )
         val items = listOf("item1", "item2", "item3")
         val pipelineContext = PipelineContext(
