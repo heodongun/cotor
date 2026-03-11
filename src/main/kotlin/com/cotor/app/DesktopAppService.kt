@@ -352,13 +352,26 @@ class DesktopAppService(
                     workingDirectory = binding.worktreePath
                 )
             )
+            val publish = if (result.isSuccess) {
+                gitWorkspaceService.publishRun(
+                    task = task,
+                    agentName = agent.name,
+                    worktreePath = binding.worktreePath,
+                    branchName = binding.branchName,
+                    baseBranch = workspace.baseBranch
+                )
+            } else {
+                null
+            }
+            val finalError = result.error ?: publish?.error
 
             replaceRun(
                 startedRun.copy(
-                    status = if (result.isSuccess) AgentRunStatus.COMPLETED else AgentRunStatus.FAILED,
+                    status = if (result.isSuccess && publish?.error == null) AgentRunStatus.COMPLETED else AgentRunStatus.FAILED,
                     processId = result.processId,
                     output = result.output,
-                    error = result.error,
+                    error = finalError,
+                    publish = publish,
                     durationMs = result.duration.takeIf { it > 0 },
                     updatedAt = System.currentTimeMillis()
                 )

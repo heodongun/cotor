@@ -5,6 +5,8 @@ import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.Path
@@ -25,6 +27,8 @@ class GitWorkspaceService(
     private val stateStore: DesktopStateStore,
     private val logger: Logger
 ) {
+    private val json = Json { ignoreUnknownKeys = true }
+
     /**
      * Normalizes any nested path inside a repository back to the real git root.
      */
@@ -167,6 +171,67 @@ class GitWorkspaceService(
     }
 
     /**
+     * Publish one completed run by committing local edits, pushing the branch,
+     * and creating or reusing a GitHub pull request via `gh`.
+     */
+    suspend fun publishRun(
+        task: AgentTask,
+        agentName: String,
+        worktreePath: Path,
+        branchName: String,
+        baseBranch: String
+    ): PublishMetadata {
+        var commitSha: String? = null
+        var pushedBranch: String? = null
+        var pullRequest: PullRequestRef? = null
+
+        return try {
+            if (hasUncommittedChanges(worktreePath)) {
+                runGit(worktreePath, "add", "-A")
+                runGit(worktreePath, "commit", "-m", buildCommitMessage(task.title, agentName))
+            }
+
+            commitSha = gitOutput(worktreePath, "rev-parse", "HEAD").trim().takeIf { it.isNotBlank() }
+            val aheadCount = gitOutput(worktreePath, "rev-list", "--count", "$baseBranch..HEAD")
+                .trim()
+                .toIntOrNull()
+                ?: 0
+            if (aheadCount == 0) {
+                return PublishMetadata(
+                    commitSha = commitSha,
+                    error = "No changes to publish from $branchName against $baseBranch"
+                )
+            }
+
+            runGit(worktreePath, "push", "--set-upstream", "origin", "HEAD:$branchName")
+            pushedBranch = branchName
+
+            pullRequest = findOpenPullRequest(worktreePath, branchName) ?: createPullRequest(
+                worktreePath = worktreePath,
+                branchName = branchName,
+                baseBranch = baseBranch,
+                title = buildPullRequestTitle(task.title, agentName),
+                body = buildPullRequestBody(task, agentName, branchName, baseBranch)
+            )
+
+            PublishMetadata(
+                commitSha = commitSha,
+                pushedBranch = pushedBranch,
+                pullRequestNumber = pullRequest?.number,
+                pullRequestUrl = pullRequest?.url
+            )
+        } catch (t: Throwable) {
+            PublishMetadata(
+                commitSha = commitSha,
+                pushedBranch = pushedBranch,
+                pullRequestNumber = pullRequest?.number,
+                pullRequestUrl = pullRequest?.url,
+                error = buildPublishError(t)
+            )
+        }
+    }
+
+    /**
      * Returns a depth-limited file tree rooted inside the worktree.
      *
      * The depth cap prevents the desktop client from recursively walking an entire
@@ -243,8 +308,17 @@ class GitWorkspaceService(
         return result.isSuccess
     }
 
+    private suspend fun hasUncommittedChanges(worktreePath: Path): Boolean {
+        return gitOutput(worktreePath, "status", "--porcelain").isNotBlank()
+    }
+
     private suspend fun gitOutput(workingDirectory: Path?, vararg args: String): String {
         val result = runGit(workingDirectory, *args)
+        return result.stdout
+    }
+
+    private suspend fun ghOutput(workingDirectory: Path, vararg args: String): String {
+        val result = runCommand(workingDirectory, listOf("gh") + args)
         return result.stdout
     }
 
@@ -253,7 +327,14 @@ class GitWorkspaceService(
         vararg args: String,
         failOnError: Boolean = true
     ): ProcessResult {
-        val command = listOf("git") + args
+        return runCommand(workingDirectory, listOf("git") + args, failOnError)
+    }
+
+    private suspend fun runCommand(
+        workingDirectory: Path?,
+        command: List<String>,
+        failOnError: Boolean = true
+    ): ProcessResult {
         val result = processManager.executeProcess(
             command = command,
             input = null,
@@ -263,9 +344,9 @@ class GitWorkspaceService(
         )
 
         if (failOnError && !result.isSuccess) {
-            logger.warn("Git command failed: ${command.joinToString(" ")}")
+            logger.warn("Command failed: ${command.joinToString(" ")}")
             throw ProcessExecutionException(
-                message = "Git command failed",
+                message = "${command.first().uppercase()} command failed",
                 exitCode = result.exitCode,
                 stdout = result.stdout,
                 stderr = result.stderr
@@ -273,6 +354,99 @@ class GitWorkspaceService(
         }
 
         return result
+    }
+
+    private suspend fun findOpenPullRequest(worktreePath: Path, branchName: String): PullRequestRef? {
+        val raw = ghOutput(
+            worktreePath,
+            "pr",
+            "list",
+            "--head",
+            branchName,
+            "--state",
+            "open",
+            "--json",
+            "number,url,state"
+        )
+        val pullRequests = json.decodeFromString<List<PullRequestRef>>(raw.ifBlank { "[]" })
+        return pullRequests.firstOrNull()
+    }
+
+    private suspend fun createPullRequest(
+        worktreePath: Path,
+        branchName: String,
+        baseBranch: String,
+        title: String,
+        body: String
+    ): PullRequestRef {
+        ghOutput(
+            worktreePath,
+            "pr",
+            "create",
+            "--base",
+            baseBranch,
+            "--head",
+            branchName,
+            "--title",
+            title,
+            "--body",
+            body
+        )
+        val created = ghOutput(
+            worktreePath,
+            "pr",
+            "view",
+            branchName,
+            "--json",
+            "number,url,state"
+        )
+        return json.decodeFromString<PullRequestRef>(created)
+    }
+
+    private fun buildCommitMessage(taskTitle: String, agentName: String): String {
+        val headline = taskTitle.trim().ifBlank { "Complete desktop task" }
+        return "$headline ($agentName)".take(72)
+    }
+
+    private fun buildPullRequestTitle(taskTitle: String, agentName: String): String {
+        val headline = taskTitle.trim().ifBlank { "Desktop task update" }
+        return "[$agentName] $headline".take(120)
+    }
+
+    private fun buildPullRequestBody(task: AgentTask, agentName: String, branchName: String, baseBranch: String): String {
+        val promptExcerpt = task.prompt.trim()
+            .lineSequence()
+            .take(20)
+            .joinToString("\n")
+            .take(4000)
+
+        return buildString {
+            appendLine("## Summary")
+            appendLine("- Auto-published by the Cotor desktop app after task completion.")
+            appendLine("- Task: ${task.title}")
+            appendLine("- Agent: $agentName")
+            appendLine("- Branch: $branchName")
+            appendLine("- Base: $baseBranch")
+            appendLine()
+            appendLine("## Prompt")
+            appendLine("```text")
+            appendLine(promptExcerpt.ifBlank { "<no prompt provided>" })
+            appendLine("```")
+        }
+    }
+
+    private fun buildPublishError(t: Throwable): String {
+        return when (t) {
+            is ProcessExecutionException -> {
+                val stderr = t.stderr.trim()
+                val stdout = t.stdout.trim()
+                listOf(
+                    "Publish failed",
+                    stderr.ifBlank { stdout }.ifBlank { t.message ?: "Unknown process error" }
+                ).joinToString(": ")
+            }
+            else -> "Publish failed: ${t.message ?: "Unknown error"}"
+        }
     }
 
     private fun scanTree(root: Path, directory: Path, depthRemaining: Int): List<FileTreeNode> {
@@ -324,4 +498,11 @@ class GitWorkspaceService(
             .replace("[^a-z0-9]+".toRegex(), "-")
             .trim('-')
     }
+
+    @Serializable
+    private data class PullRequestRef(
+        val number: Int? = null,
+        val url: String,
+        val state: String? = null
+    )
 }
