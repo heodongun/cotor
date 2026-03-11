@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] - 2026-03-10
+
+### Added
+- Native macOS desktop shell in `macos/` backed by the new `cotor app-server` local API.
+- Repository registration, workspace creation, task execution, diff/file inspection, and embedded browser flows for the desktop client.
+- Per-agent git isolation with `codex/cotor/<task-slug>/<agent-name>` branches and `.cotor/worktrees/<task-id>/<agent-name>` worktrees.
+- `shell/install-desktop-app.sh` for building a proper `.app` bundle, installing it into Applications, and refreshing the Downloads archive.
+
+### Documentation
+- Updated `README.md` and `README.ko.md` with desktop download instructions.
+- Updated docs landing pages, quick start, features, and desktop guide to reflect the current macOS app workflow.
+
 ## [1.1.0] - 2025-11-20
 
 ### 🎉 Major Release - Complete Phase 1 & 2 Implementation

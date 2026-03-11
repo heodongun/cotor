@@ -26,6 +26,7 @@ Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 
 - [📖 영문 가이드](docs/README.md)
 - [📖 한글 가이드](docs/README.ko.md)
 - [🚀 빠른 시작](docs/QUICK_START.md)
+- [🖥️ 데스크톱 앱](docs/DESKTOP_APP.md)
 - [⚡ 기능 목록](docs/FEATURES.md)
 - [📑 문서 인덱스](docs/INDEX.md)
 
@@ -40,6 +41,28 @@ Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 
 - [🤖 Claude 연동](docs/CLAUDE_SETUP.md)
 - [💡 사용 팁](docs/USAGE_TIPS.md)
 - [📦 예제](examples/)
+
+## 🖥️ macOS 앱 다운로드
+
+네이티브 macOS 셸을 빌드하고 `응용 프로그램`에 설치하면서 `Downloads`용 배포본까지 같이 만들려면:
+
+```bash
+./shell/install-desktop-app.sh
+```
+
+스크립트가 하는 일:
+
+- 아이콘과 번들 메타데이터가 들어간 `Cotor Desktop.app` 생성
+- 쓰기 권한이 있으면 `/Applications`, 아니면 `~/Applications`에 설치
+- `~/Downloads/Cotor Desktop.app`와 `~/Downloads/Cotor-Desktop-macOS.zip` 갱신
+
+설치된 앱 실행:
+
+```bash
+open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
+```
+
+앱은 필요할 때 로컬 `cotor app-server`를 자동으로 띄웁니다. 자세한 데스크톱 사용법은 [docs/DESKTOP_APP.md](docs/DESKTOP_APP.md)를 참고하세요.
 
 ## 🚀 빠른 시작
 
@@ -64,6 +87,13 @@ chmod +x shell/cotor
 
 ```bash
 docker run -it cotor/cli version
+```
+
+### 방법 4: 로컬 macOS 데스크톱 다운로드
+
+```bash
+./shell/install-desktop-app.sh
+open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
 ```
 
 ## 📖 기본 사용법

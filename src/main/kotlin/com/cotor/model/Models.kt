@@ -295,7 +295,19 @@ data class AgentResult(
     val output: String?,
     val error: String?,
     val duration: Long,
-    val metadata: Map<String, String>
+    val metadata: Map<String, String>,
+    val processId: Long? = null
+)
+
+/**
+ * Structured output returned by a plugin execution.
+ *
+ * Most plugins still just return text, but desktop orchestration also needs access
+ * to runtime metadata such as the child process id for later inspection.
+ */
+data class PluginExecutionOutput(
+    val output: String,
+    val processId: Long? = null
 )
 
 /**
@@ -331,7 +343,10 @@ data class ProcessResult(
     val exitCode: Int,
     val stdout: String,
     val stderr: String,
-    val isSuccess: Boolean
+    val isSuccess: Boolean,
+    // Captured so higher-level features can later correlate the spawned process with
+    // desktop diagnostics such as local port discovery or process inspection.
+    val processId: Long? = null
 )
 
 /**
@@ -366,6 +381,16 @@ data class ExecutionContext(
     val parameters: Map<String, String>,
     val environment: Map<String, String>,
     val timeout: Long,
+    @Serializable(with = NullablePathSerializer::class)
+    val repoRoot: Path? = null,
+    val workspaceId: String? = null,
+    val taskId: String? = null,
+    val agentId: String? = null,
+    val baseBranch: String? = null,
+    val branchName: String? = null,
+    // When set, plugins run inside an isolated git worktree instead of the shared repo root.
+    @Serializable(with = NullablePathSerializer::class)
+    val workingDirectory: Path? = null,
     val pipelineContext: PipelineContext? = null,
     val currentStageId: String? = null
 )
@@ -375,7 +400,18 @@ data class ExecutionContext(
  */
 data class AgentExecutionMetadata(
     val pipelineContext: PipelineContext? = null,
-    val stageId: String? = null
+    val stageId: String? = null,
+    @Serializable(with = NullablePathSerializer::class)
+    val repoRoot: Path? = null,
+    val workspaceId: String? = null,
+    val taskId: String? = null,
+    val agentId: String? = null,
+    val baseBranch: String? = null,
+    val branchName: String? = null,
+    // Passed out-of-band so callers that do not care about cwd do not need to thread it
+    // through every public agent-facing API.
+    @Serializable(with = NullablePathSerializer::class)
+    val workingDirectory: Path? = null
 )
 
 /**

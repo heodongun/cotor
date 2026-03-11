@@ -19,7 +19,9 @@ class NaturalLanguageProcessorPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
+        // These example plugins intentionally show the canonical pattern: build argv,
+        // pass through stdin/env/timeout/cwd, then map ProcessResult into plugin output.
         val command = listOf(
             "python3",
             "/path/to/nlp_tool.py",
@@ -31,14 +33,15 @@ class NaturalLanguageProcessorPlugin : AgentPlugin {
             command = command,
             input = context.input,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
             throw AgentExecutionException("NLP processing failed: ${result.stderr}")
         }
 
-        return result.stdout
+        return PluginExecutionOutput(result.stdout, result.processId)
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -71,7 +74,9 @@ class CodeGeneratorPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
+        // Required parameters are checked here instead of in validateInput so the example
+        // mirrors how many real integrations need config validation as well as prompt validation.
         val language = context.parameters["language"]
             ?: throw IllegalArgumentException("Parameter 'language' is required")
 
@@ -91,14 +96,15 @@ class CodeGeneratorPlugin : AgentPlugin {
             command = command,
             input = context.input,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
             throw AgentExecutionException("Code generation failed: ${result.stderr}")
         }
 
-        return result.stdout
+        return PluginExecutionOutput(result.stdout, result.processId)
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -126,7 +132,9 @@ class EchoPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
-        return context.input ?: ""
+    ): PluginExecutionOutput {
+        // Echo remains process-free on purpose so tests can exercise the orchestration
+        // stack without spawning any child tools.
+        return PluginExecutionOutput(context.input ?: "")
     }
 }

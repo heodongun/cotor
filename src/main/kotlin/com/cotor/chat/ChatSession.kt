@@ -70,47 +70,103 @@ class ChatSession(
     ): String {
         if (!includeContext) return currentUserInput
 
-        val history = messages.takeLast(maxHistoryMessages)
-        val sb = StringBuilder()
-        sb.appendLine("You are Cotor, a master agent that can consult multiple CLI-based sub-agents.")
-        sb.appendLine("Continue the conversation naturally. Prefer concrete, actionable answers.")
-        if (bootstrapContext.isNotBlank()) {
-            sb.appendLine()
-            sb.appendLine("Workspace bootstrap context:")
-            sb.appendLine(bootstrapContext.trim())
-        }
-        if (memoryContext.isNotEmpty()) {
-            sb.appendLine()
-            sb.appendLine("Relevant long-term memory:")
-            memoryContext.forEach { sb.appendLine("- $it") }
-        }
-        sb.appendLine()
-
-        if (history.isNotEmpty()) {
-            sb.appendLine("Conversation so far:")
-            history.forEachIndexed { idx, msg ->
-                val label = when (msg.role) {
-                    ChatRole.USER -> "User"
-                    ChatRole.ASSISTANT -> "Assistant"
-                }
-                val normalized = msg.content.replace("\r\n", "\n")
-                val pruned = if (msg.role == ChatRole.ASSISTANT && normalized.length > toolOutputPruneChars && idx < history.lastIndex - 1) {
-                    "[cache-aware-pruned assistant output, ${normalized.length} chars omitted]"
-                } else {
-                    normalized
-                }
-                sb.appendLine("$label: $pruned")
+        fun renderPrompt(
+            history: List<ChatMessage>,
+            bootstrap: String,
+            memory: List<String>,
+            messageCap: Int
+        ): String {
+            val sb = StringBuilder()
+            sb.appendLine("You are Cotor, a master agent that can consult multiple CLI-based sub-agents.")
+            sb.appendLine("Continue the conversation naturally. Prefer concrete, actionable answers.")
+            if (bootstrap.isNotBlank()) {
+                sb.appendLine()
+                sb.appendLine("Workspace bootstrap context:")
+                sb.appendLine(bootstrap.trim())
+            }
+            if (memory.isNotEmpty()) {
+                sb.appendLine()
+                sb.appendLine("Relevant long-term memory:")
+                memory.forEach { sb.appendLine("- $it") }
             }
             sb.appendLine()
-        }
-        sb.appendLine("User: $currentUserInput")
-        sb.append("Assistant:")
 
-        if (sb.length > maxPromptChars) {
+            if (history.isNotEmpty()) {
+                sb.appendLine("Conversation so far:")
+                history.forEachIndexed { idx, msg ->
+                    val label = when (msg.role) {
+                        ChatRole.USER -> "User"
+                        ChatRole.ASSISTANT -> "Assistant"
+                    }
+                    val normalized = msg.content.replace("\r\n", "\n")
+                    val pruned = when {
+                        msg.role == ChatRole.ASSISTANT && normalized.length > toolOutputPruneChars && idx < history.lastIndex - 1 ->
+                            "[cache-aware-pruned assistant output, ${normalized.length} chars omitted]"
+
+                        normalized.length > messageCap -> normalized.take(messageCap) + "…"
+                        else -> normalized
+                    }
+                    sb.appendLine("$label: $pruned")
+                }
+                sb.appendLine()
+            }
+            sb.appendLine("User: $currentUserInput")
+            sb.append("Assistant:")
+            return sb.toString()
+        }
+
+        var history = messages.takeLast(maxHistoryMessages)
+        var bootstrap = bootstrapContext.trim()
+        var memory = memoryContext.map { it.trim() }.filter { it.isNotBlank() }
+        var messageCap = toolOutputPruneChars
+        var prompt = renderPrompt(history, bootstrap, memory, messageCap)
+
+        if (prompt.length > maxPromptChars) {
             compactHistory()
-            return buildPrompt(currentUserInput, bootstrapContext, memoryContext)
+            history = messages.takeLast(maxHistoryMessages)
+            bootstrap = bootstrap.take(maxPromptChars / 3)
+            memory = memory.take(3).map { if (it.length > 320) it.take(320) + "…" else it }
+            messageCap = minOf(messageCap, 600)
+            prompt = renderPrompt(history, bootstrap, memory, messageCap)
         }
 
-        return sb.toString()
+        if (prompt.length > maxPromptChars) {
+            bootstrap = bootstrap.take(maxPromptChars / 6)
+            memory = memory.take(1).map { if (it.length > 160) it.take(160) + "…" else it }
+            history = history.takeLast(minOf(history.size, 6)).map { msg ->
+                msg.copy(content = msg.content.replace("\r\n", "\n").take(280))
+            }
+            prompt = renderPrompt(history, bootstrap, memory, 280)
+        }
+
+        if (prompt.length > maxPromptChars) {
+            bootstrap = ""
+            memory = emptyList()
+            history = history.takeLast(minOf(history.size, 2)).map { msg ->
+                msg.copy(content = msg.content.replace("\r\n", "\n").take(120))
+            }
+            prompt = renderPrompt(history, bootstrap, memory, 120)
+        }
+
+        // Never recurse forever when the bootstrap context alone is oversized.
+        // The last-resort trim keeps interactive mode alive even in instruction-heavy repos.
+        return if (prompt.length > maxPromptChars) {
+            val currentUserSection = buildString {
+                append("User: ")
+                append(
+                    if (currentUserInput.length > maxPromptChars / 2) {
+                        currentUserInput.take(maxPromptChars / 2 - 1) + "…"
+                    } else {
+                        currentUserInput
+                    }
+                )
+                appendLine()
+                append("Assistant:")
+            }
+            val prefixBudget = (maxPromptChars - currentUserSection.length - 1).coerceAtLeast(0)
+            prompt.take(prefixBudget) + "…" + currentUserSection
+        } else {
+            prompt
+        }
     }
 }

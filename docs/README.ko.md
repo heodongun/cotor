@@ -20,6 +20,22 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+## 데스크톱 앱 (macOS)
+
+데스크톱 번들을 빌드하고 `응용 프로그램`에 설치하면서 로컬 배포본까지 갱신하려면:
+
+```bash
+./shell/install-desktop-app.sh
+```
+
+실행:
+
+```bash
+open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
+```
+
+백엔드 실행, 워크트리 격리, 브라우저/포트 탭 설명은 `DESKTOP_APP.md`에 정리되어 있습니다.
+
 ## 바로 쓰는 명령
 
 ```bash
@@ -57,6 +73,7 @@ cotor web                        # 웹 파이프라인 스튜디오
 ## 문서 안내
 
 - 빠른 시작: `QUICK_START.md`
+- 데스크톱 앱: `DESKTOP_APP.md`
 - 아키텍처: `ARCHITECTURE.md`
 - 기능 목록: `FEATURES.md`
 - 사용 팁: `USAGE_TIPS.md`

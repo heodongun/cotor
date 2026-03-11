@@ -30,6 +30,15 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+## macOS 앱을 바로 내려받기
+
+```bash
+./shell/install-desktop-app.sh
+open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
+```
+
+이 명령은 `.app` 번들을 빌드해 `/Applications` 또는 `~/Applications`에 설치하고, `~/Downloads/Cotor Desktop.app`와 `~/Downloads/Cotor-Desktop-macOS.zip`도 갱신합니다.
+
 ## 첫 파이프라인 만들기
 
 ### 1) 템플릿 생성
@@ -87,6 +96,7 @@ cotor plugin init my-plugin
 
 ## 다음 단계
 
+- 데스크톱 앱 상세: `docs/DESKTOP_APP.md`
 - 다양한 템플릿: `docs/FEATURES.md`
 - 실전 예제: `examples/`
 - 아키텍처: `docs/ARCHITECTURE.md`

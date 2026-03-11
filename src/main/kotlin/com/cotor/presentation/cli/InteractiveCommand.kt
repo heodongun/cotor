@@ -285,6 +285,22 @@ class InteractiveCommand :
         bootstrapContext: String,
         memoryContext: List<String>
     ): String = coroutineScope {
+        // The native desktop shell already renders its own terminal surface and
+        // polls incrementally, so the CLI spinner just floods the PTY with redraw
+        // frames and makes the embedded TUI look broken even when input works.
+        if (System.getenv("COTOR_DESKTOP_TUI") == "1") {
+            return@coroutineScope runTurn(
+                session = session,
+                chatMode = chatMode,
+                activeAgent = activeAgent,
+                selectedAgents = selectedAgents,
+                userInput = userInput,
+                verbose = verbose,
+                bootstrapContext = bootstrapContext,
+                memoryContext = memoryContext
+            )
+        }
+
         val spinner = launch {
             val frames = listOf("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
             var i = 0
@@ -525,6 +541,12 @@ class InteractiveCommand :
     }
 
     private fun buildLineReader(agentNames: List<String>) = runCatching {
+        // The desktop app already provides its own PTY surface. JLine prompt redraws
+        // and cursor-control sequences look noisy there, so the embedded terminal
+        // falls back to the plain line reader path for cleaner, more predictable I/O.
+        if (System.getenv("COTOR_DESKTOP_TUI") == "1") {
+            return@runCatching null
+        }
         val jlineTerminal = TerminalBuilder.builder()
             .system(true)
             .build()
@@ -687,7 +709,7 @@ performance:
                 pluginClass = "com.cotor.data.plugin.ClaudePlugin",
                 executable = "claude",
                 parameterBlock = """
-model: claude-3-5-sonnet-20241022
+model: claude-sonnet-4-20250514
                 """.trimIndent()
             )
             !System.getenv("OPENAI_API_KEY").isNullOrBlank() -> StarterAgent(
