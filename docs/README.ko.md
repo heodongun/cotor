@@ -79,6 +79,7 @@ cotor web                        # 웹 파이프라인 스튜디오
 - 팀 운영 / 온보딩: `team-ops/README.ko.md`
 - 사용 팁: `USAGE_TIPS.md`
 - 변경 이력: `release/CHANGELOG.md`
+- 팀 운영/온보딩 패키지: `team-ops/README.ko.md`
 - 리포트: `reports/`
 - Claude 연동: `CLAUDE_SETUP.md`, `claude/`
 

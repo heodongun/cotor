@@ -10,6 +10,7 @@ import java.time.Instant
 @Serializable
 data class CotorConfig(
     val version: String = "1.0",
+    val imports: List<String> = emptyList(),
     val agents: List<AgentConfig> = emptyList(),
     val pipelines: List<Pipeline> = emptyList(),
     val security: SecurityConfig = SecurityConfig(),

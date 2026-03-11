@@ -14,6 +14,8 @@
 
 - `FEATURES.md`: 최신 기능 요약
 - `ARCHITECTURE.md`: 구성/흐름
+- `MULTI_WORKSPACE_REMOTE_RUNNER.md`: 멀티워크스페이스/원격실행 러너 설계 초안
+- `DIFFERENTIATED_PRD_ARCHITECTURE.md`: 차별화 관점의 PRD + 아키텍처 결정 문서
 - `CONDITION_DSL.md`: 조건식 DSL
 - `WEB_EDITOR.md`: 웹 편집기 사용법
 
@@ -32,9 +34,21 @@
 
 ## 리포트
 
+- `reports/PAPERCLIP_BENCHMARK_REPORT.md`
 - `reports/TEST_REPORT.md`
 - `reports/IMPLEMENTATION_SUMMARY.md`
 - `reports/IMPROVEMENTS.md`
+
+## 팀 운영/온보딩
+
+- `team-ops/README.md`
+- `team-ops/README.ko.md`
+- `team-ops/onboarding-checklist.md`
+- `team-ops/onboarding-checklist.ko.md`
+- `team-ops/operating-cadence-template.md`
+- `team-ops/operating-cadence-template.ko.md`
+- `team-ops/handoff-template.md`
+- `team-ops/handoff-template.ko.md`
 
 ## 템플릿
 

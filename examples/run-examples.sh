@@ -22,8 +22,8 @@ echo "    $COTOR run compare-summaries -c examples/parallel-compare.yaml"
 echo
 
 echo "➡️  조건/루프 예제"
-echo "    $COTOR run iterate-summary -c examples/decision-loop.yaml"
-"$COTOR" run iterate-summary -c "$ROOT_DIR/examples/decision-loop.yaml" --output-format text || true
+echo "    $COTOR run decision-loop -c examples/decision-loop.yaml"
+"$COTOR" run decision-loop -c "$ROOT_DIR/examples/decision-loop.yaml" --output-format text || true
 echo
 
 echo "✅ 예제 실행 완료"

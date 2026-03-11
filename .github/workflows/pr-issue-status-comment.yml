@@ -1,0 +1,43 @@
+name: PR Issue Comment Bot
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - ready_for_review
+      - closed
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - requested
+      - in_progress
+      - completed
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  sync-comment:
+    if: |
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync PR link / CI status issue comment
+        uses: actions/github-script@v7
+        env:
+          TARGET_WORKFLOW_NAME: CI
+        with:
+          script: |
+            const bot = require('./.github/scripts/pr-issue-status-comment.js');
+            await bot.run({ github, context, core });

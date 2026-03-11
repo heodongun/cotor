@@ -25,14 +25,16 @@ Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a si
 ### Quick Links
 - [📖 English Guide](docs/README.md)
 - [📖 한글 가이드](docs/README.ko.md)
-- [🌐 Cotor 소개 페이지](https://cotor-guide.pages.dev/)
+- 🌐 Cotor 소개 페이지 (로컬 실행 후 `http://localhost:8080/`)
 - [🚀 Quick Start](docs/QUICK_START.md)
 - [🖥️ Desktop App](docs/DESKTOP_APP.md)
+- [🧭 Differentiated PRD / Architecture](docs/DIFFERENTIATED_PRD_ARCHITECTURE.md)
 - [⚡ Features](docs/FEATURES.md)
 - [🧭 Team Ops / Onboarding](docs/team-ops/README.md)
 - [📑 Documentation Index](docs/INDEX.md)
 
 ### Test Reports
+- [📈 Paperclip Benchmark Report](docs/reports/PAPERCLIP_BENCHMARK_REPORT.md) - Cotor metrics and Paperclip baseline gap
 - [✅ **Live Test Results**](test-results/LIVE_TEST_RESULTS.md) - Real execution test (NEW!)
 - [📊 Test Summary](test-results/README.md) - Quick overview
 - [🧪 Feature Test Report](docs/reports/FEATURE_TEST_REPORT_v1.0.0.md) - Comprehensive test
@@ -40,6 +42,7 @@ Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a si
 ### Additional Resources
 - [📋 Release Notes](docs/release/CHANGELOG.md)
 - [🔧 Upgrade Guide](docs/UPGRADE_GUIDE.md)
+- [🧭 Team Ops & Onboarding Package](docs/team-ops/README.md)
 - [🤖 Claude Integration](docs/CLAUDE_SETUP.md)
 - [💡 Usage Tips](docs/USAGE_TIPS.md)
 - [📦 Examples](examples/)
@@ -110,6 +113,9 @@ cd my-cotor-project
 
 # Initialize Cotor configuration
 java -jar /path/to/cotor-1.0.0.jar init
+
+# Or generate a starter project scaffold with docs
+java -jar /path/to/cotor-1.0.0.jar init --starter-template
 ```
 
 **Step 2: Review the generated configuration**
@@ -117,7 +123,7 @@ java -jar /path/to/cotor-1.0.0.jar init
 cat cotor.yaml
 ```
 
-You'll see a default configuration with an example echo agent and pipeline.
+`init` writes a minimal single-file config. `init --starter-template` creates `cotor.yaml`, `pipelines/default.yaml`, and starter docs under `docs/`.
 
 **Step 3: Run the example pipeline**
 ```bash
@@ -921,7 +927,7 @@ cotor --help       # Full command help
 
 ## 📦 Examples
 
-Ready-to-run examples in `examples/`:
+Ready-to-run examples and scenario fixtures:
 
 ```bash
 # Single agent example
@@ -932,6 +938,9 @@ Ready-to-run examples in `examples/`:
 
 # Decision and loop
 ./shell/cotor run decision-loop -c examples/decision-loop.yaml
+
+# QA test generation loop
+./shell/cotor run qa-test-generation -c test/qa-test-generation/qa-test-generation.yaml
 
 # Run all examples
 ./examples/run-examples.sh

@@ -1,33 +1,54 @@
-# Team Ops & Onboarding Package
+# Team Operations & Onboarding Package
 
-This package is a first draft for contributors who need a predictable way to join the repo, pick a role, and leave reusable delivery artifacts behind.
+This package helps maintainers run the project consistently, gives new contributors a predictable onboarding path, and provides reusable role templates for delivery work.
+
+## What's Included
+
+- `onboarding-checklist.md`: Day-0 to Day-14 onboarding checklist.
+- `operating-cadence-template.md`: Weekly/biweekly operating rhythm template.
+- `handoff-template.md`: Reusable handoff template for incidents, release ownership, and vacation coverage.
+- `FEATURE_OWNER_TEMPLATE.md`: Ticket-owner checklist and handoff template.
+- `REVIEWER_TEMPLATE.md`: Review structure, blocking-findings format, and sign-off expectations.
+- `MAINTAINER_TEMPLATE.md`: Repo stewardship checklist covering docs, release flow, and operating rhythm.
+- `README.ko.md`: Korean mirror of this package.
 
 ## Who This Covers
 
-- Feature owners shipping a ticket end to end
-- Reviewers running code/documentation/QA passes
-- Maintainers keeping docs, release flow, and operating rhythm aligned
+- Feature owners shipping a ticket end to end.
+- Reviewers running code, documentation, and QA passes.
+- Maintainers keeping docs, release flow, and operating rhythm aligned.
 
 ## Start Here
 
 1. Read `../README.md`, `../QUICK_START.md`, `../FEATURES.md`, and `../DESKTOP_APP.md`.
 2. Build the repo once with `./gradlew test` or a scope-appropriate validation command.
 3. Follow the delivery loop: reproduce -> plan -> edit -> validate -> review -> merge.
-4. Pick the role template below and use its checklist as the operating baseline.
+4. Complete the onboarding checklist, then pick the role template that matches your current responsibility.
 
-## First-Week Onboarding Checklist
+## Recommended Usage
 
-- Confirm local build, shell scripts, and docs entry points work on your machine.
-- Learn where execution evidence lives: Linear workpad, validation commands, PR summary, release notes.
-- Review the current branch/PR policy and keep work scoped to one ticket at a time.
-- Read one merged PR and one active PR to understand the repo's review style.
+1. **Assign an onboarding buddy** for each new contributor.
+2. **Copy templates into your issue/PR/wiki tools** and adjust only project-specific fields.
+3. **Run a monthly retro** on this package and update sections that drift from real team practice.
 
-## Package Contents
+## Ownership
 
-- `FEATURE_OWNER_TEMPLATE.md`: ticket owner checklist and handoff template
-- `REVIEWER_TEMPLATE.md`: review pass structure, blocking findings, and sign-off format
-- `MAINTAINER_TEMPLATE.md`: weekly/release cadence and repo stewardship checklist
-- `README.ko.md` and `*.ko.md`: Korean versions of the same package
+- Primary owner: repository maintainers.
+- Review cadence: once per month (or after major process changes).
+- Update trigger examples:
+  - New release train/cadence.
+  - On-call rotation updates.
+  - CI/CD or branching policy changes.
+
+---
+
+## Quick Start for New Maintainers
+
+- [ ] Read repository-level docs (`README.md`, `CONTRIBUTING.md`, docs index).
+- [ ] Complete the onboarding checklist.
+- [ ] Propose your first documentation or small tooling PR within 1 week.
+- [ ] Shadow at least one release/triage cycle.
+- [ ] Lead one cycle using the cadence template and handoff template.
 
 ## Shared Operating Rhythm
 

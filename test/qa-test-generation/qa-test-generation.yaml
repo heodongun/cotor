@@ -1,0 +1,141 @@
+version: "1.0"
+
+agents:
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 180000
+    parameters:
+      model: gpt-5.3-codex-spark
+    tags:
+      - qa
+      - test-generation
+
+  - name: gemini
+    pluginClass: com.cotor.data.plugin.GeminiPlugin
+    timeout: 180000
+    tags:
+      - qa
+      - review
+
+pipelines:
+  - name: qa-test-generation
+    description: "요구사항과 코드 맥락을 바탕으로 테스트 초안을 생성하고 QA 리뷰 결과에 따라 자동 보정하는 파이프라인"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: analyze-target
+        agent:
+          name: codex
+        input: |
+          당신은 Kotlin/Spring QA 엔지니어입니다.
+          아래 파일을 읽고 테스트 전략을 작성하세요.
+
+          - 요구사항: test/qa-test-generation/target-feature.md
+          - 코드 샘플: test/qa-test-generation/sample/UserService.kt
+
+          출력 형식:
+          1. 핵심 리스크 3가지
+          2. 단위 테스트 시나리오 3가지
+          3. 통합 테스트 시나리오 2가지
+          4. 테스트 데이터 준비 포인트 2가지
+
+      - id: generate-tests
+        agent:
+          name: codex
+        input: |
+          아래 전략과 코드 맥락을 기반으로 Kotlin + JUnit5 + MockK 테스트 초안을 작성하세요.
+
+          조건:
+          - markdown code fence 안에 테스트 코드를 넣으세요.
+          - `@Test`, `MockK`, `should` 키워드를 포함하세요.
+          - happy path, validation failure, race-condition 방어 케이스를 최소 1개씩 포함하세요.
+          - 마지막 줄은 반드시 `draft_status=READY` 로 끝내세요.
+
+          테스트 전략:
+          ${stages.analyze-target.output}
+
+          추가 QA 피드백(없으면 무시):
+          {{context.sharedState.qa_feedback}}
+        validation:
+          requiresCodeBlock: true
+          minLength: 400
+          requiredKeywords:
+            - "@Test"
+            - "MockK"
+            - "should"
+          minQualityScore: 0.7
+
+      - id: review-tests
+        agent:
+          name: gemini
+        input: |
+          아래 테스트 초안을 QA 관점에서 리뷰하세요.
+
+          체크리스트:
+          1. 핵심 비즈니스 규칙이 커버되는가?
+          2. 실패 케이스와 경계값이 포함되는가?
+          3. 테스트가 구현 세부사항에 과도하게 결합되지 않았는가?
+
+          출력 형식:
+          - 잘 된 점 2가지
+          - 보완할 점 2가지
+          - 마지막 줄에 `qa_status=PASS` 또는 `qa_status=RETRY`
+
+          테스트 초안:
+          ${stages.generate-tests.output}
+
+      - id: quality-gate
+        type: DECISION
+        condition:
+          expression: "review-tests.output contains 'qa_status=RETRY'"
+          onTrue:
+            action: GOTO
+            targetStageId: improve-brief
+            sharedState:
+              qa_feedback: "${stages.review-tests.output}"
+          onFalse:
+            action: CONTINUE
+            sharedState:
+              qa_feedback: "qa_status=PASS"
+
+      - id: improve-brief
+        agent:
+          name: gemini
+        input: |
+          아래 QA 리뷰를 바탕으로 다음 테스트 생성 시 반영할 수정 지시문을 5줄 이내로 정리하세요.
+
+          QA 리뷰:
+          ${stages.review-tests.output}
+
+      - id: qa-loop
+        type: LOOP
+        loop:
+          targetStageId: generate-tests
+          maxIterations: 2
+          untilExpression: "quality-gate.conditionResult == false"
+
+      - id: handoff-notes
+        agent:
+          name: gemini
+        input: |
+          최종 테스트 초안의 검증 포인트와 남은 리스크를 5줄 이내로 요약하세요.
+
+          최종 테스트 초안:
+          ${stages.generate-tests.output}
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - codex
+    - gemini
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+  file: qa-test-generation.log
+  format: json
+
+performance:
+  maxConcurrentAgents: 2
+  coroutinePoolSize: 2
