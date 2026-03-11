@@ -23,7 +23,7 @@ class ClaudePlugin : AgentPlugin {
                 type = ParameterType.STRING,
                 required = false,
                 description = "The Claude model to use.",
-                defaultValue = "claude-2"
+                defaultValue = "claude-sonnet-4-20250514"
             ),
             AgentParameter(
                 name = "temperature",
@@ -38,10 +38,10 @@ class ClaudePlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
-        val model = context.parameters.getOrDefault("model", "claude-2")
+        val model = context.parameters.getOrDefault("model", "claude-sonnet-4-20250514")
 
         // Execute Claude CLI with auto-approval (skip all permission prompts)
         // NOTE: `claude` CLI does not consistently support `--temperature` across versions,
@@ -56,14 +56,15 @@ class ClaudePlugin : AgentPlugin {
             command = command,
             input = null,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
             throw AgentExecutionException("Claude execution failed: ${result.stderr}")
         }
 
-        return result.stdout
+        return PluginExecutionOutput(result.stdout, result.processId)
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -90,9 +91,11 @@ class CodexPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
+        // Codex writes its last assistant message to a file more reliably than stdout
+        // when the CLI emits extra progress/logging lines, so we preserve that path.
         val outputFile = kotlin.io.path.createTempFile("cotor-codex-", ".txt")
 
         // Execute Codex in non-interactive mode and write only the final assistant message to file.
@@ -109,17 +112,23 @@ class CodexPlugin : AgentPlugin {
             command = command,
             input = null,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
             throw AgentExecutionException("Codex execution failed: ${result.stderr.ifBlank { result.stdout }}")
         }
 
+        // Prefer the captured final assistant message and fall back to stdout only when
+        // the file is empty, which keeps the plugin resilient across CLI versions.
         val finalText = java.nio.file.Files.readString(outputFile).trim()
         java.nio.file.Files.deleteIfExists(outputFile)
 
-        return if (finalText.isNotBlank()) finalText else result.stdout
+        return PluginExecutionOutput(
+            output = if (finalText.isNotBlank()) finalText else result.stdout,
+            processId = result.processId
+        )
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -147,10 +156,11 @@ class CopilotPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
-        // Execute GitHub Copilot CLI with all tools allowed
+        // Copilot's session model is quieter than the other CLIs, so this wrapper simply
+        // forwards the prompt and trusts the pre-authenticated CLI state on the machine.
         // Note: Full auto-approval not supported, requires pre-authenticated session
         val command = listOf("copilot", "-p", prompt, "--allow-all-tools")
 
@@ -158,14 +168,15 @@ class CopilotPlugin : AgentPlugin {
             command = command,
             input = null,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
             throw AgentExecutionException("GitHub Copilot execution failed: ${result.stderr}")
         }
 
-        return result.stdout
+        return PluginExecutionOutput(result.stdout, result.processId)
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -193,10 +204,11 @@ class GeminiPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
-        // Execute Gemini CLI with auto-approval
+        // Gemini exposes a single flag for broad tool approval, so the wrapper remains
+        // intentionally thin and lets cwd/env carry the worktree isolation.
         // --yolo flag enables alwaysAllow mode for all tools
         val command = listOf("gemini", "--yolo", prompt)
 
@@ -204,14 +216,15 @@ class GeminiPlugin : AgentPlugin {
             command = command,
             input = null,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
             throw AgentExecutionException("Gemini execution failed: ${result.stderr}")
         }
 
-        return result.stdout
+        return PluginExecutionOutput(result.stdout, result.processId)
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -239,10 +252,11 @@ class CursorPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
-        // Execute Cursor CLI with Auto-Run mode
+        // Cursor's CLI is another child-process-based integration, so its output path
+        // mirrors the other local tools and captures the pid for port inspection.
         // Uses Denylist approach: auto-runs everything except dangerous commands (rm, etc)
         val command = listOf("cursor-cli", "generate", "--auto-run", prompt)
 
@@ -250,14 +264,15 @@ class CursorPlugin : AgentPlugin {
             command = command,
             input = null,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
             throw AgentExecutionException("Cursor execution failed: ${result.stderr}")
         }
 
-        return result.stdout
+        return PluginExecutionOutput(result.stdout, result.processId)
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -285,10 +300,11 @@ class OpenCodePlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
-        // Execute OpenCode CLI
+        // OpenCode is treated as a standard CLI integration. The plugin does not try
+        // to interpret stdout beyond surfacing it back to the orchestration layer.
         // Default permission is "allow" for all methods (configured in opencode.json)
         // Example config: { "permission": { "bash": "allow", "file": "allow" } }
         val command = listOf("opencode", "generate", prompt)
@@ -297,7 +313,8 @@ class OpenCodePlugin : AgentPlugin {
             command = command,
             input = null,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
@@ -309,7 +326,7 @@ class OpenCodePlugin : AgentPlugin {
             )
         }
 
-        return result.stdout
+        return PluginExecutionOutput(result.stdout, result.processId)
     }
 
     override fun validateInput(input: String?): ValidationResult {

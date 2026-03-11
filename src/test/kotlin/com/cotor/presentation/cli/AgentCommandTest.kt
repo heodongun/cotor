@@ -31,7 +31,6 @@ class AgentCommandTest : FunSpec({
         added.readText() shouldContain "model: \"gemini-3.0-flash\""
     }
 
-
     test("agent add writes globally by default") {
         val root = Path("build/tmp/agent-add-global-${System.currentTimeMillis()}")
         createdRoots.add(root)

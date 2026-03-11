@@ -27,6 +27,7 @@ Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a si
 - [📖 한글 가이드](docs/README.ko.md)
 - [🌐 Cotor 소개 페이지](https://cotor-guide.pages.dev/)
 - [🚀 Quick Start](docs/QUICK_START.md)
+- [🖥️ Desktop App](docs/DESKTOP_APP.md)
 - [⚡ Features](docs/FEATURES.md)
 - [📑 Documentation Index](docs/INDEX.md)
 
@@ -41,6 +42,28 @@ Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a si
 - [🤖 Claude Integration](docs/CLAUDE_SETUP.md)
 - [💡 Usage Tips](docs/USAGE_TIPS.md)
 - [📦 Examples](examples/)
+
+## 🖥️ macOS App Download
+
+Build the native macOS shell, install it into `Applications`, and refresh the download bundle in `~/Downloads`:
+
+```bash
+./shell/install-desktop-app.sh
+```
+
+The script does three things:
+
+- Builds a proper `Cotor Desktop.app` bundle with icon and embedded backend jar
+- Installs it into `/Applications` when writable, otherwise `~/Applications`
+- Refreshes `~/Downloads/Cotor Desktop.app` and `~/Downloads/Cotor-Desktop-macOS.zip`
+
+Launch the installed app:
+
+```bash
+open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
+```
+
+The bundle starts the local `cotor app-server` automatically when needed. Full desktop setup details live in [docs/DESKTOP_APP.md](docs/DESKTOP_APP.md).
 
 ## 🚀 Quick Start
 
@@ -65,6 +88,13 @@ chmod +x shell/cotor
 
 ```bash
 docker run -it cotor/cli version
+```
+
+### Option 4: Local macOS Desktop Download
+
+```bash
+./shell/install-desktop-app.sh
+open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
 ```
 
 ## User Flow Examples

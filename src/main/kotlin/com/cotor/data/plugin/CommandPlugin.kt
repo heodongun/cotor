@@ -48,10 +48,12 @@ class CommandPlugin : AgentPlugin {
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
-    ): String {
+    ): PluginExecutionOutput {
         val argvJson = context.parameters["argvJson"]
             ?: throw IllegalArgumentException("Parameter 'argvJson' is required")
 
+        // Resolve `{input}` substitutions before deciding whether stdin should also be used.
+        // This keeps the command template deterministic from the config alone.
         val argv = parseArgvJson(argvJson).map { token ->
             if (token.contains("{input}")) {
                 token.replace("{input}", context.input.orEmpty())
@@ -71,7 +73,8 @@ class CommandPlugin : AgentPlugin {
             command = argv,
             input = stdin,
             environment = context.environment,
-            timeout = context.timeout
+            timeout = context.timeout,
+            workingDirectory = context.workingDirectory
         )
 
         if (!result.isSuccess) {
@@ -83,7 +86,10 @@ class CommandPlugin : AgentPlugin {
             )
         }
 
-        return result.stdout
+        return PluginExecutionOutput(
+            output = result.stdout,
+            processId = result.processId
+        )
     }
 
     override fun validateInput(input: String?): ValidationResult {
@@ -92,6 +98,8 @@ class CommandPlugin : AgentPlugin {
     }
 
     private fun parseArgvJson(raw: String): List<String> {
+        // Parse once into JSON so command templates remain unambiguous and we do not
+        // accidentally split shell-like strings incorrectly.
         val element = runCatching { json.parseToJsonElement(raw) }
             .getOrElse { throw IllegalArgumentException("Invalid argvJson (must be a JSON array of strings): ${it.message}") }
 

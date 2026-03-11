@@ -75,4 +75,22 @@ class ChatSessionTest : FunSpec({
         val prompt = session.buildPrompt("next")
         prompt.shouldContain("cache-aware-pruned assistant output")
     }
+
+    test("buildPrompt stays bounded when bootstrap context is larger than the prompt budget") {
+        val session = ChatSession(includeContext = true, maxHistoryMessages = 50, maxPromptChars = 600)
+        repeat(20) { index ->
+            session.addUser("user-message-$index " + "u".repeat(120))
+            session.addAssistant("assistant-message-$index " + "a".repeat(140))
+        }
+
+        val prompt = session.buildPrompt(
+            currentUserInput = "status?",
+            bootstrapContext = "B".repeat(5_000),
+            memoryContext = listOf("M".repeat(1_000), "N".repeat(1_000))
+        )
+
+        (prompt.length <= 600) shouldBe true
+        prompt.shouldContain("User: status?")
+        prompt.shouldContain("Assistant:")
+    }
 })

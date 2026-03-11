@@ -2,6 +2,10 @@ package com.cotor.di
 
 import com.cotor.analysis.DefaultResultAnalyzer
 import com.cotor.analysis.ResultAnalyzer
+import com.cotor.app.DesktopAppService
+import com.cotor.app.DesktopStateStore
+import com.cotor.app.DesktopTuiSessionService
+import com.cotor.app.GitWorkspaceService
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.config.FileConfigRepository
 import com.cotor.data.config.JsonParser
@@ -54,13 +58,27 @@ val cotorModule = module {
     single<AgentRegistry> { InMemoryAgentRegistry() }
     single<ProcessManager> { CoroutineProcessManager(get()) }
     single<PluginLoader> { ReflectionPluginLoader(get()) }
+    // Desktop-only services are registered here so the app-server can reuse the
+    // same process manager, config loading, and executor pipeline as the CLI.
+    single { DesktopStateStore() }
+    single { GitWorkspaceService(get(), get(), get()) }
+    single { DesktopAppService(get(), get(), get(), get()) }
+    single { DesktopTuiSessionService(get(), get(), get(), get()) }
 
     // Security
     single<SecurityConfig> {
         SecurityConfig(
             useWhitelist = true,
-            allowedExecutables = setOf("python3", "node", "java"),
-            allowedDirectories = listOf(Path("/usr/local/bin"), Path("/opt/cotor"))
+            allowedExecutables = setOf(
+                "python3", "node", "java", "git", "gh", "lsof",
+                "claude", "codex", "copilot", "gemini", "cursor-cli", "opencode", "qwen"
+            ),
+            allowedDirectories = listOf(
+                Path("/usr/local/bin"),
+                Path("/opt/homebrew/bin"),
+                Path("/opt/cotor"),
+                Path(System.getProperty("user.home")).resolve("Library").resolve("Application Support").resolve("CotorDesktop")
+            )
         )
     }
     single<SecurityValidator> { DefaultSecurityValidator(get(), get()) }

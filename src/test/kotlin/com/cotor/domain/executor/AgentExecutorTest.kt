@@ -4,6 +4,7 @@ import com.cotor.data.plugin.AgentPlugin
 import com.cotor.data.plugin.PluginLoader
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.AgentConfig
+import com.cotor.model.PluginExecutionOutput
 import com.cotor.security.SecurityValidator
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -15,6 +16,12 @@ import io.mockk.runs
 import kotlinx.coroutines.delay
 import org.slf4j.Logger
 
+/**
+ * Executor tests focus on orchestration behavior, not on any real external tool.
+ *
+ * Every dependency is mocked so the suite can verify validation, timeout, and result
+ * mapping without spawning child processes.
+ */
 class AgentExecutorTest : FunSpec({
 
     val mockProcessManager = mockk<ProcessManager>()
@@ -38,7 +45,9 @@ class AgentExecutorTest : FunSpec({
         )
 
         val mockPlugin = mockk<AgentPlugin>()
-        coEvery { mockPlugin.execute(any(), any()) } returns "success output"
+        // The plugin returns the new structured output type so the executor can carry
+        // both human-readable output and runtime metadata if present.
+        coEvery { mockPlugin.execute(any(), any()) } returns PluginExecutionOutput("success output")
         every { mockPlugin.validateInput(any()) } returns com.cotor.model.ValidationResult.Success
         every { mockPluginLoader.loadPlugin(any()) } returns mockPlugin
         every { mockSecurityValidator.validate(any()) } just runs
@@ -61,9 +70,11 @@ class AgentExecutorTest : FunSpec({
         )
 
         val mockPlugin = mockk<AgentPlugin>()
+        // Delay long enough to exceed the agent timeout and exercise the executor's
+        // timeout wrapper rather than plugin-specific error handling.
         coEvery { mockPlugin.execute(any(), any()) } coAnswers {
             delay(1000)
-            "never returned"
+            PluginExecutionOutput("never returned")
         }
         every { mockPlugin.validateInput(any()) } returns com.cotor.model.ValidationResult.Success
         every { mockPluginLoader.loadPlugin(any()) } returns mockPlugin
@@ -86,6 +97,7 @@ class AgentExecutorTest : FunSpec({
         )
 
         val mockPlugin = mockk<AgentPlugin>()
+        // Validation failure should short-circuit before the executor tries to run anything.
         every { mockPlugin.validateInput(any()) } returns com.cotor.model.ValidationResult.Failure(
             listOf("Input is invalid")
         )

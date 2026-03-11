@@ -192,7 +192,6 @@ class FileConfigRepositoryTest : FunSpec({
         loadedConfig.security.allowedDirectories.size shouldBe 0
     }
 
-
     test("merges global and local .cotor overrides") {
         val baseDir = Files.createTempDirectory("config-global-local")
         val localCotorDir = baseDir.resolve(".cotor").createDirectory()
