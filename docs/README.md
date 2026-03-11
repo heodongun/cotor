@@ -78,6 +78,7 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 - Features: `FEATURES.md`
 - Usage tips: `USAGE_TIPS.md`
 - Changelog: `release/CHANGELOG.md`
+- Team ops/onboarding package: `team-ops/README.md`
 - Reports: `reports/`
 - Claude integration docs: `CLAUDE_SETUP.md`, `claude/`
 

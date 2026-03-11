@@ -35,6 +35,17 @@
 - `reports/IMPLEMENTATION_SUMMARY.md`
 - `reports/IMPROVEMENTS.md`
 
+## 팀 운영/온보딩
+
+- `team-ops/README.md`
+- `team-ops/README.ko.md`
+- `team-ops/onboarding-checklist.md`
+- `team-ops/onboarding-checklist.ko.md`
+- `team-ops/operating-cadence-template.md`
+- `team-ops/operating-cadence-template.ko.md`
+- `team-ops/handoff-template.md`
+- `team-ops/handoff-template.ko.md`
+
 ## 템플릿
 
 - `templates/temp-cotor-template.md`
