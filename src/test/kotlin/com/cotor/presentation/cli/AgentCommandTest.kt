@@ -111,6 +111,23 @@ class AgentCommandTest : FunSpec({
         added.readText() shouldContain "model: \"gpt-5.3-codex-spark\""
     }
 
+    test("agent add help shows detailed usage") {
+        val result = AgentCommand().test("add --help")
+
+        result.statusCode shouldBe 0
+        result.output shouldContain "Install location:"
+        result.output shouldContain "Examples:"
+        result.output shouldContain "cotor agent add gemini --local --yes"
+    }
+
+    test("agent list help shows resolution order") {
+        val result = AgentCommand().test("list --help")
+
+        result.statusCode shouldBe 0
+        result.output shouldContain "Resolution order:"
+        result.output shouldContain "cotor agent list --config cotor.yaml"
+    }
+
     afterSpec {
         createdRoots.forEach { root ->
             if (Files.exists(root)) {
