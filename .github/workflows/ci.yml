@@ -27,4 +27,11 @@ jobs:
         run: gradle formatCheck
 
       - name: Test
+        id: test
         run: gradle test
+
+      - name: Reopen and unassign Linear issue on failed PR tests
+        if: ${{ failure() && github.event_name == 'pull_request' && steps.test.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: python3 scripts/linear_pr_failure_gate.py --event-path "$GITHUB_EVENT_PATH"
