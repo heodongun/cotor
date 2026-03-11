@@ -40,7 +40,9 @@ Use Cotor when the workflow needs to survive beyond a demo: repeated execution, 
 - [📖 한글 가이드](docs/README.ko.md)
 - [🌐 Cotor 소개 페이지](https://cotor-guide.pages.dev/)
 - [🚀 Quick Start](docs/QUICK_START.md)
+- [🧪 Web Editor](docs/WEB_EDITOR.md)
 - [🖥️ Desktop App](docs/DESKTOP_APP.md)
+- [📈 Production Upgrade Program](docs/UPGRADE_RECOMMENDATIONS.md)
 - [⚡ Features](docs/FEATURES.md)
 - [📑 Documentation Index](docs/INDEX.md)
 
@@ -52,6 +54,7 @@ Use Cotor when the workflow needs to survive beyond a demo: repeated execution, 
 ### Additional Resources
 - [📋 Release Notes](docs/release/CHANGELOG.md)
 - [🔧 Upgrade Guide](docs/UPGRADE_GUIDE.md)
+- [📈 Upgrade Recommendations](docs/UPGRADE_RECOMMENDATIONS.md)
 - [🤖 Claude Integration](docs/CLAUDE_SETUP.md)
 - [💡 Usage Tips](docs/USAGE_TIPS.md)
 - [📦 Examples](examples/)

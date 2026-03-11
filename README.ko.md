@@ -39,7 +39,9 @@ Paperclip이 빠른 시각적 실험에 강하다면, Cotor는 그 다음 단계
 - [📖 영문 가이드](docs/README.md)
 - [📖 한글 가이드](docs/README.ko.md)
 - [🚀 빠른 시작](docs/QUICK_START.md)
+- [🧪 웹 에디터](docs/WEB_EDITOR.md)
 - [🖥️ 데스크톱 앱](docs/DESKTOP_APP.md)
+- [📈 프로덕션 업그레이드 프로그램](docs/UPGRADE_RECOMMENDATIONS.md)
 - [⚡ 기능 목록](docs/FEATURES.md)
 - [📑 문서 인덱스](docs/INDEX.md)
 
@@ -51,6 +53,7 @@ Paperclip이 빠른 시각적 실험에 강하다면, Cotor는 그 다음 단계
 ### 추가 자료
 - [📋 릴리스 노트](docs/release/CHANGELOG.md)
 - [🔧 업그레이드 가이드](docs/UPGRADE_GUIDE.md)
+- [📈 업그레이드 권장사항](docs/UPGRADE_RECOMMENDATIONS.md)
 - [🤖 Claude 연동](docs/CLAUDE_SETUP.md)
 - [💡 사용 팁](docs/USAGE_TIPS.md)
 - [📦 예제](examples/)
