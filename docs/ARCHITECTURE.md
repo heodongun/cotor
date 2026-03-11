@@ -69,5 +69,6 @@ sequenceDiagram
 관련 문서:
 - [Quick Start](QUICK_START.md)
 - [Features](FEATURES.md)
+- [Multi-Workspace / Remote Runner Design](MULTI_WORKSPACE_REMOTE_RUNNER.md)
 - [Web Editor](WEB_EDITOR.md)
 - [Usage Tips](USAGE_TIPS.md)
