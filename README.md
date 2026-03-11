@@ -109,6 +109,9 @@ cd my-cotor-project
 
 # Initialize Cotor configuration
 java -jar /path/to/cotor-1.0.0.jar init
+
+# Or generate a starter project scaffold with docs
+java -jar /path/to/cotor-1.0.0.jar init --starter-template
 ```
 
 **Step 2: Review the generated configuration**
@@ -116,7 +119,7 @@ java -jar /path/to/cotor-1.0.0.jar init
 cat cotor.yaml
 ```
 
-You'll see a default configuration with an example echo agent and pipeline.
+`init` writes a minimal single-file config. `init --starter-template` creates `cotor.yaml`, `pipelines/default.yaml`, and starter docs under `docs/`.
 
 **Step 3: Run the example pipeline**
 ```bash

@@ -102,6 +102,9 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 # 1. 설정 파일 생성
 cotor init
 
+# 또는 starter 프로젝트/문서 스캐폴드 생성
+cotor init --starter-template
+
 # 2. 사용 가능한 에이전트 목록 확인
 cotor list
 
@@ -154,6 +157,7 @@ cotor --help       # 전체 명령어 도움말
 - 인자 없이 `cotor`를 실행하면 interactive TUI로 바로 진입합니다.
 - 현재 폴더에 `cotor.yaml`이 없으면 starter 설정 파일을 자동 생성합니다.
   (기본 우선순위: codex → gemini → claude → openai → echo)
+- `cotor init --starter-template`를 사용하면 `pipelines/default.yaml`, `docs/README.md`, `docs/PIPELINES.md`까지 함께 생성됩니다.
 - Interactive TUI에서 `:model <name>`으로 모델(에이전트) 전환 가능
 - `cotor tui`도 `cotor interactive`와 동일하게 동작합니다.
 
