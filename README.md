@@ -35,6 +35,7 @@ Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a si
 - [✅ **Live Test Results**](test-results/LIVE_TEST_RESULTS.md) - Real execution test (NEW!)
 - [📊 Test Summary](test-results/README.md) - Quick overview
 - [🧪 Feature Test Report](docs/reports/FEATURE_TEST_REPORT_v1.0.0.md) - Comprehensive test
+- [📈 Paperclip Benchmark Report](docs/reports/PAPERCLIP_BENCHMARK_REPORT.md) - Cotor benchmark evidence and Paperclip gap analysis
 
 ### Additional Resources
 - [📋 Release Notes](docs/release/CHANGELOG.md)
