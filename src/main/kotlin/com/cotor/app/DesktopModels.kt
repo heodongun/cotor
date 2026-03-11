@@ -66,6 +66,19 @@ enum class AgentRunStatus {
 }
 
 /**
+ * Publish outcome attached to one agent run after the desktop workflow tries to
+ * commit, push, and open a pull request for the worktree branch.
+ */
+@Serializable
+data class PublishMetadata(
+    val commitSha: String? = null,
+    val pushedBranch: String? = null,
+    val pullRequestNumber: Int? = null,
+    val pullRequestUrl: String? = null,
+    val error: String? = null
+)
+
+/**
  * User-authored task that can be fanned out to multiple agents.
  */
 @Serializable
@@ -101,6 +114,7 @@ data class AgentRun(
     val processId: Long? = null,
     val output: String? = null,
     val error: String? = null,
+    val publish: PublishMetadata? = null,
     val durationMs: Long? = null,
     val createdAt: Long,
     val updatedAt: Long

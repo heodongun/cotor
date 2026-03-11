@@ -5,7 +5,7 @@
 ## 10줄 요약
 
 1. `./shell/install-global.sh` 또는 `./gradlew shadowJar && ./shell/cotor version`
-2. `cotor init --interactive`
+2. `cotor init --interactive` 또는 `cotor init --starter-template`
 3. `cotor template --list`
 4. `cotor template compare my-pipeline.yaml --fill prompt="Write tests"`
 5. `cotor validate compare-solutions -c my-pipeline.yaml`
@@ -40,6 +40,12 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 이 명령은 `.app` 번들을 빌드해 `/Applications` 또는 `~/Applications`에 설치하고, `~/Downloads/Cotor Desktop.app`와 `~/Downloads/Cotor-Desktop-macOS.zip`도 갱신합니다.
 
 ## 첫 파이프라인 만들기
+
+starter 프로젝트 골격과 문서를 한 번에 만들고 싶다면:
+
+```bash
+cotor init --starter-template
+```
 
 ### 1) 템플릿 생성
 

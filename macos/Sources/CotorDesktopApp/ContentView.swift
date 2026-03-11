@@ -1199,6 +1199,20 @@ private struct InspectorPaneView: View {
                 metadataRow(label: l.text(.branch), value: run.branchName)
                 metadataRow(label: l.text(.base), value: run.baseBranch)
                 metadataRow(label: l.text(.worktree), value: run.worktreePath)
+                if let publish = run.publish {
+                    if let commitSha = publish.commitSha, !commitSha.isEmpty {
+                        metadataRow(label: l.text(.commit), value: commitSha)
+                    }
+                    if let pushedBranch = publish.pushedBranch, !pushedBranch.isEmpty {
+                        metadataRow(label: l.text(.pushedBranch), value: pushedBranch)
+                    }
+                    if let pullRequestUrl = publish.pullRequestUrl, !pullRequestUrl.isEmpty {
+                        metadataRow(label: l.text(.pullRequest), value: pullRequestUrl)
+                    }
+                    if let publishError = publish.error, !publishError.isEmpty {
+                        metadataRow(label: l.text(.publishError), value: publishError)
+                    }
+                }
             } else {
                 Text(l.text(.selectTaskAndAgent))
                     .font(.system(size: 12, weight: .medium))
