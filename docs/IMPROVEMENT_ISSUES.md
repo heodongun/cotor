@@ -1,3 +1,5 @@
+> Status: Historical tracker. Items here may not reflect the current product surface.
+
 # Improvement Issues
 
 ## Completed in feature/improvements-batch
@@ -13,3 +15,4 @@
 ## Backlog ideas
 - [ ] Persist run history to disk so status survives process restarts.
 - [ ] Surface tracker data in the TUI/Web views for live dashboards.
+> Status: Historical tracking note. This file records past improvement items and should not be read as the current product contract.

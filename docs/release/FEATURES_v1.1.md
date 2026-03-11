@@ -1,3 +1,5 @@
+> Status: Versioned historical snapshot. This file describes a past release state and is not the current feature contract.
+
 # Cotor v1.1 - Complete Feature Implementation
 
 **Release Date**: 2025-11-20

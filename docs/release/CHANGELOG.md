@@ -1,3 +1,5 @@
+> Status: Release history. This file records shipped changes over time; use current docs for the latest supported behavior.
+
 # Changelog
 
 ## [Unreleased] - 2026-03-10

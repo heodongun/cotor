@@ -1,3 +1,5 @@
+> Status: Historical report. This file captures one CI incident analysis and is not the current product source of truth.
+
 # CI failure analysis (2026-03-04)
 
 ## Scope
@@ -27,3 +29,4 @@ Workflow: `.github/workflows/ci.yml`
 
 - `gradle test`: **PASS** after the env fallback fix.
 - `gradle formatCheck`: **FAIL** because there are many pre-existing Spotless violations across the repository that are unrelated to this single rename.
+> Status: Incident analysis note. This file captures a past failure investigation and is not the source of truth for current behavior.

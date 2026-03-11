@@ -14,9 +14,11 @@ class ConfigRepositoryImportTest : FunSpec({
         val root = Path("build/tmp/config-import-${System.currentTimeMillis()}")
         val configPath = root.resolve("cotor.yaml")
         val pipelinePath = root.resolve("pipelines/default.yaml")
+        val isolatedHome = root.resolve("isolated-home")
 
         try {
             root.resolve("pipelines").createDirectories()
+            isolatedHome.createDirectories()
             configPath.writeText(
                 """
                 version: "1.0"
@@ -41,7 +43,11 @@ class ConfigRepositoryImportTest : FunSpec({
                 """.trimIndent()
             )
 
-            val repository = FileConfigRepository(YamlParser(), JsonParser())
+            val repository = FileConfigRepository(
+                yamlParser = YamlParser(),
+                jsonParser = JsonParser(),
+                homeDirectoryProvider = { isolatedHome.toAbsolutePath().normalize() }
+            )
             val config = runBlocking { repository.loadConfig(configPath) }
 
             config.agents.shouldHaveSize(1)

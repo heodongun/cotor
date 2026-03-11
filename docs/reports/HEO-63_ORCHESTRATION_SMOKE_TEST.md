@@ -16,3 +16,4 @@ Symphony 자동 오케스트레이션이 Linear 이슈를 감지해 `In Progress
 
 ## 결론
 HEO-63의 오케스트레이션 스모크 테스트 요구사항(자동 라우팅 + Workpad 생성/유지 + 무변경 검증)은 충족되었다.
+> Status: Historical report. This file captures a past smoke test run and is not the source of truth for current behavior.

@@ -324,3 +324,4 @@ Cotor v1.0.0의 문서화가 성공적으로 완료되었습니다:
 **문서화 완료일**: 2025-11-27
 **문서 버전**: 1.0.0
 **상태**: ✅ 프로덕션 준비 완료
+> Status: Historical report. This file is preserved for record-keeping and is not the source of truth for current product behavior.

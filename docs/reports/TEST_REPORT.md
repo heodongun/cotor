@@ -307,3 +307,4 @@ Results:
 ---
 
 **테스트 완료일**: 2025-11-20 08:28 KST
+> Status: Historical report. This file records past test reporting and is not the source of truth for current behavior.
