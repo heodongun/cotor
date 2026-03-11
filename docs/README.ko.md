@@ -1,9 +1,20 @@
-# Cotor - AI CLI 마스터-에이전트 시스템
+# Cotor - 프로덕션 지향 AI 오케스트레이션 워크벤치
 
 [![English](https://img.shields.io/badge/Language-English-blue)](README.md)
 [![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
 
-Cotor는 Kotlin 기반 CLI/TUI 오케스트레이터로, 여러 AI 에이전트 파이프라인의 검증·실행·모니터링·복구를 한 도구에서 제공합니다.
+Cotor는 여러 AI 에이전트 파이프라인을 검증·실행·모니터링·복구까지 이어서 운영하기 위한 Kotlin 기반 오케스트레이션 워크벤치입니다. 핵심은 실험의 속도를 유지하되, 그 결과를 팀이 재사용하고 리뷰할 수 있는 전달 자산으로 바꾸는 것입니다.
+
+## 포지셔닝: Cotor vs Paperclip
+
+Paperclip이 빠르게 워크플로우를 스케치하는 데 적합하다면, Cotor는 그 워크플로우를 실제 전달/운영 가능한 형태로 굳히는 단계에 맞춰져 있습니다.
+
+- 워크플로우를 캔버스에만 남기지 않고 YAML로 버전 관리합니다.
+- 검증, 체크포인트, 복구를 통해 실행 전에 운영 리스크를 줄입니다.
+- CLI, TUI, 웹, 데스크톱에서 같은 흐름을 다뤄 엔지니어링과 운영의 기준점을 통일합니다.
+- 로컬 리포지토리, 워크트리, 실행 모니터링 중심의 작업 방식에 강합니다.
+
+재현 가능성, 코드 리뷰, 반복 실행, 운영 가시성이 중요하다면 Cotor 쪽이 더 잘 맞습니다.
 
 ## 빠른 설치
 
@@ -74,8 +85,10 @@ cotor web                        # 웹 파이프라인 스튜디오
 
 - 빠른 시작: `QUICK_START.md`
 - 데스크톱 앱: `DESKTOP_APP.md`
+- 웹 에디터: `WEB_EDITOR.md`
 - 아키텍처: `ARCHITECTURE.md`
 - 기능 목록: `FEATURES.md`
+- 업그레이드 권장사항: `UPGRADE_RECOMMENDATIONS.md`
 - 사용 팁: `USAGE_TIPS.md`
 - 변경 이력: `release/CHANGELOG.md`
 - 리포트: `reports/`

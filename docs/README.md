@@ -1,9 +1,20 @@
-# Cotor - AI CLI Master-Agent System
+# Cotor - Delivery-Grade AI Orchestration Workbench
 
 [![English](https://img.shields.io/badge/Language-English-blue)](README.md)
 [![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
 
-Cotor is a Kotlin-based CLI/TUI tool for orchestrating AI-agent pipelines with validation, timeline monitoring, checkpoints, and recovery.
+Cotor is a Kotlin-based orchestration workbench for building AI-agent pipelines that can be validated, reviewed, and operated repeatedly. The core idea is simple: keep the speed of experimentation, but graduate the workflow into a delivery-ready asset.
+
+## Positioning: Cotor vs Paperclip
+
+Paperclip is effective when a team wants to sketch a workflow quickly in a visual environment. Cotor is the complementary tool for the stage after that:
+
+- Cotor stores workflows as versioned YAML rather than keeping them only as canvases.
+- Cotor adds validation, checkpointing, and recovery before a run becomes operational risk.
+- Cotor exposes the same workflow through CLI, TUI, web, and desktop surfaces so engineering and operators can share one source of truth.
+- Cotor is optimized for local repository-aware work, including desktop worktrees and execution monitoring.
+
+If the outcome needs to be reproducible, reviewable, and production-adjacent, start from Cotor or migrate the flow into Cotor.
 
 ## Quick Install
 
@@ -74,8 +85,10 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 - Korean guide: `README.ko.md`
 - Quick start: `QUICK_START.md`
 - Desktop app: `DESKTOP_APP.md`
+- Web editor: `WEB_EDITOR.md`
 - Architecture: `ARCHITECTURE.md`
 - Features: `FEATURES.md`
+- Upgrade recommendations: `UPGRADE_RECOMMENDATIONS.md`
 - Usage tips: `USAGE_TIPS.md`
 - Changelog: `release/CHANGELOG.md`
 - Reports: `reports/`

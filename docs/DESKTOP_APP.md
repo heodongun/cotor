@@ -1,6 +1,8 @@
 # Desktop App
 
-The desktop foundation adds a native macOS shell on top of the existing Kotlin runtime.
+The desktop app is the production-workbench surface of Cotor: a native macOS shell layered on top of the existing Kotlin runtime for repository-aware execution, inspection, and local orchestration.
+
+Compared with visual-first tools such as Paperclip, the desktop shell is built for operating live delivery work. It keeps agent runs isolated in dedicated worktrees, shows diffs and browser state beside the task, and turns multi-agent execution into something an engineer can inspect instead of just trigger.
 
 ## Components
 
@@ -76,3 +78,10 @@ The installed bundle checks whether `cotor app-server` is already listening on `
 - Diff, file tree, run-state inspection, and an embedded browser in the macOS client.
 - PID-based local port discovery for agent runs via `lsof`.
 - Read-only settings screen for app paths, available agents, and current keyboard shortcuts.
+
+## Why This Matters In The Comparison
+
+- Local-first execution keeps Cotor close to the codebase rather than separate from it.
+- Worktree isolation makes parallel agent runs safe enough for real delivery work.
+- Diff, file tree, and browser inspection help reviewers understand what changed after a run.
+- The desktop shell acts as an operational surface, not only a flow-design surface.

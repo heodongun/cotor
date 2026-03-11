@@ -1,11 +1,24 @@
-# Cotor - AI CLI 마스터-에이전트 시스템
+# Cotor - 프로덕션 지향 AI 오케스트레이션 워크벤치
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/yourusername/cotor)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-purple)](https://kotlinlang.org/)
 [![JVM](https://img.shields.io/badge/jvm-23-orange)](https://openjdk.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 Kotlin 기반 도구입니다. 순차, 병렬, DAG 실행 모드를 지원하며, 실시간 모니터링과 포괄적인 검증 기능을 제공합니다.
+Cotor는 여러 AI 에이전트 워크플로우를 실험 단계에서 반복 가능한 전달 흐름으로 끌어올리기 위한 Kotlin 기반 오케스트레이션 워크벤치입니다. 버전 관리 가능한 파이프라인, 실행 전 검증, 실시간 모니터링, 그리고 CLI·웹·macOS 데스크톱 실행면을 함께 제공합니다.
+
+Paperclip이 빠른 시각적 실험에 강하다면, Cotor는 그 다음 단계인 검증 가능하고 재실행 가능하며 코드베이스와 함께 관리되는 운영 흐름에 초점을 둡니다.
+
+## Cotor vs Paperclip
+
+| 필요 | Cotor | Paperclip |
+|------|-------|-----------|
+| 전달 산출물 | 리뷰·diff·재실행 가능한 YAML 파이프라인 | 캔버스 중심의 빠른 실험 |
+| 실행 안정성 | 검증, 보안 검사, 체크포인트, 복구 지원 | 아이데이션에는 빠르지만 운영 가드레일은 가벼움 |
+| 작업 표면 | CLI, TUI, 웹 스튜디오, 네이티브 macOS 셸 | 주로 시각적 워크플로우 작성 |
+| 멀티 에이전트 운영 | 로컬 워크스페이스, 모니터링, 통계, 재개 실행 | 초기 설계/스케치에 더 적합 |
+
+데모를 넘어서 팀 전달, 반복 실행, 디버깅, 코드 리뷰까지 이어져야 하는 흐름이라면 Cotor가 더 적합합니다.
 
 ## ✨ 주요 기능
 

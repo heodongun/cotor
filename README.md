@@ -1,11 +1,24 @@
-# Cotor - AI CLI Master-Agent System
+# Cotor - Delivery-Grade AI Orchestration Workbench
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/yourusername/cotor)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.1.0-purple)](https://kotlinlang.org/)
 [![JVM](https://img.shields.io/badge/jvm-23-orange)](https://openjdk.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a single command. Execute complex AI pipelines with sequential, parallel, or DAG execution modes, real-time monitoring, and comprehensive validation.
+Cotor is a Kotlin-based orchestration workbench for teams that want to move AI-agent workflows from experimentation to repeatable delivery. It combines versioned pipelines, preflight validation, real-time monitoring, and local execution surfaces across CLI, web, and macOS desktop.
+
+Paperclip is useful for fast visual exploration. Cotor is designed for the next step: turning those ideas into validated, reviewable, and reusable delivery flows that can live beside the codebase.
+
+## Why Cotor Instead Of Paperclip
+
+| Need | Cotor | Paperclip |
+|------|-------|-----------|
+| Delivery artifact | Versioned YAML pipelines that can be reviewed, diffed, and re-run | Canvas-first exploration flow |
+| Execution safety | Validation, security checks, checkpoints, and recovery before execution | Faster ideation, lighter operational guardrails |
+| Operator surfaces | CLI, TUI, web studio, and native macOS shell | Primarily visual workflow authoring |
+| Multi-agent delivery | Local workspaces, monitoring, analytics, and resumable runs | Better fit for early workflow sketching |
+
+Use Cotor when the workflow needs to survive beyond a demo: repeated execution, code review, team handoff, and production-oriented debugging.
 
 ## ✨ Key Features
 
