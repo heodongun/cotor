@@ -64,6 +64,10 @@ class AppServer : KoinComponent {
                 call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
             }
 
+            get("/ready") {
+                call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
+            }
+
             route("/api/app") {
                 get("/dashboard") {
                     if (!requireToken(token)) return@get
