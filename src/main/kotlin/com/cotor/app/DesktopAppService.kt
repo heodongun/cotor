@@ -160,14 +160,19 @@ class DesktopAppService(
             listOf("claude", "codex")
         }
 
+        val taskTitle = title?.takeIf { it.isNotBlank() } ?: prompt.lineSequence().firstOrNull()?.take(48).orEmpty().ifBlank { "New Task" }
+        val assignments = createTaskAssignments(taskId = taskId, prompt = prompt, agents = requestedAgents)
+
         // Freeze the requested agent list into the task record up front so rerenders,
         // retries, and later refreshes all refer to the same execution plan.
         val task = AgentTask(
             id = taskId,
             workspaceId = workspace.id,
-            title = title?.takeIf { it.isNotBlank() } ?: prompt.lineSequence().firstOrNull()?.take(48).orEmpty().ifBlank { "New Task" },
+            title = taskTitle,
             prompt = prompt,
             agents = requestedAgents,
+            leadAgent = assignments.firstOrNull { it.role == TaskAssignmentRole.LEAD }?.agentName.orEmpty(),
+            assignments = assignments,
             status = DesktopTaskStatus.QUEUED,
             createdAt = now,
             updatedAt = now
@@ -237,17 +242,24 @@ class DesktopAppService(
         val task = snapshot.tasks.firstOrNull { it.id == taskId } ?: return
         val workspace = snapshot.workspaces.firstOrNull { it.id == task.workspaceId } ?: return
         val repository = snapshot.repositories.firstOrNull { it.id == workspace.repositoryId } ?: return
+        val assignmentPlan = ensureTaskAssignments(task)
         val repositoryRoot = Path.of(repository.localPath)
-        val agents = resolveAgents(repositoryRoot, task.agents)
+        val agents = resolveAgents(repositoryRoot, assignmentPlan.map { it.agentName })
 
         updateTaskStatus(task.id, DesktopTaskStatus.RUNNING)
 
         coroutineScope {
             // Each requested agent gets its own branch/worktree pair, so parallel execution
             // does not create cross-agent file conflicts inside the same repository root.
-            task.agents.map { agentName ->
+            assignmentPlan.map { assignment ->
                 async {
-                    executeAgentRun(task, workspace, repository, agents[agentName] ?: BuiltinAgentCatalog.get(agentName))
+                    executeAgentRun(
+                        task = task,
+                        workspace = workspace,
+                        repository = repository,
+                        assignment = assignment,
+                        agent = agents[assignment.agentName] ?: BuiltinAgentCatalog.get(assignment.agentName)
+                    )
                 }
             }.awaitAll()
         }
@@ -267,10 +279,11 @@ class DesktopAppService(
         task: AgentTask,
         workspace: Workspace,
         repository: ManagedRepository,
+        assignment: TaskAssignment,
         agent: AgentConfig?
     ) {
         if (agent == null) {
-            recordRunFailure(task, workspace, repository, "unknown", "Unknown agent configuration")
+            recordRunFailure(task, workspace, repository, assignment, "Unknown agent configuration")
             return
         }
 
@@ -278,25 +291,25 @@ class DesktopAppService(
             val binding = gitWorkspaceService.ensureWorktree(
                 repositoryRoot = Path.of(repository.localPath),
                 taskId = task.id,
-                taskTitle = task.title,
-                agentName = agent.name,
+                taskTitle = assignment.id,
+                agentName = assignment.agentName,
                 baseBranch = workspace.baseBranch
             )
-            val run = upsertQueuedRun(task, workspace, repository, agent.name, binding)
+            val run = upsertQueuedRun(task, workspace, repository, assignment, binding)
 
             val startedRun = run.copy(status = AgentRunStatus.RUNNING, updatedAt = System.currentTimeMillis())
             replaceRun(startedRun)
 
             val result = agentExecutor.executeAgent(
                 agent = agent,
-                input = task.prompt,
+                input = assignment.prompt,
                 // The only context the CLI agents need for worktree isolation is cwd.
                 // They can continue using their existing command-line contracts.
                 metadata = AgentExecutionMetadata(
                     repoRoot = Path.of(repository.localPath),
                     workspaceId = workspace.id,
                     taskId = task.id,
-                    agentId = agent.name,
+                    agentId = assignment.agentName,
                     baseBranch = workspace.baseBranch,
                     branchName = binding.branchName,
                     workingDirectory = binding.worktreePath
@@ -314,7 +327,7 @@ class DesktopAppService(
                 )
             )
         } catch (t: Throwable) {
-            recordRunFailure(task, workspace, repository, agent.name, t.message ?: "Unknown error")
+            recordRunFailure(task, workspace, repository, assignment, t.message ?: "Unknown error")
         }
     }
 
@@ -336,13 +349,13 @@ class DesktopAppService(
         task: AgentTask,
         workspace: Workspace,
         repository: ManagedRepository,
-        agentName: String,
+        assignment: TaskAssignment,
         binding: WorktreeBinding
-    ): AgentRun {
+    ): AgentRun = stateMutex.withLock {
         val state = stateStore.load()
-        val existing = state.runs.firstOrNull { it.taskId == task.id && it.agentName == agentName }
+        val existing = state.runs.firstOrNull { it.taskId == task.id && it.assignmentId == assignment.id }
         if (existing != null) {
-            return existing
+            return@withLock existing
         }
 
         val now = System.currentTimeMillis()
@@ -351,8 +364,11 @@ class DesktopAppService(
             taskId = task.id,
             workspaceId = workspace.id,
             repositoryId = repository.id,
-            agentId = agentName,
-            agentName = agentName,
+            agentId = assignment.agentName,
+            agentName = assignment.agentName,
+            assignmentId = assignment.id,
+            assignmentRole = assignment.role,
+            assignmentPrompt = assignment.prompt,
             repoRoot = repository.localPath,
             baseBranch = workspace.baseBranch,
             branchName = binding.branchName,
@@ -362,7 +378,7 @@ class DesktopAppService(
             updatedAt = now
         )
         stateStore.save(state.copy(runs = state.runs + run))
-        return run
+        run
     }
 
     private suspend fun replaceRun(run: AgentRun) {
@@ -397,16 +413,16 @@ class DesktopAppService(
         task: AgentTask,
         workspace: Workspace,
         repository: ManagedRepository,
-        agentName: String,
+        assignment: TaskAssignment,
         message: String
     ) {
         // Even when worktree creation fails early, keep a synthetic branch name in the run
         // record so the UI can still explain which isolated slot was intended for this agent.
         val binding = WorktreeBinding(
-            branchName = "codex/cotor/${task.id.take(8)}/${agentName.trim().lowercase().replace("[^a-z0-9]+".toRegex(), "-").trim('-')}",
+            branchName = "codex/cotor/${task.id.take(8)}/${assignment.agentName.trim().lowercase().replace("[^a-z0-9]+".toRegex(), "-").trim('-')}",
             worktreePath = Path.of(repository.localPath)
         )
-        val run = upsertQueuedRun(task, workspace, repository, agentName, binding)
+        val run = upsertQueuedRun(task, workspace, repository, assignment, binding)
         replaceRun(
             run.copy(
                 status = AgentRunStatus.FAILED,
@@ -415,4 +431,72 @@ class DesktopAppService(
             )
         )
     }
+
+
+    private suspend fun ensureTaskAssignments(task: AgentTask): List<TaskAssignment> {
+        if (task.assignments.isNotEmpty()) {
+            return task.assignments.sortedBy { it.order }
+        }
+
+        val fallbackPlan = createTaskAssignments(task.id, task.prompt, task.agents)
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val refreshed = state.tasks.firstOrNull { it.id == task.id }
+            if (refreshed == null || refreshed.assignments.isNotEmpty()) {
+                return@withLock
+            }
+            stateStore.save(
+                state.copy(
+                    tasks = state.tasks.map {
+                        if (it.id == task.id) {
+                            it.copy(
+                                leadAgent = fallbackPlan.firstOrNull { assignment -> assignment.role == TaskAssignmentRole.LEAD }?.agentName.orEmpty(),
+                                assignments = fallbackPlan,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        } else {
+                            it
+                        }
+                    }
+                )
+            )
+        }
+        return fallbackPlan
+    }
+
+    private fun createTaskAssignments(taskId: String, prompt: String, agents: List<String>): List<TaskAssignment> {
+        if (agents.isEmpty()) {
+            return emptyList()
+        }
+
+        val leadAgent = agents.first()
+        return agents.mapIndexed { index, agentName ->
+            val role = if (index == 0) TaskAssignmentRole.LEAD else TaskAssignmentRole.WORKER
+            val assignmentPrompt = when (role) {
+                TaskAssignmentRole.LEAD -> """
+                    You are the lead agent for this task.
+                    Coordinate the worker outputs and deliver the final result.
+
+                    Original task:
+                    $prompt
+                """.trimIndent()
+                TaskAssignmentRole.WORKER -> """
+                    You are a worker agent supporting lead agent '$leadAgent'.
+                    Focus on a concrete part of the task and report actionable findings.
+
+                    Original task:
+                    $prompt
+                """.trimIndent()
+            }
+
+            TaskAssignment(
+                id = "$taskId:${index + 1}",
+                role = role,
+                agentName = agentName,
+                prompt = assignmentPrompt,
+                order = index
+            )
+        }
+    }
+
 }

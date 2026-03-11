@@ -66,6 +66,27 @@ enum class AgentRunStatus {
 }
 
 /**
+ * Role for one assignment inside a desktop task execution plan.
+ */
+@Serializable
+enum class TaskAssignmentRole {
+    LEAD,
+    WORKER
+}
+
+/**
+ * One persisted assignment describing who should execute which prompt variant.
+ */
+@Serializable
+data class TaskAssignment(
+    val id: String,
+    val role: TaskAssignmentRole,
+    val agentName: String,
+    val prompt: String,
+    val order: Int
+)
+
+/**
  * User-authored task that can be fanned out to multiple agents.
  */
 @Serializable
@@ -75,6 +96,8 @@ data class AgentTask(
     val title: String,
     val prompt: String,
     val agents: List<String>,
+    val leadAgent: String = "",
+    val assignments: List<TaskAssignment> = emptyList(),
     val status: DesktopTaskStatus,
     val createdAt: Long,
     val updatedAt: Long
@@ -93,6 +116,9 @@ data class AgentRun(
     val repositoryId: String,
     val agentId: String = "",
     val agentName: String,
+    val assignmentId: String = "",
+    val assignmentRole: TaskAssignmentRole? = null,
+    val assignmentPrompt: String = "",
     val repoRoot: String = "",
     val baseBranch: String = "",
     val branchName: String,
