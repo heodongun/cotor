@@ -27,6 +27,7 @@ Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 
 - [📖 한글 가이드](docs/README.ko.md)
 - [🚀 빠른 시작](docs/QUICK_START.md)
 - [🖥️ 데스크톱 앱](docs/DESKTOP_APP.md)
+- [🧭 차별화 PRD/아키텍처](docs/DIFFERENTIATION_PRD_ARCHITECTURE.md)
 - [⚡ 기능 목록](docs/FEATURES.md)
 - [📑 문서 인덱스](docs/INDEX.md)
 

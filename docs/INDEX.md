@@ -14,6 +14,7 @@
 
 - `FEATURES.md`: 최신 기능 요약
 - `ARCHITECTURE.md`: 구성/흐름
+- `DIFFERENTIATION_PRD_ARCHITECTURE.md`: 차별화 포인트, 제품 목표, 아키텍처 기준선
 - `CONDITION_DSL.md`: 조건식 DSL
 - `WEB_EDITOR.md`: 웹 편집기 사용법
 

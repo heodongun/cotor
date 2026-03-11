@@ -75,6 +75,7 @@ cotor web                        # 웹 파이프라인 스튜디오
 - 빠른 시작: `QUICK_START.md`
 - 데스크톱 앱: `DESKTOP_APP.md`
 - 아키텍처: `ARCHITECTURE.md`
+- 차별화 PRD/아키텍처: `DIFFERENTIATION_PRD_ARCHITECTURE.md`
 - 기능 목록: `FEATURES.md`
 - 사용 팁: `USAGE_TIPS.md`
 - 변경 이력: `release/CHANGELOG.md`
