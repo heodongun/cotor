@@ -24,7 +24,14 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Format check
-        run: gradle formatCheck
+        run: ./gradlew --no-daemon formatCheck
 
       - name: Test
-        run: gradle test
+        id: test
+        run: ./gradlew --no-daemon test
+
+      - name: Reopen and unassign Linear issue on failed PR tests
+        if: ${{ failure() && github.event_name == 'pull_request' && steps.test.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: python3 scripts/linear_pr_failure_gate.py --event-path "$GITHUB_EVENT_PATH"
