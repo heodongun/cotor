@@ -13,6 +13,7 @@ import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -78,14 +79,7 @@ internal fun Application.cotorAppModule(
         route("/api/app") {
             get("/dashboard") {
                 if (!requireToken(token)) return@get
-                call.respond(
-                    DashboardResponse(
-                        repositories = desktopService.listRepositories(),
-                        workspaces = desktopService.listWorkspaces(),
-                        tasks = desktopService.listTasks(),
-                        settings = desktopService.settings()
-                    )
-                )
+                call.respond(desktopService.dashboard())
             }
 
             get("/agents") {
@@ -154,7 +148,8 @@ internal fun Application.cotorAppModule(
                             workspaceId = request.workspaceId,
                             title = request.title,
                             prompt = request.prompt,
-                            agents = request.agents
+                            agents = request.agents,
+                            issueId = request.issueId
                         )
                     )
                 }
@@ -238,6 +233,450 @@ internal fun Application.cotorAppModule(
                     val taskId = call.request.queryParameters["taskId"]
                     call.respond(desktopService.listRuns(taskId))
                 }
+            }
+
+            route("/goals") {
+                get {
+                    if (!requireToken(token)) return@get
+                    call.respond(desktopService.listGoals())
+                }
+
+                post {
+                    if (!requireToken(token)) return@post
+                    val request = call.receive<CreateGoalRequest>()
+                    respondDesktopRequest {
+                        desktopService.createGoal(
+                            companyId = null,
+                            title = request.title,
+                            description = request.description,
+                            successMetrics = request.successMetrics,
+                            autonomyEnabled = request.autonomyEnabled
+                        )
+                    }
+                }
+
+                get("/{goalId}") {
+                    if (!requireToken(token)) return@get
+                    val goalId = call.parameters["goalId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "goalId is required"))
+                    val goal = desktopService.getGoal(goalId)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Goal not found: $goalId"))
+                    call.respond(goal)
+                }
+
+                post("/{goalId}/decompose") {
+                    if (!requireToken(token)) return@post
+                    val goalId = call.parameters["goalId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "goalId is required"))
+                    respondDesktopRequest {
+                        desktopService.decomposeGoal(goalId)
+                    }
+                }
+            }
+
+            route("/company") {
+                get {
+                    if (!requireToken(token)) return@get
+                    call.respond(desktopService.companyDashboard())
+                }
+
+                route("/goals") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        call.respond(desktopService.listGoals())
+                    }
+
+                    post {
+                        if (!requireToken(token)) return@post
+                        val request = call.receive<CreateGoalRequest>()
+                        respondDesktopRequest {
+                            desktopService.createGoal(
+                                companyId = null,
+                                title = request.title,
+                                description = request.description,
+                                successMetrics = request.successMetrics,
+                                autonomyEnabled = request.autonomyEnabled
+                            )
+                        }
+                    }
+
+                    get("/{goalId}") {
+                        if (!requireToken(token)) return@get
+                        val goalId = call.parameters["goalId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "goalId is required"))
+                        val goal = desktopService.getGoal(goalId)
+                            ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Goal not found: $goalId"))
+                        call.respond(goal)
+                    }
+
+                    post("/{goalId}/enable-autonomy") {
+                        if (!requireToken(token)) return@post
+                        val goalId = call.parameters["goalId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "goalId is required"))
+                        respondDesktopRequest {
+                            desktopService.updateGoalAutonomy(goalId, enabled = true)
+                        }
+                    }
+
+                    post("/{goalId}/disable-autonomy") {
+                        if (!requireToken(token)) return@post
+                        val goalId = call.parameters["goalId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "goalId is required"))
+                        respondDesktopRequest {
+                            desktopService.updateGoalAutonomy(goalId, enabled = false)
+                        }
+                    }
+
+                    post("/{goalId}/decompose") {
+                        if (!requireToken(token)) return@post
+                        val goalId = call.parameters["goalId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "goalId is required"))
+                        respondDesktopRequest {
+                            desktopService.decomposeGoal(goalId)
+                        }
+                    }
+                }
+
+                route("/issues") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val goalId = call.request.queryParameters["goalId"]
+                        call.respond(desktopService.listIssues(goalId))
+                    }
+
+                    get("/{issueId}") {
+                        if (!requireToken(token)) return@get
+                        val issueId = call.parameters["issueId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                        val issue = desktopService.getIssue(issueId)
+                            ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found: $issueId"))
+                        call.respond(issue)
+                    }
+
+                    post("/{issueId}/delegate") {
+                        if (!requireToken(token)) return@post
+                        val issueId = call.parameters["issueId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                        respondDesktopRequest {
+                            desktopService.delegateIssue(issueId)
+                        }
+                    }
+
+                    post("/{issueId}/run") {
+                        if (!requireToken(token)) return@post
+                        val issueId = call.parameters["issueId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                        respondDesktopRequest {
+                            desktopService.runIssue(issueId)
+                        }
+                    }
+                }
+
+                route("/review-queue") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        call.respond(desktopService.listReviewQueue())
+                    }
+
+                    post("/{itemId}/merge") {
+                        if (!requireToken(token)) return@post
+                        val itemId = call.parameters["itemId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "itemId is required"))
+                        respondDesktopRequest {
+                            desktopService.mergeReviewQueueItem(itemId)
+                        }
+                    }
+                }
+
+                get("/signals") {
+                    if (!requireToken(token)) return@get
+                    call.respond(desktopService.listSignals())
+                }
+
+                get("/metrics") {
+                    if (!requireToken(token)) return@get
+                    call.respond(desktopService.dashboard().opsMetrics)
+                }
+
+                post("/linear/sync") {
+                    if (!requireToken(token)) return@post
+                    call.respond(
+                        LinearSyncResponse(
+                            ok = false,
+                            message = "Linear sync adapter is not configured yet in this build"
+                        )
+                    )
+                }
+
+                route("/runtime") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        call.respond(desktopService.runtimeStatus())
+                    }
+
+                    post("/start") {
+                        if (!requireToken(token)) return@post
+                        respondDesktopRequest {
+                            desktopService.startCompanyRuntime()
+                        }
+                    }
+
+                    post("/stop") {
+                        if (!requireToken(token)) return@post
+                        respondDesktopRequest {
+                            desktopService.stopCompanyRuntime()
+                        }
+                    }
+                }
+            }
+
+            route("/companies") {
+                get {
+                    if (!requireToken(token)) return@get
+                    call.respond(desktopService.listCompanies())
+                }
+
+                post {
+                    if (!requireToken(token)) return@post
+                    val request = call.receive<CreateCompanyRequest>()
+                    respondDesktopRequest {
+                        desktopService.createCompany(
+                            name = request.name,
+                            rootPath = request.rootPath,
+                            defaultBaseBranch = request.defaultBaseBranch,
+                            autonomyEnabled = request.autonomyEnabled
+                        )
+                    }
+                }
+
+                get("/{companyId}") {
+                    if (!requireToken(token)) return@get
+                    val companyId = call.parameters["companyId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    val company = desktopService.getCompany(companyId)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Company not found: $companyId"))
+                    call.respond(company)
+                }
+
+                patch("/{companyId}") {
+                    if (!requireToken(token)) return@patch
+                    val companyId = call.parameters["companyId"]
+                        ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    val request = call.receive<UpdateCompanyRequest>()
+                    respondDesktopRequest {
+                        desktopService.updateCompany(
+                            companyId = companyId,
+                            name = request.name,
+                            defaultBaseBranch = request.defaultBaseBranch,
+                            autonomyEnabled = request.autonomyEnabled
+                        )
+                    }
+                }
+
+                route("/{companyId}/agents") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.listCompanyAgentDefinitions(companyId))
+                    }
+
+                    post {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val request = call.receive<CreateCompanyAgentDefinitionRequest>()
+                        respondDesktopRequest {
+                            desktopService.createCompanyAgentDefinition(
+                                companyId = companyId,
+                                title = request.title,
+                                agentCli = request.agentCli,
+                                roleSummary = request.roleSummary,
+                                enabled = request.enabled
+                            )
+                        }
+                    }
+
+                    patch("/{agentId}") {
+                        if (!requireToken(token)) return@patch
+                        val companyId = call.parameters["companyId"]
+                            ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val agentId = call.parameters["agentId"]
+                            ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "agentId is required"))
+                        val request = call.receive<UpdateCompanyAgentDefinitionRequest>()
+                        respondDesktopRequest {
+                            desktopService.updateCompanyAgentDefinition(
+                                companyId = companyId,
+                                agentId = agentId,
+                                title = request.title,
+                                agentCli = request.agentCli,
+                                roleSummary = request.roleSummary,
+                                enabled = request.enabled,
+                                displayOrder = request.displayOrder
+                            )
+                        }
+                    }
+                }
+
+                route("/{companyId}/projects") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.listProjectContexts(companyId))
+                    }
+                }
+
+                route("/{companyId}/goals") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.listGoals().filter { it.companyId == companyId })
+                    }
+
+                    post {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val request = call.receive<CreateGoalRequest>()
+                        respondDesktopRequest {
+                            desktopService.createGoal(
+                                companyId = companyId,
+                                title = request.title,
+                                description = request.description,
+                                successMetrics = request.successMetrics,
+                                autonomyEnabled = request.autonomyEnabled
+                            )
+                        }
+                    }
+                }
+
+                route("/{companyId}/issues") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val goalId = call.request.queryParameters["goalId"]
+                        call.respond(desktopService.listIssues(goalId, companyId))
+                    }
+                }
+
+                route("/{companyId}/review-queue") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.listReviewQueue(companyId))
+                    }
+                }
+
+                route("/{companyId}/activity") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.listCompanyActivity(companyId))
+                    }
+                }
+
+                route("/{companyId}/contexts") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.listProjectContexts(companyId))
+                    }
+                }
+
+                route("/{companyId}/runtime") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.runtimeStatus(companyId))
+                    }
+
+                    post("/start") {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        respondDesktopRequest {
+                            desktopService.startCompanyRuntime(companyId)
+                        }
+                    }
+
+                    post("/stop") {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        respondDesktopRequest {
+                            desktopService.stopCompanyRuntime(companyId)
+                        }
+                    }
+                }
+            }
+
+            route("/issues") {
+                get {
+                    if (!requireToken(token)) return@get
+                    val goalId = call.request.queryParameters["goalId"]
+                    call.respond(desktopService.listIssues(goalId))
+                }
+
+                post("/{issueId}/delegate") {
+                    if (!requireToken(token)) return@post
+                    val issueId = call.parameters["issueId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    respondDesktopRequest {
+                        desktopService.delegateIssue(issueId)
+                    }
+                }
+
+                post("/{issueId}/run") {
+                    if (!requireToken(token)) return@post
+                    val issueId = call.parameters["issueId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    respondDesktopRequest {
+                        desktopService.runIssue(issueId)
+                    }
+                }
+            }
+
+            route("/review-queue") {
+                get {
+                    if (!requireToken(token)) return@get
+                    call.respond(desktopService.listReviewQueue())
+                }
+
+                post("/{itemId}/merge") {
+                    if (!requireToken(token)) return@post
+                    val itemId = call.parameters["itemId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "itemId is required"))
+                    respondDesktopRequest {
+                        desktopService.mergeReviewQueueItem(itemId)
+                    }
+                }
+            }
+
+            patch("/workspaces/{workspaceId}/base-branch") {
+                if (!requireToken(token)) return@patch
+                val workspaceId = call.parameters["workspaceId"]
+                    ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "workspaceId is required"))
+                val request = call.receive<UpdateWorkspaceBaseBranchRequest>()
+                respondDesktopRequest {
+                    desktopService.updateWorkspaceBaseBranch(workspaceId, request.baseBranch)
+                }
+            }
+
+            post("/linear/sync") {
+                if (!requireToken(token)) return@post
+                call.respond(
+                    LinearSyncResponse(
+                        ok = false,
+                        message = "Linear sync adapter is not configured yet in this build"
+                    )
+                )
             }
 
             route("/tui/sessions") {

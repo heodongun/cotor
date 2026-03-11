@@ -1,3 +1,5 @@
+> Status: Design draft. This file records a proposed runner architecture and does not describe guaranteed current behavior. Use `docs/INDEX.md` for current docs.
+
 # 멀티워크스페이스 / 원격실행 러너 설계
 
 상태: Draft

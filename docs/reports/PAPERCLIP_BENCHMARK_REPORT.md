@@ -74,3 +74,4 @@
 - Paperclip 동일 시나리오(`conditional`, `looping`에 대응되는 워크로드) 실행 로그를 동일 포맷(JSON)으로 수집
 - 최소 표본 수(예: N=30)와 동일 실행 환경(머신/모델/네트워크 조건) 고정
 - 동일 집계 스크립트로 평균/분산/실패율을 재계산해 본 문서에 병합
+> Status: Historical report. This benchmark note is kept for comparison and is not the source of truth for current product behavior.

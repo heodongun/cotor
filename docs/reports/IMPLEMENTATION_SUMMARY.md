@@ -397,3 +397,4 @@ cotor/
 **Implementation Date**: November 17, 2025
 **Version**: 1.0.0
 **Status**: ✅ Phase 1 Complete
+> Status: Historical report. This file records past implementation notes and is not the source of truth for current behavior.

@@ -1,3 +1,5 @@
+> Status: Architecture draft. This file is strategy/design context, not the source of truth for current product behavior. Use `docs/INDEX.md` for current docs.
+
 # Cotor Differentiated PRD / Architecture
 
 이 문서는 현재 구현된 Cotor 기능을 "무엇이 있는가"에서 끝내지 않고, "왜 이 제품이 필요한가"와 "왜 이런 구조를 택했는가"까지 연결하는 전략 문서다.

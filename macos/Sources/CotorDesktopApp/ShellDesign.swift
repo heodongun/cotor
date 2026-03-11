@@ -3,16 +3,15 @@ import SwiftUI
 
 /// Shared visual tokens for the desktop shell.
 ///
-/// The direction is "dense dark workbench": flat dark surfaces, restrained
-/// contrast, and small branded accents so the layout reads like a serious
-/// repository console instead of a marketing page.
+/// The direction is a dense neutral admin shell: restrained contrast, compact
+/// borders, and a TUI-first center stage without third-party branding cues.
 enum ShellPalette {
-    static let canvasTop = Color(nsColor: NSColor(red: 0.06, green: 0.05, blue: 0.06, alpha: 1))
-    static let canvasBottom = Color(nsColor: NSColor(red: 0.03, green: 0.03, blue: 0.04, alpha: 1))
-    static let panel = Color(nsColor: NSColor(red: 0.10, green: 0.09, blue: 0.10, alpha: 0.96))
-    static let panelAlt = Color(nsColor: NSColor(red: 0.13, green: 0.11, blue: 0.12, alpha: 0.98))
-    static let panelRaised = Color(nsColor: NSColor(red: 0.16, green: 0.14, blue: 0.15, alpha: 1))
-    static let panelDeeper = Color(nsColor: NSColor(red: 0.07, green: 0.06, blue: 0.07, alpha: 1))
+    static let canvasTop = Color(nsColor: NSColor(red: 0.05, green: 0.07, blue: 0.10, alpha: 1))
+    static let canvasBottom = Color(nsColor: NSColor(red: 0.03, green: 0.04, blue: 0.06, alpha: 1))
+    static let panel = Color(nsColor: NSColor(red: 0.08, green: 0.10, blue: 0.13, alpha: 0.97))
+    static let panelAlt = Color(nsColor: NSColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 0.99))
+    static let panelRaised = Color(nsColor: NSColor(red: 0.13, green: 0.16, blue: 0.21, alpha: 1))
+    static let panelDeeper = Color(nsColor: NSColor(red: 0.05, green: 0.06, blue: 0.09, alpha: 1))
     static let line = Color.white.opacity(0.065)
     static let lineStrong = Color.white.opacity(0.13)
     static let border = line
@@ -20,9 +19,9 @@ enum ShellPalette {
     static let text = Color.white.opacity(0.94)
     static let muted = Color.white.opacity(0.56)
     static let faint = Color.white.opacity(0.34)
-    static let accent = Color(nsColor: NSColor(red: 0.47, green: 0.36, blue: 0.90, alpha: 1))
-    static let accentWarm = Color(nsColor: NSColor(red: 0.95, green: 0.56, blue: 0.24, alpha: 1))
-    static let accentSoft = Color(nsColor: NSColor(red: 0.21, green: 0.17, blue: 0.30, alpha: 1))
+    static let accent = Color(nsColor: NSColor(red: 0.26, green: 0.56, blue: 0.93, alpha: 1))
+    static let accentWarm = Color(nsColor: NSColor(red: 0.10, green: 0.72, blue: 0.66, alpha: 1))
+    static let accentSoft = Color(nsColor: NSColor(red: 0.12, green: 0.19, blue: 0.28, alpha: 1))
     static let success = Color(nsColor: NSColor(red: 0.36, green: 0.79, blue: 0.52, alpha: 1))
     static let warning = Color(nsColor: NSColor(red: 0.98, green: 0.72, blue: 0.31, alpha: 1))
     static let danger = Color(nsColor: NSColor(red: 0.93, green: 0.38, blue: 0.40, alpha: 1))
@@ -30,12 +29,12 @@ enum ShellPalette {
 
 enum ShellMetrics {
     static let baseSpacing: CGFloat = 8
-    static let radiusLarge: CGFloat = 22
-    static let radiusMedium: CGFloat = 16
-    static let radiusSmall: CGFloat = 12
+    static let radiusLarge: CGFloat = 18
+    static let radiusMedium: CGFloat = 14
+    static let radiusSmall: CGFloat = 10
     static let sidebarMinWidth: CGFloat = 272
-    static let sidebarIdealWidth: CGFloat = 296
-    static let contentMinWidth: CGFloat = 540
+    static let sidebarIdealWidth: CGFloat = 304
+    static let contentMinWidth: CGFloat = 620
     static let inspectorMinWidth: CGFloat = 348
 }
 
@@ -43,7 +42,7 @@ enum ShellMotion {
     static let spring = Animation.spring(response: 0.28, dampingFraction: 0.86)
 }
 
-/// Full-window atmospheric background used behind the split view columns.
+/// Full-window admin-shell background used behind the split view columns.
 struct ShellCanvas: View {
     var body: some View {
         ZStack {
@@ -67,17 +66,16 @@ struct ShellCanvas: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Circle()
-                .fill(ShellPalette.accent.opacity(0.14))
-                .frame(width: 360, height: 360)
-                .blur(radius: 110)
-                .offset(x: -440, y: -260)
+            Rectangle()
+                .stroke(ShellPalette.line.opacity(0.35), lineWidth: 1)
+                .blur(radius: 0.2)
+                .padding(24)
 
             Circle()
-                .fill(ShellPalette.accentWarm.opacity(0.10))
-                .frame(width: 300, height: 300)
+                .fill(ShellPalette.accent.opacity(0.10))
+                .frame(width: 320, height: 320)
                 .blur(radius: 120)
-                .offset(x: 460, y: 220)
+                .offset(x: -420, y: -220)
         }
     }
 }

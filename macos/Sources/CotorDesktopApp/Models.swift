@@ -22,10 +22,57 @@ struct WorkspaceRecord: Codable, Identifiable, Hashable {
     let updatedAt: Int64
 }
 
+struct CompanyRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let rootPath: String
+    let repositoryId: String
+    let defaultBaseBranch: String
+    let autonomyEnabled: Bool
+    let createdAt: Int64
+    let updatedAt: Int64
+}
+
+struct CompanyAgentDefinitionRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let title: String
+    let agentCli: String
+    let roleSummary: String
+    let enabled: Bool
+    let displayOrder: Int
+    let createdAt: Int64
+    let updatedAt: Int64
+}
+
+struct CompanyProjectContextRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let name: String
+    let slug: String
+    let status: String
+    let contextDocPath: String
+    let lastUpdatedAt: Int64
+}
+
+struct CompanyActivityItemRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let projectContextId: String?
+    let goalId: String?
+    let issueId: String?
+    let source: String
+    let title: String
+    let detail: String?
+    let severity: String
+    let createdAt: Int64
+}
+
 /// User-authored task record shown in the center pane.
 struct TaskRecord: Codable, Identifiable, Hashable {
     let id: String
     let workspaceId: String
+    let issueId: String?
     let title: String
     let prompt: String
     let agents: [String]
@@ -62,7 +109,100 @@ struct PublishMetadataRecord: Codable, Hashable {
     let pushedBranch: String?
     let pullRequestNumber: Int?
     let pullRequestUrl: String?
+    let reviewState: String?
+    let requestedReviewers: [String]
+    let checksSummary: String?
+    let mergeability: String?
+    let lastSyncTime: Int64?
     let error: String?
+}
+
+struct GoalRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let projectContextId: String?
+    let title: String
+    let description: String
+    let status: String
+    let priority: Int
+    let successMetrics: [String]
+    let operatingPolicy: String?
+    let autonomyEnabled: Bool
+    let createdAt: Int64
+    let updatedAt: Int64
+}
+
+struct IssueRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let projectContextId: String?
+    let goalId: String
+    let workspaceId: String
+    let title: String
+    let description: String
+    let status: String
+    let priority: Int
+    let kind: String
+    let assigneeProfileId: String?
+    let linearIssueId: String?
+    let blockedBy: [String]
+    let dependsOn: [String]
+    let acceptanceCriteria: [String]
+    let riskLevel: String
+    let sourceSignal: String
+    let createdAt: Int64
+    let updatedAt: Int64
+}
+
+struct OrgAgentProfileRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let roleName: String
+    let executionAgentName: String
+    let capabilities: [String]
+    let linearAssigneeId: String?
+    let reviewerPolicy: String?
+    let mergeAuthority: Bool
+    let enabled: Bool
+}
+
+struct ReviewQueueItemRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let projectContextId: String?
+    let issueId: String
+    let runId: String
+    let pullRequestNumber: Int?
+    let pullRequestUrl: String?
+    let status: String
+    let checksSummary: String?
+    let mergeability: String?
+    let requestedReviewers: [String]
+    let createdAt: Int64
+    let updatedAt: Int64
+}
+
+struct OpsMetricSnapshotRecord: Codable, Hashable {
+    let openGoals: Int
+    let activeIssues: Int
+    let blockedIssues: Int
+    let readyToMergeCount: Int
+    let mergedCount: Int
+    let lastUpdatedAt: Int64
+}
+
+struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
+    let companyId: String?
+    let status: String
+    let tickIntervalSeconds: Int64
+    let activeGoalCount: Int
+    let activeIssueCount: Int
+    let autonomyEnabledGoalCount: Int
+    let lastStartedAt: Int64?
+    let lastStoppedAt: Int64?
+    let lastTickAt: Int64?
+    let lastAction: String?
+    let lastError: String?
 }
 
 /// Live TUI session snapshot rendered in the center terminal surface.
@@ -130,6 +270,9 @@ struct DesktopSettingsPayload: Codable, Hashable {
     let appHome: String
     let managedReposRoot: String
     let availableAgents: [String]
+    let availableCliAgents: [String]
+    let recentCompanies: [String]
+    let defaultLaunchMode: String
     let shortcuts: ShortcutConfigPayload
 }
 
@@ -151,6 +294,16 @@ struct DashboardPayload: Codable {
     let workspaces: [WorkspaceRecord]
     let tasks: [TaskRecord]
     let settings: DesktopSettingsPayload
+    let companies: [CompanyRecord]
+    let companyAgentDefinitions: [CompanyAgentDefinitionRecord]
+    let projectContexts: [CompanyProjectContextRecord]
+    let goals: [GoalRecord]
+    let issues: [IssueRecord]
+    let reviewQueue: [ReviewQueueItemRecord]
+    let orgProfiles: [OrgAgentProfileRecord]
+    let opsMetrics: OpsMetricSnapshotRecord
+    let activity: [CompanyActivityItemRecord]
+    let companyRuntimes: [CompanyRuntimeSnapshotRecord]
 }
 
 /// Request body for creating a workspace from the macOS client.
@@ -160,12 +313,38 @@ struct CreateWorkspacePayload: Codable {
     let baseBranch: String?
 }
 
+struct UpdateWorkspaceBaseBranchPayload: Codable {
+    let baseBranch: String
+}
+
 /// Request body for creating a multi-agent task from the macOS client.
 struct CreateTaskPayload: Codable {
     let workspaceId: String
     let title: String?
     let prompt: String
     let agents: [String]
+    let issueId: String?
+}
+
+struct CreateGoalPayload: Codable {
+    let title: String
+    let description: String
+    let successMetrics: [String]
+    let autonomyEnabled: Bool
+}
+
+struct CreateCompanyPayload: Codable {
+    let name: String
+    let rootPath: String
+    let defaultBaseBranch: String?
+    let autonomyEnabled: Bool
+}
+
+struct CreateCompanyAgentPayload: Codable {
+    let title: String
+    let agentCli: String
+    let roleSummary: String
+    let enabled: Bool
 }
 
 /// Request body for opening or reusing the TUI session tied to a workspace.
@@ -242,6 +421,7 @@ struct MockSeed {
             TaskRecord(
                 id: "task-demo",
                 workspaceId: "ws-demo",
+                issueId: "issue-demo-build",
                 title: "Superset shell parity",
                 prompt: "Build the desktop shell",
                 agents: ["claude", "codex", "gemini"],
@@ -254,6 +434,9 @@ struct MockSeed {
             appHome: "~/Library/Application Support/CotorDesktop",
             managedReposRoot: "~/Library/Application Support/CotorDesktop/ManagedRepos",
             availableAgents: ["claude", "codex", "gemini", "cursor", "opencode"],
+            availableCliAgents: ["claude", "codex", "gemini", "opencode"],
+            recentCompanies: ["company-demo"],
+            defaultLaunchMode: "company",
             shortcuts: ShortcutConfigPayload(bindings: [
                 ShortcutBindingPayload(id: "openRepository", title: "Open Repository", shortcut: "Command-N"),
                 ShortcutBindingPayload(id: "createTask", title: "Create Task", shortcut: "Command-T"),
@@ -266,7 +449,247 @@ struct MockSeed {
                 ShortcutBindingPayload(id: "portsTab", title: "Show Ports Tab", shortcut: "Command-3"),
                 ShortcutBindingPayload(id: "browserTab", title: "Show Browser Tab", shortcut: "Command-4")
             ])
-        )
+        ),
+        companies: [
+            CompanyRecord(
+                id: "company-demo",
+                name: "Cotor",
+                rootPath: "/Users/demo/cotor",
+                repositoryId: "repo-demo",
+                defaultBaseBranch: "master",
+                autonomyEnabled: true,
+                createdAt: 0,
+                updatedAt: 0
+            )
+        ],
+        companyAgentDefinitions: [
+            CompanyAgentDefinitionRecord(
+                id: "agent-def-ceo",
+                companyId: "company-demo",
+                title: "CEO",
+                agentCli: "claude",
+                roleSummary: "lead strategy, planning, triage, final merge",
+                enabled: true,
+                displayOrder: 0,
+                createdAt: 0,
+                updatedAt: 0
+            ),
+            CompanyAgentDefinitionRecord(
+                id: "agent-def-builder",
+                companyId: "company-demo",
+                title: "Builder",
+                agentCli: "codex",
+                roleSummary: "implementation, integration, delivery",
+                enabled: true,
+                displayOrder: 1,
+                createdAt: 0,
+                updatedAt: 0
+            ),
+            CompanyAgentDefinitionRecord(
+                id: "agent-def-qa",
+                companyId: "company-demo",
+                title: "QA",
+                agentCli: "gemini",
+                roleSummary: "qa, review, verification",
+                enabled: true,
+                displayOrder: 2,
+                createdAt: 0,
+                updatedAt: 0
+            )
+        ],
+        projectContexts: [
+            CompanyProjectContextRecord(
+                id: "project-demo",
+                companyId: "company-demo",
+                name: "Cotor Core",
+                slug: "cotor-core",
+                status: "ACTIVE",
+                contextDocPath: "/Users/demo/.cotor/companies/cotor/projects/default.md",
+                lastUpdatedAt: 0
+            )
+        ],
+        goals: [
+            GoalRecord(
+                id: "goal-demo",
+                companyId: "company-demo",
+                projectContextId: "project-demo",
+                title: "Autonomous AI company workflow",
+                description: "Decompose one company goal into executable issues and keep PR feedback moving without manual orchestration.",
+                status: "ACTIVE",
+                priority: 1,
+                successMetrics: ["Issue board visible", "Review queue updates from PRs"],
+                operatingPolicy: nil,
+                autonomyEnabled: true,
+                createdAt: 0,
+                updatedAt: 0
+            )
+        ],
+        issues: [
+            IssueRecord(
+                id: "issue-demo-plan",
+                companyId: "company-demo",
+                projectContextId: "project-demo",
+                goalId: "goal-demo",
+                workspaceId: "ws-demo",
+                title: "Define orchestration model",
+                description: "Map the CEO planner, delegation rules, and PR review loop.",
+                status: "IN_REVIEW",
+                priority: 1,
+                kind: "planning",
+                assigneeProfileId: "profile-ceo",
+                linearIssueId: nil,
+                blockedBy: [],
+                dependsOn: [],
+                acceptanceCriteria: ["Goal decomposes into issues", "Roles are explicit"],
+                riskLevel: "medium",
+                sourceSignal: "goal-decomposition",
+                createdAt: 0,
+                updatedAt: 0
+            ),
+            IssueRecord(
+                id: "issue-demo-build",
+                companyId: "company-demo",
+                projectContextId: "project-demo",
+                goalId: "goal-demo",
+                workspaceId: "ws-demo",
+                title: "Ship goal to issue board UI",
+                description: "Replace the task rail with a goal-driven issue board and execution drawer.",
+                status: "IN_PROGRESS",
+                priority: 2,
+                kind: "implementation",
+                assigneeProfileId: "profile-builder",
+                linearIssueId: nil,
+                blockedBy: ["issue-demo-plan"],
+                dependsOn: ["issue-demo-plan"],
+                acceptanceCriteria: ["Goal sidebar exists", "Issue board is visible"],
+                riskLevel: "medium",
+                sourceSignal: "goal-decomposition",
+                createdAt: 0,
+                updatedAt: 0
+            ),
+            IssueRecord(
+                id: "issue-demo-qa",
+                companyId: "company-demo",
+                projectContextId: "project-demo",
+                goalId: "goal-demo",
+                workspaceId: "ws-demo",
+                title: "Validate review queue loop",
+                description: "Confirm PR metadata flows into QA and merge stages.",
+                status: "PLANNED",
+                priority: 3,
+                kind: "qa",
+                assigneeProfileId: "profile-qa",
+                linearIssueId: nil,
+                blockedBy: ["issue-demo-build"],
+                dependsOn: ["issue-demo-build"],
+                acceptanceCriteria: ["Review queue item appears", "Merge action is visible"],
+                riskLevel: "low",
+                sourceSignal: "goal-decomposition",
+                createdAt: 0,
+                updatedAt: 0
+            )
+        ],
+        reviewQueue: [
+            ReviewQueueItemRecord(
+                id: "rq-demo",
+                companyId: "company-demo",
+                projectContextId: "project-demo",
+                issueId: "issue-demo-plan",
+                runId: "run-codex",
+                pullRequestNumber: 42,
+                pullRequestUrl: "https://github.com/heodongun/cotor/pull/42",
+                status: "READY_TO_MERGE",
+                checksSummary: "desktop smoke checks passed",
+                mergeability: "clean",
+                requestedReviewers: ["qa"],
+                createdAt: 0,
+                updatedAt: 0
+            )
+        ],
+        orgProfiles: [
+            OrgAgentProfileRecord(
+                id: "profile-ceo",
+                companyId: "company-demo",
+                roleName: "CEO",
+                executionAgentName: "claude",
+                capabilities: ["planning", "triage", "goal-decomposition"],
+                linearAssigneeId: nil,
+                reviewerPolicy: nil,
+                mergeAuthority: true,
+                enabled: true
+            ),
+            OrgAgentProfileRecord(
+                id: "profile-builder",
+                companyId: "company-demo",
+                roleName: "Builder",
+                executionAgentName: "codex",
+                capabilities: ["implementation", "backend", "frontend"],
+                linearAssigneeId: nil,
+                reviewerPolicy: nil,
+                mergeAuthority: false,
+                enabled: true
+            ),
+            OrgAgentProfileRecord(
+                id: "profile-qa",
+                companyId: "company-demo",
+                roleName: "QA",
+                executionAgentName: "gemini",
+                capabilities: ["qa", "review", "verification"],
+                linearAssigneeId: nil,
+                reviewerPolicy: "review-queue",
+                mergeAuthority: false,
+                enabled: true
+            )
+        ],
+        opsMetrics: OpsMetricSnapshotRecord(
+            openGoals: 1,
+            activeIssues: 3,
+            blockedIssues: 0,
+            readyToMergeCount: 1,
+            mergedCount: 0,
+            lastUpdatedAt: 0
+        ),
+        activity: [
+            CompanyActivityItemRecord(
+                id: "activity-demo-1",
+                companyId: "company-demo",
+                projectContextId: "project-demo",
+                goalId: "goal-demo",
+                issueId: nil,
+                source: "goal",
+                title: "Created goal",
+                detail: "Autonomous AI company workflow",
+                severity: "info",
+                createdAt: 0
+            ),
+            CompanyActivityItemRecord(
+                id: "activity-demo-2",
+                companyId: "company-demo",
+                projectContextId: "project-demo",
+                goalId: "goal-demo",
+                issueId: "issue-demo-build",
+                source: "issue-run",
+                title: "Started issue run",
+                detail: "Ship goal to issue board UI",
+                severity: "info",
+                createdAt: 0
+            )
+        ],
+        companyRuntimes: [
+            CompanyRuntimeSnapshotRecord(
+                companyId: "company-demo",
+                status: "RUNNING",
+                tickIntervalSeconds: 60,
+                activeGoalCount: 1,
+                activeIssueCount: 3,
+                autonomyEnabledGoalCount: 1,
+                lastStartedAt: 0,
+                lastStoppedAt: nil,
+                lastTickAt: 0,
+                lastAction: "started:issue-demo-build",
+                lastError: nil
+            )
+        ]
     )
 
     static let runs = [
@@ -310,6 +733,11 @@ struct MockSeed {
                 pushedBranch: "codex/cotor/superset-shell/codex",
                 pullRequestNumber: 42,
                 pullRequestUrl: "https://github.com/heodongun/cotor/pull/42",
+                reviewState: "awaiting-review",
+                requestedReviewers: ["qa"],
+                checksSummary: "desktop smoke checks passed",
+                mergeability: "clean",
+                lastSyncTime: 0,
                 error: nil
             ),
             durationMs: 1800,

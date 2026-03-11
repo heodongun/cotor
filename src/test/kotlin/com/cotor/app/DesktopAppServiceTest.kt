@@ -12,6 +12,7 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.delay
@@ -300,6 +301,120 @@ class DesktopAppServiceTest : FunSpec({
         awaitTaskCompletion(stateStore, "legacy-task")
 
         capturedInputs shouldBe listOf("Legacy prompt should still flow through unchanged.")
+    }
+
+    test("startCompanyRuntime merges ready review queue items for autonomous goals") {
+        val appHome = Files.createTempDirectory("desktop-runtime-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 50
+        )
+
+        val goal = service.createGoal(
+            title = "Autonomous merge loop",
+            description = "Keep merging ready review items without manual approval."
+        )
+        val issue = stateStore.load().issues.first { it.goalId == goal.id }
+        val now = System.currentTimeMillis()
+        stateStore.save(
+            stateStore.load().copy(
+                issues = stateStore.load().issues.map {
+                    if (it.id == issue.id) it.copy(status = IssueStatus.IN_REVIEW, updatedAt = now) else it
+                },
+                reviewQueue = listOf(
+                    ReviewQueueItem(
+                        id = "rq-1",
+                        issueId = issue.id,
+                        runId = "run-1",
+                        pullRequestNumber = 99,
+                        pullRequestUrl = "https://github.com/heodongun/cotor/pull/99",
+                        status = ReviewQueueStatus.READY_TO_MERGE,
+                        mergeability = "clean",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            )
+        )
+
+        val runtime = service.startCompanyRuntime()
+        var updatedState: DesktopAppState? = null
+        withTimeout(5_000) {
+            while (true) {
+                val current = stateStore.load()
+                val mergedItem = current.reviewQueue.firstOrNull { it.id == "rq-1" }
+                if (mergedItem?.status == ReviewQueueStatus.MERGED) {
+                    updatedState = current
+                    return@withTimeout
+                }
+                delay(25)
+            }
+        }
+        val settledState = updatedState.shouldNotBeNull()
+        val mergedItem = settledState.reviewQueue.first { it.id == "rq-1" }
+
+        runtime.status shouldBe CompanyRuntimeStatus.RUNNING
+        mergedItem.status shouldBe ReviewQueueStatus.MERGED
+        settledState.issues.first { it.id == issue.id }.status shouldBe IssueStatus.DONE
+        settledState.runtime.lastAction shouldNotBe null
+        service.stopCompanyRuntime().status shouldBe CompanyRuntimeStatus.STOPPED
+    }
+
+    test("stopCompanyRuntime remains stopped after an in-flight tick settles") {
+        val appHome = Files.createTempDirectory("desktop-runtime-stop-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-stop-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        service.createGoal(
+            title = "Stop runtime safely",
+            description = "Ensure a late runtime tick cannot restore RUNNING after stop."
+        )
+
+        service.startCompanyRuntime().status shouldBe CompanyRuntimeStatus.RUNNING
+        service.stopCompanyRuntime().status shouldBe CompanyRuntimeStatus.STOPPED
+
+        delay(80)
+
+        stateStore.load().runtime.status shouldBe CompanyRuntimeStatus.STOPPED
+    }
+
+    test("default org profiles prefer installed agent CLIs over missing claude") {
+        val appHome = Files.createTempDirectory("desktop-runtime-agents-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-agents-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            commandAvailability = { command -> command in setOf("codex", "gemini") }
+        )
+
+        val goal = service.createGoal(
+            title = "Prefer installed agents",
+            description = "Use the CLIs that are available on this machine."
+        )
+
+        val profiles = service.listOrgProfiles()
+        val issues = service.listIssues(goal.id)
+
+        profiles.map { it.executionAgentName } shouldBe listOf("codex", "gemini")
+        issues.mapNotNull { it.assigneeProfileId }.toSet() shouldBe profiles.map { it.id }.toSet()
     }
 })
 

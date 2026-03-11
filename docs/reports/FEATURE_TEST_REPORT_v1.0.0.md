@@ -707,3 +707,4 @@ security:
 **테스트 책임자**: Claude (AI Assistant)
 **테스트 날짜**: 2025-11-27
 **다음 리뷰**: v1.1.0 릴리스 시
+> Status: Historical report. This file records past test results and is not the current product contract.
