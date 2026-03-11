@@ -35,6 +35,7 @@ swift build --package-path "$PACKAGE_ROOT" -c release
 
 APP_BINARY="$(find "$PACKAGE_ROOT/.build" -path '*/release/CotorDesktopApp' -type f | head -n 1)"
 BACKEND_JAR="$(find "$PROJECT_ROOT/build/libs" -name 'cotor-*-all.jar' -type f | head -n 1)"
+RESOURCE_BUNDLES="$(find "$PACKAGE_ROOT/.build" -path '*/release/*.bundle' -type d)"
 
 if [[ -z "$APP_BINARY" || ! -f "$APP_BINARY" ]]; then
     echo "❌ Could not locate the built CotorDesktopApp binary."
@@ -104,6 +105,16 @@ chmod +x "$APP_MACOS/CotorDesktopBinary"
 # The installed `.app` ships with the backend jar inside the bundle, which keeps
 # the launcher independent from the original repository checkout.
 cp "$BACKEND_JAR" "$APP_BACKEND/cotor-backend.jar"
+
+# SwiftPM emits resource bundles beside the executable. Copy them into the app
+# bundle so local HTML/CSS/JS assets like the embedded terminal are available
+# after installation, not only while running from `.build/`.
+if [[ -n "$RESOURCE_BUNDLES" ]]; then
+    while IFS= read -r bundle_path; do
+        [[ -z "$bundle_path" ]] && continue
+        cp -R "$bundle_path" "$APP_RESOURCES/"
+    done <<< "$RESOURCE_BUNDLES"
+fi
 
 sed \
     -e "s#__EXECUTABLE__#CotorDesktopLauncher#g" \

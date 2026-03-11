@@ -12,7 +12,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "CotorDesktopApp",
-            path: "Sources/CotorDesktopApp"
+            path: "Sources/CotorDesktopApp",
+            resources: [
+                .copy("Resources/Terminal")
+            ]
         )
     ]
 )

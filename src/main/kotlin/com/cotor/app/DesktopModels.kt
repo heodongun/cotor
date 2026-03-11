@@ -107,6 +107,72 @@ data class AgentRun(
 )
 
 /**
+ * Interactive TUI lifecycle inside the desktop shell.
+ */
+@Serializable
+enum class TuiSessionStatus {
+    STARTING,
+    RUNNING,
+    EXITED,
+    FAILED
+}
+
+/**
+ * Snapshot of one interactive `cotor tui` session shown in the center pane.
+ *
+ * The transcript is sent inline because the native app polls for the current
+ * terminal state and renders it directly as a terminal surface.
+ */
+@Serializable
+data class TuiSession(
+    val id: String,
+    val workspaceId: String,
+    val repositoryId: String,
+    val repositoryPath: String,
+    val agentName: String,
+    val baseBranch: String,
+    val status: TuiSessionStatus,
+    val transcript: String,
+    val transcriptStartOffset: Long = 0,
+    val transcriptEndOffset: Long = transcript.length.toLong(),
+    val processId: Long? = null,
+    val exitCode: Int? = null,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+/**
+ * Incremental terminal output chunk used by the web-based terminal emulator.
+ */
+@Serializable
+data class TuiSessionDelta(
+    val sessionId: String,
+    val status: TuiSessionStatus,
+    val offset: Long,
+    val nextOffset: Long,
+    val reset: Boolean,
+    val chunk: String,
+    val exitCode: Int? = null
+)
+
+/**
+ * Request used to open or reuse the TUI session attached to a workspace.
+ */
+@Serializable
+data class OpenTuiSessionRequest(
+    val workspaceId: String,
+    val preferredAgent: String? = null
+)
+
+/**
+ * One user-entered line forwarded into the interactive TUI session.
+ */
+@Serializable
+data class TuiInputRequest(
+    val input: String
+)
+
+/**
  * Diff summary rendered in the right-hand inspector.
  */
 @Serializable

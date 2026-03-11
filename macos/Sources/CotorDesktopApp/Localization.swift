@@ -234,6 +234,10 @@ struct DesktopStrings {
             return "Completed"
         case (.english, "FAILED"), (.english, "ERROR"):
             return "Failed"
+        case (.english, "STARTING"):
+            return "Starting"
+        case (.english, "EXITED"):
+            return "Exited"
         case (.english, _):
             return status.capitalized
         case (.korean, "RUNNING"):
@@ -244,6 +248,10 @@ struct DesktopStrings {
             return "완료됨"
         case (.korean, "FAILED"), (.korean, "ERROR"):
             return "실패"
+        case (.korean, "STARTING"):
+            return "시작 중"
+        case (.korean, "EXITED"):
+            return "종료됨"
         case (.korean, _):
             return status
         }

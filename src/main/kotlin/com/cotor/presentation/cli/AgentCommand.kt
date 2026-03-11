@@ -59,7 +59,7 @@ private val defaultHomeDirectoryProvider: () -> java.nio.file.Path = {
 
 private val builtinPresets = listOf(
     AgentPreset("gemini", "com.cotor.data.plugin.GeminiPlugin", "gemini", 60000, "gemini-3.0-flash"),
-    AgentPreset("claude", "com.cotor.data.plugin.ClaudePlugin", "claude", 60000, "claude-3-7-sonnet-latest"),
+    AgentPreset("claude", "com.cotor.data.plugin.ClaudePlugin", "claude", 60000, "claude-sonnet-4-20250514"),
     AgentPreset("codex", "com.cotor.data.plugin.CodexPlugin", "codex", 60000, "gpt-5.3-codex-spark"),
     AgentPreset("copilot", "com.cotor.data.plugin.CopilotPlugin", "copilot", 60000, "copilot"),
     AgentPreset("opencode", "com.cotor.data.plugin.OpenCodePlugin", "opencode", 60000, "opencode-default"),

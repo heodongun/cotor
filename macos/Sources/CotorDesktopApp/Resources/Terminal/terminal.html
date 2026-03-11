@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cotor Terminal</title>
+  <link rel="stylesheet" href="./xterm.css" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --shell-bg: #080b10;
+      --panel-bg: #0d1218;
+      --line: rgba(255, 255, 255, 0.08);
+      --text: #edf2fb;
+      --muted: #8e99ab;
+      --accent: #5ba2ff;
+      --success: #3dd18c;
+      --danger: #ff7f8c;
+      --warning: #ffba66;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: var(--shell-bg);
+      color: var(--text);
+      font-family: "SF Pro Text", "Inter", sans-serif;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #terminal-shell {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      border-top: 1px solid var(--line);
+      background:
+        radial-gradient(circle at top, rgba(91, 162, 255, 0.09), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 25%),
+        var(--shell-bg);
+    }
+
+    #terminal-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 14px;
+      font-size: 11px;
+      letter-spacing: 0.02em;
+      color: var(--muted);
+      background: rgba(13, 18, 24, 0.96);
+      border-bottom: 1px solid var(--line);
+      flex: 0 0 auto;
+    }
+
+    #terminal-status strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    #terminal-status .error {
+      color: var(--danger);
+    }
+
+    #terminal-status .ok {
+      color: var(--success);
+    }
+
+    #terminal-root {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 0;
+      padding: 12px;
+    }
+
+    #terminal {
+      height: 100%;
+      width: 100%;
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--panel-bg);
+      box-shadow: inset 0 0 0 1px var(--line);
+    }
+
+    #terminal .xterm-viewport {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    }
+  </style>
+</head>
+<body>
+  <div id="terminal-shell">
+    <div id="terminal-status">
+      <div id="status-left"><strong>Waiting for session…</strong></div>
+      <div id="status-right">Cotor PTY</div>
+    </div>
+    <div id="terminal-root">
+      <div id="terminal"></div>
+    </div>
+  </div>
+
+  <script src="./xterm.js"></script>
+  <script src="./addon-fit.js"></script>
+  <script>
+    (() => {
+      const statusLeft = document.getElementById('status-left');
+      const statusRight = document.getElementById('status-right');
+      const terminalHost = document.getElementById('terminal');
+
+      const term = new Terminal({
+        allowTransparency: true,
+        convertEol: false,
+        cursorBlink: true,
+        fontFamily: '"SF Mono", Menlo, Monaco, Consolas, monospace',
+        fontSize: 13,
+        lineHeight: 1.25,
+        scrollback: 5000,
+        theme: {
+          background: '#0d1218',
+          foreground: '#edf2fb',
+          cursor: '#5ba2ff',
+          cursorAccent: '#0d1218',
+          selectionBackground: 'rgba(91, 162, 255, 0.22)',
+          black: '#151c23',
+          red: '#ff7f8c',
+          green: '#3dd18c',
+          yellow: '#ffba66',
+          blue: '#5ba2ff',
+          magenta: '#c58cff',
+          cyan: '#4ed9ff',
+          white: '#edf2fb',
+          brightBlack: '#6d7686',
+          brightRed: '#ff98a3',
+          brightGreen: '#7de6ae',
+          brightYellow: '#ffd28b',
+          brightBlue: '#8ec0ff',
+          brightMagenta: '#d5a8ff',
+          brightCyan: '#90e9ff',
+          brightWhite: '#ffffff'
+        }
+      });
+
+      const fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(terminalHost);
+
+      const state = {
+        sessionId: null,
+        baseURL: '',
+        token: null,
+        cursor: 0,
+        pollHandle: null,
+        inputQueue: Promise.resolve(),
+        resizeObserver: null
+      };
+
+      function setStatus(message, tone = 'muted') {
+        statusLeft.innerHTML = `<strong class="${tone}">${message}</strong>`;
+      }
+
+      function setMeta(message) {
+        statusRight.textContent = message;
+      }
+
+      function headers(extra = {}) {
+        const next = { ...extra };
+        if (state.token) {
+          next.Authorization = `Bearer ${state.token}`;
+        }
+        return next;
+      }
+
+      async function request(path, options = {}) {
+        const response = await fetch(`${state.baseURL}${path}`, {
+          cache: 'no-store',
+          ...options,
+          headers: headers(options.headers || {})
+        });
+
+        if (!response.ok) {
+          throw new Error((await response.text()) || `HTTP ${response.status}`);
+        }
+        return response.json();
+      }
+
+      function stopPolling() {
+        if (state.pollHandle) {
+          clearTimeout(state.pollHandle);
+          state.pollHandle = null;
+        }
+      }
+
+      function schedulePoll(delay = 120) {
+        stopPolling();
+        state.pollHandle = setTimeout(pollDelta, delay);
+      }
+
+      function renderSnapshot(snapshot) {
+        term.reset();
+        if (snapshot.transcript) {
+          term.write(snapshot.transcript);
+        }
+        state.cursor = snapshot.transcriptEndOffset || snapshot.transcript.length || 0;
+        setStatus(`Session ${snapshot.status.toLowerCase()}`, snapshot.status === 'FAILED' ? 'error' : 'ok');
+        setMeta(`${snapshot.baseBranch} · ${snapshot.repositoryPath}`);
+        fitAddon.fit();
+        term.focus();
+      }
+
+      function renderDelta(delta) {
+        if (delta.reset) {
+          term.reset();
+          state.cursor = delta.offset;
+        }
+        if (delta.chunk) {
+          term.write(delta.chunk);
+        }
+        state.cursor = delta.nextOffset;
+        setStatus(`Session ${delta.status.toLowerCase()}`, delta.status === 'FAILED' ? 'error' : 'ok');
+        if (delta.status === 'EXITED' || delta.status === 'FAILED') {
+          stopPolling();
+        } else {
+          schedulePoll();
+        }
+      }
+
+      async function bootstrapSession() {
+        if (!state.sessionId) {
+          return;
+        }
+
+        try {
+          setStatus('Connecting to PTY…');
+          const snapshot = await request(`/api/app/tui/sessions/${encodeURIComponent(state.sessionId)}`);
+          renderSnapshot(snapshot);
+          schedulePoll();
+        } catch (error) {
+          term.writeln(`\r\n[terminal bootstrap failed: ${error.message}]`);
+          setStatus(error.message, 'error');
+        }
+      }
+
+      async function pollDelta() {
+        if (!state.sessionId) {
+          return;
+        }
+
+        try {
+          const delta = await request(
+            `/api/app/tui/sessions/${encodeURIComponent(state.sessionId)}/delta?offset=${state.cursor}`
+          );
+          renderDelta(delta);
+        } catch (error) {
+          setStatus(error.message, 'error');
+          schedulePoll(1000);
+        }
+      }
+
+      function enqueueInput(data) {
+        if (!state.sessionId || data.length === 0) {
+          return;
+        }
+
+        state.inputQueue = state.inputQueue
+          .then(() => request(`/api/app/tui/sessions/${encodeURIComponent(state.sessionId)}/input`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: data })
+          }))
+          .catch((error) => {
+            setStatus(error.message, 'error');
+          });
+      }
+
+      term.onData((data) => enqueueInput(data));
+
+      const resize = () => {
+        fitAddon.fit();
+      };
+
+      window.addEventListener('resize', resize);
+      if (window.ResizeObserver) {
+        state.resizeObserver = new ResizeObserver(() => fitAddon.fit());
+        state.resizeObserver.observe(document.getElementById('terminal-root'));
+      }
+
+      window.cotorTerminal = {
+        setSession(config) {
+          const changed =
+            state.sessionId !== config.sessionId ||
+            state.baseURL !== config.baseURL ||
+            state.token !== config.token;
+
+          state.sessionId = config.sessionId;
+          state.baseURL = config.baseURL;
+          state.token = config.token || null;
+
+          if (changed) {
+            state.cursor = 0;
+            stopPolling();
+            bootstrapSession();
+          } else {
+            fitAddon.fit();
+            term.focus();
+          }
+        },
+        focus() {
+          term.focus();
+        }
+      };
+
+      fitAddon.fit();
+      setStatus('Waiting for session…');
+    })();
+  </script>
+</body>
+</html>

@@ -694,9 +694,9 @@ private struct CenterPaneView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
             workspaceBanner
+            tuiConsole
             composerSurface
             taskRail
-            runConsole
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -894,92 +894,140 @@ private struct CenterPaneView: View {
         }
     }
 
-    private var runConsole: some View {
+    private var tuiConsole: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(store.selectedTask?.title ?? l.text(.execution))
+                    Text(l("Interactive TUI", "대화형 TUI"))
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(ShellPalette.text)
-                    Text(l.text(.agentRunsSubtitle))
+                    Text(l("This center surface is the real Cotor terminal loop. Define workflows here, then let the lead AI orchestrate worker agents from the TUI.", "가운데 surface는 실제 Cotor 터미널 루프입니다. 여기서 워크플로우를 정의하고, 리더 AI가 TUI에서 워커 에이전트를 오케스트레이션하게 만드세요."))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(ShellPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                Button {
-                    store.openSelectedLocation()
-                } label: {
-                    Label(l.text(.openFolder), systemImage: "folder")
+
+                HStack(spacing: 8) {
+                    if let session = store.tuiSession {
+                        ShellStatusPill(text: l.status(session.status), tint: tuiStatusTint(session.status))
+                    }
+
+                    Button {
+                        Task { await store.restartTuiSession() }
+                    } label: {
+                        Label(l("Restart", "재시작"), systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+
+                    Button {
+                        store.openSelectedLocation()
+                    } label: {
+                        Label(l.text(.openFolder), systemImage: "folder")
+                    }
+                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
                 }
-                .buttonStyle(ShellTopBarButtonStyle(prominent: false))
             }
             .padding(14)
 
             paneDivider
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(store.runs) { run in
-                        RunTabButton(run: run, language: l, isSelected: store.selectedAgentName == run.agentName) {
-                            Task { await store.selectAgent(run.agentName) }
-                        }
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-            }
-
-            paneDivider
-
             Group {
-                if let run = store.selectedRun {
+                if store.isOffline {
+                    TerminalPreviewSurface(
+                        transcript: store.tuiSession?.transcript ?? MockSeed.tuiSession.transcript,
+                        language: l
+                    )
+                } else if let session = store.tuiSession, session.workspaceId == store.selectedWorkspaceID {
                     VStack(alignment: .leading, spacing: 0) {
-                        ScrollView {
-                            Text(run.output ?? run.error ?? l.text(.noOutputYet))
-                                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                .foregroundStyle(run.error == nil ? ShellPalette.text : ShellPalette.danger)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(18)
+                        HStack(spacing: 8) {
+                            ShellTag(text: session.baseBranch, tint: ShellPalette.accentWarm)
+                            if let pid = session.processId {
+                                ShellTag(text: "pid \(pid)", tint: ShellPalette.success)
+                            }
+                            ShellTag(text: session.repositoryPath, tint: ShellPalette.accent)
+                            Spacer()
                         }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
 
                         paneDivider
 
-                        HStack(spacing: 8) {
-                            ShellTag(text: run.branchName, tint: ShellPalette.accent)
-                            ShellTag(text: run.baseBranch, tint: ShellPalette.accentWarm)
-                            if let pid = run.processId {
-                                ShellTag(text: "pid \(pid)", tint: ShellPalette.success)
-                            }
-                            Spacer()
-                            if let port = store.ports.first {
-                                Button(l.text(.open)) {
-                                    store.openPort(port)
-                                }
-                                .buttonStyle(ShellTopBarButtonStyle(prominent: false))
-                            }
-                        }
-                        .padding(14)
+                        TerminalWebView(
+                            sessionId: session.id,
+                            baseURL: store.api.baseURL,
+                            token: store.api.token
+                        )
+                            .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
                     }
+                } else if store.selectedWorkspace != nil {
+                    EmptyStateView(
+                        image: "terminal",
+                        title: l("Open the workspace TUI", "워크스페이스 TUI 열기"),
+                        subtitle: l("The center panel keeps one live interactive Cotor session per workspace.", "가운데 패널은 워크스페이스마다 하나의 실시간 Cotor 세션을 유지합니다.")
+                    )
+                    .padding(14)
                 } else {
                     EmptyStateView(
                         image: "terminal",
-                        title: l.text(.noRuns),
-                        subtitle: l.text(.noRunsSubtitle)
+                        title: l.text(.chooseWorkspace),
+                        subtitle: l("Select a workspace to launch the real TUI in the center pane.", "가운데 패널에서 실제 TUI를 띄우려면 워크스페이스를 선택하세요.")
                     )
                     .padding(14)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(minHeight: layoutMode == .compact ? 320 : 390, maxHeight: .infinity)
+        .frame(minHeight: layoutMode == .compact ? 420 : 520, maxHeight: .infinity)
         .shellInset()
+    }
+
+    private func tuiStatusTint(_ status: String) -> Color {
+        switch status.uppercased() {
+        case "RUNNING":
+            return ShellPalette.success
+        case "STARTING":
+            return ShellPalette.accent
+        case "FAILED":
+            return ShellPalette.danger
+        default:
+            return ShellPalette.warning
+        }
     }
 
     private var paneDivider: some View {
         Rectangle()
             .fill(ShellPalette.line)
             .frame(height: 1)
+    }
+}
+
+private struct TerminalPreviewSurface: View {
+    let transcript: String
+    let language: AppLanguage
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                Text(
+                    transcript.isEmpty
+                        ? language("Waiting for the TUI session to start...", "TUI 세션이 시작되기를 기다리는 중입니다...")
+                        : transcript
+                )
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(ShellPalette.text)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+                .id("terminal-preview-bottom")
+            }
+            .background(ShellPalette.panelAlt)
+            .onChange(of: transcript) { _, _ in
+                withAnimation(ShellMotion.spring) {
+                    proxy.scrollTo("terminal-preview-bottom", anchor: .bottom)
+                }
+            }
+        }
     }
 }
 

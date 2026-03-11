@@ -25,6 +25,7 @@ final class DesktopStore: ObservableObject {
 
     @Published var dashboard: DashboardPayload = MockSeed.dashboard
     @Published var runs: [RunRecord] = MockSeed.runs
+    @Published var tuiSession: TuiSessionRecord?
     @Published var availableBranches: [String] = ["master"]
     @Published var selectedBaseBranch = "master"
     @Published var selectedRepositoryID: String?
@@ -52,11 +53,17 @@ final class DesktopStore: ObservableObject {
 
     let api = DesktopAPI()
     private var statusState: StatusState = .connecting
+    private var tuiPollingTask: Task<Void, Never>?
+    private var polledTuiSessionID: String?
 
     init() {
         let storedLanguage = UserDefaults.standard.string(forKey: Self.languageDefaultsKey)
         language = AppLanguage(rawValue: storedLanguage ?? "") ?? .english
         workflowLeadAgent = MockSeed.dashboard.settings.availableAgents.first ?? "claude"
+    }
+
+    deinit {
+        tuiPollingTask?.cancel()
     }
 
     /// Header status copy is generated from the current state and active language.
@@ -133,6 +140,12 @@ final class DesktopStore: ObservableObject {
     func setWorkflowLeadAgent(_ agent: String) {
         workflowLeadAgent = agent
         agentSelection.insert(agent)
+        // The embedded terminal is the live "lead AI" console, so when the user
+        // switches leaders we immediately re-open the interactive session against
+        // that agent instead of leaving the old TUI attached to the workspace.
+        if selectedWorkspace != nil, !isOffline {
+            Task { await restartTuiSession() }
+        }
     }
 
     /// Keep lead-agent selection coherent while the user edits the workflow roster.
@@ -188,6 +201,7 @@ final class DesktopStore: ObservableObject {
         do {
             let fresh = try await api.dashboard()
             dashboard = fresh
+            errorMessage = nil
             isOffline = false
             statusState = .connected(api.baseURL.absoluteString)
             reconcileWorkflowLeadAgent()
@@ -195,6 +209,7 @@ final class DesktopStore: ObservableObject {
             selectedBaseBranch = selectedWorkspace?.baseBranch ?? selectedRepository?.defaultBranch ?? "master"
             await refreshAvailableBranches()
             await refreshTaskDetails()
+            await ensureTuiSession()
         } catch {
             // The desktop shell intentionally stays usable offline with mock data so
             // UI development and demos do not hard fail when the local server is down.
@@ -205,6 +220,8 @@ final class DesktopStore: ObservableObject {
             selectedAgentName = selectedTask?.agents.first
             selectedBaseBranch = selectedWorkspace?.baseBranch ?? selectedRepository?.defaultBranch ?? "master"
             await refreshAvailableBranches()
+            stopTuiPolling()
+            tuiSession = MockSeed.tuiSession
         }
     }
 
@@ -266,6 +283,7 @@ final class DesktopStore: ObservableObject {
             files = MockSeed.files
             ports = MockSeed.ports
             browserURL = URL(string: MockSeed.ports.first?.url ?? "http://127.0.0.1:8787")
+            tuiSession = MockSeed.tuiSession
             return
         }
 
@@ -303,6 +321,7 @@ final class DesktopStore: ObservableObject {
             await refreshDashboard()
             selectedWorkspaceID = created.id
             selectedBaseBranch = created.baseBranch
+            await ensureTuiSession()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -434,6 +453,7 @@ final class DesktopStore: ObservableObject {
         selectedBaseBranch = selectedWorkspace?.baseBranch ?? repository.defaultBranch
         await refreshAvailableBranches()
         await refreshTaskDetails()
+        await ensureTuiSession()
     }
 
     /// Switch to a new workspace and reload the task/inspector state derived from it.
@@ -443,6 +463,7 @@ final class DesktopStore: ObservableObject {
         selectedAgentName = selectedTask?.agents.first
         selectedBaseBranch = workspace.baseBranch
         await refreshTaskDetails()
+        await ensureTuiSession()
     }
 
     /// Focus a task row and refresh the right-hand inspector for its default agent.
@@ -469,5 +490,109 @@ final class DesktopStore: ObservableObject {
     func openPort(_ port: PortEntryPayload) {
         browserURL = URL(string: port.url)
         inspectorTab = .browser
+    }
+
+    /// The center pane should always show the real interactive TUI for the
+    /// selected workspace, so the store eagerly opens or reuses that session.
+    func ensureTuiSession() async {
+        guard let workspace = selectedWorkspace else {
+            stopTuiPolling()
+            tuiSession = nil
+            return
+        }
+
+        if isOffline {
+            stopTuiPolling()
+            tuiSession = MockSeed.tuiSession
+            return
+        }
+
+        do {
+            let preferredAgent = workflowLeadAgent.isEmpty ? selectedAgentName : workflowLeadAgent
+            let session = try await api.openTuiSession(workspaceId: workspace.id, preferredAgent: preferredAgent)
+            tuiSession = session
+            errorMessage = nil
+            startTuiPolling(sessionID: session.id, workspaceID: workspace.id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Stop the current TUI loop so the user can launch a fresh interactive shell.
+    func restartTuiSession() async {
+        if let session = tuiSession {
+            _ = try? await api.terminateTuiSession(sessionId: session.id)
+        }
+        await ensureTuiSession()
+    }
+
+    private func startTuiPolling(sessionID: String, workspaceID: String) {
+        guard polledTuiSessionID != sessionID else { return }
+
+        stopTuiPolling()
+        polledTuiSessionID = sessionID
+        tuiPollingTask = Task { [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                do {
+                    let latest = try await api.tuiSession(sessionId: sessionID)
+                    if self.selectedWorkspaceID == workspaceID {
+                        self.tuiSession = latest
+                    }
+
+                    if latest.status == "EXITED" || latest.status == "FAILED" {
+                        break
+                    }
+                } catch {
+                    if await self.recoverFromStaleTuiSession(error, sessionID: sessionID, workspaceID: workspaceID) {
+                        break
+                    }
+                    self.errorMessage = error.localizedDescription
+                    break
+                }
+
+                try? await Task.sleep(for: .milliseconds(800))
+            }
+        }
+    }
+
+    private func stopTuiPolling() {
+        tuiPollingTask?.cancel()
+        tuiPollingTask = nil
+        polledTuiSessionID = nil
+    }
+
+    /// Backend restarts invalidate the in-memory PTY session table, so an older
+    /// embedded terminal can briefly point at a session id that no longer exists.
+    /// Treat that as recoverable and open a fresh workspace session instead of
+    /// surfacing a sticky HTTP 404/500 alert to the user.
+    private func recoverFromStaleTuiSession(_ error: Error, sessionID: String, workspaceID: String) async -> Bool {
+        guard selectedWorkspaceID == workspaceID else { return false }
+        guard isRecoverableTuiSessionError(error) else { return false }
+        guard tuiSession?.id == sessionID || polledTuiSessionID == sessionID else { return false }
+
+        stopTuiPolling()
+        tuiSession = nil
+        errorMessage = nil
+        await ensureTuiSession()
+        return true
+    }
+
+    private func isRecoverableTuiSessionError(_ error: Error) -> Bool {
+        guard let apiError = error as? APIError else { return false }
+        if apiError.statusCode == 404 {
+            return true
+        }
+
+        // Older backend builds returned a blank 500 for missing TUI sessions.
+        // Keep the client tolerant until every packaged app is on the structured
+        // status-page response path.
+        if apiError.statusCode == 500 {
+            let body = apiError.responseBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            return body.isEmpty || body == "Unknown server error"
+        }
+
+        return false
     }
 }

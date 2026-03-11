@@ -23,7 +23,7 @@ class ClaudePlugin : AgentPlugin {
                 type = ParameterType.STRING,
                 required = false,
                 description = "The Claude model to use.",
-                defaultValue = "claude-2"
+                defaultValue = "claude-sonnet-4-20250514"
             ),
             AgentParameter(
                 name = "temperature",
@@ -41,7 +41,7 @@ class ClaudePlugin : AgentPlugin {
     ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
-        val model = context.parameters.getOrDefault("model", "claude-2")
+        val model = context.parameters.getOrDefault("model", "claude-sonnet-4-20250514")
 
         // Execute Claude CLI with auto-approval (skip all permission prompts)
         // NOTE: `claude` CLI does not consistently support `--temperature` across versions,

@@ -13,11 +13,11 @@ import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
+import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
-import io.ktor.server.routing.RoutingContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -29,6 +29,7 @@ import org.koin.core.component.inject
  */
 class AppServer : KoinComponent {
     private val desktopService: DesktopAppService by inject()
+    private val tuiSessionService: DesktopTuiSessionService by inject()
 
     fun start(
         port: Int = 8787,
@@ -228,6 +229,54 @@ class AppServer : KoinComponent {
                     }
                 }
 
+                route("/tui/sessions") {
+                    post {
+                        if (!requireToken(token)) return@post
+                        val request = call.receive<OpenTuiSessionRequest>()
+                        respondDesktopRequest {
+                            tuiSessionService.openSession(request.workspaceId, request.preferredAgent)
+                        }
+                    }
+
+                    get("/{sessionId}") {
+                        if (!requireToken(token)) return@get
+                        val sessionId = call.parameters["sessionId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "sessionId is required"))
+                        respondDesktopRequest {
+                            tuiSessionService.getSession(sessionId)
+                        }
+                    }
+
+                    get("/{sessionId}/delta") {
+                        if (!requireToken(token)) return@get
+                        val sessionId = call.parameters["sessionId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "sessionId is required"))
+                        val offset = call.request.queryParameters["offset"]?.toLongOrNull() ?: 0L
+                        respondDesktopRequest {
+                            tuiSessionService.getDelta(sessionId, offset)
+                        }
+                    }
+
+                    post("/{sessionId}/input") {
+                        if (!requireToken(token)) return@post
+                        val sessionId = call.parameters["sessionId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "sessionId is required"))
+                        val request = call.receive<TuiInputRequest>()
+                        respondDesktopRequest {
+                            tuiSessionService.sendInput(sessionId, request.input)
+                        }
+                    }
+
+                    post("/{sessionId}/terminate") {
+                        if (!requireToken(token)) return@post
+                        val sessionId = call.parameters["sessionId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "sessionId is required"))
+                        respondDesktopRequest {
+                            tuiSessionService.terminateSession(sessionId)
+                        }
+                    }
+                }
+
                 get("/settings") {
                     if (!requireToken(token)) return@get
                     call.respond(desktopService.settings())
@@ -249,4 +298,29 @@ private suspend fun RoutingContext.requireToken(token: String?): Boolean {
     }
     call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Unauthorized"))
     return false
+}
+
+/**
+ * Desktop terminal routes need predictable JSON errors because the Swift shell
+ * uses them to decide whether it should recover by opening a new PTY session.
+ */
+private suspend fun RoutingContext.respondDesktopRequest(block: suspend () -> Any) {
+    try {
+        call.respond(block())
+    } catch (cause: IllegalArgumentException) {
+        val message = cause.message ?: "Invalid request"
+        val status = if (message.contains("not found", ignoreCase = true)) {
+            HttpStatusCode.NotFound
+        } else {
+            HttpStatusCode.BadRequest
+        }
+        call.respond(status, mapOf("error" to message))
+    } catch (cause: IllegalStateException) {
+        call.respond(HttpStatusCode.Conflict, mapOf("error" to (cause.message ?: "Invalid state")))
+    } catch (cause: Throwable) {
+        call.respond(
+            HttpStatusCode.InternalServerError,
+            mapOf("error" to (cause.message ?: cause::class.simpleName ?: "Internal server error"))
+        )
+    }
 }

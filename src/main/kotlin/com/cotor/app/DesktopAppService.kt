@@ -32,6 +32,7 @@ class DesktopAppService(
     // Reads are cheap and frequent, but writes must be serialized so the state file
     // cannot be partially overwritten when multiple agent runs finish at once.
     private val stateMutex = Mutex()
+
     // Runs execute in background coroutines so the API can return immediately after
     // the user presses "Run Task" in the desktop client.
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

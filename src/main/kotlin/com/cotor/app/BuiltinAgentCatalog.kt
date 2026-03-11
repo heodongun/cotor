@@ -20,7 +20,7 @@ object BuiltinAgentCatalog {
         "claude" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.ClaudePlugin",
             defaultTimeoutMs = 60_000,
-            defaultParameters = mapOf("model" to "claude-3-7-sonnet-latest")
+            defaultParameters = mapOf("model" to "claude-sonnet-4-20250514")
         ),
         "codex" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.CodexPlugin",

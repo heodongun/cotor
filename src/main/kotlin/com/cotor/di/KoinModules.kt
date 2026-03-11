@@ -1,10 +1,11 @@
 package com.cotor.di
 
-import com.cotor.app.DesktopAppService
-import com.cotor.app.DesktopStateStore
-import com.cotor.app.GitWorkspaceService
 import com.cotor.analysis.DefaultResultAnalyzer
 import com.cotor.analysis.ResultAnalyzer
+import com.cotor.app.DesktopAppService
+import com.cotor.app.DesktopStateStore
+import com.cotor.app.DesktopTuiSessionService
+import com.cotor.app.GitWorkspaceService
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.config.FileConfigRepository
 import com.cotor.data.config.JsonParser
@@ -62,6 +63,7 @@ val cotorModule = module {
     single { DesktopStateStore() }
     single { GitWorkspaceService(get(), get(), get()) }
     single { DesktopAppService(get(), get(), get(), get()) }
+    single { DesktopTuiSessionService(get(), get(), get(), get()) }
 
     // Security
     single<SecurityConfig> {

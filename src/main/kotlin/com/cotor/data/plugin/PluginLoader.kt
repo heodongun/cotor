@@ -91,7 +91,10 @@ class ReflectionPluginLoader(
                     throw PluginLoadException("Class $pluginClass does not implement AgentPlugin")
                 }
 
-                logger.info("Loaded plugin: $pluginClass")
+                // Plugin discovery is useful during debugging but too noisy for the
+                // embedded desktop TUI, where each extra console line pollutes the
+                // terminal transcript and makes prompt/input flow harder to follow.
+                logger.debug("Loaded plugin: $pluginClass")
                 instance
             } catch (e: PluginLoadException) {
                 throw e

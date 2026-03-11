@@ -24,6 +24,7 @@ class DesktopStateStore(
         ignoreUnknownKeys = true
         prettyPrint = true
     }
+
     // A single process can finish multiple background runs nearly at once, so writes
     // need to be serialized even though the backing file is small.
     private val mutex = Mutex()

@@ -55,6 +55,35 @@ struct RunRecord: Codable, Identifiable, Hashable {
     let updatedAt: Int64
 }
 
+/// Live TUI session snapshot rendered in the center terminal surface.
+struct TuiSessionRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let workspaceId: String
+    let repositoryId: String
+    let repositoryPath: String
+    let agentName: String?
+    let baseBranch: String
+    let status: String
+    let transcript: String
+    let transcriptStartOffset: Int64
+    let transcriptEndOffset: Int64
+    let processId: Int64?
+    let exitCode: Int?
+    let createdAt: Int64
+    let updatedAt: Int64
+}
+
+/// Incremental chunk consumed by the embedded terminal emulator.
+struct TuiSessionDeltaPayload: Codable, Hashable {
+    let sessionId: String
+    let status: String
+    let offset: Int64
+    let nextOffset: Int64
+    let reset: Bool
+    let chunk: String
+    let exitCode: Int?
+}
+
 /// Serialized git diff summary for one agent worktree.
 struct ChangeSummaryPayload: Codable, Hashable {
     let runId: String
@@ -127,6 +156,17 @@ struct CreateTaskPayload: Codable {
     let title: String?
     let prompt: String
     let agents: [String]
+}
+
+/// Request body for opening or reusing the TUI session tied to a workspace.
+struct OpenTuiSessionPayload: Codable {
+    let workspaceId: String
+    let preferredAgent: String?
+}
+
+/// Request body for sending one line into the interactive TUI loop.
+struct TuiInputPayload: Codable {
+    let input: String
 }
 
 /// The inspector's right-hand tabs.
@@ -259,6 +299,37 @@ struct MockSeed {
             updatedAt: 0
         )
     ]
+
+    static let tuiSession = TuiSessionRecord(
+        id: "tui-demo",
+        workspaceId: "ws-demo",
+        repositoryId: "repo-demo",
+        repositoryPath: "/Users/demo/cotor",
+        agentName: "claude",
+        baseBranch: "master",
+        status: "RUNNING",
+        transcript: """
+Launching Cotor TUI in /Users/demo/cotor
+Workspace base branch: master
+
+◎ Cotor Interactive
+Type ':help' for commands, ':exit' to quit.
+
+you> open the workflow registry and summarize active agents
+cotor>
+Lead AI: claude
+Workers: codex, gemini
+Ready to orchestrate workflow execution from the TUI.
+
+you> 
+""",
+        transcriptStartOffset: 0,
+        transcriptEndOffset: 256,
+        processId: 4242,
+        exitCode: nil,
+        createdAt: 0,
+        updatedAt: 0
+    )
 
     static let changes = ChangeSummaryPayload(
         runId: "run-codex",

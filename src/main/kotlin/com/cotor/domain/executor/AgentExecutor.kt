@@ -48,6 +48,7 @@ class DefaultAgentExecutor(
     private val securityValidator: SecurityValidator,
     private val logger: Logger
 ) : AgentExecutor {
+    private val isDesktopTui = System.getenv("COTOR_DESKTOP_TUI") == "1"
 
     override suspend fun executeAgent(
         agent: AgentConfig,
@@ -117,7 +118,7 @@ class DefaultAgentExecutor(
                     processId = pluginOutput.processId
                 )
             } catch (e: TimeoutCancellationException) {
-                logger.error("Agent timeout: ${agent.name}", e)
+                logAgentFailure("Agent timeout: ${agent.name}", e)
                 AgentResult(
                     agentName = agent.name,
                     isSuccess = false,
@@ -127,7 +128,7 @@ class DefaultAgentExecutor(
                     metadata = emptyMap()
                 )
             } catch (e: ProcessExecutionException) {
-                logger.error("Agent process execution failed: ${agent.name}", e)
+                logAgentFailure("Agent process execution failed: ${agent.name}", e)
                 val stderr = e.stderr.trim().ifEmpty { "(no stderr)" }
                 val message = e.message?.trim().orEmpty().ifEmpty { "Process failed" }
                 AgentResult(
@@ -139,7 +140,7 @@ class DefaultAgentExecutor(
                     metadata = emptyMap()
                 )
             } catch (e: Exception) {
-                logger.error("Agent execution failed: ${agent.name}", e)
+                logAgentFailure("Agent execution failed: ${agent.name}", e)
                 AgentResult(
                     agentName = agent.name,
                     isSuccess = false,
@@ -149,6 +150,17 @@ class DefaultAgentExecutor(
                     metadata = emptyMap()
                 )
             }
+        }
+    }
+
+    private fun logAgentFailure(message: String, error: Throwable) {
+        if (isDesktopTui) {
+            // The interactive desktop terminal already echoes a compact user-facing
+            // error line, so duplicating the full stack trace there only makes the
+            // PTY look frozen or broken.
+            logger.warn("$message: ${error.message ?: "unknown error"}")
+        } else {
+            logger.error(message, error)
         }
     }
 

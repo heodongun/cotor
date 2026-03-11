@@ -8,14 +8,54 @@ BINARY_PATH="$SCRIPT_DIR/CotorDesktopBinary"
 BACKEND_JAR="$RESOURCES_DIR/backend/cotor-backend.jar"
 LOG_DIR="$HOME/Library/Logs/CotorDesktop"
 LOG_FILE="$LOG_DIR/app-server.log"
-SERVER_URL="${COTOR_APP_SERVER_URL:-http://127.0.0.1:8787}"
-SERVER_PORT="$(printf '%s' "$SERVER_URL" | sed -E 's#^https?://[^:/]+:([0-9]+).*$#\1#')"
+RUNTIME_DIR="$HOME/Library/Application Support/CotorDesktop/runtime"
+PID_FILE="$RUNTIME_DIR/app-server.pid"
+PORT_FILE="$RUNTIME_DIR/app-server.port"
+TOKEN_FILE="$RUNTIME_DIR/app-server.token"
+SERVER_URL="${COTOR_APP_SERVER_URL:-}"
+SERVER_PORT=""
+SERVER_TOKEN="${COTOR_APP_TOKEN:-}"
 
-if [[ ! "$SERVER_PORT" =~ ^[0-9]+$ ]]; then
-    SERVER_PORT="8787"
-fi
+build_desktop_path() {
+    local combined=""
+    local seen=":"
+    local candidate
+    local path_entry
+
+    for candidate in \
+        "$HOME/.local/bin" \
+        "$HOME/.opencode/bin" \
+        "$HOME/.cargo/bin" \
+        "$HOME/bin" \
+        "/opt/homebrew/bin" \
+        "/opt/homebrew/sbin" \
+        "/usr/local/bin" \
+        "/usr/local/sbin" \
+        "/usr/bin" \
+        "/bin" \
+        "/usr/sbin" \
+        "/sbin" \
+        "${PATH:-}"
+    do
+        IFS=':' read -r -a split_path <<<"$candidate"
+        for path_entry in "${split_path[@]}"; do
+            [[ -n "$path_entry" ]] || continue
+            [[ "$seen" == *":$path_entry:"* ]] && continue
+            seen="${seen}${path_entry}:"
+            if [[ -z "$combined" ]]; then
+                combined="$path_entry"
+            else
+                combined="${combined}:$path_entry"
+            fi
+        done
+    done
+
+    printf '%s\n' "$combined"
+}
 
 mkdir -p "$LOG_DIR"
+mkdir -p "$RUNTIME_DIR"
+export PATH="$(build_desktop_path)"
 
 find_java() {
     local java_home
@@ -33,11 +73,41 @@ show_alert() {
     /usr/bin/osascript -e "display alert \"Cotor Desktop\" message \"$1\" as critical" >/dev/null 2>&1 || true
 }
 
-ensure_backend() {
-    if lsof -iTCP:"$SERVER_PORT" -sTCP:LISTEN -n -P >/dev/null 2>&1; then
-        return 0
-    fi
+is_pid_alive() {
+    local pid="$1"
+    [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
+}
 
+is_port_listening() {
+    local port="$1"
+    [[ -n "$port" ]] && lsof -iTCP:"$port" -sTCP:LISTEN -n -P >/dev/null 2>&1
+}
+
+find_free_port() {
+    /usr/bin/python3 - <<'PY'
+import socket
+
+sock = socket.socket()
+sock.bind(("127.0.0.1", 0))
+print(sock.getsockname()[1])
+sock.close()
+PY
+}
+
+wait_for_backend() {
+    local url="$1"
+    local attempts=0
+    while (( attempts < 40 )); do
+        if curl -fsS "$url/health" >/dev/null 2>&1; then
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 0.25
+    done
+    return 1
+}
+
+start_managed_backend() {
     local java_bin
     java_bin="$(find_java)"
 
@@ -51,13 +121,57 @@ ensure_backend() {
         return 1
     fi
 
-    nohup "$java_bin" -jar "$BACKEND_JAR" app-server --port "$SERVER_PORT" >>"$LOG_FILE" 2>&1 &
+    SERVER_PORT="$(find_free_port)"
+    SERVER_TOKEN="$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]')"
+    SERVER_URL="http://127.0.0.1:$SERVER_PORT"
+
+    nohup "$java_bin" -jar "$BACKEND_JAR" app-server --port "$SERVER_PORT" --token "$SERVER_TOKEN" >>"$LOG_FILE" 2>&1 &
+    local backend_pid=$!
+
+    echo "$backend_pid" > "$PID_FILE"
+    echo "$SERVER_PORT" > "$PORT_FILE"
+    echo "$SERVER_TOKEN" > "$TOKEN_FILE"
+
+    if ! wait_for_backend "$SERVER_URL"; then
+        show_alert "Cotor Desktop could not start its bundled app server."
+        return 1
+    fi
+}
+
+ensure_backend() {
+    if [[ -n "$SERVER_URL" ]]; then
+        SERVER_PORT="$(printf '%s' "$SERVER_URL" | sed -E 's#^https?://[^:/]+:([0-9]+).*$#\1#')"
+        return 0
+    fi
+
+    local managed_pid=""
+    local managed_port=""
+    local managed_token=""
+
+    if [[ -f "$PID_FILE" ]]; then
+        managed_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    fi
+    if [[ -f "$PORT_FILE" ]]; then
+        managed_port="$(cat "$PORT_FILE" 2>/dev/null || true)"
+    fi
+    if [[ -f "$TOKEN_FILE" ]]; then
+        managed_token="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
+    fi
+
+    # Always replace the previously managed backend on app launch so an updated
+    # desktop bundle never talks to an older app-server process left behind by a
+    # past version of the app.
+    if is_pid_alive "$managed_pid"; then
+        kill "$managed_pid" >/dev/null 2>&1 || true
+        sleep 0.3
+    fi
+
+    start_managed_backend
 }
 
 ensure_backend
 
-# Export the resolved URL so the Swift client and the launcher always agree on
-# which backend endpoint belongs to this installed bundle.
 export COTOR_APP_SERVER_URL="$SERVER_URL"
+export COTOR_APP_TOKEN="$SERVER_TOKEN"
 
 exec "$BINARY_PATH"

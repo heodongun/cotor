@@ -83,6 +83,37 @@ struct DesktopAPI {
         try await post(path: "api/app/tasks/\(taskId)/run", body: EmptyPayload())
     }
 
+    /// Open or reuse the interactive TUI session for one workspace.
+    func openTuiSession(workspaceId: String, preferredAgent: String?) async throws -> TuiSessionRecord {
+        try await post(
+            path: "api/app/tui/sessions",
+            body: OpenTuiSessionPayload(workspaceId: workspaceId, preferredAgent: preferredAgent)
+        )
+    }
+
+    /// Fetch the latest rolling transcript for an active TUI session.
+    func tuiSession(sessionId: String) async throws -> TuiSessionRecord {
+        try await get(path: "api/app/tui/sessions/\(sessionId)")
+    }
+
+    /// Fetch only the terminal bytes appended after the provided cursor.
+    func tuiDelta(sessionId: String, offset: Int64) async throws -> TuiSessionDeltaPayload {
+        try await get(
+            path: "api/app/tui/sessions/\(sessionId)/delta",
+            query: [URLQueryItem(name: "offset", value: String(offset))]
+        )
+    }
+
+    /// Forward raw terminal input into the running TUI process.
+    func sendTuiInput(sessionId: String, input: String) async throws -> TuiSessionRecord {
+        try await post(path: "api/app/tui/sessions/\(sessionId)/input", body: TuiInputPayload(input: input))
+    }
+
+    /// Gracefully stop the TUI session when the user wants a fresh start.
+    func terminateTuiSession(sessionId: String) async throws -> TuiSessionRecord {
+        try await post(path: "api/app/tui/sessions/\(sessionId)/terminate", body: EmptyPayload())
+    }
+
     private func get<T: Decodable>(path: String, query: [URLQueryItem] = []) async throws -> T {
         var request = URLRequest(url: try makeURL(path: path, query: query))
         request.httpMethod = "GET"
@@ -136,6 +167,20 @@ private struct EmptyPayload: Codable {}
 
 enum APIError: LocalizedError {
     case http(Int, String)
+
+    var statusCode: Int {
+        switch self {
+        case let .http(code, _):
+            return code
+        }
+    }
+
+    var responseBody: String {
+        switch self {
+        case let .http(_, message):
+            return message
+        }
+    }
 
     var errorDescription: String? {
         switch self {
