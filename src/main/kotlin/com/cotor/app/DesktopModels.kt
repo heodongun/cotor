@@ -66,6 +66,31 @@ enum class AgentRunStatus {
 }
 
 /**
+ * Publish lifecycle for the git branch created by one agent run.
+ */
+@Serializable
+enum class AgentRunPublishStatus {
+    NOT_STARTED,
+    SKIPPED,
+    PUSHED,
+    PR_CREATED,
+    FAILED
+}
+
+/**
+ * Persisted metadata describing how far the auto-publish workflow progressed.
+ */
+@Serializable
+data class AgentRunPublishInfo(
+    val status: AgentRunPublishStatus = AgentRunPublishStatus.NOT_STARTED,
+    val remoteBranch: String? = null,
+    val commitSha: String? = null,
+    val pullRequestUrl: String? = null,
+    val pullRequestNumber: Int? = null,
+    val summary: String? = null
+)
+
+/**
  * User-authored task that can be fanned out to multiple agents.
  */
 @Serializable
@@ -102,6 +127,7 @@ data class AgentRun(
     val output: String? = null,
     val error: String? = null,
     val durationMs: Long? = null,
+    val publishInfo: AgentRunPublishInfo = AgentRunPublishInfo(),
     val createdAt: Long,
     val updatedAt: Long
 )

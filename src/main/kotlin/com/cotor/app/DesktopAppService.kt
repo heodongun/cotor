@@ -302,6 +302,11 @@ class DesktopAppService(
                     workingDirectory = binding.worktreePath
                 )
             )
+            val publishInfo = if (result.isSuccess) {
+                publishSuccessfulRun(task, workspace, agent.name, binding)
+            } else {
+                AgentRunPublishInfo()
+            }
 
             replaceRun(
                 startedRun.copy(
@@ -310,6 +315,7 @@ class DesktopAppService(
                     output = result.output,
                     error = result.error,
                     durationMs = result.duration.takeIf { it > 0 },
+                    publishInfo = publishInfo,
                     updatedAt = System.currentTimeMillis()
                 )
             )
@@ -372,6 +378,29 @@ class DesktopAppService(
                 state.copy(
                     runs = state.runs.map { existing -> if (existing.id == run.id) run else existing }
                 )
+            )
+        }
+    }
+
+    private suspend fun publishSuccessfulRun(
+        task: AgentTask,
+        workspace: Workspace,
+        agentName: String,
+        binding: WorktreeBinding
+    ): AgentRunPublishInfo {
+        return runCatching {
+            gitWorkspaceService.publishRun(
+                worktreePath = binding.worktreePath,
+                branchName = binding.branchName,
+                baseBranch = workspace.baseBranch,
+                taskTitle = task.title,
+                agentName = agentName
+            )
+        }.getOrElse { error ->
+            AgentRunPublishInfo(
+                status = AgentRunPublishStatus.FAILED,
+                remoteBranch = binding.branchName,
+                summary = error.message ?: "Auto-publish failed"
             )
         }
     }
