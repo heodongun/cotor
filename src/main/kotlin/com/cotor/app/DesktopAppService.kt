@@ -76,14 +76,30 @@ class DesktopAppService(
     suspend fun openLocalRepository(path: String): ManagedRepository {
         val repositoryRoot = gitWorkspaceService.resolveRepositoryRoot(Path.of(path))
         val now = System.currentTimeMillis()
+        val defaultBranch = gitWorkspaceService.detectDefaultBranch(repositoryRoot)
+        val remoteUrl = gitWorkspaceService.detectRemoteUrl(repositoryRoot)
 
         return stateMutex.withLock {
             val state = stateStore.load()
             val existing = state.repositories.firstOrNull {
-                Path.of(it.localPath).toAbsolutePath().normalize() == repositoryRoot
+                sameRepositoryRoot(it.localPath, repositoryRoot)
             }
             if (existing != null) {
-                return@withLock existing
+                val refreshed = existing.copy(
+                    name = repositoryRoot.fileName.toString(),
+                    localPath = repositoryRoot.toString(),
+                    remoteUrl = remoteUrl ?: existing.remoteUrl,
+                    defaultBranch = defaultBranch,
+                    updatedAt = now
+                )
+                stateStore.save(
+                    state.copy(
+                        repositories = state.repositories.map {
+                            if (it.id == existing.id) refreshed else it
+                        }
+                    )
+                )
+                return@withLock refreshed
             }
 
             val repository = ManagedRepository(
@@ -91,7 +107,8 @@ class DesktopAppService(
                 name = repositoryRoot.fileName.toString(),
                 localPath = repositoryRoot.toString(),
                 sourceKind = RepositorySourceKind.LOCAL,
-                defaultBranch = gitWorkspaceService.detectDefaultBranch(repositoryRoot),
+                remoteUrl = remoteUrl,
+                defaultBranch = defaultBranch,
                 createdAt = now,
                 updatedAt = now
             )
@@ -101,14 +118,44 @@ class DesktopAppService(
     }
 
     suspend fun cloneRepository(url: String): ManagedRepository {
+        stateMutex.withLock {
+            val existing = stateStore.load().repositories.firstOrNull { it.remoteUrl == url }
+            if (existing != null) {
+                return existing
+            }
+        }
+
         val repositoryRoot = gitWorkspaceService.cloneRepository(url)
         val now = System.currentTimeMillis()
+        val defaultBranch = gitWorkspaceService.detectDefaultBranch(repositoryRoot)
 
         return stateMutex.withLock {
             val state = stateStore.load()
-            val existing = state.repositories.firstOrNull { it.remoteUrl == url }
-            if (existing != null) {
-                return@withLock existing
+            val existingByUrl = state.repositories.firstOrNull { it.remoteUrl == url }
+            if (existingByUrl != null) {
+                return@withLock existingByUrl
+            }
+
+            val existingByPath = state.repositories.firstOrNull {
+                sameRepositoryRoot(it.localPath, repositoryRoot)
+            }
+            if (existingByPath != null) {
+                val refreshed = existingByPath.copy(
+                    name = repositoryRoot.fileName.toString(),
+                    localPath = repositoryRoot.toString(),
+                    sourceKind = RepositorySourceKind.CLONED,
+                    remoteUrl = url,
+                    defaultBranch = defaultBranch,
+                    updatedAt = now
+                )
+                stateStore.save(
+                    state.copy(
+                        repositories = state.repositories.map {
+                            if (it.id == existingByPath.id) refreshed else it
+                        }
+                    )
+                )
+                return@withLock refreshed
             }
 
             val repository = ManagedRepository(
@@ -117,7 +164,7 @@ class DesktopAppService(
                 localPath = repositoryRoot.toString(),
                 sourceKind = RepositorySourceKind.CLONED,
                 remoteUrl = url,
-                defaultBranch = gitWorkspaceService.detectDefaultBranch(repositoryRoot),
+                defaultBranch = defaultBranch,
                 createdAt = now,
                 updatedAt = now
             )
@@ -239,6 +286,9 @@ class DesktopAppService(
         availableAgents = BuiltinAgentCatalog.names(),
         shortcuts = ShortcutConfig()
     )
+
+    private fun sameRepositoryRoot(savedPath: String, repositoryRoot: Path): Boolean =
+        Path.of(savedPath).toAbsolutePath().normalize() == repositoryRoot.toAbsolutePath().normalize()
 
     private suspend fun executeTask(taskId: String) {
         val snapshot = stateStore.load()

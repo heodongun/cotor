@@ -76,6 +76,18 @@ class GitWorkspaceService(
     }
 
     /**
+     * Read the canonical origin URL for repositories that were opened from an
+     * existing local checkout instead of cloned through the desktop app.
+     */
+    suspend fun detectRemoteUrl(repositoryRoot: Path): String? {
+        val result = runGit(repositoryRoot, "config", "--get", "remote.origin.url", failOnError = false)
+        if (!result.isSuccess) {
+            return null
+        }
+        return result.stdout.trim().ifBlank { null }
+    }
+
+    /**
      * Expose a deduplicated branch list for the desktop branch picker.
      *
      * Local refs are preferred, but remote origin branches are folded back into the
