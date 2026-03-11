@@ -31,6 +31,7 @@ Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 
 - [📑 문서 인덱스](docs/INDEX.md)
 
 ### 테스트 리포트
+- [📈 Paperclip 벤치마크 리포트](docs/reports/PAPERCLIP_BENCHMARK_REPORT.md) - Cotor 지표와 Paperclip 기준선 공백 정리
 - [✅ **실제 실행 테스트**](test-results/LIVE_TEST_RESULTS.md) - 실제 동작 확인 (신규!)
 - [📊 테스트 요약](test-results/README.md) - 빠른 확인
 - [🧪 상세 테스트](docs/reports/FEATURE_TEST_REPORT_v1.0.0.md) - 포괄적 테스트

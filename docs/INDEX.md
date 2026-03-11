@@ -31,6 +31,7 @@
 
 ## 리포트
 
+- `reports/PAPERCLIP_BENCHMARK_REPORT.md`
 - `reports/TEST_REPORT.md`
 - `reports/IMPLEMENTATION_SUMMARY.md`
 - `reports/IMPROVEMENTS.md`
