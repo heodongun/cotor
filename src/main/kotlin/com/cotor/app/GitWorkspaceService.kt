@@ -72,6 +72,17 @@ class GitWorkspaceService(
     }
 
     /**
+     * Returns the configured origin remote URL when present.
+     */
+    suspend fun detectRemoteUrl(repositoryRoot: Path): String? {
+        val result = runGit(repositoryRoot, "config", "--get", "remote.origin.url", failOnError = false)
+        if (!result.isSuccess) {
+            return null
+        }
+        return result.stdout.trim().ifBlank { null }
+    }
+
+    /**
      * Expose a deduplicated branch list for the desktop branch picker.
      *
      * Local refs are preferred, but remote origin branches are folded back into the
