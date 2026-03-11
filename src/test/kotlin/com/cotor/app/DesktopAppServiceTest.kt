@@ -152,8 +152,11 @@ private class FakeGitProcessManager(
             listOf("rev-parse", "--show-toplevel") -> success(repoRoot.toString())
             listOf("symbolic-ref", "refs/remotes/origin/HEAD") -> success("refs/remotes/origin/$defaultBranch")
             listOf("config", "--get", "remote.origin.url") -> {
-                if (remoteUrl == null) failure("missing remote")
-                else success(remoteUrl)
+                if (remoteUrl == null) {
+                    failure("missing remote")
+                } else {
+                    success(remoteUrl)
+                }
             }
             else -> error("Unexpected git command: ${command.joinToString(" ")}")
         }
