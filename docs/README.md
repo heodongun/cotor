@@ -66,7 +66,9 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 - Real-time timeline collection + watch mode monitoring
 - Checkpoint save/resume and checkpoint garbage collection
 - Output formatting in `json`, `csv`, `text`
-- Template generation (`compare`, `chain`, `review`, `consensus`, `fanout`, `selfheal`, `verified`, `custom`)
+- Template generation (`compare`, `chain`, `review`, `consensus`, `fanout`, `selfheal`, `verified`, `release`, `custom`)
+- `release` template placeholders: `{{verify_argv_json}}`, `{{verify_executable}}`, `{{commit_message}}`, `{{release_branch}}`, `{{release_tag}}`, `{{release_tag_message}}`, `{{release_title}}`, `{{release_notes_file}}`
+- `release` template prerequisites: `git`, `gh`, verification command/toolchain, and a release notes file
 - Agent preset management and plugin metadata inspection
 
 ## Docs Map

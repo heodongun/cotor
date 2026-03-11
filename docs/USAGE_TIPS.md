@@ -8,6 +8,9 @@
 ## 빠른 시작
 - `cotor init --interactive` : 질문에 답해 YAML 자동 생성
 - `cotor template --list` / `--preview <type>` / `--fill key=value` : 템플릿 브라우저 + 부분 치환
+- `cotor template release` : 구현→검증→commit/push/tag/release 단계를 CommandPlugin으로 분리한 자동화 스캐폴드.
+  - 기본 플레이스홀더: `{{verify_argv_json}}`, `{{verify_executable}}`, `{{commit_message}}`, `{{release_branch}}`, `{{release_tag}}`, `{{release_tag_message}}`, `{{release_title}}`, `{{release_notes_file}}`
+  - 필요 도구: `git`, `gh`, 검증 명령, 릴리즈 노트 파일
 - `examples/run-examples.sh` : 단일/병렬/조건·루프 샘플 즉시 실행
 
 ## 실행 전 안전장치

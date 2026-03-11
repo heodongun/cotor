@@ -34,7 +34,8 @@
 5. `fanout`
 6. `selfheal`
 7. `verified`
-8. `custom`
+8. `release`
+9. `custom`
 
 지원 기능:
 - 템플릿 미리보기(`--preview`)
