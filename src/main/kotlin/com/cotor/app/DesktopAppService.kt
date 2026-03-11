@@ -2,6 +2,7 @@ package com.cotor.app
 
 import com.cotor.data.config.ConfigRepository
 import com.cotor.domain.executor.AgentExecutor
+import com.cotor.domain.planning.GoalDrivenTaskPlanner
 import com.cotor.model.AgentConfig
 import com.cotor.model.AgentExecutionMetadata
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,7 @@ class DesktopAppService(
     private val gitWorkspaceService: GitWorkspaceService,
     private val configRepository: ConfigRepository,
     private val agentExecutor: AgentExecutor,
+    private val taskPlanner: GoalDrivenTaskPlanner = GoalDrivenTaskPlanner(),
 ) {
     // Reads are cheap and frequent, but writes must be serialized so the state file
     // cannot be partially overwritten when multiple agent runs finish at once.
@@ -159,6 +161,11 @@ class DesktopAppService(
         val requestedAgents = agents.map { it.trim().lowercase() }.filter { it.isNotBlank() }.ifEmpty {
             listOf("claude", "codex")
         }
+        val executionPlan = taskPlanner.buildPlan(
+            title = title,
+            prompt = prompt,
+            agents = requestedAgents
+        )
 
         // Freeze the requested agent list into the task record up front so rerenders,
         // retries, and later refreshes all refer to the same execution plan.
@@ -168,6 +175,7 @@ class DesktopAppService(
             title = title?.takeIf { it.isNotBlank() } ?: prompt.lineSequence().firstOrNull()?.take(48).orEmpty().ifBlank { "New Task" },
             prompt = prompt,
             agents = requestedAgents,
+            plan = executionPlan,
             status = DesktopTaskStatus.QUEUED,
             createdAt = now,
             updatedAt = now
@@ -247,7 +255,13 @@ class DesktopAppService(
             // does not create cross-agent file conflicts inside the same repository root.
             task.agents.map { agentName ->
                 async {
-                    executeAgentRun(task, workspace, repository, agents[agentName] ?: BuiltinAgentCatalog.get(agentName))
+                    executeAgentRun(
+                        task = task,
+                        workspace = workspace,
+                        repository = repository,
+                        agentName = agentName,
+                        agent = agents[agentName] ?: BuiltinAgentCatalog.get(agentName)
+                    )
                 }
             }.awaitAll()
         }
@@ -267,10 +281,11 @@ class DesktopAppService(
         task: AgentTask,
         workspace: Workspace,
         repository: ManagedRepository,
+        agentName: String,
         agent: AgentConfig?
     ) {
         if (agent == null) {
-            recordRunFailure(task, workspace, repository, "unknown", "Unknown agent configuration")
+            recordRunFailure(task, workspace, repository, agentName, "Unknown agent configuration")
             return
         }
 
@@ -289,7 +304,7 @@ class DesktopAppService(
 
             val result = agentExecutor.executeAgent(
                 agent = agent,
-                input = task.prompt,
+                input = assignedPromptFor(task, agent.name),
                 // The only context the CLI agents need for worktree isolation is cwd.
                 // They can continue using their existing command-line contracts.
                 metadata = AgentExecutionMetadata(
@@ -317,6 +332,9 @@ class DesktopAppService(
             recordRunFailure(task, workspace, repository, agent.name, t.message ?: "Unknown error")
         }
     }
+
+    private fun assignedPromptFor(task: AgentTask, agentName: String): String =
+        task.plan?.assignmentFor(agentName)?.assignedPrompt ?: task.prompt
 
     private suspend fun resolveAgents(repositoryRoot: Path, requestedAgents: List<String>): Map<String, AgentConfig> {
         val configPath = repositoryRoot.resolve("cotor.yaml")

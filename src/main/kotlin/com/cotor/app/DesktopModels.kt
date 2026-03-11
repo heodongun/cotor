@@ -75,9 +75,47 @@ data class AgentTask(
     val title: String,
     val prompt: String,
     val agents: List<String>,
+    val plan: TaskExecutionPlan? = null,
     val status: DesktopTaskStatus,
     val createdAt: Long,
     val updatedAt: Long
+)
+
+/**
+ * Persisted decomposition of one task goal into explicit per-agent assignments.
+ */
+@Serializable
+data class TaskExecutionPlan(
+    val version: Int = 1,
+    val goalSummary: String,
+    val decompositionSource: String,
+    val sharedChecklist: List<String> = emptyList(),
+    val assignments: List<AgentAssignmentPlan> = emptyList()
+) {
+    fun assignmentFor(agentName: String): AgentAssignmentPlan? =
+        assignments.firstOrNull { it.agentName.equals(agentName, ignoreCase = true) }
+}
+
+/**
+ * Agent-specific view of the generated plan, including the prompt to execute.
+ */
+@Serializable
+data class AgentAssignmentPlan(
+    val agentName: String,
+    val role: String,
+    val focus: String,
+    val subtasks: List<TaskSubtask> = emptyList(),
+    val assignedPrompt: String
+)
+
+/**
+ * One concrete subtask owned by a specific agent within a generated plan.
+ */
+@Serializable
+data class TaskSubtask(
+    val id: String,
+    val title: String,
+    val details: String
 )
 
 /**
