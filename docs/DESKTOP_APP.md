@@ -41,11 +41,18 @@ swift run --package-path macos CotorDesktopApp
 ## Install A Local App Bundle
 
 ```bash
-./shell/install-desktop-app.sh
+cotor install
 open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
 ```
 
 The bundle starts the local backend lazily when needed.
+
+You can update or remove the installed bundle from the CLI:
+
+```bash
+cotor update
+cotor delete
+```
 
 ## Current Shell Model
 

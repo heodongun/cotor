@@ -67,8 +67,16 @@ cotor app-server --port 8787
 로컬 앱 번들을 빌드하고 설치:
 
 ```bash
-./shell/install-desktop-app.sh
+cotor install
 open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
+```
+
+CLI에서 설치된 앱 번들을 직접 관리할 수도 있습니다:
+
+```bash
+cotor install
+cotor update
+cotor delete
 ```
 
 현재 데스크톱 셸 구조:
