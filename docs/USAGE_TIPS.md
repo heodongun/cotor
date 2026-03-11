@@ -1,24 +1,35 @@
-# Cotor 사용 편의 팁
+# Cotor Usage Tips
 
-## 바로 확인/점검
-- `cotor --short` : 10줄 치트시트
-- `cotor doctor` : Java/빌드/JAR/예제/CLI 설치 여부 점검
-- `cotor completion zsh|bash|fish` : 자동완성 스크립트 출력 (추천 alias: `co`)
+## Fast Discovery
 
-## 빠른 시작
-- `cotor init --interactive` : 질문에 답해 YAML 자동 생성
-- `cotor template --list` / `--preview <type>` / `--fill key=value` : 템플릿 브라우저 + 부분 치환
-- `examples/run-examples.sh` : 단일/병렬/조건·루프 샘플 즉시 실행
+- `cotor --short`: 10-line cheat sheet
+- `cotor --help`: top-level command help
+- `cotor template --list`: inspect current template inventory
+- `cotor app-server --help`: verify local desktop backend options
 
-## 실행 전 안전장치
-- `cotor validate <pipeline> -c <yaml>` : 실행 전에 구조 검증
-- 실패하면 `--dry-run`으로 흐름만 확인, 로그는 `logging.file` 참고
+## Safe Execution Loop
 
-## 문제 해결
-- 에러 메시지에 제시된 제안(“💡 Suggestions”)을 우선 확인
-- 필요한 CLI가 없으면 `cotor doctor` 결과를 참고해 설치
-- 상세 로그: `--debug`, 또는 `logging.file` 확인
+- run `cotor validate <pipeline> -c <config>` before `run`
+- use `--dry-run` when changing execution mode or dependencies
+- check `cotor doctor` before blaming pipeline logic for missing CLIs
+- use `status` and `stats` together after a failed run
 
-## 편의
-- 자동완성 적용: `cotor completion zsh > ~/.zshrc_snippets && source ~/.zshrc_snippets`
-- 자주 쓰는 단축키: `alias co="cotor"`
+## Current Command Caveats
+
+- `resume` lists and inspects checkpoints; it does not resume execution yet
+- `plugin` currently exposes `plugin init` only
+- `cotor` with no args opens the interactive TUI
+- `cotor tui` is just an alias to `interactive`
+
+## Desktop Operator Tips
+
+- treat the session strip as the fast context switcher between issue/run contexts
+- keep the detail drawer collapsed unless you need diffs, files, ports, browser, or review metadata
+- use board/canvas as an operations view, not the default live execution surface
+
+## Autonomous Company Tips
+
+- create one focused goal instead of a vague multi-goal brief
+- review the generated issues before starting the runtime
+- use runtime start/stop/status to verify the loop is active
+- treat `Linear` sync as non-live until the adapter is implemented

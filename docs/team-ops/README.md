@@ -1,34 +1,43 @@
-# Team Ops Onboarding Package (Draft)
+# Team Operations & Onboarding
 
-This package is the repo-specific onboarding starter for contributors and maintainers working on Cotor.
+This package is the maintainer-facing operations layer for the current Cotor repo.
 
-## Who this package is for
+## Start Here
 
-- New contributors joining feature or bug-fix work
-- Maintainers handling release, issue triage, and quality gates
-- Collaborators who need a shared operational baseline
+1. Read `../README.md`, `../FEATURES.md`, `../DESKTOP_APP.md`, and `../TEST_PLAN.md`
+2. Follow repo-wide AI and contribution rules in `../../AGENTS.md` and `../../CONTRIBUTING.md`
+3. Validate the repo with the scope-appropriate commands before opening a PR
 
-## Package contents
+## What This Package Covers
 
-- `templates.md`: role-based operating templates (English)
-- `templates.ko.md`: role-based operating templates (Korean)
+- onboarding checklist
+- operating cadence
+- feature owner handoff
+- reviewer checklist
+- maintainer stewardship checklist
 
-## Suggested onboarding flow
+## Current Delivery Loop
 
-1. Read `docs/README.md` and `docs/INDEX.md` for the full docs surface.
-2. Skim architecture and run path docs (`ARCHITECTURE.md`, `QUICK_START.md`).
-3. Open `team-ops/templates.md` and copy the template matching your role.
-4. Fill owner/scope/checklist fields and link your working issue/PR.
-5. Keep the template in your issue thread or branch workpad and update daily.
+1. reproduce or map current behavior
+2. make the smallest sufficient change
+3. validate with the matching test matrix
+4. document current behavior, known limits, and follow-up work
+5. review and merge
 
-## Role coverage in this draft
+## Company-First Notes
 
-- Contributor (feature/bug implementation)
-- Reviewer & maintainer (review, merge, release safety)
-- Release operator (changelog, packaging, smoke checks)
-- Documentation owner (docs quality and discoverability)
+- Treat `Company` as the top-level product unit when the change touches goals, issues, review queue, runtime, or context persistence.
+- Treat `repository/workspace/task/run` as execution infrastructure underneath company operations.
+- When a UI or docs change mentions “Linear-like” behavior, keep it scoped to the Cotor app unless a real external integration is implemented.
 
-## Draft status
+## Current Truth Sources
 
-- This is a working draft for COT-13 / HEO-77.
-- Templates are intentionally lightweight and can be tightened after team feedback.
+- product snapshot: `../../README.md`
+- docs router: `../INDEX.md`
+- validation matrix: `../TEST_PLAN.md`
+- desktop and company workflow: `../DESKTOP_APP.md`
+
+## Notes
+
+- historical reports and design drafts are context only; they are not the source of truth for current behavior
+- when docs drift from code, update the docs in the same change

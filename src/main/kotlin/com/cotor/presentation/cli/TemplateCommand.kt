@@ -23,9 +23,9 @@ class TemplateCommand(
 ) {
     private val templateType by argument(
         name = "type",
-        help = "Template type: compare, chain, review, consensus, fanout, selfheal, verified, custom"
+        help = "Template type: compare, chain, review, consensus, fanout, selfheal, verified, blocked-escalation, release, custom"
     ).choice(
-        "compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "custom",
+        "compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "blocked-escalation", "release", "custom",
         ignoreCase = true
     ).optional()
 
@@ -41,7 +41,7 @@ class TemplateCommand(
     ).flag(default = false)
 
     private val preview by option("--preview", help = "Preview a template without writing a file")
-        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "custom")
+        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "blocked-escalation", "release", "custom")
 
     private val list by option("--list", help = "List available templates").flag(default = false)
 
@@ -200,7 +200,9 @@ performance:
             "consensus" to "Multiple AIs provide opinions to reach consensus",
             "fanout" to "DAG fan-out/fan-in merge pattern",
             "selfheal" to "Loop-based self-healing/retry pattern",
-            "verified" to "Generate → test/verify → fix loop (uses CommandPlugin to run a command)",
+            "verified" to "Generate → test/verify → fix loop (uses reusable QA verification agent)",
+            "blocked-escalation" to "Detect blocked items and auto-escalate to CTO/EM when stale",
+            "release" to "Verified implementation with explicit commit/push/tag/release CommandPlugin stages",
             "custom" to "Customizable template with common patterns"
         )
 
@@ -239,10 +241,114 @@ performance:
             "fanout" -> generateFanoutTemplate()
             "selfheal" -> generateSelfHealTemplate()
             "verified" -> generateVerifiedTemplate()
+            "blocked-escalation" -> generateBlockedEscalationTemplate()
+            "release" -> generateReleaseTemplate()
             "custom" -> generateCustomTemplate()
             else -> throw IllegalArgumentException("Unknown template type: $type")
         }
     }
+
+    private fun generateBlockedEscalationTemplate() = """
+version: "1.0"
+
+agents:
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+
+pipelines:
+  - name: blocked-reassignment-escalation
+    description: "Auto reassignment for blocked work items after N-minute stagnation"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: classify-blocked-item
+        agent:
+          name: codex
+        input: |
+          You are an issue routing engine.
+          Analyze the blocked work item and output exactly one label:
+          - REASSIGN_TEAM
+          - ESCALATE_EM
+          - ESCALATE_CTO
+
+          Rule:
+          1) If blocked duration is under {{stall_minutes}} minutes -> REASSIGN_TEAM
+          2) If blocked duration is >= {{stall_minutes}} and < {{cto_minutes}} -> ESCALATE_EM
+          3) If blocked duration is >= {{cto_minutes}} -> ESCALATE_CTO
+
+          Context:
+          {{blocked_item_context}}
+
+      - id: route-escalation
+        type: DECISION
+        condition:
+          expression: "classify-blocked-item.output.contains(\"ESCALATE_CTO\")"
+          onTrue:
+            action: GOTO
+            targetStageId: notify-cto
+          onFalse:
+            action: CONTINUE
+
+      - id: route-em
+        type: DECISION
+        condition:
+          expression: "classify-blocked-item.output.contains(\"ESCALATE_EM\")"
+          onTrue:
+            action: GOTO
+            targetStageId: notify-em
+          onFalse:
+            action: GOTO
+            targetStageId: reassign-team
+
+      - id: reassign-team
+        agent:
+          name: codex
+        input: |
+          Reassign this blocked work item to the best available engineer in the same team.
+          Include rationale and SLA reminder.
+
+          Item context:
+          {{blocked_item_context}}
+
+      - id: notify-em
+        agent:
+          name: claude
+        input: |
+          Draft an escalation notice to EM for a blocked item that exceeded {{stall_minutes}} minutes.
+          Include: issue, blocker summary, attempted actions, and requested decision.
+
+          Item context:
+          {{blocked_item_context}}
+
+      - id: notify-cto
+        agent:
+          name: claude
+        input: |
+          Draft an urgent escalation notice to CTO for a blocked item that exceeded {{cto_minutes}} minutes.
+          Include: business impact, blocker owner, mitigation options, and immediate ask.
+
+          Item context:
+          {{blocked_item_context}}
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - codex
+    - claude
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 1
+    """.trimIndent()
 
     private fun generateCompareTemplate() = """
 version: "1.0"
@@ -528,11 +634,11 @@ agents:
     pluginClass: com.cotor.data.plugin.CodexPlugin
     timeout: 600000
 
-  - name: verifier
-    pluginClass: com.cotor.data.plugin.CommandPlugin
+  - name: qa
+    pluginClass: com.cotor.data.plugin.QaVerificationPlugin
     timeout: 600000
     parameters:
-      # Update this to your project's test/verify command.
+      # Optional override. Remove this to auto-detect by repository files.
       argvJson: '["./gradlew","test","--console=plain"]'
 
   - name: echo
@@ -554,7 +660,7 @@ pipelines:
 
       - id: test
         agent:
-          name: verifier
+          name: qa
         input: ""
         failureStrategy: CONTINUE
         optional: true
@@ -605,6 +711,132 @@ logging:
 
 performance:
   maxConcurrentAgents: 3
+    """.trimIndent()
+
+
+    private fun generateReleaseTemplate() = """
+version: "1.0"
+
+agents:
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 600000
+
+  - name: verify
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 600000
+    parameters:
+      # Replace with your deterministic verification command.
+      argvJson: '{{verify_argv_json}}'
+
+  - name: git-commit
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["git","commit","-am","{{commit_message}}"]'
+
+  - name: git-push
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["git","push","origin","{{release_branch}}"]'
+
+  - name: git-tag
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["git","tag","-a","{{release_tag}}","-m","{{release_tag_message}}"]'
+
+  - name: git-push-tag
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["git","push","origin","{{release_tag}}"]'
+
+  - name: gh-release
+    pluginClass: com.cotor.data.plugin.CommandPlugin
+    timeout: 120000
+    parameters:
+      argvJson: '["gh","release","create","{{release_tag}}","--title","{{release_title}}","--notes-file","{{release_notes_file}}"]'
+
+  - name: echo
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 30000
+
+pipelines:
+  - name: release-automation
+    description: "Implement, verify, and publish release artifacts with explicit command stages"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: implement
+        agent:
+          name: codex
+        input: |
+          YOUR_PROMPT_HERE
+          - Make the required code changes.
+          - Keep edits minimal and production ready.
+
+      - id: verify
+        agent:
+          name: verify
+        input: ""
+
+      - id: verify-gate
+        type: DECISION
+        condition:
+          expression: "!verify.success"
+          onTrue:
+            action: STOP
+            message: "Verification failed; release stages were skipped"
+          onFalse:
+            action: CONTINUE
+            message: "Verification passed; continuing release"
+
+      - id: commit
+        agent:
+          name: git-commit
+        input: ""
+
+      - id: push
+        agent:
+          name: git-push
+        input: ""
+
+      - id: tag
+        agent:
+          name: git-tag
+        input: ""
+
+      - id: push-tag
+        agent:
+          name: git-push-tag
+        input: ""
+
+      - id: create-release
+        agent:
+          name: gh-release
+        input: ""
+
+      - id: done
+        agent:
+          name: echo
+        input: "✅ Release automation completed"
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - git
+    - gh
+    - {{verify_executable}}
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 2
     """.trimIndent()
 
     private fun generateCustomTemplate() = """

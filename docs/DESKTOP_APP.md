@@ -1,15 +1,15 @@
 # Desktop App
 
-The desktop foundation adds a native macOS shell on top of the existing Kotlin runtime.
+The desktop app is a native macOS shell on top of the existing Kotlin runtime and localhost `cotor app-server`.
 
 ## Components
 
 - `cotor app-server`
-  Serves the localhost HTTP API consumed by the desktop client.
+  - localhost API for repositories, workspaces, tasks, goals, issues, review queue, and runtime state
 - `macos/`
-  SwiftUI package for the macOS shell.
+  - SwiftUI shell
 - `src/main/kotlin/com/cotor/app/`
-  Desktop-specific repository, workspace, task, and worktree services.
+  - repository, workspace, task, goal, issue, review-queue, and runtime services
 
 ## Run The Backend
 
@@ -17,7 +17,7 @@ The desktop foundation adds a native macOS shell on top of the existing Kotlin r
 ./gradlew run --args='app-server --port 8787'
 ```
 
-Optional auth:
+Optional local auth:
 
 ```bash
 export COTOR_APP_TOKEN='your-local-token'
@@ -38,41 +38,82 @@ export COTOR_APP_TOKEN='your-local-token'
 swift run --package-path macos CotorDesktopApp
 ```
 
-## Build And Download A Local Copy
-
-Build the release app bundle, install it into `Applications`, and refresh the download archive:
+## Install A Local App Bundle
 
 ```bash
 ./shell/install-desktop-app.sh
-```
-
-The script refreshes:
-
-- `/Applications/Cotor Desktop.app` when writable, otherwise `~/Applications/Cotor Desktop.app`
-- `~/Downloads/Cotor Desktop.app`
-- `~/Downloads/Cotor-Desktop-macOS.zip`
-
-Launch the installed app:
-
-```bash
 open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
 ```
 
-The installed bundle checks whether `cotor app-server` is already listening on `127.0.0.1:8787`. If not, it starts the bundled backend jar before opening the native SwiftUI shell. The launcher expects Java 17 or newer to be available locally.
+The bundle starts the local backend lazily when needed.
 
-## Isolation Model
+## Current Shell Model
 
-- Each task fans out into one isolated agent run per selected agent.
-- Each agent run gets its own git branch named `codex/cotor/<task-slug>/<agent-name>`.
-- Each agent run gets its own worktree under `.cotor/worktrees/<task-id>/<agent-name>`.
-- Re-running an existing task reuses the same worktree instead of creating duplicates.
+The current macOS shell has two top-level modes.
 
-## Current Scope
+- `Company`
+  - company selector
+  - company creation bound to one root folder
+  - agent-definition composer
+  - goal list and goal creation
+  - Linear-style issue board/canvas inside the app
+  - company activity feed
+  - runtime start/stop/status
+- `TUI`
+  - repository and workspace context
+  - live terminal session strip
+  - dominant center TUI surface
+  - bottom detail drawer for changes, files, ports, browser, and review metadata
 
-- Repository registration from a local path or by cloning a Git URL.
-- Repository-level base branch discovery and branch picker for workspace creation.
-- Workspace creation pinned to a selected base branch.
-- Multi-agent task creation and launch.
-- Diff, file tree, run-state inspection, and an embedded browser in the macOS client.
-- PID-based local port discovery for agent runs via `lsof`.
-- Read-only settings screen for app paths, available agents, and current keyboard shortcuts.
+## Repository And Run Isolation
+
+- each agent run gets its own branch named `codex/cotor/<task-slug>/<agent-name>`
+- each agent run gets its own worktree under `.cotor/worktrees/<task-id>/<agent-name>`
+- re-running the same task reuses the existing isolated worktree
+
+## Current Company API Surface
+
+Current company-first routes:
+
+- `GET /api/app/companies`
+- `POST /api/app/companies`
+- `GET /api/app/companies/{companyId}`
+- `PATCH /api/app/companies/{companyId}`
+- `GET /api/app/companies/{companyId}/agents`
+- `POST /api/app/companies/{companyId}/agents`
+- `PATCH /api/app/companies/{companyId}/agents/{agentId}`
+- `GET /api/app/companies/{companyId}/projects`
+- `GET /api/app/companies/{companyId}/goals`
+- `POST /api/app/companies/{companyId}/goals`
+- `GET /api/app/companies/{companyId}/issues`
+- `GET /api/app/companies/{companyId}/review-queue`
+- `GET /api/app/companies/{companyId}/activity`
+- `GET /api/app/companies/{companyId}/contexts`
+- `GET /api/app/companies/{companyId}/runtime`
+- `POST /api/app/companies/{companyId}/runtime/start`
+- `POST /api/app/companies/{companyId}/runtime/stop`
+- `PATCH /api/app/workspaces/{workspaceId}/base-branch`
+
+Compatibility routes under `/api/app/company/*` still exist for older clients.
+
+## What Works Today
+
+- create multiple companies
+- bind each company to one working folder
+- define company agents with minimal user input
+- create a company goal
+- auto-decompose that goal into issues
+- delegate and run issues
+- inspect linked tasks and runs
+- populate and merge review queue items
+- inspect company activity
+- start, stop, and inspect the local runtime loop
+- prefer locally installed agent CLIs for default company profiles, with `echo` as a final fallback
+
+## Current Limits
+
+- macOS shell only
+- the issue board is Linear-style inside Cotor; this build does not perform external Linear sync
+- runtime automation does not yet include the planned policy engine or follow-up issue generation
+- review and PR sync are local-state driven in this build, not full live GitHub/CI orchestration
+- `resume` remains a checkpoint inspection flow, not full run resumption

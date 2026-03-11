@@ -9,6 +9,7 @@ Thank you for contributing to Cotor.
 - [ ] Describe **what changed** and **why**.
 - [ ] Run relevant tests or checks locally.
 - [ ] Keep docs aligned with behavior changes.
+- [ ] AI agents follow `AGENTS.md` when changing code, docs, tests, or workflows.
 
 ## Documentation Synchronization Rule (EN/KR)
 
@@ -40,6 +41,7 @@ Cotor에 기여해 주셔서 감사합니다.
 - [ ] **무엇이** 변경되었는지와 **왜** 변경했는지 설명합니다.
 - [ ] 관련 테스트/점검을 로컬에서 실행합니다.
 - [ ] 동작 변경 시 문서도 함께 맞춰 갱신합니다.
+- [ ] AI 에이전트는 코드, 문서, 테스트, 워크플로 변경 시 `AGENTS.md`를 따릅니다.
 
 ## 문서 동기화 규칙 (한/영)
 

@@ -3,6 +3,8 @@ package com.cotor.domain.executor
 import com.cotor.data.plugin.PluginLoader
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
+import com.cotor.monitoring.NoopObservabilityService
+import com.cotor.monitoring.ObservabilityService
 import com.cotor.security.SecurityValidator
 import kotlinx.coroutines.*
 import org.slf4j.Logger
@@ -46,7 +48,8 @@ class DefaultAgentExecutor(
     private val processManager: ProcessManager,
     private val pluginLoader: PluginLoader,
     private val securityValidator: SecurityValidator,
-    private val logger: Logger
+    private val logger: Logger,
+    private val observability: ObservabilityService = NoopObservabilityService
 ) : AgentExecutor {
     private val isDesktopTui = System.getenv("COTOR_DESKTOP_TUI") == "1"
 
@@ -56,6 +59,8 @@ class DefaultAgentExecutor(
         metadata: AgentExecutionMetadata
     ): AgentResult {
         logger.debug("Executing agent: ${agent.name}")
+        val observation = observability.startAgent(agent.name, metadata)
+        val startedAtMs = System.currentTimeMillis()
 
         return withContext(Dispatchers.IO) {
             try {
@@ -103,7 +108,7 @@ class DefaultAgentExecutor(
                 }
                 val duration = System.currentTimeMillis() - startTime
 
-                AgentResult(
+                val result = AgentResult(
                     agentName = agent.name,
                     isSuccess = true,
                     output = pluginOutput.output,
@@ -117,6 +122,7 @@ class DefaultAgentExecutor(
                     },
                     processId = pluginOutput.processId
                 )
+                result.copy(metadata = result.metadata + observability.completeAgent(observation, metadata, result))
             } catch (e: TimeoutCancellationException) {
                 logAgentFailure("Agent timeout: ${agent.name}", e)
                 AgentResult(
@@ -125,7 +131,7 @@ class DefaultAgentExecutor(
                     output = null,
                     error = "Execution timeout after ${agent.timeout}ms",
                     duration = agent.timeout,
-                    metadata = emptyMap()
+                    metadata = observability.failAgent(observation, metadata, System.currentTimeMillis() - startedAtMs, e)
                 )
             } catch (e: ProcessExecutionException) {
                 logAgentFailure("Agent process execution failed: ${agent.name}", e)
@@ -137,7 +143,7 @@ class DefaultAgentExecutor(
                     output = e.stdout.takeIf { it.isNotBlank() },
                     error = "$message (exit=${e.exitCode}): $stderr",
                     duration = 0,
-                    metadata = emptyMap()
+                    metadata = observability.failAgent(observation, metadata, System.currentTimeMillis() - startedAtMs, e)
                 )
             } catch (e: Exception) {
                 logAgentFailure("Agent execution failed: ${agent.name}", e)
@@ -147,7 +153,7 @@ class DefaultAgentExecutor(
                     output = null,
                     error = e.message ?: "Unknown error",
                     duration = 0,
-                    metadata = emptyMap()
+                    metadata = observability.failAgent(observation, metadata, System.currentTimeMillis() - startedAtMs, e)
                 )
             }
         }

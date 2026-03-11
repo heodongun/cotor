@@ -157,3 +157,4 @@ cotor validate <config>
 - [ ] 대규모 파이프라인 (10+ stages)
 - [ ] 병렬 실행 (10+ concurrent agents)
 - [ ] 장시간 실행 (1시간+)
+> Status: Historical report. This file is preserved as a past improvement note and is not the current product contract.

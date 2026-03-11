@@ -4,11 +4,20 @@ import com.cotor.model.AgentMetrics
 import com.cotor.model.MemoryStatus
 import com.cotor.model.PerformanceConfig
 import kotlinx.coroutines.delay
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.slf4j.Logger
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+
+enum class StructuredLogLevel {
+    INFO,
+    WARN,
+    ERROR
+}
 
 /**
  * Structured logger for JSON logging
@@ -16,29 +25,48 @@ import java.util.concurrent.atomic.AtomicInteger
 class StructuredLogger(
     private val logger: Logger
 ) {
-    private val json = Json { prettyPrint = false }
+    fun logObservationEvent(
+        event: String,
+        traceContext: TraceContext? = null,
+        level: StructuredLogLevel = StructuredLogLevel.INFO,
+        additionalContext: Map<String, Any?> = emptyMap()
+    ) {
+        val logData = buildMap<String, JsonElement> {
+            put("event", event)
+            put("timestamp", java.time.Instant.now().toString())
+            traceContext?.let {
+                put("trace_id", it.traceId)
+                put("span_id", it.spanId)
+                it.parentSpanId?.let { parent -> put("parent_span_id", parent) }
+            }
+            additionalContext.forEach { (key, value) ->
+                put(key, value)
+            }
+        }
+
+        val jsonLog = JsonObject(logData).toString()
+        when (level) {
+            StructuredLogLevel.INFO -> logger.info(jsonLog)
+            StructuredLogLevel.WARN -> logger.warn(jsonLog)
+            StructuredLogLevel.ERROR -> logger.error(jsonLog)
+        }
+    }
 
     fun logAgentExecution(
         agentName: String,
         duration: Long,
         success: Boolean,
-        additionalContext: Map<String, Any> = emptyMap()
+        additionalContext: Map<String, Any?> = emptyMap()
     ) {
-        val logData = mapOf(
-            "event" to "agent_execution",
-            "agent_name" to agentName,
-            "duration_ms" to duration,
-            "success" to success,
-            "timestamp" to java.time.Instant.now().toString()
-        ) + additionalContext
-
-        val jsonLog = json.encodeToString(logData)
-
-        if (success) {
-            logger.info(jsonLog)
-        } else {
-            logger.error(jsonLog)
-        }
+        logObservationEvent(
+            event = "agent_execution",
+            level = if (success) StructuredLogLevel.INFO else StructuredLogLevel.ERROR,
+            additionalContext = mapOf(
+                "agent_name" to agentName,
+                "duration_ms" to duration,
+                "success" to success
+            ) + additionalContext
+        )
     }
 
     fun logPipelineExecution(
@@ -47,18 +75,39 @@ class StructuredLogger(
         successCount: Int,
         failureCount: Int
     ) {
-        val logData = mapOf(
-            "event" to "pipeline_execution",
-            "pipeline_name" to pipelineName,
-            "total_duration_ms" to totalDuration,
-            "success_count" to successCount,
-            "failure_count" to failureCount,
-            "timestamp" to java.time.Instant.now().toString()
+        logObservationEvent(
+            event = "pipeline_execution",
+            additionalContext = mapOf(
+                "pipeline_name" to pipelineName,
+                "total_duration_ms" to totalDuration,
+                "success_count" to successCount,
+                "failure_count" to failureCount
+            )
         )
+    }
 
-        logger.info(json.encodeToString(logData))
+    private fun MutableMap<String, JsonElement>.put(key: String, value: Any?) {
+        this[key] = value.toJsonElement()
+    }
+
+    private fun Any?.toJsonElement(): JsonElement = when (this) {
+        null -> JsonNull
+        is JsonElement -> this
+        is Boolean -> JsonPrimitive(this)
+        is Number -> JsonPrimitive(this)
+        else -> JsonPrimitive(toString())
     }
 }
+
+data class ExecutionMetrics(
+    val name: String,
+    val totalExecutions: Int,
+    val successCount: Int,
+    val failureCount: Int,
+    val averageDuration: Double,
+    val minDuration: Long,
+    val maxDuration: Long
+)
 
 /**
  * Metrics collector for agent performance
@@ -67,18 +116,23 @@ class MetricsCollector {
     private val agentExecutionTimes = ConcurrentHashMap<String, MutableList<Long>>()
     private val agentSuccessRates = ConcurrentHashMap<String, AtomicInteger>()
     private val agentFailureRates = ConcurrentHashMap<String, AtomicInteger>()
+    private val pipelineExecutionTimes = ConcurrentHashMap<String, MutableList<Long>>()
+    private val pipelineSuccessRates = ConcurrentHashMap<String, AtomicInteger>()
+    private val pipelineFailureRates = ConcurrentHashMap<String, AtomicInteger>()
+    private val stageExecutionTimes = ConcurrentHashMap<String, MutableList<Long>>()
+    private val stageSuccessRates = ConcurrentHashMap<String, AtomicInteger>()
+    private val stageFailureRates = ConcurrentHashMap<String, AtomicInteger>()
 
     fun recordExecution(agentName: String, duration: Long, success: Boolean) {
-        agentExecutionTimes.computeIfAbsent(agentName) { mutableListOf() }
-            .add(duration)
+        record(agentExecutionTimes, agentSuccessRates, agentFailureRates, agentName, duration, success)
+    }
 
-        if (success) {
-            agentSuccessRates.computeIfAbsent(agentName) { AtomicInteger(0) }
-                .incrementAndGet()
-        } else {
-            agentFailureRates.computeIfAbsent(agentName) { AtomicInteger(0) }
-                .incrementAndGet()
-        }
+    fun recordPipelineExecution(pipelineName: String, duration: Long, success: Boolean) {
+        record(pipelineExecutionTimes, pipelineSuccessRates, pipelineFailureRates, pipelineName, duration, success)
+    }
+
+    fun recordStageExecution(stageId: String, duration: Long, success: Boolean) {
+        record(stageExecutionTimes, stageSuccessRates, stageFailureRates, stageId, duration, success)
     }
 
     fun getMetrics(agentName: String): AgentMetrics {
@@ -99,6 +153,65 @@ class MetricsCollector {
 
     fun getAllMetrics(): Map<String, AgentMetrics> {
         return agentExecutionTimes.keys.associateWith { getMetrics(it) }
+    }
+
+    fun getPipelineMetrics(pipelineName: String): ExecutionMetrics {
+        return executionMetricsOf(
+            name = pipelineName,
+            executionTimes = pipelineExecutionTimes[pipelineName],
+            successCount = pipelineSuccessRates[pipelineName]?.get(),
+            failureCount = pipelineFailureRates[pipelineName]?.get()
+        )
+    }
+
+    fun getStageMetrics(stageId: String): ExecutionMetrics {
+        return executionMetricsOf(
+            name = stageId,
+            executionTimes = stageExecutionTimes[stageId],
+            successCount = stageSuccessRates[stageId]?.get(),
+            failureCount = stageFailureRates[stageId]?.get()
+        )
+    }
+
+    private fun record(
+        executionTimes: ConcurrentHashMap<String, MutableList<Long>>,
+        successRates: ConcurrentHashMap<String, AtomicInteger>,
+        failureRates: ConcurrentHashMap<String, AtomicInteger>,
+        name: String,
+        duration: Long,
+        success: Boolean
+    ) {
+        executionTimes.computeIfAbsent(name) { Collections.synchronizedList(mutableListOf()) }
+            .add(duration)
+
+        if (success) {
+            successRates.computeIfAbsent(name) { AtomicInteger(0) }
+                .incrementAndGet()
+        } else {
+            failureRates.computeIfAbsent(name) { AtomicInteger(0) }
+                .incrementAndGet()
+        }
+    }
+
+    private fun executionMetricsOf(
+        name: String,
+        executionTimes: List<Long>?,
+        successCount: Int?,
+        failureCount: Int?
+    ): ExecutionMetrics {
+        val durations = executionTimes ?: emptyList()
+        val successes = successCount ?: 0
+        val failures = failureCount ?: 0
+
+        return ExecutionMetrics(
+            name = name,
+            totalExecutions = successes + failures,
+            successCount = successes,
+            failureCount = failures,
+            averageDuration = if (durations.isNotEmpty()) durations.average() else 0.0,
+            minDuration = durations.minOrNull() ?: 0,
+            maxDuration = durations.maxOrNull() ?: 0
+        )
     }
 }
 

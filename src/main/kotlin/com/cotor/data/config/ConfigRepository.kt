@@ -36,7 +36,7 @@ class FileConfigRepository(
     )
 
     override suspend fun loadConfig(path: Path): CotorConfig = withContext(Dispatchers.IO) {
-        val baseConfig = parseConfig(path)
+        val baseConfig = loadConfigWithImports(path, mutableSetOf())
         val configDir = path.toAbsolutePath().parent ?: java.nio.file.Paths.get(".").toAbsolutePath()
         val globalCotorDir = homeDirectoryProvider().resolve(".cotor")
         val localCotorDir = configDir.resolve(".cotor")
@@ -48,8 +48,35 @@ class FileConfigRepository(
         }
 
         overrideFiles.fold(baseConfig.config) { acc, overrideFile ->
-            val overrideConfig = parseConfig(overrideFile)
+            val overrideConfig = loadConfigWithImports(overrideFile, mutableSetOf())
             mergeConfigs(acc, overrideConfig)
+        }
+    }
+
+    private fun loadConfigWithImports(path: Path, stack: MutableSet<Path>): ParsedConfig {
+        val normalizedPath = path.toAbsolutePath().normalize()
+        if (!stack.add(normalizedPath)) {
+            throw ConfigurationException("Circular config import detected: $normalizedPath")
+        }
+
+        return try {
+            val parsed = parseConfig(normalizedPath)
+            val imported = parsed.config.imports.fold(ParsedConfig(CotorConfig(), emptySet())) { acc, importPath ->
+                val resolvedImport = resolveImportPath(normalizedPath, importPath)
+                mergeParsedConfigs(acc, loadConfigWithImports(resolvedImport, stack))
+            }
+            mergeParsedConfigs(imported, parsed)
+        } finally {
+            stack.remove(normalizedPath)
+        }
+    }
+
+    private fun resolveImportPath(baseConfigPath: Path, importPath: String): Path {
+        val path = java.nio.file.Paths.get(importPath)
+        return if (path.isAbsolute) {
+            path.normalize()
+        } else {
+            (baseConfigPath.parent ?: java.nio.file.Paths.get(".")).resolve(path).normalize()
         }
     }
 
@@ -82,6 +109,13 @@ class FileConfigRepository(
         }
     }
 
+    private fun mergeParsedConfigs(base: ParsedConfig, override: ParsedConfig): ParsedConfig {
+        return ParsedConfig(
+            config = mergeConfigs(base.config, override),
+            explicitCollections = base.explicitCollections + override.explicitCollections,
+        )
+    }
+
     private fun mergeConfigs(base: CotorConfig, override: ParsedConfig): CotorConfig {
         val overrideConfig = override.config
         val mergedAgents = (base.agents + overrideConfig.agents)
@@ -96,6 +130,7 @@ class FileConfigRepository(
 
         return base.copy(
             version = if (overrideConfig.version != defaultConfig.version) overrideConfig.version else base.version,
+            imports = emptyList(),
             agents = mergedAgents,
             pipelines = mergedPipelines,
             security = base.security.copy(

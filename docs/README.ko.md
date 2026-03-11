@@ -1,89 +1,70 @@
-# Cotor - AI CLI 마스터-에이전트 시스템
+# Cotor 문서 안내
 
-[![English](https://img.shields.io/badge/Language-English-blue)](README.md)
-[![한국어](https://img.shields.io/badge/Language-한국어-red)](README.ko.md)
+이 문서는 현재 코드베이스 기준의 문서 진입점입니다. 현재 문서와 과거 기록을 구분하려면 [INDEX.md](INDEX.md)를 먼저 보십시오.
 
-Cotor는 Kotlin 기반 CLI/TUI 오케스트레이터로, 여러 AI 에이전트 파이프라인의 검증·실행·모니터링·복구를 한 도구에서 제공합니다.
+## 먼저 볼 문서
 
-## 빠른 설치
+- [QUICK_START.md](QUICK_START.md): 빠른 설치와 첫 실행
+- [FEATURES.md](FEATURES.md): 코드 기준 기능 목록
+- [DESKTOP_APP.md](DESKTOP_APP.md): `app-server`와 macOS 셸
+- [TEST_PLAN.md](TEST_PLAN.md): 자동/수동 검증 매트릭스
+- [team-ops/README.ko.md](team-ops/README.ko.md): 온보딩과 유지보수 운영
 
-```bash
-git clone https://github.com/yourusername/cotor.git
-cd cotor
-./shell/install-global.sh
-```
+## 현재 제품 스냅샷
 
-로컬 전용 실행:
-```bash
-./gradlew shadowJar
-chmod +x shell/cotor
-./shell/cotor version
-```
+Cotor는 하나의 Kotlin 코어 위에 세 가지 운영 표면을 제공합니다.
 
-## 데스크톱 앱 (macOS)
+- CLI/TUI 실행기
+- 로컬 웹 에디터
+- `cotor app-server` 기반 macOS 데스크톱 셸
 
-데스크톱 번들을 빌드하고 `응용 프로그램`에 설치하면서 로컬 배포본까지 갱신하려면:
+데스크톱 셸에는 현재 company-first 운영 레이어도 포함됩니다.
 
-```bash
-./shell/install-desktop-app.sh
-```
+- 작업 폴더에 매핑된 여러 회사
+- 회사 에이전트 정의
+- 목표
+- 이슈
+- 리뷰 큐
+- 활동 피드
+- 런타임 시작/중지/상태
 
-실행:
+## 실제 CLI 명령 체계
 
-```bash
-open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
-```
+현재 최상위 명령:
 
-백엔드 실행, 워크트리 격리, 브라우저/포트 탭 설명은 `DESKTOP_APP.md`에 정리되어 있습니다.
+`init`, `run`, `dash`, `interactive`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `list`, `web`, `app-server`, `lint`, `explain`, `plugin`, `agent`, `version`, `completion`
 
-## 바로 쓰는 명령
+현재 서브커맨드:
 
-```bash
-cotor                            # 기본 interactive 모드 실행
-cotor --short                    # 10줄 치트시트
-cotor init --interactive         # 대화형 초기 설정
-cotor list -c cotor.yaml         # 등록 에이전트 확인
-cotor validate <pipeline> -c <yaml>
-cotor run <pipeline> -c <yaml> --dry-run
-cotor run <pipeline> -c <yaml> --output-format text
-cotor template --list            # 내장 템플릿 목록
-cotor agent add claude --yes     # .cotor/agents 프리셋 추가
-cotor plugin list                # 플러그인 메타데이터 확인
-cotor stats                      # 실행 통계
-cotor doctor                     # 환경 점검
-cotor dash -c <yaml>             # Codex 스타일 대시보드
-cotor web                        # 웹 파이프라인 스튜디오
-```
+- `agent add`, `agent list`
+- `plugin init`
+- `checkpoint gc`
 
-## 현재 CLI 명령 체계
+현재 템플릿 종류:
 
-기본 서브커맨드:
-`init`, `list`, `run`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `dash`, `interactive`, `web`, `lint`, `explain`, `plugin`, `agent`, `version`, `completion`
+- `compare`
+- `chain`
+- `review`
+- `consensus`
+- `fanout`
+- `selfheal`
+- `verified`
+- `blocked-escalation`
+- `custom`
 
-## 핵심 기능
+## 현재 알려진 한계
 
-- 순차/병렬/DAG 실행 및 스테이지 의존성 처리
-- 조건(분기)·루프 스테이지 지원
-- 실행 타임라인 수집 + watch 모니터링
-- 체크포인트 저장/재개 및 체크포인트 정리
-- 결과 출력 포맷(`json`, `csv`, `text`)
-- 템플릿 생성 (`compare`, `chain`, `review`, `consensus`, `fanout`, `selfheal`, `verified`, `custom`)
-- 에이전트 프리셋 관리, 플러그인 점검
+- `resume`은 체크포인트 확인 기능이며 전체 실행 재개는 아직 아닙니다.
+- `plugin`은 현재 `plugin init`만 실제 명령입니다.
+- 보드는 `Linear 같은` UI이지만 외부 Linear 실동기화는 현재 빌드 범위가 아닙니다.
+- 자율 런타임은 최소 루프 수준이며 정책 엔진과 풍부한 후속 이슈 자동화는 아직 구현되지 않았습니다.
 
-## 문서 안내
+## 참고 문서
 
-- 빠른 시작: `QUICK_START.md`
-- 데스크톱 앱: `DESKTOP_APP.md`
-- 팀 운영 온보딩: `team-ops/README.ko.md`
-- 역할별 운영 템플릿: `team-ops/templates.ko.md`
-- 아키텍처: `ARCHITECTURE.md`
-- 기능 목록: `FEATURES.md`
-- 사용 팁: `USAGE_TIPS.md`
-- 변경 이력: `release/CHANGELOG.md`
-- 리포트: `reports/`
-- Claude 연동: `CLAUDE_SETUP.md`, `claude/`
-
-## 참고
-
-- `--config`를 생략하면 대부분 `cotor.yaml`을 기본으로 사용합니다.
-- 인자 없이 `cotor`를 실행하면 interactive 모드가 시작됩니다.
+- [ARCHITECTURE.md](ARCHITECTURE.md): 공통 런타임 구조
+- [WEB_EDITOR.md](WEB_EDITOR.md): 웹 에디터 사용법
+- [USAGE_TIPS.md](USAGE_TIPS.md): 운영 팁
+- [CONDITION_DSL.md](CONDITION_DSL.md): 조건 DSL
+- [cookbook.md](cookbook.md): 예제 워크플로우
+- [CLAUDE_SETUP.md](CLAUDE_SETUP.md): Claude 연동
+- [templates/temp-cotor-template.md](templates/temp-cotor-template.md): 템플릿 관련 문서

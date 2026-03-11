@@ -43,6 +43,72 @@ data class Workspace(
 )
 
 /**
+ * Top-level company container that owns one operating root and its autonomous
+ * workflow state.
+ */
+@Serializable
+data class Company(
+    val id: String,
+    val name: String,
+    val rootPath: String,
+    val repositoryId: String,
+    val defaultBaseBranch: String,
+    val autonomyEnabled: Boolean = true,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+/**
+ * Minimal user-authored agent definition. The system derives hierarchy and
+ * routing hints from these inputs instead of requiring users to encode a full
+ * workflow graph up front.
+ */
+@Serializable
+data class CompanyAgentDefinition(
+    val id: String,
+    val companyId: String,
+    val title: String,
+    val agentCli: String,
+    val roleSummary: String,
+    val enabled: Boolean = true,
+    val displayOrder: Int = 0,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+/**
+ * Company-local project context persisted as human-readable memory for
+ * cross-session and cross-agent continuity.
+ */
+@Serializable
+data class CompanyProjectContext(
+    val id: String,
+    val companyId: String,
+    val name: String,
+    val slug: String,
+    val status: String = "ACTIVE",
+    val contextDocPath: String,
+    val lastUpdatedAt: Long
+)
+
+/**
+ * Timeline item shown in the company operations dashboard.
+ */
+@Serializable
+data class CompanyActivityItem(
+    val id: String,
+    val companyId: String,
+    val projectContextId: String? = null,
+    val goalId: String? = null,
+    val issueId: String? = null,
+    val source: String,
+    val title: String,
+    val detail: String? = null,
+    val severity: String = "info",
+    val createdAt: Long
+)
+
+/**
  * Task lifecycle as surfaced in the desktop shell.
  */
 @Serializable
@@ -66,18 +132,126 @@ enum class AgentRunStatus {
 }
 
 /**
+ * Company-goal lifecycle shown in the autonomous operations dashboard.
+ */
+@Serializable
+enum class GoalStatus {
+    DRAFT,
+    ACTIVE,
+    PAUSED,
+    COMPLETED,
+    BLOCKED
+}
+
+/**
+ * Issue lifecycle is separate from raw agent run status because one issue can move
+ * through planning, delegation, implementation, review, and merge stages.
+ */
+@Serializable
+enum class IssueStatus {
+    BACKLOG,
+    PLANNED,
+    DELEGATED,
+    IN_PROGRESS,
+    IN_REVIEW,
+    BLOCKED,
+    DONE,
+    CANCELED
+}
+
+/**
+ * Review-queue status attached to issue-linked pull requests.
+ */
+@Serializable
+enum class ReviewQueueStatus {
+    AWAITING_QA,
+    AWAITING_REVIEW,
+    CHANGES_REQUESTED,
+    READY_TO_MERGE,
+    MERGED,
+    FAILED_CHECKS
+}
+
+/**
+ * High-level state of the headless company runtime loop.
+ */
+@Serializable
+enum class CompanyRuntimeStatus {
+    STOPPED,
+    RUNNING,
+    ERROR
+}
+
+/**
+ * Publish outcome attached to one agent run after the desktop workflow tries to
+ * commit, push, and open a pull request for the worktree branch.
+ */
+@Serializable
+data class PublishMetadata(
+    val commitSha: String? = null,
+    val pushedBranch: String? = null,
+    val pullRequestNumber: Int? = null,
+    val pullRequestUrl: String? = null,
+    val reviewState: String? = null,
+    val requestedReviewers: List<String> = emptyList(),
+    val checksSummary: String? = null,
+    val mergeability: String? = null,
+    val lastSyncTime: Long? = null,
+    val error: String? = null
+)
+
+/**
  * User-authored task that can be fanned out to multiple agents.
  */
 @Serializable
 data class AgentTask(
     val id: String,
     val workspaceId: String,
+    val issueId: String? = null,
     val title: String,
     val prompt: String,
     val agents: List<String>,
+    val plan: TaskExecutionPlan? = null,
     val status: DesktopTaskStatus,
     val createdAt: Long,
     val updatedAt: Long
+)
+
+/**
+ * Persisted decomposition of one task goal into explicit per-agent assignments.
+ */
+@Serializable
+data class TaskExecutionPlan(
+    val version: Int = 1,
+    val goalSummary: String,
+    val decompositionSource: String,
+    val sharedChecklist: List<String> = emptyList(),
+    val assignments: List<AgentAssignmentPlan> = emptyList()
+) {
+    fun assignmentFor(agentName: String): AgentAssignmentPlan? =
+        assignments.firstOrNull { it.agentName.equals(agentName, ignoreCase = true) }
+}
+
+/**
+ * Agent-specific view of the generated plan, including the prompt to execute.
+ */
+@Serializable
+data class AgentAssignmentPlan(
+    val agentName: String,
+    val role: String,
+    val focus: String,
+    val subtasks: List<TaskSubtask> = emptyList(),
+    val assignedPrompt: String
+)
+
+/**
+ * One concrete subtask owned by a specific agent within a generated plan.
+ */
+@Serializable
+data class TaskSubtask(
+    val id: String,
+    val title: String,
+    val details: String
 )
 
 /**
@@ -101,9 +275,149 @@ data class AgentRun(
     val processId: Long? = null,
     val output: String? = null,
     val error: String? = null,
+    val publish: PublishMetadata? = null,
     val durationMs: Long? = null,
     val createdAt: Long,
     val updatedAt: Long
+)
+
+/**
+ * Top-level business goal driven by the CEO agent.
+ */
+@Serializable
+data class CompanyGoal(
+    val id: String,
+    val companyId: String = "",
+    val projectContextId: String? = null,
+    val title: String,
+    val description: String,
+    val status: GoalStatus,
+    val priority: Int = 2,
+    val successMetrics: List<String> = emptyList(),
+    val operatingPolicy: String? = null,
+    val autonomyEnabled: Boolean = true,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+/**
+ * Execution unit derived from one company goal.
+ */
+@Serializable
+data class CompanyIssue(
+    val id: String,
+    val companyId: String = "",
+    val projectContextId: String? = null,
+    val goalId: String,
+    val workspaceId: String,
+    val title: String,
+    val description: String,
+    val status: IssueStatus,
+    val priority: Int = 3,
+    val kind: String = "implementation",
+    val assigneeProfileId: String? = null,
+    val linearIssueId: String? = null,
+    val blockedBy: List<String> = emptyList(),
+    val dependsOn: List<String> = emptyList(),
+    val acceptanceCriteria: List<String> = emptyList(),
+    val riskLevel: String = "medium",
+    val sourceSignal: String = "goal-decomposition",
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+/**
+ * Explicit dependency edge between issues for board/canvas visualizations.
+ */
+@Serializable
+data class IssueDependency(
+    val id: String,
+    val issueId: String,
+    val dependsOnIssueId: String,
+    val relation: String = "blocks"
+)
+
+/**
+ * Organization profile used to route issues to the right execution agent.
+ */
+@Serializable
+data class OrgAgentProfile(
+    val id: String,
+    val companyId: String = "",
+    val roleName: String,
+    val executionAgentName: String,
+    val capabilities: List<String> = emptyList(),
+    val linearAssigneeId: String? = null,
+    val reviewerPolicy: String? = null,
+    val mergeAuthority: Boolean = false,
+    val enabled: Boolean = true
+)
+
+/**
+ * Review queue item tied to a PR created for an issue.
+ */
+@Serializable
+data class ReviewQueueItem(
+    val id: String,
+    val companyId: String = "",
+    val projectContextId: String? = null,
+    val issueId: String,
+    val runId: String,
+    val pullRequestNumber: Int? = null,
+    val pullRequestUrl: String? = null,
+    val status: ReviewQueueStatus,
+    val checksSummary: String? = null,
+    val mergeability: String? = null,
+    val requestedReviewers: List<String> = emptyList(),
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+/**
+ * Lightweight ops metrics snapshot rendered in the dashboard header.
+ */
+@Serializable
+data class OpsMetricSnapshot(
+    val openGoals: Int = 0,
+    val activeIssues: Int = 0,
+    val blockedIssues: Int = 0,
+    val readyToMergeCount: Int = 0,
+    val mergedCount: Int = 0,
+    val lastUpdatedAt: Long = 0
+)
+
+/**
+ * Structured operational signal generated by the autonomous runtime.
+ */
+@Serializable
+data class OpsSignal(
+    val id: String,
+    val companyId: String? = null,
+    val projectContextId: String? = null,
+    val source: String,
+    val message: String,
+    val severity: String = "info",
+    val goalId: String? = null,
+    val issueId: String? = null,
+    val createdAt: Long
+)
+
+/**
+ * Snapshot rendered in the autonomous company runtime panel.
+ */
+@Serializable
+data class CompanyRuntimeSnapshot(
+    val companyId: String? = null,
+    val status: CompanyRuntimeStatus = CompanyRuntimeStatus.STOPPED,
+    val tickIntervalSeconds: Long = 60,
+    val activeGoalCount: Int = 0,
+    val activeIssueCount: Int = 0,
+    val autonomyEnabledGoalCount: Int = 0,
+    val lastStartedAt: Long? = null,
+    val lastStoppedAt: Long? = null,
+    val lastTickAt: Long? = null,
+    val lastAction: String? = null,
+    val lastError: String? = null
 )
 
 /**
@@ -214,6 +528,9 @@ data class DesktopSettings(
     val appHome: String,
     val managedReposRoot: String,
     val availableAgents: List<String>,
+    val availableCliAgents: List<String> = availableAgents,
+    val recentCompanies: List<String> = emptyList(),
+    val defaultLaunchMode: String = "company",
     val shortcuts: ShortcutConfig = ShortcutConfig()
 )
 
@@ -240,10 +557,23 @@ data class ShortcutBinding(
  */
 @Serializable
 data class DesktopAppState(
+    val companies: List<Company> = emptyList(),
+    val companyAgentDefinitions: List<CompanyAgentDefinition> = emptyList(),
+    val projectContexts: List<CompanyProjectContext> = emptyList(),
     val repositories: List<ManagedRepository> = emptyList(),
     val workspaces: List<Workspace> = emptyList(),
     val tasks: List<AgentTask> = emptyList(),
-    val runs: List<AgentRun> = emptyList()
+    val runs: List<AgentRun> = emptyList(),
+    val goals: List<CompanyGoal> = emptyList(),
+    val issues: List<CompanyIssue> = emptyList(),
+    val issueDependencies: List<IssueDependency> = emptyList(),
+    val orgProfiles: List<OrgAgentProfile> = emptyList(),
+    val reviewQueue: List<ReviewQueueItem> = emptyList(),
+    val companyActivity: List<CompanyActivityItem> = emptyList(),
+    val opsMetrics: OpsMetricSnapshot = OpsMetricSnapshot(),
+    val signals: List<OpsSignal> = emptyList(),
+    val runtime: CompanyRuntimeSnapshot = CompanyRuntimeSnapshot(),
+    val companyRuntimes: List<CompanyRuntimeSnapshot> = emptyList()
 )
 
 /**

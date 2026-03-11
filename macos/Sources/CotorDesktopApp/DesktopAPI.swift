@@ -70,12 +70,67 @@ struct DesktopAPI {
         )
     }
 
+    func updateWorkspaceBaseBranch(workspaceId: String, baseBranch: String) async throws -> WorkspaceRecord {
+        try await patch(
+            path: "api/app/workspaces/\(workspaceId)/base-branch",
+            body: UpdateWorkspaceBaseBranchPayload(baseBranch: baseBranch)
+        )
+    }
+
     /// Create a new multi-agent task in the selected workspace.
     func createTask(workspaceId: String, title: String?, prompt: String, agents: [String]) async throws -> TaskRecord {
         try await post(
             path: "api/app/tasks",
-            body: CreateTaskPayload(workspaceId: workspaceId, title: title, prompt: prompt, agents: agents)
+            body: CreateTaskPayload(workspaceId: workspaceId, title: title, prompt: prompt, agents: agents, issueId: nil)
         )
+    }
+
+    func createGoal(companyId: String, title: String, description: String, successMetrics: [String] = [], autonomyEnabled: Bool = true) async throws -> GoalRecord {
+        try await post(
+            path: "api/app/companies/\(companyId)/goals",
+            body: CreateGoalPayload(
+                title: title,
+                description: description,
+                successMetrics: successMetrics,
+                autonomyEnabled: autonomyEnabled
+            )
+        )
+    }
+
+    func createCompany(name: String, rootPath: String, defaultBaseBranch: String?) async throws -> CompanyRecord {
+        try await post(
+            path: "api/app/companies",
+            body: CreateCompanyPayload(
+                name: name,
+                rootPath: rootPath,
+                defaultBaseBranch: defaultBaseBranch,
+                autonomyEnabled: true
+            )
+        )
+    }
+
+    func createCompanyAgent(companyId: String, title: String, agentCli: String, roleSummary: String, enabled: Bool = true) async throws -> CompanyAgentDefinitionRecord {
+        try await post(
+            path: "api/app/companies/\(companyId)/agents",
+            body: CreateCompanyAgentPayload(
+                title: title,
+                agentCli: agentCli,
+                roleSummary: roleSummary,
+                enabled: enabled
+            )
+        )
+    }
+
+    func startCompanyRuntime(companyId: String) async throws -> CompanyRuntimeSnapshotRecord {
+        try await post(path: "api/app/companies/\(companyId)/runtime/start", body: EmptyPayload())
+    }
+
+    func stopCompanyRuntime(companyId: String) async throws -> CompanyRuntimeSnapshotRecord {
+        try await post(path: "api/app/companies/\(companyId)/runtime/stop", body: EmptyPayload())
+    }
+
+    func runIssue(issueId: String) async throws -> IssueRecord {
+        try await post(path: "api/app/issues/\(issueId)/run", body: EmptyPayload())
     }
 
     /// Ask the backend to start executing an already-created task.
@@ -124,6 +179,14 @@ struct DesktopAPI {
     private func post<T: Decodable, Body: Encodable>(path: String, body: Body) async throws -> T {
         var request = URLRequest(url: try makeURL(path: path))
         request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(body)
+        addHeaders(to: &request)
+        return try await decode(request)
+    }
+
+    private func patch<T: Decodable, Body: Encodable>(path: String, body: Body) async throws -> T {
+        var request = URLRequest(url: try makeURL(path: path))
+        request.httpMethod = "PATCH"
         request.httpBody = try JSONEncoder().encode(body)
         addHeaders(to: &request)
         return try await decode(request)

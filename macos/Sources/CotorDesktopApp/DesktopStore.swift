@@ -14,6 +14,13 @@ private enum StatusState {
     case taskStarted(String)
 }
 
+enum AppShellMode: String, CaseIterable, Identifiable {
+    case company
+    case tui
+
+    var id: String { rawValue }
+}
+
 /// Main view model for the macOS shell.
 ///
 /// It coordinates bootstrap, selection state, optimistic actions, runtime
@@ -27,11 +34,15 @@ final class DesktopStore: ObservableObject {
     @Published var runs: [RunRecord] = MockSeed.runs
     @Published var tuiSession: TuiSessionRecord?
     @Published var availableBranches: [String] = ["master"]
-    @Published var selectedBaseBranch = "master"
+    @Published var pendingWorkspaceBaseBranch = "master"
     @Published var selectedRepositoryID: String?
     @Published var selectedWorkspaceID: String?
+    @Published var selectedCompanyID: String?
+    @Published var selectedGoalID: String?
+    @Published var selectedIssueID: String?
     @Published var selectedTaskID: String?
     @Published var selectedAgentName: String?
+    @Published var shellMode: AppShellMode = .company
     @Published var inspectorTab: InspectorTab = .changes
     @Published var changes: ChangeSummaryPayload = MockSeed.changes
     @Published var files: [FileTreeNodePayload] = MockSeed.files
@@ -42,7 +53,14 @@ final class DesktopStore: ObservableObject {
     @Published var isBusy = false
     @Published var repositoryPathInput = ""
     @Published var cloneURLInput = ""
+    @Published var newCompanyName = ""
+    @Published var newCompanyRootPath = ""
+    @Published var newCompanyAgentTitle = ""
+    @Published var newCompanyAgentCli = ""
+    @Published var newCompanyAgentRole = ""
     @Published var newWorkspaceName = ""
+    @Published var newGoalTitle = ""
+    @Published var newGoalDescription = ""
     @Published var newTaskTitle = ""
     @Published var newTaskPrompt = ""
     @Published var agentSelection: Set<String> = ["claude", "codex"]
@@ -55,6 +73,7 @@ final class DesktopStore: ObservableObject {
     private var statusState: StatusState = .connecting
     private var tuiPollingTask: Task<Void, Never>?
     private var polledTuiSessionID: String?
+    private var didInitializeShellMode = false
 
     init() {
         let storedLanguage = UserDefaults.standard.string(forKey: Self.languageDefaultsKey)
@@ -88,6 +107,41 @@ final class DesktopStore: ObservableObject {
         }
     }
 
+    var companies: [CompanyRecord] {
+        dashboard.companies.sorted { lhs, rhs in
+            lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
+    var companyAgentDefinitions: [CompanyAgentDefinitionRecord] {
+        dashboard.companyAgentDefinitions
+            .filter { selectedCompanyID == nil || $0.companyId == selectedCompanyID }
+            .sorted { lhs, rhs in
+                if lhs.displayOrder == rhs.displayOrder {
+                    return lhs.title < rhs.title
+                }
+                return lhs.displayOrder < rhs.displayOrder
+            }
+    }
+
+    var projectContexts: [CompanyProjectContextRecord] {
+        dashboard.projectContexts
+            .filter { selectedCompanyID == nil || $0.companyId == selectedCompanyID }
+            .sorted { $0.lastUpdatedAt > $1.lastUpdatedAt }
+    }
+
+    var activity: [CompanyActivityItemRecord] {
+        dashboard.activity
+            .filter { selectedCompanyID == nil || $0.companyId == selectedCompanyID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    var companyRuntimes: [CompanyRuntimeSnapshotRecord] {
+        dashboard.companyRuntimes
+            .filter { selectedCompanyID == nil || $0.companyId == selectedCompanyID }
+            .sorted { ($0.lastTickAt ?? 0) > ($1.lastTickAt ?? 0) }
+    }
+
     var workspaces: [WorkspaceRecord] {
         dashboard.workspaces
             .filter { selectedRepositoryID == nil || $0.repositoryId == selectedRepositoryID }
@@ -96,9 +150,46 @@ final class DesktopStore: ObservableObject {
             }
     }
 
+    var goals: [GoalRecord] {
+        dashboard.goals
+            .filter { selectedCompanyID == nil || $0.companyId == selectedCompanyID }
+            .sorted { lhs, rhs in
+            lhs.updatedAt > rhs.updatedAt
+            }
+    }
+
+    var issues: [IssueRecord] {
+        dashboard.issues
+            .filter { (selectedCompanyID == nil || $0.companyId == selectedCompanyID) && (selectedGoalID == nil || $0.goalId == selectedGoalID) }
+            .sorted { lhs, rhs in
+                lhs.updatedAt > rhs.updatedAt
+            }
+    }
+
+    var orgProfiles: [OrgAgentProfileRecord] {
+        dashboard.orgProfiles
+            .filter { selectedCompanyID == nil || $0.companyId == selectedCompanyID }
+            .sorted { lhs, rhs in
+            lhs.roleName < rhs.roleName
+            }
+    }
+
     var tasks: [TaskRecord] {
         dashboard.tasks
-            .filter { selectedWorkspaceID == nil || $0.workspaceId == selectedWorkspaceID }
+            .filter { task in
+                let workspaceMatch = selectedWorkspaceID == nil || task.workspaceId == selectedWorkspaceID
+                guard workspaceMatch else { return false }
+                guard let companyID = selectedCompanyID else { return true }
+                if let issueID = task.issueId,
+                   let issue = dashboard.issues.first(where: { $0.id == issueID }) {
+                    return issue.companyId == companyID
+                }
+                guard let workspace = dashboard.workspaces.first(where: { $0.id == task.workspaceId }),
+                      let company = selectedCompany else {
+                    return true
+                }
+                return workspace.repositoryId == company.repositoryId
+            }
             .sorted { lhs, rhs in
                 lhs.updatedAt > rhs.updatedAt
             }
@@ -112,8 +203,51 @@ final class DesktopStore: ObservableObject {
         dashboard.workspaces.first { $0.id == selectedWorkspaceID }
     }
 
+    var selectedGoal: GoalRecord? {
+        goals.first { $0.id == selectedGoalID }
+    }
+
+    var selectedCompany: CompanyRecord? {
+        companies.first { $0.id == selectedCompanyID }
+    }
+
+    var selectedIssue: IssueRecord? {
+        dashboard.issues.first { $0.id == selectedIssueID }
+    }
+
+    var selectedReviewQueueItem: ReviewQueueItemRecord? {
+        guard let selectedIssueID else { return nil }
+        return dashboard.reviewQueue
+            .filter { $0.issueId == selectedIssueID }
+            .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+            .first
+    }
+
+    var selectedIssueAssignee: OrgAgentProfileRecord? {
+        guard let profileID = selectedIssue?.assigneeProfileId else { return nil }
+        return dashboard.orgProfiles.first { $0.id == profileID }
+    }
+
+    var selectedRuntime: CompanyRuntimeSnapshotRecord? {
+        companyRuntimes.first { $0.companyId == (selectedCompanyID ?? selectedCompany?.id) }
+    }
+
+    var currentWorkspaceBaseBranch: String {
+        selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? pendingWorkspaceBaseBranch
+    }
+
     var selectedTask: TaskRecord? {
-        dashboard.tasks.first { $0.id == selectedTaskID }
+        if let selectedTaskID,
+           let explicit = dashboard.tasks.first(where: { $0.id == selectedTaskID }) {
+            return explicit
+        }
+        if let selectedIssueID {
+            return dashboard.tasks
+                .filter { $0.issueId == selectedIssueID }
+                .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+                .first
+        }
+        return nil
     }
 
     var selectedRun: RunRecord? {
@@ -204,9 +338,12 @@ final class DesktopStore: ObservableObject {
             errorMessage = nil
             isOffline = false
             statusState = .connected(api.baseURL.absoluteString)
+            if !didInitializeShellMode {
+                shellMode = dashboard.settings.defaultLaunchMode.lowercased() == "tui" ? .tui : .company
+                didInitializeShellMode = true
+            }
             reconcileWorkflowLeadAgent()
             reconcileSelection()
-            selectedBaseBranch = selectedWorkspace?.baseBranch ?? selectedRepository?.defaultBranch ?? "master"
             await refreshAvailableBranches()
             await refreshTaskDetails()
             await ensureTuiSession()
@@ -218,7 +355,6 @@ final class DesktopStore: ObservableObject {
             reconcileWorkflowLeadAgent()
             reconcileSelection()
             selectedAgentName = selectedTask?.agents.first
-            selectedBaseBranch = selectedWorkspace?.baseBranch ?? selectedRepository?.defaultBranch ?? "master"
             await refreshAvailableBranches()
             stopTuiPolling()
             tuiSession = MockSeed.tuiSession
@@ -228,14 +364,38 @@ final class DesktopStore: ObservableObject {
     /// Repair selection state after a dashboard refresh so every pane still points
     /// at records that exist in the freshly returned payload.
     private func reconcileSelection() {
+        if !companies.contains(where: { $0.id == selectedCompanyID }) {
+            selectedCompanyID = companies.first?.id
+        }
         if !repositories.contains(where: { $0.id == selectedRepositoryID }) {
-            selectedRepositoryID = repositories.first?.id
+            selectedRepositoryID = selectedCompany.map(\.repositoryId) ?? repositories.first?.id
         }
         if !workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
             selectedWorkspaceID = workspaces.first?.id
         }
+        if !goals.contains(where: { $0.id == selectedGoalID }) {
+            selectedGoalID = goals.first?.id
+        }
+        if !issues.contains(where: { $0.id == selectedIssueID }) {
+            selectedIssueID = issues.first?.id
+        }
         if !tasks.contains(where: { $0.id == selectedTaskID }) {
             selectedTaskID = tasks.first?.id
+        }
+
+        if let issue = selectedIssue {
+            if selectedCompanyID != issue.companyId {
+                selectedCompanyID = issue.companyId
+            }
+            if selectedWorkspaceID != issue.workspaceId {
+                selectedWorkspaceID = issue.workspaceId
+            }
+            if selectedTask == nil {
+                selectedTaskID = dashboard.tasks
+                    .filter { $0.issueId == issue.id }
+                    .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+                    .first?.id
+            }
         }
 
         if let task = selectedTask {
@@ -245,6 +405,7 @@ final class DesktopStore: ObservableObject {
         } else {
             selectedAgentName = nil
         }
+        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? "master"
     }
 
     /// Repair the workflow lead and selected agent roster after bootstrap or
@@ -270,7 +431,17 @@ final class DesktopStore: ObservableObject {
 
     /// Refresh the right-hand inspector panels for the currently selected task and agent.
     func refreshTaskDetails() async {
-        guard let task = selectedTask else { return }
+        guard let task = selectedTask else {
+            runs = []
+            changes = MockSeed.changes
+            files = []
+            ports = []
+            browserURL = nil
+            if isOffline {
+                tuiSession = MockSeed.tuiSession
+            }
+            return
+        }
         let agent = selectedAgentName ?? task.agents.first
         selectedAgentName = agent
         guard let agent else { return }
@@ -315,12 +486,12 @@ final class DesktopStore: ObservableObject {
             let created = try await api.createWorkspace(
                 repositoryId: repository.id,
                 name: name.isEmpty ? nil : name,
-                baseBranch: selectedBaseBranch
+                baseBranch: pendingWorkspaceBaseBranch
             )
             newWorkspaceName = ""
             await refreshDashboard()
             selectedWorkspaceID = created.id
-            selectedBaseBranch = created.baseBranch
+            pendingWorkspaceBaseBranch = created.baseBranch
             await ensureTuiSession()
         } catch {
             errorMessage = error.localizedDescription
@@ -354,8 +525,109 @@ final class DesktopStore: ObservableObject {
         }
     }
 
+    func createGoal() async {
+        guard let company = selectedCompany else { return }
+        let title = newGoalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = newGoalDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !description.isEmpty else { return }
+
+        do {
+            let created = try await api.createGoal(companyId: company.id, title: title, description: description)
+            newGoalTitle = ""
+            newGoalDescription = ""
+            await refreshDashboard()
+            selectedGoalID = created.id
+            selectedIssueID = issues.first?.id
+            await refreshTaskDetails()
+            await ensureTuiSession()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func createCompany() async {
+        let name = newCompanyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rootPath = newCompanyRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !rootPath.isEmpty else { return }
+        do {
+            let company = try await api.createCompany(name: name, rootPath: rootPath, defaultBaseBranch: pendingWorkspaceBaseBranch)
+            newCompanyName = ""
+            newCompanyRootPath = ""
+            await refreshDashboard()
+            selectedCompanyID = company.id
+            if let repository = repositories.first(where: { $0.id == company.repositoryId }) {
+                await selectRepository(repository)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func createCompanyAgent() async {
+        guard let company = selectedCompany else { return }
+        let title = newCompanyAgentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cli = newCompanyAgentCli.trimmingCharacters(in: .whitespacesAndNewlines)
+        let role = newCompanyAgentRole.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !cli.isEmpty, !role.isEmpty else { return }
+        do {
+            _ = try await api.createCompanyAgent(companyId: company.id, title: title, agentCli: cli, roleSummary: role)
+            newCompanyAgentTitle = ""
+            newCompanyAgentCli = ""
+            newCompanyAgentRole = ""
+            await refreshDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func startSelectedCompanyRuntime() async {
+        guard let company = selectedCompany else { return }
+        do {
+            _ = try await api.startCompanyRuntime(companyId: company.id)
+            await refreshDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func stopSelectedCompanyRuntime() async {
+        guard let company = selectedCompany else { return }
+        do {
+            _ = try await api.stopCompanyRuntime(companyId: company.id)
+            await refreshDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func updateSelectedWorkspaceBaseBranch() async {
+        guard let workspace = selectedWorkspace else { return }
+        do {
+            let updated = try await api.updateWorkspaceBaseBranch(workspaceId: workspace.id, baseBranch: pendingWorkspaceBaseBranch)
+            await refreshDashboard()
+            selectedWorkspaceID = updated.id
+            pendingWorkspaceBaseBranch = updated.baseBranch
+            await ensureTuiSession(forceRestart: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Start execution for the task that is currently selected in the center pane.
     func runSelectedTask() async {
+        if let issue = selectedIssue {
+            do {
+                _ = try await api.runIssue(issueId: issue.id)
+                statusState = .taskStarted(issue.title)
+                objectWillChange.send()
+                await refreshDashboard()
+                await refreshTaskDetails()
+                await ensureTuiSession()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
         guard let task = selectedTask else { return }
         do {
             _ = try await api.runTask(taskId: task.id)
@@ -424,21 +696,19 @@ final class DesktopStore: ObservableObject {
 
         if isOffline {
             availableBranches = [selectedWorkspace?.baseBranch ?? repository.defaultBranch]
-            selectedBaseBranch = selectedWorkspace?.baseBranch ?? repository.defaultBranch
+            pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? repository.defaultBranch
             return
         }
 
         do {
             let branches = try await api.repositoryBranches(repositoryId: repository.id)
             availableBranches = branches.isEmpty ? [repository.defaultBranch] : branches
-            if let workspace = selectedWorkspace {
-                selectedBaseBranch = workspace.baseBranch
-            } else if !availableBranches.contains(selectedBaseBranch) {
-                selectedBaseBranch = repository.defaultBranch
+            if selectedWorkspace == nil, !availableBranches.contains(pendingWorkspaceBaseBranch) {
+                pendingWorkspaceBaseBranch = selectedCompany?.defaultBaseBranch ?? repository.defaultBranch
             }
         } catch {
             availableBranches = [repository.defaultBranch]
-            selectedBaseBranch = selectedWorkspace?.baseBranch ?? repository.defaultBranch
+            pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? repository.defaultBranch
             errorMessage = error.localizedDescription
         }
     }
@@ -446,11 +716,16 @@ final class DesktopStore: ObservableObject {
     /// Update every dependent selection when the repository changes.
     func selectRepository(_ repository: RepositoryRecord) async {
         selectedRepositoryID = repository.id
+        if let company = companies.first(where: { $0.repositoryId == repository.id }) {
+            selectedCompanyID = company.id
+        }
         // Selection cascades from repository -> workspace -> task so every pane stays aligned.
         selectedWorkspaceID = workspaces.first?.id
+        selectedGoalID = goals.first?.id
+        selectedIssueID = issues.first?.id
         selectedTaskID = tasks.first?.id
         selectedAgentName = selectedTask?.agents.first
-        selectedBaseBranch = selectedWorkspace?.baseBranch ?? repository.defaultBranch
+        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? repository.defaultBranch
         await refreshAvailableBranches()
         await refreshTaskDetails()
         await ensureTuiSession()
@@ -459,9 +734,52 @@ final class DesktopStore: ObservableObject {
     /// Switch to a new workspace and reload the task/inspector state derived from it.
     func selectWorkspace(_ workspace: WorkspaceRecord) async {
         selectedWorkspaceID = workspace.id
+        if let company = companies.first(where: { $0.repositoryId == workspace.repositoryId }) {
+            selectedCompanyID = company.id
+        }
+        selectedIssueID = dashboard.issues.first(where: { $0.workspaceId == workspace.id && (selectedGoalID == nil || $0.goalId == selectedGoalID) })?.id
         selectedTaskID = tasks.first?.id
         selectedAgentName = selectedTask?.agents.first
-        selectedBaseBranch = workspace.baseBranch
+        pendingWorkspaceBaseBranch = workspace.baseBranch
+        await refreshTaskDetails()
+        await ensureTuiSession()
+    }
+
+    func selectCompany(_ company: CompanyRecord) async {
+        selectedCompanyID = company.id
+        selectedRepositoryID = company.repositoryId
+        selectedWorkspaceID = dashboard.workspaces.first(where: { $0.repositoryId == company.repositoryId && $0.baseBranch == company.defaultBaseBranch })?.id
+        selectedGoalID = goals.first?.id
+        selectedIssueID = issues.first?.id
+        selectedTaskID = selectedTask?.id
+        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? company.defaultBaseBranch
+        await refreshAvailableBranches()
+        await refreshTaskDetails()
+    }
+
+    func selectGoal(_ goal: GoalRecord) async {
+        selectedCompanyID = goal.companyId
+        selectedGoalID = goal.id
+        selectedIssueID = issues.first?.id
+        if let issue = selectedIssue {
+            selectedWorkspaceID = issue.workspaceId
+        }
+        selectedTaskID = selectedTask?.id
+        selectedAgentName = selectedTask?.agents.first
+        await refreshTaskDetails()
+        await ensureTuiSession()
+    }
+
+    func selectIssue(_ issue: IssueRecord) async {
+        selectedCompanyID = issue.companyId
+        selectedGoalID = issue.goalId
+        selectedIssueID = issue.id
+        selectedWorkspaceID = issue.workspaceId
+        selectedTaskID = dashboard.tasks
+            .filter { $0.issueId == issue.id }
+            .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+            .first?.id
+        selectedAgentName = selectedTask?.agents.first
         await refreshTaskDetails()
         await ensureTuiSession()
     }
@@ -494,7 +812,10 @@ final class DesktopStore: ObservableObject {
 
     /// The center pane should always show the real interactive TUI for the
     /// selected workspace, so the store eagerly opens or reuses that session.
-    func ensureTuiSession() async {
+    func ensureTuiSession(forceRestart: Bool = false) async {
+        if shellMode != .tui && !forceRestart {
+            return
+        }
         guard let workspace = selectedWorkspace else {
             stopTuiPolling()
             tuiSession = nil
@@ -509,6 +830,9 @@ final class DesktopStore: ObservableObject {
 
         do {
             let preferredAgent = workflowLeadAgent.isEmpty ? selectedAgentName : workflowLeadAgent
+            if forceRestart, let session = tuiSession {
+                _ = try? await api.terminateTuiSession(sessionId: session.id)
+            }
             let session = try await api.openTuiSession(workspaceId: workspace.id, preferredAgent: preferredAgent)
             tuiSession = session
             errorMessage = nil

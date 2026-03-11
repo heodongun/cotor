@@ -1,52 +1,38 @@
 # Cotor Docs Index
 
-코드 기준으로 현재 유효한 문서를 빠르게 찾기 위한 인덱스입니다.
+Use this page as the router for current product docs vs historical or design records.
 
-## 시작
+## Current Product Docs
 
-- `README.md` / `README.ko.md`: 전체 개요
-- `QUICK_START.md`: 5분 시작 가이드
-- `DESKTOP_APP.md`: macOS 앱 다운로드/실행 가이드
-- `USAGE_TIPS.md`: 실전 사용 팁
-- `team-ops/README.md`: 역할별 운영 온보딩 패키지(초안)
-- `team-ops/templates.md`: 역할별 운영 템플릿
-- `cookbook.md`: 시나리오 모음
+- `README.md` / `README.ko.md`: top-level product snapshot
+- `docs/README.md` / `docs/README.ko.md`: docs entry guide
+- `docs/QUICK_START.md`: first setup and first run
+- `docs/FEATURES.md`: code-backed capability inventory
+- `docs/DESKTOP_APP.md`: `app-server`, Company/TUI shell, and multi-company operations UI
+- `docs/TEST_PLAN.md`: automated, CLI, desktop, and autonomous-company validation plan
+- `docs/USAGE_TIPS.md`: operator shortcuts and recovery habits
+- `docs/WEB_EDITOR.md`: web editor usage
+- `docs/ARCHITECTURE.md`: shared runtime architecture
+- `docs/CONDITION_DSL.md`: condition DSL reference
+- `docs/cookbook.md`: scenario patterns and example workflows
+- `docs/CLAUDE_SETUP.md`: Claude integration setup
+- `docs/team-ops/README.md` / `docs/team-ops/README.ko.md`: onboarding and delivery operations
+- `docs/templates/temp-cotor-template.md`: template note
 
-## 기능/구조
+## Historical / Design Records
 
-- `FEATURES.md`: 최신 기능 요약
-- `ARCHITECTURE.md`: 구성/흐름
-- `CONDITION_DSL.md`: 조건식 DSL
-- `WEB_EDITOR.md`: 웹 편집기 사용법
+- `docs/reports/*`: historical reports and benchmark notes
+- `docs/release/CHANGELOG.md`: release history
+- `docs/release/FEATURES_v1.1.md`: versioned historical feature snapshot
+- `docs/DIFFERENTIATED_PRD_ARCHITECTURE.md`: strategy and architecture draft
+- `docs/MULTI_WORKSPACE_REMOTE_RUNNER.md`: runner design draft
+- `docs/UPGRADE_RECOMMENDATIONS.md`: recommendation note
+- `docs/IMPROVEMENT_ISSUES.md`: historical improvement tracker
+- `docs/ci-failure-analysis.md`: incident analysis note
 
-## 운영/업그레이드
+## Current Truth Rules
 
-- `release/CHANGELOG.md`: 변경 이력
-- `UPGRADE_GUIDE.md`: 업그레이드 절차
-- `UPGRADE_RECOMMENDATIONS.md`: 권장안
-
-## Claude 통합
-
-- `CLAUDE_SETUP.md`
-- `claude/cotor-knowledge.md`
-- `claude/commands/*.md`
-
-## 리포트
-
-- `reports/TEST_REPORT.md`
-- `reports/IMPLEMENTATION_SUMMARY.md`
-- `reports/IMPROVEMENTS.md`
-
-## 템플릿
-
-- `templates/temp-cotor-template.md`
-
-## 빠른 명령 참조
-
-```bash
-cotor --short
-cotor --help
-cotor template --list
-cotor doctor
-cotor stats
-```
+- Command availability must match `src/main/kotlin/com/cotor/Main.kt`
+- Desktop and company workflow behavior must match `src/main/kotlin/com/cotor/app/*` and `macos/Sources/CotorDesktopApp/*`
+- External-product metaphors such as “Linear-style board” describe the UI shape inside Cotor, not a required external sync
+- Historical records are useful context, but they are not the source of truth for current behavior
