@@ -165,7 +165,7 @@ cotor --help       # 전체 명령어 도움말
 
 ## 📦 예제
 
-`examples/`에서 바로 실행 가능한 예제:
+바로 실행 가능한 예제와 시나리오 fixture:
 
 ```bash
 # 단일 에이전트 예제
@@ -176,6 +176,9 @@ cotor --help       # 전체 명령어 도움말
 
 # 의사결정 및 루프
 ./shell/cotor run decision-loop -c examples/decision-loop.yaml
+
+# QA 테스트 생성 루프
+./shell/cotor run qa-test-generation -c test/qa-test-generation/qa-test-generation.yaml
 
 # 모든 예제 실행
 ./examples/run-examples.sh

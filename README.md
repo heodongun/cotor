@@ -926,7 +926,7 @@ cotor --help       # Full command help
 
 ## 📦 Examples
 
-Ready-to-run examples in `examples/`:
+Ready-to-run examples and scenario fixtures:
 
 ```bash
 # Single agent example
@@ -937,6 +937,9 @@ Ready-to-run examples in `examples/`:
 
 # Decision and loop
 ./shell/cotor run decision-loop -c examples/decision-loop.yaml
+
+# QA test generation loop
+./shell/cotor run qa-test-generation -c test/qa-test-generation/qa-test-generation.yaml
 
 # Run all examples
 ./examples/run-examples.sh

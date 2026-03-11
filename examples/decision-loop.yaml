@@ -6,7 +6,7 @@ agents:
     timeout: 60000
 
 pipelines:
-  - name: iterate-summary
+  - name: decision-loop
     description: "품질이 낮으면 반복 개선하는 루프 파이프라인"
     executionMode: SEQUENTIAL
     stages:
@@ -41,7 +41,7 @@ pipelines:
         loop:
           targetStageId: draft
           maxIterations: 2
-          untilExpression: "!quality-check.conditionFailed"
+          untilExpression: "quality-check.conditionResult == false"
 
 security:
   useWhitelist: true
