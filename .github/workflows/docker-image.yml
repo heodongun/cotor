@@ -29,10 +29,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Format check
-        run: ./gradlew formatCheck
+        run: gradle formatCheck
 
       - name: Test
-        run: ./gradlew test
+        run: gradle test
 
   docker:
     needs: verify
