@@ -111,6 +111,22 @@ class AgentCommandTest : FunSpec({
         added.readText() shouldContain "model: \"gpt-5.3-codex-spark\""
     }
 
+    test("agent add qa writes reusable QA verification plugin config") {
+        val root = Path("build/tmp/agent-qa-${System.currentTimeMillis()}")
+        createdRoots.add(root)
+        root.createDirectories()
+        val config = root.resolve("cotor.yaml")
+        config.writeText("version: \"1.0\"\nagents: []\n")
+
+        val result = AgentCommand().test("add qa --config $config --local --yes")
+
+        result.statusCode shouldBe 0
+        val added = root.resolve(".cotor/agents/qa.yaml")
+        added.exists() shouldBe true
+        added.readText() shouldContain "pluginClass: com.cotor.data.plugin.QaVerificationPlugin"
+        added.readText() shouldContain "parameters: {}"
+    }
+
     afterSpec {
         createdRoots.forEach { root ->
             if (Files.exists(root)) {

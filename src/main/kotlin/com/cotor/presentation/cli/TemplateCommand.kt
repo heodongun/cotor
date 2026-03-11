@@ -200,7 +200,7 @@ performance:
             "consensus" to "Multiple AIs provide opinions to reach consensus",
             "fanout" to "DAG fan-out/fan-in merge pattern",
             "selfheal" to "Loop-based self-healing/retry pattern",
-            "verified" to "Generate → test/verify → fix loop (uses CommandPlugin to run a command)",
+            "verified" to "Generate → qa verify → fix loop (uses QaVerificationPlugin autodetection)",
             "custom" to "Customizable template with common patterns"
         )
 
@@ -528,12 +528,12 @@ agents:
     pluginClass: com.cotor.data.plugin.CodexPlugin
     timeout: 600000
 
-  - name: verifier
-    pluginClass: com.cotor.data.plugin.CommandPlugin
+  - name: qa
+    pluginClass: com.cotor.data.plugin.QaVerificationPlugin
     timeout: 600000
-    parameters:
-      # Update this to your project's test/verify command.
-      argvJson: '["./gradlew","test","--console=plain"]'
+    # Optional override:
+    # parameters:
+    #   commandJson: '["./gradlew","test","--console=plain"]'
 
   - name: echo
     pluginClass: com.cotor.data.plugin.EchoPlugin
@@ -554,7 +554,7 @@ pipelines:
 
       - id: test
         agent:
-          name: verifier
+          name: qa
         input: ""
         failureStrategy: CONTINUE
         optional: true

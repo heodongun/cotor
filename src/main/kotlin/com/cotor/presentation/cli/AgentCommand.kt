@@ -48,9 +48,10 @@ private enum class InstallScope {
 private data class AgentPreset(
     val name: String,
     val pluginClass: String,
-    val executable: String,
+    val postInstallHint: String,
     val defaultTimeout: Long,
-    val defaultModel: String,
+    val defaultParameters: Map<String, String> = emptyMap(),
+    val supportsModelOverride: Boolean = false,
 )
 
 private val defaultHomeDirectoryProvider: () -> java.nio.file.Path = {
@@ -58,12 +59,60 @@ private val defaultHomeDirectoryProvider: () -> java.nio.file.Path = {
 }
 
 private val builtinPresets = listOf(
-    AgentPreset("gemini", "com.cotor.data.plugin.GeminiPlugin", "gemini", 60000, "gemini-3.0-flash"),
-    AgentPreset("claude", "com.cotor.data.plugin.ClaudePlugin", "claude", 60000, "claude-sonnet-4-20250514"),
-    AgentPreset("codex", "com.cotor.data.plugin.CodexPlugin", "codex", 60000, "gpt-5.3-codex-spark"),
-    AgentPreset("copilot", "com.cotor.data.plugin.CopilotPlugin", "copilot", 60000, "copilot"),
-    AgentPreset("opencode", "com.cotor.data.plugin.OpenCodePlugin", "opencode", 60000, "opencode-default"),
-    AgentPreset("qwen", "com.cotor.data.plugin.CommandPlugin", "qwen", 60000, "qwen3-coder")
+    AgentPreset(
+        "gemini",
+        "com.cotor.data.plugin.GeminiPlugin",
+        "ensure 'gemini' is installed, then run 'cotor doctor'.",
+        60000,
+        defaultParameters = mapOf("model" to "gemini-3.0-flash"),
+        supportsModelOverride = true
+    ),
+    AgentPreset(
+        "claude",
+        "com.cotor.data.plugin.ClaudePlugin",
+        "ensure 'claude' is installed, then run 'cotor doctor'.",
+        60000,
+        defaultParameters = mapOf("model" to "claude-sonnet-4-20250514"),
+        supportsModelOverride = true
+    ),
+    AgentPreset(
+        "codex",
+        "com.cotor.data.plugin.CodexPlugin",
+        "ensure 'codex' is installed, then run 'cotor doctor'.",
+        60000,
+        defaultParameters = mapOf("model" to "gpt-5.3-codex-spark"),
+        supportsModelOverride = true
+    ),
+    AgentPreset(
+        "copilot",
+        "com.cotor.data.plugin.CopilotPlugin",
+        "ensure 'copilot' is installed, then run 'cotor doctor'.",
+        60000,
+        defaultParameters = mapOf("model" to "copilot"),
+        supportsModelOverride = true
+    ),
+    AgentPreset(
+        "opencode",
+        "com.cotor.data.plugin.OpenCodePlugin",
+        "ensure 'opencode' is installed, then run 'cotor doctor'.",
+        60000,
+        defaultParameters = mapOf("model" to "opencode-default"),
+        supportsModelOverride = true
+    ),
+    AgentPreset(
+        "qwen",
+        "com.cotor.data.plugin.CommandPlugin",
+        "ensure 'qwen' is installed, then run 'cotor doctor'.",
+        60000,
+        defaultParameters = mapOf("model" to "qwen3-coder"),
+        supportsModelOverride = true
+    ),
+    AgentPreset(
+        "qa",
+        "com.cotor.data.plugin.QaVerificationPlugin",
+        "ensure the repository exposes a supported test command (Gradle, Maven, npm/pnpm/yarn, cargo, go, pytest, or make) or override `parameters.commandJson` manually.",
+        600000
+    )
 )
 
 class AgentAddCommand(
@@ -98,15 +147,18 @@ class AgentAddCommand(
         val resolvedName = (agentName ?: preset.name).trim()
         require(resolvedName.isNotBlank()) { "Agent name must not be blank" }
 
-        val resolvedModel = (model ?: preset.defaultModel).trim()
+        if (model != null && !preset.supportsModelOverride) {
+            throw UsageError("Preset '$presetName' does not support --model")
+        }
         val resolvedTimeout = timeout ?: preset.defaultTimeout
+        val resolvedParameters = presetParameters(preset, model?.trim())
 
         val yaml = renderAgentYaml(
             AgentConfig(
                 name = resolvedName,
                 pluginClass = preset.pluginClass,
                 timeout = resolvedTimeout,
-                parameters = presetParameters(preset.name, resolvedModel)
+                parameters = resolvedParameters
             )
         )
 
@@ -140,7 +192,7 @@ class AgentAddCommand(
 
         terminal.println(green("✅ Added agent '$resolvedName' at $outPath"))
         terminal.println("Next step: cotor agent list -c $configPath")
-        terminal.println("Tip: ensure '${preset.executable}' is installed, then run 'cotor doctor'.")
+        terminal.println("Tip: ${preset.postInstallHint}")
     }
 
     private fun confirm(message: String): Boolean {
@@ -160,28 +212,39 @@ class AgentAddCommand(
         )
     }
 
-    private fun presetParameters(preset: String, model: String): Map<String, String> {
-        return when (preset) {
+    private fun presetParameters(preset: AgentPreset, modelOverride: String?): Map<String, String> {
+        if (!preset.supportsModelOverride) {
+            return preset.defaultParameters
+        }
+
+        val defaultModel = preset.defaultParameters["model"].orEmpty()
+        val resolvedModel = modelOverride?.takeIf { it.isNotBlank() } ?: defaultModel
+
+        return when (preset.name) {
             "qwen" -> mapOf(
-                "model" to model,
-                "argvJson" to "[\"qwen\",\"--model\",\"$model\",\"{input}\"]"
+                "model" to resolvedModel,
+                "argvJson" to "[\"qwen\",\"--model\",\"$resolvedModel\",\"{input}\"]"
             )
-            else -> mapOf("model" to model)
+            else -> preset.defaultParameters + mapOf("model" to resolvedModel)
         }
     }
 
     private fun renderAgentYaml(agent: AgentConfig): String {
-        val parameterLines = agent.parameters.entries
-            .sortedBy { it.key }
-            .joinToString("\n") { (key, value) -> "      $key: ${yamlScalar(value)}" }
+        val parametersBlock = if (agent.parameters.isEmpty()) {
+            "    parameters: {}\n"
+        } else {
+            val parameterLines = agent.parameters.entries
+                .sortedBy { it.key }
+                .joinToString("\n") { (key, value) -> "      $key: ${yamlScalar(value)}" }
+            "    parameters:\n$parameterLines\n"
+        }
 
         return """
 agents:
   - name: ${agent.name}
     pluginClass: ${agent.pluginClass}
     timeout: ${agent.timeout}
-    parameters:
-$parameterLines
+$parametersBlock
         """.trimIndent() + "\n"
     }
 
