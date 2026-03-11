@@ -74,6 +74,8 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 - Korean guide: `README.ko.md`
 - Quick start: `QUICK_START.md`
 - Desktop app: `DESKTOP_APP.md`
+- Team ops onboarding: `team-ops/README.md`
+- Role-based operating templates: `team-ops/templates.md`
 - Architecture: `ARCHITECTURE.md`
 - Features: `FEATURES.md`
 - Usage tips: `USAGE_TIPS.md`

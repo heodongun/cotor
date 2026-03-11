@@ -8,6 +8,8 @@
 - `QUICK_START.md`: 5분 시작 가이드
 - `DESKTOP_APP.md`: macOS 앱 다운로드/실행 가이드
 - `USAGE_TIPS.md`: 실전 사용 팁
+- `team-ops/README.md`: 역할별 운영 온보딩 패키지(초안)
+- `team-ops/templates.md`: 역할별 운영 템플릿
 - `cookbook.md`: 시나리오 모음
 
 ## 기능/구조
