@@ -66,6 +66,28 @@ enum class AgentRunStatus {
 }
 
 /**
+ * Persisted assignment generated from the user's goal plus the selected agents.
+ */
+@Serializable
+enum class TaskAssignmentRole {
+    LEAD,
+    WORKER
+}
+
+/**
+ * One deterministic slice of work assigned to one agent.
+ */
+@Serializable
+data class TaskAssignment(
+    val id: String,
+    val agentName: String,
+    val role: TaskAssignmentRole,
+    val title: String,
+    val prompt: String,
+    val order: Int
+)
+
+/**
  * User-authored task that can be fanned out to multiple agents.
  */
 @Serializable
@@ -75,6 +97,8 @@ data class AgentTask(
     val title: String,
     val prompt: String,
     val agents: List<String>,
+    val leadAgent: String = "",
+    val assignments: List<TaskAssignment> = emptyList(),
     val status: DesktopTaskStatus,
     val createdAt: Long,
     val updatedAt: Long
@@ -97,6 +121,10 @@ data class AgentRun(
     val baseBranch: String = "",
     val branchName: String,
     val worktreePath: String,
+    val assignmentId: String? = null,
+    val assignmentRole: TaskAssignmentRole? = null,
+    val assignmentTitle: String? = null,
+    val assignmentPrompt: String? = null,
     val status: AgentRunStatus,
     val processId: Long? = null,
     val output: String? = null,
