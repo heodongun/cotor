@@ -67,6 +67,9 @@ The installed bundle checks whether `cotor app-server` is already listening on `
 - Each agent run gets its own worktree under `.cotor/worktrees/<task-id>/<agent-name>`.
 - Re-running an existing task reuses the same worktree instead of creating duplicates.
 
+This is the current local-only implementation. The next-step abstraction for
+multi-workspace and remote execution lives in `RUNNER_ARCHITECTURE.md`.
+
 ## Current Scope
 
 - Repository registration from a local path or by cloning a Git URL.
