@@ -23,9 +23,9 @@ class TemplateCommand(
 ) {
     private val templateType by argument(
         name = "type",
-        help = "Template type: compare, chain, review, consensus, fanout, selfheal, verified, custom"
+        help = "Template type: compare, chain, review, consensus, fanout, selfheal, verified, blocked-escalation, custom"
     ).choice(
-        "compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "custom",
+        "compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "blocked-escalation", "custom",
         ignoreCase = true
     ).optional()
 
@@ -41,7 +41,7 @@ class TemplateCommand(
     ).flag(default = false)
 
     private val preview by option("--preview", help = "Preview a template without writing a file")
-        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "custom")
+        .choice("compare", "chain", "review", "consensus", "fanout", "selfheal", "verified", "blocked-escalation", "custom")
 
     private val list by option("--list", help = "List available templates").flag(default = false)
 
@@ -201,6 +201,7 @@ performance:
             "fanout" to "DAG fan-out/fan-in merge pattern",
             "selfheal" to "Loop-based self-healing/retry pattern",
             "verified" to "Generate → test/verify → fix loop (uses CommandPlugin to run a command)",
+            "blocked-escalation" to "Detect blocked items and auto-escalate to CTO/EM when stale",
             "custom" to "Customizable template with common patterns"
         )
 
@@ -239,10 +240,113 @@ performance:
             "fanout" -> generateFanoutTemplate()
             "selfheal" -> generateSelfHealTemplate()
             "verified" -> generateVerifiedTemplate()
+            "blocked-escalation" -> generateBlockedEscalationTemplate()
             "custom" -> generateCustomTemplate()
             else -> throw IllegalArgumentException("Unknown template type: $type")
         }
     }
+
+    private fun generateBlockedEscalationTemplate() = """
+version: "1.0"
+
+agents:
+  - name: codex
+    pluginClass: com.cotor.data.plugin.CodexPlugin
+    timeout: 60000
+
+  - name: claude
+    pluginClass: com.cotor.data.plugin.ClaudePlugin
+    timeout: 60000
+
+pipelines:
+  - name: blocked-reassignment-escalation
+    description: "Auto reassignment for blocked work items after N-minute stagnation"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: classify-blocked-item
+        agent:
+          name: codex
+        input: |
+          You are an issue routing engine.
+          Analyze the blocked work item and output exactly one label:
+          - REASSIGN_TEAM
+          - ESCALATE_EM
+          - ESCALATE_CTO
+
+          Rule:
+          1) If blocked duration is under {{stall_minutes}} minutes -> REASSIGN_TEAM
+          2) If blocked duration is >= {{stall_minutes}} and < {{cto_minutes}} -> ESCALATE_EM
+          3) If blocked duration is >= {{cto_minutes}} -> ESCALATE_CTO
+
+          Context:
+          {{blocked_item_context}}
+
+      - id: route-escalation
+        type: DECISION
+        condition:
+          expression: "classify-blocked-item.output.contains(\"ESCALATE_CTO\")"
+          onTrue:
+            action: GOTO
+            targetStageId: notify-cto
+          onFalse:
+            action: CONTINUE
+
+      - id: route-em
+        type: DECISION
+        condition:
+          expression: "classify-blocked-item.output.contains(\"ESCALATE_EM\")"
+          onTrue:
+            action: GOTO
+            targetStageId: notify-em
+          onFalse:
+            action: GOTO
+            targetStageId: reassign-team
+
+      - id: reassign-team
+        agent:
+          name: codex
+        input: |
+          Reassign this blocked work item to the best available engineer in the same team.
+          Include rationale and SLA reminder.
+
+          Item context:
+          {{blocked_item_context}}
+
+      - id: notify-em
+        agent:
+          name: claude
+        input: |
+          Draft an escalation notice to EM for a blocked item that exceeded {{stall_minutes}} minutes.
+          Include: issue, blocker summary, attempted actions, and requested decision.
+
+          Item context:
+          {{blocked_item_context}}
+
+      - id: notify-cto
+        agent:
+          name: claude
+        input: |
+          Draft an urgent escalation notice to CTO for a blocked item that exceeded {{cto_minutes}} minutes.
+          Include: business impact, blocker owner, mitigation options, and immediate ask.
+
+          Item context:
+          {{blocked_item_context}}
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - codex
+    - claude
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 1
+    """.trimIndent()
 
     private fun generateCompareTemplate() = """
 version: "1.0"
