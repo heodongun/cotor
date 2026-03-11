@@ -18,7 +18,7 @@
 ## macOS Desktop Fast Path
 
 ```bash
-./shell/install-desktop-app.sh
+cotor install
 open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
 ```
 
@@ -27,6 +27,13 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 - `.app` 번들을 빌드하고
 - `/Applications` 또는 `~/Applications`에 설치하고
 - `Downloads`용 zip도 함께 갱신합니다
+
+업데이트/삭제:
+
+```bash
+cotor update
+cotor delete
+```
 
 ## app-server Fast Path
 

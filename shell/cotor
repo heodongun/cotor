@@ -32,4 +32,5 @@ if ! command -v java &> /dev/null; then
 fi
 
 # Run the JAR with all arguments passed to this script
+export COTOR_PROJECT_ROOT="$PROJECT_ROOT"
 java -jar "$JAR_PATH" "$@"

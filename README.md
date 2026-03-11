@@ -67,8 +67,16 @@ cotor app-server --port 8787
 Build and install the local app bundle:
 
 ```bash
-./shell/install-desktop-app.sh
+cotor install
 open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
+```
+
+Manage the installed app bundle directly from the CLI:
+
+```bash
+cotor install
+cotor update
+cotor delete
 ```
 
 Current desktop model:

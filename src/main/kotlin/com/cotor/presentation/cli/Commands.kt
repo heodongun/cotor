@@ -726,7 +726,7 @@ object CheatSheetPrinter {
         terminal.println("🧭 Cotor 10줄 요약")
         terminal.println("--------------------")
         terminal.println("1) ./shell/install-global.sh  또는  ./gradlew shadowJar && ./shell/cotor version")
-        terminal.println("2) cotor init  |  cotor init --interactive  |  cotor init --starter-template")
+        terminal.println("2) cotor install  |  cotor update  |  cotor delete")
         terminal.println("3) cotor list  |  cotor template")
         terminal.println("4) cotor validate <pipeline> -c <yaml>")
         terminal.println("5) cotor run <pipeline> -c <yaml> --output-format text")
