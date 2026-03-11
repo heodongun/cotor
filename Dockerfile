@@ -13,7 +13,16 @@ RUN gradle --no-daemon shadowJar
 FROM eclipse-temurin:17-jre
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /workspace/build/libs/cotor-*-all.jar /app/cotor.jar
 
+EXPOSE 8787
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD ["curl", "--fail", "--silent", "http://127.0.0.1:8787/health"]
+
 ENTRYPOINT ["java", "-jar", "/app/cotor.jar"]
-CMD ["version"]
+CMD ["app-server", "--host", "0.0.0.0", "--port", "8787"]
