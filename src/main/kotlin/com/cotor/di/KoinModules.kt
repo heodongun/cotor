@@ -26,7 +26,9 @@ import com.cotor.event.CoroutineEventBus
 import com.cotor.event.EventBus
 import com.cotor.model.PerformanceConfig
 import com.cotor.model.SecurityConfig
+import com.cotor.monitoring.DefaultObservabilityService
 import com.cotor.monitoring.MetricsCollector
+import com.cotor.monitoring.ObservabilityService
 import com.cotor.monitoring.PipelineRunTracker
 import com.cotor.monitoring.ResourceMonitor
 import com.cotor.monitoring.StructuredLogger
@@ -84,13 +86,13 @@ val cotorModule = module {
     single<SecurityValidator> { DefaultSecurityValidator(get(), get()) }
 
     // Domain Layer
-    single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get()) }
+    single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get(), get()) }
     single<ResultAnalyzer> { DefaultResultAnalyzer() }
     single<ResultAggregator> { DefaultResultAggregator(get()) }
     single<SyntaxValidator> { SyntaxValidator() }
     single<OutputValidator> { DefaultOutputValidator(get()) }
     single<StatsManager> { StatsManager() }
-    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get(), get()) }
+    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get(), get(), observability = get()) }
     single(createdAtStart = true) { PipelineRunTracker(get()) }
 
     // Event System
@@ -99,6 +101,7 @@ val cotorModule = module {
     // Monitoring
     single<StructuredLogger> { StructuredLogger(get()) }
     single<MetricsCollector> { MetricsCollector() }
+    single<ObservabilityService> { DefaultObservabilityService(get(), get()) }
     single<PerformanceConfig> { PerformanceConfig() }
     single<ResourceMonitor> { ResourceMonitor(get(), get()) }
 

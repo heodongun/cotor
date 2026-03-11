@@ -22,9 +22,12 @@ import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.io.File
 import java.nio.file.Files
 import kotlin.io.path.Path
+import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
+import kotlin.io.path.name
 import kotlin.io.path.writeText
 
 class CheckpointCommand : CliktCommand(help = "Manage checkpoints.") {
@@ -86,15 +89,31 @@ class InitCommand :
         help = "Initialize Cotor with default configuration"
     ),
     KoinComponent {
+    private data class StarterAgent(
+        val name: String,
+        val pluginClass: String,
+        val executable: String,
+        val parameterBlock: String = ""
+    )
+
     val configPath by option("--config", "-c", help = "Path to configuration file")
         .path(mustExist = false)
         .default(Path("cotor.yaml"))
     private val interactive by option("--interactive", "-i", help = "대화형으로 기본 파이프라인 설정").flag()
+    private val starterTemplate by option(
+        "--starter-template",
+        help = "프로젝트용 starter config, pipeline, docs 스캐폴드를 생성"
+    ).flag()
     private val terminal = Terminal()
 
     override fun run() {
         if (interactive) {
             writeInteractiveConfig()
+            return
+        }
+
+        if (starterTemplate) {
+            writeStarterProjectScaffold()
             return
         }
 
@@ -145,6 +164,170 @@ performance:
 
         configPath.writeText(defaultConfig)
         echo("Initialized cotor configuration at: $configPath")
+    }
+
+    private fun writeStarterProjectScaffold() {
+        val root = configPath.parent ?: Path(".")
+        val pipelinesDir = root.resolve("pipelines")
+        val docsDir = root.resolve("docs")
+        val starter = resolveStarterAgent()
+        val projectName = root.name.takeUnless { it.isBlank() || it == "." } ?: "cotor-project"
+        val pipelineName = buildPipelineName(projectName)
+        val configText = buildStarterConfig(starter)
+        val pipelineText = buildStarterPipeline(projectName, pipelineName, starter)
+        val docsReadmeText = buildStarterReadme(projectName, pipelineName, starter)
+        val pipelineDocText = buildStarterPipelineDoc(projectName, pipelineName, starter)
+
+        root.createDirectories()
+        pipelinesDir.createDirectories()
+        docsDir.createDirectories()
+
+        configPath.writeText(configText)
+        pipelinesDir.resolve("default.yaml").writeText(pipelineText)
+        docsDir.resolve("README.md").writeText(docsReadmeText)
+        docsDir.resolve("PIPELINES.md").writeText(pipelineDocText)
+
+        terminal.println(green("✅ Starter project scaffold created: $configPath"))
+        terminal.println("   - Pipeline: ${pipelinesDir.resolve("default.yaml")}")
+        terminal.println("   - Docs: ${docsDir.resolve("README.md")}, ${docsDir.resolve("PIPELINES.md")}")
+        terminal.println()
+        terminal.println(dim("Next steps:"))
+        terminal.println(dim("  1. Review docs/README.md and docs/PIPELINES.md"))
+        terminal.println(dim("  2. Run: cotor validate $pipelineName -c $configPath"))
+        terminal.println(dim("  3. Execute: cotor run $pipelineName -c $configPath --output-format text"))
+    }
+
+    private fun buildStarterConfig(starter: StarterAgent): String {
+        val parameterSection = if (starter.parameterBlock.isBlank()) {
+            ""
+        } else {
+            """
+    parameters:
+${starter.parameterBlock.prependIndent("      ")}
+""".trimEnd()
+        }
+
+        return """
+version: "1.0"
+
+imports:
+  - "pipelines/default.yaml"
+
+agents:
+  - name: ${starter.name}
+    pluginClass: ${starter.pluginClass}
+    timeout: 60000
+$parameterSection
+    tags:
+      - starter
+      - scaffold
+
+security:
+  useWhitelist: true
+  allowedExecutables:
+    - ${starter.executable}
+  allowedDirectories:
+    - /usr/local/bin
+    - /opt/homebrew/bin
+
+logging:
+  level: INFO
+  file: cotor.log
+  format: json
+
+performance:
+  maxConcurrentAgents: 5
+  coroutinePoolSize: 4
+        """.trimIndent()
+    }
+
+    private fun buildStarterPipeline(projectName: String, pipelineName: String, starter: StarterAgent): String {
+        return """
+pipelines:
+  - name: $pipelineName
+    description: "Starter workflow for $projectName"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: brief
+        agent:
+          name: ${starter.name}
+        input: "Summarize the goal of $projectName and propose the next implementation step."
+      - id: refine
+        agent:
+          name: ${starter.name}
+        input: "Take the previous result and turn it into a concise execution checklist."
+        """.trimIndent()
+    }
+
+    private fun buildStarterReadme(projectName: String, pipelineName: String, starter: StarterAgent): String {
+        return """
+# $projectName
+
+Starter project scaffold generated by `cotor init --starter-template`.
+
+## Included Files
+
+- `cotor.yaml`: root config that imports `pipelines/default.yaml`
+- `pipelines/default.yaml`: starter sequential workflow named `$pipelineName`
+- `docs/README.md`: project overview and common commands
+- `docs/PIPELINES.md`: workflow intent and extension notes
+
+## Starter Profile
+
+- Project: `$projectName`
+- Pipeline: `$pipelineName`
+- Default agent: `${starter.name}` (`${starter.pluginClass}`)
+
+## Common Commands
+
+```bash
+cotor validate $pipelineName -c cotor.yaml
+cotor run $pipelineName -c cotor.yaml --output-format text
+cotor template --list
+```
+
+## Customization Checklist
+
+1. Replace the starter prompts in `pipelines/default.yaml`.
+2. Add project-specific agents or plugin parameters in `cotor.yaml`.
+3. Expand `docs/PIPELINES.md` as the workflow grows.
+        """.trimIndent()
+    }
+
+    private fun buildStarterPipelineDoc(projectName: String, pipelineName: String, starter: StarterAgent): String {
+        return """
+# Pipeline Notes
+
+This scaffold was generated for `$projectName`.
+
+## Default Workflow
+
+- Pipeline name: `$pipelineName`
+- Execution mode: `SEQUENTIAL`
+- Agent: `${starter.name}`
+- Stages:
+  - `brief`: generate a short plan for the project
+  - `refine`: turn the brief into an executable checklist
+
+## Editing Guide
+
+1. Update the stage prompts to match your task.
+2. Change the execution mode if you need fan-out or review flows.
+3. Add more stages once the project moves beyond the starter workflow.
+
+## Validation Reminder
+
+Run `cotor validate $pipelineName -c cotor.yaml` after changing the scaffold.
+        """.trimIndent()
+    }
+
+    private fun buildPipelineName(projectName: String): String {
+        val slug = projectName
+            .lowercase()
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .ifBlank { "starter" }
+        return "$slug-starter"
     }
 
     private fun writeInteractiveConfig() {
@@ -248,6 +431,51 @@ pipelines:
                 return result
             }
             terminal.println(red("   잘못된 입력입니다. ${options.joinToString(", ")} 중 하나를 선택하세요."))
+        }
+    }
+
+    private fun resolveStarterAgent(): StarterAgent {
+        return when {
+            hasCommand("codex") -> StarterAgent(
+                name = "codex",
+                pluginClass = "com.cotor.data.plugin.CodexPlugin",
+                executable = "codex"
+            )
+            hasCommand("gemini") -> StarterAgent(
+                name = "gemini",
+                pluginClass = "com.cotor.data.plugin.GeminiPlugin",
+                executable = "gemini"
+            )
+            hasCommand("claude") -> StarterAgent(
+                name = "claude",
+                pluginClass = "com.cotor.data.plugin.ClaudePlugin",
+                executable = "claude",
+                parameterBlock = """
+model: claude-sonnet-4-20250514
+                """.trimIndent()
+            )
+            !System.getenv("OPENAI_API_KEY").isNullOrBlank() -> StarterAgent(
+                name = "openai",
+                pluginClass = "com.cotor.data.plugin.OpenAIPlugin",
+                executable = "java",
+                parameterBlock = """
+model: gpt-4o-mini
+apiKeyEnv: OPENAI_API_KEY
+                """.trimIndent()
+            )
+            else -> StarterAgent(
+                name = "example-agent",
+                pluginClass = "com.cotor.data.plugin.EchoPlugin",
+                executable = "echo"
+            )
+        }
+    }
+
+    private fun hasCommand(command: String): Boolean {
+        val path = System.getenv("PATH") ?: return false
+        return path.split(File.pathSeparator).any { dir ->
+            val file = File(dir, command)
+            file.exists() && file.canExecute()
         }
     }
 }
@@ -498,7 +726,7 @@ object CheatSheetPrinter {
         terminal.println("🧭 Cotor 10줄 요약")
         terminal.println("--------------------")
         terminal.println("1) ./shell/install-global.sh  또는  ./gradlew shadowJar && ./shell/cotor version")
-        terminal.println("2) cotor init  (또는 cotor init --interactive)")
+        terminal.println("2) cotor init  |  cotor init --interactive  |  cotor init --starter-template")
         terminal.println("3) cotor list  |  cotor template")
         terminal.println("4) cotor validate <pipeline> -c <yaml>")
         terminal.println("5) cotor run <pipeline> -c <yaml> --output-format text")

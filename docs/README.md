@@ -75,6 +75,7 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 - Quick start: `QUICK_START.md`
 - Desktop app: `DESKTOP_APP.md`
 - Architecture: `ARCHITECTURE.md`
+- Differentiated PRD / architecture: `DIFFERENTIATED_PRD_ARCHITECTURE.md`
 - Features: `FEATURES.md`
 - Usage tips: `USAGE_TIPS.md`
 - Changelog: `release/CHANGELOG.md`
