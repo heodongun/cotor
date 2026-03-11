@@ -4,7 +4,6 @@
 FROM --platform=$BUILDPLATFORM gradle:8.10.2-jdk17 AS build
 WORKDIR /workspace
 
-<<<<<<< HEAD
 COPY gradlew build.gradle.kts settings.gradle.kts gradle.properties ./
 COPY gradle gradle
 COPY src src
