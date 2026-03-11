@@ -70,21 +70,33 @@ class AgentAddCommand(
     private val homeDirectoryProvider: () -> java.nio.file.Path = defaultHomeDirectoryProvider,
 ) : CliktCommand(
     name = "add",
-    help = "Add an agent from preset into .cotor/agents"
+    help = "Add an agent preset as a reusable YAML definition",
+    epilog = """
+        Presets: ${builtinPresets.joinToString { it.name }}
+
+        Install location:
+        - default (--global): ~/.cotor/agents/<name>.yaml
+        - --local: <config directory>/.cotor/agents/<name>.yaml
+
+        Examples:
+        - cotor agent add gemini --local --yes
+        - cotor agent add codex --model gpt-5.3-codex-spark --name reviewer
+        - cotor agent add qwen --dry-run
+    """.trimIndent()
 ) {
     private val terminal = Terminal()
 
     private val presetName by argument("preset")
-    private val configPath by option("--config", "-c", help = "Path to base configuration file")
+    private val configPath by option("--config", "-c", help = "Base config path (used to resolve --local target directory)")
         .path(mustExist = false)
         .default(Path("cotor.yaml"))
-    private val agentName by option("--name", help = "Override agent name")
-    private val model by option("--model", help = "Override default model parameter")
-    private val timeout by option("--timeout", help = "Override timeout (ms)").long()
-    private val force by option("--force", help = "Overwrite existing .cotor/agents/<name>.yaml file").flag(default = false)
-    private val dryRun by option("--dry-run", help = "Print planned YAML without writing").flag(default = false)
-    private val yes by option("--yes", help = "Skip confirmation prompt").flag(default = false)
-    private val installScope by option("--global", "--local", help = "Install preset globally (~/.cotor) or in project .cotor")
+    private val agentName by option("--name", help = "Output file + agent name override (default: preset name)")
+    private val model by option("--model", help = "Model parameter override (default comes from preset)")
+    private val timeout by option("--timeout", help = "Timeout override in milliseconds").long()
+    private val force by option("--force", help = "Overwrite existing target file if present").flag(default = false)
+    private val dryRun by option("--dry-run", help = "Print generated YAML only (does not write files)").flag(default = false)
+    private val yes by option("--yes", help = "Skip interactive confirmation").flag(default = false)
+    private val installScope by option("--global", "--local", help = "Install destination scope")
         .switch(
             "--global" to InstallScope.GLOBAL,
             "--local" to InstallScope.LOCAL,
@@ -193,7 +205,15 @@ $parameterLines
 
 class AgentListCommand : CliktCommand(
     name = "list",
-    help = "List merged agents from config + .cotor overrides"
+    help = "List merged agents from base config and .cotor overrides",
+    epilog = """
+        Resolution order:
+        1) agents in the base config file
+        2) agent files under .cotor/agents (project + global)
+
+        Example:
+        - cotor agent list --config cotor.yaml
+    """.trimIndent()
 ) {
     private val configRepository = FileConfigRepository(YamlParser(), JsonParser())
 
