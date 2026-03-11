@@ -3,11 +3,11 @@
 FROM gradle:8.10.2-jdk17 AS build
 WORKDIR /workspace
 
-COPY build.gradle.kts settings.gradle.kts gradle.properties ./
+COPY gradlew build.gradle.kts settings.gradle.kts gradle.properties ./
 COPY gradle gradle
 COPY src src
 
-RUN gradle --no-daemon shadowJar
+RUN ./gradlew --no-daemon shadowJar
 
 FROM eclipse-temurin:17-jre
 RUN apt-get update \
