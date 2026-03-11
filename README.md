@@ -29,6 +29,7 @@ Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a si
 - [🚀 Quick Start](docs/QUICK_START.md)
 - [🖥️ Desktop App](docs/DESKTOP_APP.md)
 - [⚡ Features](docs/FEATURES.md)
+- [🧭 Team Ops / Onboarding](docs/team-ops/README.md)
 - [📑 Documentation Index](docs/INDEX.md)
 
 ### Test Reports

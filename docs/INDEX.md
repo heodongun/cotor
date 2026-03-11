@@ -19,6 +19,7 @@
 
 ## 운영/업그레이드
 
+- `team-ops/README.md`: 역할별 운영 템플릿과 온보딩 패키지
 - `release/CHANGELOG.md`: 변경 이력
 - `UPGRADE_GUIDE.md`: 업그레이드 절차
 - `UPGRADE_RECOMMENDATIONS.md`: 권장안

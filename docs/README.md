@@ -76,6 +76,7 @@ Primary subcommands: `init`, `list`, `run`, `validate`, `test`, `template`, `res
 - Desktop app: `DESKTOP_APP.md`
 - Architecture: `ARCHITECTURE.md`
 - Features: `FEATURES.md`
+- Team ops / onboarding: `team-ops/README.md`
 - Usage tips: `USAGE_TIPS.md`
 - Changelog: `release/CHANGELOG.md`
 - Reports: `reports/`
