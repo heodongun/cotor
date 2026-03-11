@@ -28,6 +28,7 @@ Cotor is a Kotlin-based AI CLI for orchestrating multi-agent workflows with a si
 - [🌐 Cotor 소개 페이지](https://cotor-guide.pages.dev/)
 - [🚀 Quick Start](docs/QUICK_START.md)
 - [🖥️ Desktop App](docs/DESKTOP_APP.md)
+- [🧭 Differentiated PRD / Architecture](docs/DIFFERENTIATED_PRD_ARCHITECTURE.md)
 - [⚡ Features](docs/FEATURES.md)
 - [📑 Documentation Index](docs/INDEX.md)
 
@@ -109,6 +110,9 @@ cd my-cotor-project
 
 # Initialize Cotor configuration
 java -jar /path/to/cotor-1.0.0.jar init
+
+# Or generate a starter project scaffold with docs
+java -jar /path/to/cotor-1.0.0.jar init --starter-template
 ```
 
 **Step 2: Review the generated configuration**
@@ -116,7 +120,7 @@ java -jar /path/to/cotor-1.0.0.jar init
 cat cotor.yaml
 ```
 
-You'll see a default configuration with an example echo agent and pipeline.
+`init` writes a minimal single-file config. `init --starter-template` creates `cotor.yaml`, `pipelines/default.yaml`, and starter docs under `docs/`.
 
 **Step 3: Run the example pipeline**
 ```bash

@@ -50,9 +50,19 @@ struct RunRecord: Codable, Identifiable, Hashable {
     let processId: Int64?
     let output: String?
     let error: String?
+    let publish: PublishMetadataRecord?
     let durationMs: Int64?
     let createdAt: Int64
     let updatedAt: Int64
+}
+
+/// Publish metadata returned for a completed desktop run.
+struct PublishMetadataRecord: Codable, Hashable {
+    let commitSha: String?
+    let pushedBranch: String?
+    let pullRequestNumber: Int?
+    let pullRequestUrl: String?
+    let error: String?
 }
 
 /// Live TUI session snapshot rendered in the center terminal surface.
@@ -275,6 +285,7 @@ struct MockSeed {
             processId: 1001,
             output: "Working on shell layout and task orchestration...",
             error: nil,
+            publish: nil,
             durationMs: 1200,
             createdAt: 0,
             updatedAt: 0
@@ -294,6 +305,13 @@ struct MockSeed {
             processId: 1002,
             output: "Added app-server APIs and worktree scaffolding.",
             error: nil,
+            publish: PublishMetadataRecord(
+                commitSha: "864046d9bb40e7b3d1f6d1d12a7e8f9a0b1c2d3e",
+                pushedBranch: "codex/cotor/superset-shell/codex",
+                pullRequestNumber: 42,
+                pullRequestUrl: "https://github.com/heodongun/cotor/pull/42",
+                error: nil
+            ),
             durationMs: 1800,
             createdAt: 0,
             updatedAt: 0

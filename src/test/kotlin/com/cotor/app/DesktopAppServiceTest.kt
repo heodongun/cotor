@@ -4,28 +4,99 @@ import com.cotor.data.config.ConfigRepository
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.model.AgentConfig
 import com.cotor.model.AgentResult
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 
-class DesktopAppServiceTest {
+class DesktopAppServiceTest : FunSpec({
+    test("runTask stores publish metadata on a completed run") {
+        val fixture = DesktopAppServiceFixture.create()
+        coEvery { fixture.gitWorkspaceService.ensureWorktree(any(), any(), any(), any(), any()) } returns WorktreeBinding(
+            branchName = "codex/cotor/desktop-publish/codex",
+            worktreePath = fixture.worktreeRoot
+        )
+        coEvery {
+            fixture.agentExecutor.executeAgent(any(), any(), any())
+        } returns AgentResult(
+            agentName = "codex",
+            isSuccess = true,
+            output = "done",
+            error = null,
+            duration = 250,
+            metadata = emptyMap(),
+            processId = 4242
+        )
+        coEvery {
+            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any())
+        } returns PublishMetadata(
+            commitSha = "abc1234567890",
+            pushedBranch = "codex/cotor/desktop-publish/codex",
+            pullRequestNumber = 77,
+            pullRequestUrl = "https://github.com/heodongun/cotor/pull/77"
+        )
 
-    @TempDir
-    lateinit var tempDir: Path
+        fixture.service.runTask(fixture.task.id)
+        val runs = fixture.awaitRuns()
 
-    @Test
-    fun `createTask persists a generated execution plan`() = runBlocking {
-        val repoRoot = Files.createDirectories(tempDir.resolve("repo"))
-        val stateStore = DesktopStateStore { tempDir.resolve("app-home") }
+        runs shouldHaveSize 1
+        val run = runs.single()
+        run.status shouldBe AgentRunStatus.COMPLETED
+        run.output shouldBe "done"
+        run.error shouldBe null
+        run.publish shouldBe PublishMetadata(
+            commitSha = "abc1234567890",
+            pushedBranch = "codex/cotor/desktop-publish/codex",
+            pullRequestNumber = 77,
+            pullRequestUrl = "https://github.com/heodongun/cotor/pull/77"
+        )
+    }
+
+    test("runTask fails the run when publish metadata reports an error") {
+        val fixture = DesktopAppServiceFixture.create()
+        coEvery { fixture.gitWorkspaceService.ensureWorktree(any(), any(), any(), any(), any()) } returns WorktreeBinding(
+            branchName = "codex/cotor/desktop-publish/codex",
+            worktreePath = fixture.worktreeRoot
+        )
+        coEvery {
+            fixture.agentExecutor.executeAgent(any(), any(), any())
+        } returns AgentResult(
+            agentName = "codex",
+            isSuccess = true,
+            output = "done",
+            error = null,
+            duration = 250,
+            metadata = emptyMap(),
+            processId = 4242
+        )
+        coEvery {
+            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any())
+        } returns PublishMetadata(
+            commitSha = "abc1234567890",
+            error = "Publish failed: gh auth refresh required"
+        )
+
+        fixture.service.runTask(fixture.task.id)
+        val run = fixture.awaitRuns().single()
+
+        run.status shouldBe AgentRunStatus.FAILED
+        run.error shouldBe "Publish failed: gh auth refresh required"
+        run.publish shouldBe PublishMetadata(
+            commitSha = "abc1234567890",
+            error = "Publish failed: gh auth refresh required"
+        )
+    }
+
+    test("createTask persists a generated execution plan") {
+        val appHome = Files.createTempDirectory("desktop-planner-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-planner-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
         seedWorkspace(stateStore, repoRoot)
         val service = DesktopAppService(
             stateStore = stateStore,
@@ -41,18 +112,18 @@ class DesktopAppServiceTest {
             agents = listOf("claude", "codex")
         )
 
-        assertNotNull(task.plan)
-        assertEquals(listOf("claude", "codex"), task.plan?.assignments?.map { it.agentName })
-        assertTrue(task.plan?.assignments?.all { it.assignedPrompt.contains("Goal-driven assignment") } == true)
+        val plan = task.plan.shouldNotBeNull()
+        plan.assignments.map { it.agentName } shouldBe listOf("claude", "codex")
+        plan.assignments.all { it.assignedPrompt.contains("Goal-driven assignment") } shouldBe true
 
         val persistedTask = stateStore.load().tasks.single()
-        assertEquals(task.plan, persistedTask.plan)
+        persistedTask.plan shouldBe plan
     }
 
-    @Test
-    fun `runTask uses assigned prompts when present and raw prompt when absent`() = runBlocking {
-        val repoRoot = Files.createDirectories(tempDir.resolve("repo"))
-        val stateStore = DesktopStateStore { tempDir.resolve("app-home") }
+    test("runTask uses assigned prompts when present and raw prompt when absent") {
+        val appHome = Files.createTempDirectory("desktop-planner-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-planner-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
         seedWorkspace(stateStore, repoRoot)
         val gitWorkspaceService = mockk<GitWorkspaceService>()
         val configRepository = mockk<ConfigRepository>(relaxed = true)
@@ -60,16 +131,16 @@ class DesktopAppServiceTest {
         val capturedInputs = mutableListOf<String?>()
 
         coEvery { gitWorkspaceService.ensureWorktree(any(), any(), any(), any(), any()) } coAnswers {
-            val agentName = arg<String>(3)
-            val worktreePath = Files.createDirectories(tempDir.resolve("worktrees").resolve(agentName))
+            val agentName = invocation.args[3] as String
+            val worktreePath = Files.createDirectories(Files.createTempDirectory("desktop-planner-worktree").resolve(agentName))
             WorktreeBinding(
                 branchName = "codex/cotor/test/$agentName",
                 worktreePath = worktreePath
             )
         }
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } coAnswers {
-            capturedInputs += secondArg<String?>()
-            val agent = firstArg<AgentConfig>()
+            capturedInputs += invocation.args[1] as String?
+            val agent = invocation.args[0] as AgentConfig
             AgentResult(
                 agentName = agent.name,
                 isSuccess = true,
@@ -80,6 +151,12 @@ class DesktopAppServiceTest {
                 processId = 123L
             )
         }
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata(
+            commitSha = "abc1234567890",
+            pushedBranch = "codex/cotor/test/branch",
+            pullRequestNumber = 77,
+            pullRequestUrl = "https://github.com/heodongun/cotor/pull/77"
+        )
 
         val service = DesktopAppService(
             stateStore = stateStore,
@@ -97,9 +174,9 @@ class DesktopAppServiceTest {
         service.runTask(plannedTask.id)
         awaitTaskCompletion(stateStore, plannedTask.id)
 
-        val expectedPrompts = plannedTask.plan?.assignments?.map { it.assignedPrompt }?.toSet()
-        assertEquals(expectedPrompts, capturedInputs.toSet())
-        assertTrue(capturedInputs.none { it == plannedTask.prompt })
+        val expectedPrompts = plannedTask.plan.shouldNotBeNull().assignments.map { it.assignedPrompt }.toSet()
+        capturedInputs.toSet() shouldBe expectedPrompts
+        capturedInputs.none { it == plannedTask.prompt } shouldBe true
 
         capturedInputs.clear()
         stateStore.save(
@@ -121,51 +198,119 @@ class DesktopAppServiceTest {
         service.runTask("legacy-task")
         awaitTaskCompletion(stateStore, "legacy-task")
 
-        assertEquals(listOf("Legacy prompt should still flow through unchanged."), capturedInputs)
+        capturedInputs shouldBe listOf("Legacy prompt should still flow through unchanged.")
+    }
+})
+
+private class DesktopAppServiceFixture private constructor(
+    val service: DesktopAppService,
+    val stateStore: DesktopStateStore,
+    val gitWorkspaceService: GitWorkspaceService,
+    val agentExecutor: AgentExecutor,
+    val task: AgentTask,
+    val worktreeRoot: Path
+) {
+    suspend fun awaitRuns(): List<AgentRun> = withTimeout(5_000) {
+        while (true) {
+            val runs = service.listRuns(task.id)
+            if (runs.isNotEmpty() && runs.none { it.status == AgentRunStatus.QUEUED || it.status == AgentRunStatus.RUNNING }) {
+                return@withTimeout runs
+            }
+            delay(25)
+        }
+        error("Unreachable")
     }
 
-    private suspend fun seedWorkspace(stateStore: DesktopStateStore, repoRoot: Path) {
-        stateStore.save(
-            DesktopAppState(
-                repositories = listOf(
-                    ManagedRepository(
-                        id = REPOSITORY_ID,
-                        name = "repo",
-                        localPath = repoRoot.toString(),
-                        sourceKind = RepositorySourceKind.LOCAL,
-                        defaultBranch = "master",
-                        createdAt = 1,
-                        updatedAt = 1
-                    )
-                ),
-                workspaces = listOf(
-                    Workspace(
-                        id = WORKSPACE_ID,
-                        repositoryId = REPOSITORY_ID,
-                        name = "repo · master",
-                        baseBranch = "master",
-                        createdAt = 1,
-                        updatedAt = 1
-                    )
+    companion object {
+        suspend fun create(): DesktopAppServiceFixture {
+            val appHome = Files.createTempDirectory("desktop-app-service-test")
+            val repoRoot = Files.createTempDirectory("desktop-app-service-repo")
+            val worktreeRoot = Files.createTempDirectory("desktop-app-service-worktree")
+            val stateStore = DesktopStateStore { appHome }
+            val gitWorkspaceService = mockk<GitWorkspaceService>()
+            val agentExecutor = mockk<AgentExecutor>()
+            val configRepository = mockk<ConfigRepository>(relaxed = true)
+            val service = DesktopAppService(stateStore, gitWorkspaceService, configRepository, agentExecutor)
+
+            val repository = ManagedRepository(
+                id = REPOSITORY_ID,
+                name = "cotor",
+                localPath = repoRoot.toString(),
+                sourceKind = RepositorySourceKind.LOCAL,
+                defaultBranch = "master",
+                createdAt = 1,
+                updatedAt = 1
+            )
+            val workspace = Workspace(
+                id = WORKSPACE_ID,
+                repositoryId = repository.id,
+                name = "cotor · master",
+                baseBranch = "master",
+                createdAt = 1,
+                updatedAt = 1
+            )
+            val task = AgentTask(
+                id = "task-1",
+                workspaceId = workspace.id,
+                title = "Desktop publish",
+                prompt = "Implement desktop publish flow",
+                agents = listOf("codex"),
+                status = DesktopTaskStatus.QUEUED,
+                createdAt = 1,
+                updatedAt = 1
+            )
+            stateStore.save(
+                DesktopAppState(
+                    repositories = listOf(repository),
+                    workspaces = listOf(workspace),
+                    tasks = listOf(task)
+                )
+            )
+
+            return DesktopAppServiceFixture(service, stateStore, gitWorkspaceService, agentExecutor, task, worktreeRoot)
+        }
+    }
+}
+
+private suspend fun seedWorkspace(stateStore: DesktopStateStore, repoRoot: Path) {
+    stateStore.save(
+        DesktopAppState(
+            repositories = listOf(
+                ManagedRepository(
+                    id = REPOSITORY_ID,
+                    name = "repo",
+                    localPath = repoRoot.toString(),
+                    sourceKind = RepositorySourceKind.LOCAL,
+                    defaultBranch = "master",
+                    createdAt = 1,
+                    updatedAt = 1
+                )
+            ),
+            workspaces = listOf(
+                Workspace(
+                    id = WORKSPACE_ID,
+                    repositoryId = REPOSITORY_ID,
+                    name = "repo · master",
+                    baseBranch = "master",
+                    createdAt = 1,
+                    updatedAt = 1
                 )
             )
         )
-    }
+    )
+}
 
-    private suspend fun awaitTaskCompletion(stateStore: DesktopStateStore, taskId: String) {
-        withTimeout(5_000) {
-            while (true) {
-                val task = stateStore.load().tasks.first { it.id == taskId }
-                if (task.status == DesktopTaskStatus.COMPLETED) {
-                    return@withTimeout
-                }
-                delay(25)
+private suspend fun awaitTaskCompletion(stateStore: DesktopStateStore, taskId: String) {
+    withTimeout(5_000) {
+        while (true) {
+            val task = stateStore.load().tasks.first { it.id == taskId }
+            if (task.status == DesktopTaskStatus.COMPLETED) {
+                return@withTimeout
             }
+            delay(25)
         }
     }
-
-    private companion object {
-        const val REPOSITORY_ID = "repo-1"
-        const val WORKSPACE_ID = "workspace-1"
-    }
 }
+
+private const val REPOSITORY_ID = "repo-1"
+private const val WORKSPACE_ID = "workspace-1"

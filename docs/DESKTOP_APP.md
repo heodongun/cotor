@@ -76,3 +76,5 @@ The installed bundle checks whether `cotor app-server` is already listening on `
 - Diff, file tree, run-state inspection, and an embedded browser in the macOS client.
 - PID-based local port discovery for agent runs via `lsof`.
 - Read-only settings screen for app paths, available agents, and current keyboard shortcuts.
+
+Future-facing runner and multi-workspace architecture notes live in [MULTI_WORKSPACE_REMOTE_RUNNER.md](MULTI_WORKSPACE_REMOTE_RUNNER.md).
