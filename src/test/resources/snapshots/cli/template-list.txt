@@ -6,7 +6,7 @@
   consensus    - Multiple AIs provide opinions to reach consensus
   fanout       - DAG fan-out/fan-in merge pattern
   selfheal     - Loop-based self-healing/retry pattern
-  verified     - Generate → test/verify → fix loop (uses CommandPlugin to run a command)
+  verified     - Generate → test/verify → fix loop (uses reusable QA verification agent)
   blocked-escalation - Detect blocked items and auto-escalate to CTO/EM when stale
   custom       - Customizable template with common patterns
 

@@ -61,18 +61,23 @@ java -jar build/libs/cotor-1.0.0-all.jar run complex-dag-pipeline -c examples/co
 
 - **시나리오**: 테스트 초안을 만들고 품질 점수가 기준 미만이면 자동 개선 루프를 돌립니다.
 - **기반 예제**: `examples/decision-loop.yaml`
+- **실전 fixture**: `test/qa-test-generation/qa-test-generation.yaml`
 - **핵심 패턴**: `type: DECISION`, `type: LOOP`, `GOTO`, `untilExpression`
 
 ### 실행 커맨드
 
 ```bash
-java -jar build/libs/cotor-1.0.0-all.jar validate iterate-summary -c examples/decision-loop.yaml
-java -jar build/libs/cotor-1.0.0-all.jar run iterate-summary -c examples/decision-loop.yaml --output-format text
+java -jar build/libs/cotor-1.0.0-all.jar validate decision-loop -c examples/decision-loop.yaml
+java -jar build/libs/cotor-1.0.0-all.jar run decision-loop -c examples/decision-loop.yaml --output-format text
+
+java -jar build/libs/cotor-1.0.0-all.jar validate qa-test-generation -c test/qa-test-generation/qa-test-generation.yaml
+java -jar build/libs/cotor-1.0.0-all.jar run qa-test-generation -c test/qa-test-generation/qa-test-generation.yaml --output-format text
 ```
 
 ### 실무 적용 팁
 
-- `score` 기반 평가 규칙을 커버리지/flake rate/테스트 실행시간 같은 팀 KPI로 바꾸면 테스트 생성 파이프라인으로 바로 전환 가능합니다.
+- `review-tests` 결과를 `qa_status=PASS/RETRY` 같이 기계적으로 판정 가능한 문자열로 통일하면 `DECISION` 단계가 안정적으로 루프를 제어합니다.
+- `test/qa-test-generation/` fixture 처럼 요구사항 문서와 코드 샘플을 함께 두면, 테스트 생성 프롬프트를 매번 새로 쓰지 않아도 됩니다.
 - `maxIterations`를 작게 유지해 무한 개선 루프를 방지하세요.
 
 ---

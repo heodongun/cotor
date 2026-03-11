@@ -2,6 +2,7 @@ package com.cotor.app
 
 import com.cotor.data.config.ConfigRepository
 import com.cotor.domain.executor.AgentExecutor
+import com.cotor.domain.planning.GoalDrivenTaskPlanner
 import com.cotor.model.AgentConfig
 import com.cotor.model.AgentExecutionMetadata
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,7 @@ class DesktopAppService(
     private val gitWorkspaceService: GitWorkspaceService,
     private val configRepository: ConfigRepository,
     private val agentExecutor: AgentExecutor,
+    private val taskPlanner: GoalDrivenTaskPlanner = GoalDrivenTaskPlanner(),
 ) {
     // Reads are cheap and frequent, but writes must be serialized so the state file
     // cannot be partially overwritten when multiple agent runs finish at once.
@@ -74,14 +76,30 @@ class DesktopAppService(
     suspend fun openLocalRepository(path: String): ManagedRepository {
         val repositoryRoot = gitWorkspaceService.resolveRepositoryRoot(Path.of(path))
         val now = System.currentTimeMillis()
+        val defaultBranch = gitWorkspaceService.detectDefaultBranch(repositoryRoot)
+        val remoteUrl = gitWorkspaceService.detectRemoteUrl(repositoryRoot)
 
         return stateMutex.withLock {
             val state = stateStore.load()
             val existing = state.repositories.firstOrNull {
-                Path.of(it.localPath).toAbsolutePath().normalize() == repositoryRoot
+                sameRepositoryRoot(it.localPath, repositoryRoot)
             }
             if (existing != null) {
-                return@withLock existing
+                val refreshed = existing.copy(
+                    name = repositoryRoot.fileName.toString(),
+                    localPath = repositoryRoot.toString(),
+                    remoteUrl = remoteUrl ?: existing.remoteUrl,
+                    defaultBranch = defaultBranch,
+                    updatedAt = now
+                )
+                stateStore.save(
+                    state.copy(
+                        repositories = state.repositories.map {
+                            if (it.id == existing.id) refreshed else it
+                        }
+                    )
+                )
+                return@withLock refreshed
             }
 
             val repository = ManagedRepository(
@@ -89,7 +107,8 @@ class DesktopAppService(
                 name = repositoryRoot.fileName.toString(),
                 localPath = repositoryRoot.toString(),
                 sourceKind = RepositorySourceKind.LOCAL,
-                defaultBranch = gitWorkspaceService.detectDefaultBranch(repositoryRoot),
+                remoteUrl = remoteUrl,
+                defaultBranch = defaultBranch,
                 createdAt = now,
                 updatedAt = now
             )
@@ -99,14 +118,44 @@ class DesktopAppService(
     }
 
     suspend fun cloneRepository(url: String): ManagedRepository {
+        stateMutex.withLock {
+            val existing = stateStore.load().repositories.firstOrNull { it.remoteUrl == url }
+            if (existing != null) {
+                return existing
+            }
+        }
+
         val repositoryRoot = gitWorkspaceService.cloneRepository(url)
         val now = System.currentTimeMillis()
+        val defaultBranch = gitWorkspaceService.detectDefaultBranch(repositoryRoot)
 
         return stateMutex.withLock {
             val state = stateStore.load()
-            val existing = state.repositories.firstOrNull { it.remoteUrl == url }
-            if (existing != null) {
-                return@withLock existing
+            val existingByUrl = state.repositories.firstOrNull { it.remoteUrl == url }
+            if (existingByUrl != null) {
+                return@withLock existingByUrl
+            }
+
+            val existingByPath = state.repositories.firstOrNull {
+                sameRepositoryRoot(it.localPath, repositoryRoot)
+            }
+            if (existingByPath != null) {
+                val refreshed = existingByPath.copy(
+                    name = repositoryRoot.fileName.toString(),
+                    localPath = repositoryRoot.toString(),
+                    sourceKind = RepositorySourceKind.CLONED,
+                    remoteUrl = url,
+                    defaultBranch = defaultBranch,
+                    updatedAt = now
+                )
+                stateStore.save(
+                    state.copy(
+                        repositories = state.repositories.map {
+                            if (it.id == existingByPath.id) refreshed else it
+                        }
+                    )
+                )
+                return@withLock refreshed
             }
 
             val repository = ManagedRepository(
@@ -115,7 +164,7 @@ class DesktopAppService(
                 localPath = repositoryRoot.toString(),
                 sourceKind = RepositorySourceKind.CLONED,
                 remoteUrl = url,
-                defaultBranch = gitWorkspaceService.detectDefaultBranch(repositoryRoot),
+                defaultBranch = defaultBranch,
                 createdAt = now,
                 updatedAt = now
             )
@@ -159,6 +208,11 @@ class DesktopAppService(
         val requestedAgents = agents.map { it.trim().lowercase() }.filter { it.isNotBlank() }.ifEmpty {
             listOf("claude", "codex")
         }
+        val executionPlan = taskPlanner.buildPlan(
+            title = title,
+            prompt = prompt,
+            agents = requestedAgents
+        )
 
         // Freeze the requested agent list into the task record up front so rerenders,
         // retries, and later refreshes all refer to the same execution plan.
@@ -168,6 +222,7 @@ class DesktopAppService(
             title = title?.takeIf { it.isNotBlank() } ?: prompt.lineSequence().firstOrNull()?.take(48).orEmpty().ifBlank { "New Task" },
             prompt = prompt,
             agents = requestedAgents,
+            plan = executionPlan,
             status = DesktopTaskStatus.QUEUED,
             createdAt = now,
             updatedAt = now
@@ -232,6 +287,9 @@ class DesktopAppService(
         shortcuts = ShortcutConfig()
     )
 
+    private fun sameRepositoryRoot(savedPath: String, repositoryRoot: Path): Boolean =
+        Path.of(savedPath).toAbsolutePath().normalize() == repositoryRoot.toAbsolutePath().normalize()
+
     private suspend fun executeTask(taskId: String) {
         val snapshot = stateStore.load()
         val task = snapshot.tasks.firstOrNull { it.id == taskId } ?: return
@@ -247,7 +305,13 @@ class DesktopAppService(
             // does not create cross-agent file conflicts inside the same repository root.
             task.agents.map { agentName ->
                 async {
-                    executeAgentRun(task, workspace, repository, agents[agentName] ?: BuiltinAgentCatalog.get(agentName))
+                    executeAgentRun(
+                        task = task,
+                        workspace = workspace,
+                        repository = repository,
+                        agentName = agentName,
+                        agent = agents[agentName] ?: BuiltinAgentCatalog.get(agentName)
+                    )
                 }
             }.awaitAll()
         }
@@ -267,10 +331,11 @@ class DesktopAppService(
         task: AgentTask,
         workspace: Workspace,
         repository: ManagedRepository,
+        agentName: String,
         agent: AgentConfig?
     ) {
         if (agent == null) {
-            recordRunFailure(task, workspace, repository, "unknown", "Unknown agent configuration")
+            recordRunFailure(task, workspace, repository, agentName, "Unknown agent configuration")
             return
         }
 
@@ -289,7 +354,7 @@ class DesktopAppService(
 
             val result = agentExecutor.executeAgent(
                 agent = agent,
-                input = task.prompt,
+                input = assignedPromptFor(task, agent.name),
                 // The only context the CLI agents need for worktree isolation is cwd.
                 // They can continue using their existing command-line contracts.
                 metadata = AgentExecutionMetadata(
@@ -302,13 +367,26 @@ class DesktopAppService(
                     workingDirectory = binding.worktreePath
                 )
             )
+            val publish = if (result.isSuccess) {
+                gitWorkspaceService.publishRun(
+                    task = task,
+                    agentName = agent.name,
+                    worktreePath = binding.worktreePath,
+                    branchName = binding.branchName,
+                    baseBranch = workspace.baseBranch
+                )
+            } else {
+                null
+            }
+            val finalError = result.error ?: publish?.error
 
             replaceRun(
                 startedRun.copy(
-                    status = if (result.isSuccess) AgentRunStatus.COMPLETED else AgentRunStatus.FAILED,
+                    status = if (result.isSuccess && publish?.error == null) AgentRunStatus.COMPLETED else AgentRunStatus.FAILED,
                     processId = result.processId,
                     output = result.output,
-                    error = result.error,
+                    error = finalError,
+                    publish = publish,
                     durationMs = result.duration.takeIf { it > 0 },
                     updatedAt = System.currentTimeMillis()
                 )
@@ -317,6 +395,9 @@ class DesktopAppService(
             recordRunFailure(task, workspace, repository, agent.name, t.message ?: "Unknown error")
         }
     }
+
+    private fun assignedPromptFor(task: AgentTask, agentName: String): String =
+        task.plan?.assignmentFor(agentName)?.assignedPrompt ?: task.prompt
 
     private suspend fun resolveAgents(repositoryRoot: Path, requestedAgents: List<String>): Map<String, AgentConfig> {
         val configPath = repositoryRoot.resolve("cotor.yaml")

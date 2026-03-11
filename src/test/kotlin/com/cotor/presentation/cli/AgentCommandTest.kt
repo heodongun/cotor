@@ -96,6 +96,23 @@ class AgentCommandTest : FunSpec({
         added.readText() shouldContain "argvJson:"
     }
 
+
+    test("agent add qa writes QA verification plugin without model parameters") {
+        val root = Path("build/tmp/agent-qa-${System.currentTimeMillis()}")
+        createdRoots.add(root)
+        root.createDirectories()
+        val config = root.resolve("cotor.yaml")
+        config.writeText("version: \"1.0\"\nagents: []\n")
+
+        val result = AgentCommand().test("add qa --config $config --local --yes")
+
+        result.statusCode shouldBe 0
+        val added = root.resolve(".cotor/agents/qa.yaml")
+        added.exists() shouldBe true
+        added.readText() shouldContain "pluginClass: com.cotor.data.plugin.QaVerificationPlugin"
+        added.readText().contains("parameters:") shouldBe false
+    }
+
     test("agent add codex uses updated default model") {
         val root = Path("build/tmp/agent-codex-${System.currentTimeMillis()}")
         createdRoots.add(root)
@@ -109,6 +126,23 @@ class AgentCommandTest : FunSpec({
         val added = root.resolve(".cotor/agents/codex.yaml")
         added.exists() shouldBe true
         added.readText() shouldContain "model: \"gpt-5.3-codex-spark\""
+    }
+
+    test("agent add help shows detailed usage") {
+        val result = AgentCommand().test("add --help")
+
+        result.statusCode shouldBe 0
+        result.output shouldContain "Install location:"
+        result.output shouldContain "Examples:"
+        result.output shouldContain "cotor agent add gemini --local --yes"
+    }
+
+    test("agent list help shows resolution order") {
+        val result = AgentCommand().test("list --help")
+
+        result.statusCode shouldBe 0
+        result.output shouldContain "Resolution order:"
+        result.output shouldContain "cotor agent list --config cotor.yaml"
     }
 
     afterSpec {

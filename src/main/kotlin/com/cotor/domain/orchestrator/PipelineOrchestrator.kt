@@ -10,6 +10,8 @@ import com.cotor.domain.executor.AgentExecutor
 import com.cotor.event.*
 import com.cotor.event.EventBus
 import com.cotor.model.*
+import com.cotor.monitoring.NoopObservabilityService
+import com.cotor.monitoring.ObservabilityService
 import com.cotor.recovery.RecoveryExecutor
 import com.cotor.stats.StatsManager
 import com.cotor.validation.PipelineTemplateValidator
@@ -71,7 +73,8 @@ class DefaultPipelineOrchestrator(
     private val outputValidator: OutputValidator,
     private val statsManager: StatsManager,
     private val checkpointManager: CheckpointManager = CheckpointManager(),
-    private val templateValidator: PipelineTemplateValidator = PipelineTemplateValidator(TemplateEngine())
+    private val templateValidator: PipelineTemplateValidator = PipelineTemplateValidator(TemplateEngine()),
+    private val observability: ObservabilityService = NoopObservabilityService
 ) : PipelineOrchestrator {
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()
@@ -115,6 +118,11 @@ class DefaultPipelineOrchestrator(
         }
 
         logger.info("Starting pipeline: ${pipeline.name} (ID: $pipelineId)")
+        val pipelineObservation = observability.startPipeline(pipelineId, pipeline.name, pipeline.stages.size)
+        pipelineObservation?.let {
+            pipelineContext.metadata["traceId"] = it.traceContext.traceId
+            pipelineContext.metadata["pipelineSpanId"] = it.traceContext.spanId
+        }
 
         val deferred = async {
             eventBus.emit(PipelineStartedEvent(pipelineId, pipeline.name))
@@ -152,6 +160,7 @@ class DefaultPipelineOrchestrator(
                     ?: throw PipelineException("Pipeline '${pipeline.name}' timed out after ${pipeline.executionTimeoutMs} ms")
 
                 eventBus.emit(PipelineCompletedEvent(pipelineId, finalResult))
+                observability.completePipeline(pipelineObservation, finalResult)
 
                 // Record execution statistics
                 val stageExecutions = pipelineContext.stageResults.values.map {
@@ -174,6 +183,7 @@ class DefaultPipelineOrchestrator(
                 } else {
                     logger.error("Pipeline failed: ${pipeline.name}", e)
                 }
+                observability.failPipeline(pipelineObservation, e)
                 eventBus.emit(PipelineFailedEvent(pipelineId, e))
                 throw e
             } finally {
@@ -403,6 +413,7 @@ class DefaultPipelineOrchestrator(
         pipelineContext: PipelineContext,
         input: String?
     ): AgentResult {
+        val stageObservation = observability.startStage(pipelineId, stage.id, stage.agent?.name)
         eventBus.emit(StageStartedEvent(stage.id, pipelineId))
         val agentName = stage.agent?.name ?: stage.id
 
@@ -424,6 +435,7 @@ class DefaultPipelineOrchestrator(
                 metadata = emptyMap()
             )
             pipelineContext.addStageResult(stage.id, failureResult)
+            observability.failStage(stageObservation, e)
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, e))
             throw e
         }
@@ -443,6 +455,7 @@ class DefaultPipelineOrchestrator(
                 )
             )
             pipelineContext.addStageResult(stage.id, timeoutResult)
+            observability.failStage(stageObservation, RuntimeException(errorMessage))
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, RuntimeException(errorMessage)))
 
             if (stage.timeoutPolicy == TimeoutPolicy.FAIL_PIPELINE) {
@@ -454,9 +467,11 @@ class DefaultPipelineOrchestrator(
         pipelineContext.addStageResult(stage.id, result)
 
         if (result.isSuccess) {
+            observability.completeStage(stageObservation, result)
             eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
         } else {
             val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
+            observability.failStage(stageObservation, error)
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
         }
 
@@ -471,36 +486,43 @@ class DefaultPipelineOrchestrator(
         val condition = stage.condition
             ?: throw PipelineException("Decision stage ${stage.id} is missing a condition")
 
-        eventBus.emit(StageStartedEvent(stage.id, pipelineId))
-        val passed = conditionEvaluator.evaluate(condition.expression, pipelineContext)
-        val outcome = if (passed) condition.onTrue else condition.onFalse
-        applySharedStateUpdates(outcome, pipelineContext)
+        val stageObservation = observability.startStage(pipelineId, stage.id, stage.agent?.name)
+        try {
+            eventBus.emit(StageStartedEvent(stage.id, pipelineId))
+            val passed = conditionEvaluator.evaluate(condition.expression, pipelineContext)
+            val outcome = if (passed) condition.onTrue else condition.onFalse
+            applySharedStateUpdates(outcome, pipelineContext)
 
-        val metadata = mutableMapOf(
-            "conditionExpression" to condition.expression,
-            "conditionResult" to passed.toString(),
-            "nextAction" to outcome.action.name
-        )
-        outcome.targetStageId?.let { metadata["targetStage"] = it }
-        outcome.message?.let { metadata["message"] = it }
+            val metadata = mutableMapOf(
+                "conditionExpression" to condition.expression,
+                "conditionResult" to passed.toString(),
+                "nextAction" to outcome.action.name
+            )
+            outcome.targetStageId?.let { metadata["targetStage"] = it }
+            outcome.message?.let { metadata["message"] = it }
 
-        val result = AgentResult(
-            agentName = stage.agent?.name ?: "decision:${stage.id}",
-            isSuccess = true,
-            output = buildString {
-                appendLine("Condition: ${condition.expression}")
-                append("Result: ${if (passed) "TRUE" else "FALSE"} → ${outcome.action}")
-                outcome.targetStageId?.let { append(" ($it)") }
-                outcome.message?.let { append(" • $it") }
-            }.trim(),
-            error = null,
-            duration = 0,
-            metadata = metadata
-        )
+            val result = AgentResult(
+                agentName = stage.agent?.name ?: "decision:${stage.id}",
+                isSuccess = true,
+                output = buildString {
+                    appendLine("Condition: ${condition.expression}")
+                    append("Result: ${if (passed) "TRUE" else "FALSE"} → ${outcome.action}")
+                    outcome.targetStageId?.let { append(" ($it)") }
+                    outcome.message?.let { append(" • $it") }
+                }.trim(),
+                error = null,
+                duration = 0,
+                metadata = metadata
+            )
 
-        pipelineContext.addStageResult(stage.id, result)
-        eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
-        return DecisionStageResult(result, outcome)
+            pipelineContext.addStageResult(stage.id, result)
+            observability.completeStage(stageObservation, result)
+            eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+            return DecisionStageResult(result, outcome)
+        } catch (e: Exception) {
+            observability.failStage(stageObservation, e)
+            throw e
+        }
     }
 
     private fun resolveDecisionNextIndex(
@@ -534,45 +556,52 @@ class DefaultPipelineOrchestrator(
     ): LoopStageResult {
         val loopConfig = stage.loop
             ?: throw PipelineException("Loop stage ${stage.id} is missing loop configuration")
-        eventBus.emit(StageStartedEvent(stage.id, pipelineId))
+        val stageObservation = observability.startStage(pipelineId, stage.id, stage.agent?.name)
+        try {
+            eventBus.emit(StageStartedEvent(stage.id, pipelineId))
 
-        val iterationKey = "loop:${stage.id}:iterations"
-        val completedIterations = (pipelineContext.metadata[iterationKey] as? Int) ?: 0
-        val conditionMet = loopConfig.untilExpression
-            ?.let { conditionEvaluator.evaluate(it, pipelineContext) }
-            ?: false
-        val canRepeat = completedIterations < loopConfig.maxIterations
-        val shouldRepeat = !conditionMet && canRepeat
+            val iterationKey = "loop:${stage.id}:iterations"
+            val completedIterations = (pipelineContext.metadata[iterationKey] as? Int) ?: 0
+            val conditionMet = loopConfig.untilExpression
+                ?.let { conditionEvaluator.evaluate(it, pipelineContext) }
+                ?: false
+            val canRepeat = completedIterations < loopConfig.maxIterations
+            val shouldRepeat = !conditionMet && canRepeat
 
-        val result = AgentResult(
-            agentName = stage.agent?.name ?: "loop:${stage.id}",
-            isSuccess = true,
-            output = if (shouldRepeat) {
-                "Loop ${stage.id} continuing to ${loopConfig.targetStageId} (${completedIterations + 1}/${loopConfig.maxIterations})"
-            } else {
-                "Loop ${stage.id} completed after $completedIterations iteration(s)"
-            },
-            error = null,
-            duration = 0,
-            metadata = mapOf(
-                "loopIteration" to completedIterations.toString(),
-                "loopAction" to if (shouldRepeat) "CONTINUE" else "BREAK"
+            val result = AgentResult(
+                agentName = stage.agent?.name ?: "loop:${stage.id}",
+                isSuccess = true,
+                output = if (shouldRepeat) {
+                    "Loop ${stage.id} continuing to ${loopConfig.targetStageId} (${completedIterations + 1}/${loopConfig.maxIterations})"
+                } else {
+                    "Loop ${stage.id} completed after $completedIterations iteration(s)"
+                },
+                error = null,
+                duration = 0,
+                metadata = mapOf(
+                    "loopIteration" to completedIterations.toString(),
+                    "loopAction" to if (shouldRepeat) "CONTINUE" else "BREAK"
+                )
             )
-        )
 
-        pipelineContext.addStageResult(stage.id, result)
+            pipelineContext.addStageResult(stage.id, result)
 
-        val nextIndex = if (shouldRepeat) {
-            pipelineContext.metadata[iterationKey] = completedIterations + 1
-            stageIndexMap[loopConfig.targetStageId]
-                ?: throw PipelineException("Loop stage ${stage.id} target '${loopConfig.targetStageId}' not found")
-        } else {
-            pipelineContext.metadata.remove(iterationKey)
-            currentIndex + 1
+            val nextIndex = if (shouldRepeat) {
+                pipelineContext.metadata[iterationKey] = completedIterations + 1
+                stageIndexMap[loopConfig.targetStageId]
+                    ?: throw PipelineException("Loop stage ${stage.id} target '${loopConfig.targetStageId}' not found")
+            } else {
+                pipelineContext.metadata.remove(iterationKey)
+                currentIndex + 1
+            }
+
+            observability.completeStage(stageObservation, result)
+            eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+            return LoopStageResult(result, nextIndex)
+        } catch (e: Exception) {
+            observability.failStage(stageObservation, e)
+            throw e
         }
-
-        eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
-        return LoopStageResult(result, nextIndex)
     }
 
     private fun applySharedStateUpdates(outcome: ConditionOutcome, pipelineContext: PipelineContext) {

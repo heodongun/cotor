@@ -13,7 +13,7 @@ java -jar build/libs/cotor-1.0.0.jar web --open
 java -jar build/libs/cotor-1.0.0.jar web --port 9090 --open
 ```
 
-브라우저가 자동으로 열리지 않으면 `http://localhost:8080/editor` 로 접속하세요.
+브라우저가 자동으로 열리지 않으면 소개 페이지 `http://localhost:8080/` 또는 에디터 `http://localhost:8080/editor` 로 접속하세요.
 
 ## 주요 기능
 

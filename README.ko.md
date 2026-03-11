@@ -31,6 +31,7 @@ Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 
 - [📑 문서 인덱스](docs/INDEX.md)
 
 ### 테스트 리포트
+- [📈 Paperclip 벤치마크 리포트](docs/reports/PAPERCLIP_BENCHMARK_REPORT.md) - Cotor 지표와 Paperclip 기준선 공백 정리
 - [✅ **실제 실행 테스트**](test-results/LIVE_TEST_RESULTS.md) - 실제 동작 확인 (신규!)
 - [📊 테스트 요약](test-results/README.md) - 빠른 확인
 - [🧪 상세 테스트](docs/reports/FEATURE_TEST_REPORT_v1.0.0.md) - 포괄적 테스트
@@ -38,6 +39,7 @@ Cotor는 여러 AI 에이전트를 하나의 CLI로 오케스트레이션하는 
 ### 추가 자료
 - [📋 릴리스 노트](docs/release/CHANGELOG.md)
 - [🔧 업그레이드 가이드](docs/UPGRADE_GUIDE.md)
+- [🧭 팀 운영/온보딩 패키지](docs/team-ops/README.ko.md)
 - [🤖 Claude 연동](docs/CLAUDE_SETUP.md)
 - [💡 사용 팁](docs/USAGE_TIPS.md)
 - [📦 예제](examples/)
@@ -102,6 +104,9 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 # 1. 설정 파일 생성
 cotor init
 
+# 또는 starter 프로젝트/문서 스캐폴드 생성
+cotor init --starter-template
+
 # 2. 사용 가능한 에이전트 목록 확인
 cotor list
 
@@ -154,12 +159,13 @@ cotor --help       # 전체 명령어 도움말
 - 인자 없이 `cotor`를 실행하면 interactive TUI로 바로 진입합니다.
 - 현재 폴더에 `cotor.yaml`이 없으면 starter 설정 파일을 자동 생성합니다.
   (기본 우선순위: codex → gemini → claude → openai → echo)
+- `cotor init --starter-template`를 사용하면 `pipelines/default.yaml`, `docs/README.md`, `docs/PIPELINES.md`까지 함께 생성됩니다.
 - Interactive TUI에서 `:model <name>`으로 모델(에이전트) 전환 가능
 - `cotor tui`도 `cotor interactive`와 동일하게 동작합니다.
 
 ## 📦 예제
 
-`examples/`에서 바로 실행 가능한 예제:
+바로 실행 가능한 예제와 시나리오 fixture:
 
 ```bash
 # 단일 에이전트 예제
@@ -170,6 +176,9 @@ cotor --help       # 전체 명령어 도움말
 
 # 의사결정 및 루프
 ./shell/cotor run decision-loop -c examples/decision-loop.yaml
+
+# QA 테스트 생성 루프
+./shell/cotor run qa-test-generation -c test/qa-test-generation/qa-test-generation.yaml
 
 # 모든 예제 실행
 ./examples/run-examples.sh
