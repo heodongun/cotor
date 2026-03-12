@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+Quick smoke test: `./shell/cotor version` should print the CLI version and exit cleanly.
+
 Common first commands:
 
 ```bash
