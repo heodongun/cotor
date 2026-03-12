@@ -46,6 +46,7 @@ Current template types:
 git clone https://github.com/yourusername/cotor.git
 cd cotor
 ./gradlew shadowJar
+./gradlew test
 chmod +x shell/cotor
 ./shell/cotor version
 ```
