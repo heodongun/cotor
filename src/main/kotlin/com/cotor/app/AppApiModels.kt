@@ -57,6 +57,14 @@ data class CreateGoalRequest(
 )
 
 @Serializable
+data class UpdateGoalRequest(
+    val title: String? = null,
+    val description: String? = null,
+    val successMetrics: List<String>? = null,
+    val autonomyEnabled: Boolean? = null
+)
+
+@Serializable
 data class CreateCompanyRequest(
     val name: String,
     val rootPath: String,
@@ -68,7 +76,8 @@ data class CreateCompanyRequest(
 data class UpdateCompanyRequest(
     val name: String? = null,
     val defaultBaseBranch: String? = null,
-    val autonomyEnabled: Boolean? = null
+    val autonomyEnabled: Boolean? = null,
+    val backendKind: ExecutionBackendKind? = null
 )
 
 @Serializable
@@ -76,6 +85,10 @@ data class CreateCompanyAgentDefinitionRequest(
     val title: String,
     val agentCli: String,
     val roleSummary: String,
+    val specialties: List<String> = emptyList(),
+    val collaborationInstructions: String? = null,
+    val preferredCollaboratorIds: List<String> = emptyList(),
+    val memoryNotes: String? = null,
     val enabled: Boolean = true
 )
 
@@ -84,8 +97,46 @@ data class UpdateCompanyAgentDefinitionRequest(
     val title: String? = null,
     val agentCli: String? = null,
     val roleSummary: String? = null,
+    val specialties: List<String>? = null,
+    val collaborationInstructions: String? = null,
+    val preferredCollaboratorIds: List<String>? = null,
+    val memoryNotes: String? = null,
     val enabled: Boolean? = null,
     val displayOrder: Int? = null
+)
+
+@Serializable
+data class UpdateBackendSettingsRequest(
+    val defaultBackendKind: ExecutionBackendKind,
+    val codexAppServerBaseUrl: String? = null,
+    val codexAuthMode: String? = null,
+    val codexToken: String? = null,
+    val codexTimeoutSeconds: Int? = null
+)
+
+@Serializable
+data class UpdateCompanyBackendRequest(
+    val backendKind: ExecutionBackendKind,
+    val baseUrl: String? = null,
+    val authMode: String? = null,
+    val token: String? = null,
+    val timeoutSeconds: Int? = null,
+    val useGlobalDefault: Boolean = false
+)
+
+@Serializable
+data class TestBackendRequest(
+    val kind: ExecutionBackendKind,
+    val baseUrl: String? = null,
+    val authMode: String? = null,
+    val token: String? = null,
+    val timeoutSeconds: Int? = null
+)
+
+@Serializable
+data class CompanyEventEnvelope(
+    val event: CompanyEvent,
+    val dashboard: DashboardResponse? = null
 )
 
 /**
@@ -110,6 +161,10 @@ data class CompanyDashboardResponse(
     val issueDependencies: List<IssueDependency> = emptyList(),
     val reviewQueue: List<ReviewQueueItem> = emptyList(),
     val orgProfiles: List<OrgAgentProfile> = emptyList(),
+    val workflowTopologies: List<WorkflowTopologySnapshot> = emptyList(),
+    val goalDecisions: List<GoalOrchestrationDecision> = emptyList(),
+    val runningAgentSessions: List<RunningAgentSession> = emptyList(),
+    val backendStatuses: List<ExecutionBackendStatus> = emptyList(),
     val opsMetrics: OpsMetricSnapshot = OpsMetricSnapshot(),
     val runtime: CompanyRuntimeSnapshot = CompanyRuntimeSnapshot(),
     val signals: List<OpsSignal> = emptyList(),
@@ -132,6 +187,10 @@ data class DashboardResponse(
     val issues: List<CompanyIssue> = emptyList(),
     val reviewQueue: List<ReviewQueueItem> = emptyList(),
     val orgProfiles: List<OrgAgentProfile> = emptyList(),
+    val workflowTopologies: List<WorkflowTopologySnapshot> = emptyList(),
+    val goalDecisions: List<GoalOrchestrationDecision> = emptyList(),
+    val runningAgentSessions: List<RunningAgentSession> = emptyList(),
+    val backendStatuses: List<ExecutionBackendStatus> = emptyList(),
     val opsMetrics: OpsMetricSnapshot = OpsMetricSnapshot(),
     val activity: List<CompanyActivityItem> = emptyList(),
     val companyRuntimes: List<CompanyRuntimeSnapshot> = emptyList()
