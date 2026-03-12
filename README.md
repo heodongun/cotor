@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+`./shell/cotor` auto-builds the shaded CLI JAR on first run when `build/libs/cotor-<version>-all.jar` is missing.
+
 Common first commands:
 
 ```bash
