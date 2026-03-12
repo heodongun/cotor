@@ -127,6 +127,7 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 ## Validation
 
 Current baseline checks:
+Run the check that matches your changed surface as a quick smoke test.
 
 ```bash
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
