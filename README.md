@@ -53,6 +53,7 @@ chmod +x shell/cotor
 Common first commands:
 
 ```bash
+cotor --help
 cotor
 cotor --short
 cotor init --starter-template
