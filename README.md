@@ -127,6 +127,7 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 ## Validation
 
 Current baseline checks:
+For a tiny smoke check, run `test -x shell/cotor` to confirm the CLI launcher is present.
 
 ```bash
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
