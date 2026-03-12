@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+The first `./shell/cotor version` run is also a quick CLI smoke test because `shell/cotor` auto-builds the shaded JAR if it is missing.
+
 Common first commands:
 
 ```bash
