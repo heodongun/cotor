@@ -1,0 +1,27 @@
+version: "1.0"
+
+agents:
+  - name: echo
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 30000
+
+pipelines:
+  - name: hello-pipeline
+    description: "인사 문구를 출력하는 간단한 파이프라인입니다."
+    executionMode: SEQUENTIAL
+    stages:
+      - id: greet
+        agent:
+          name: echo
+        input: "Hello! 안녕하세요! 인사 요청에 따라 'hello'를 출력합니다."
+
+security:
+  useWhitelist: false
+  allowedExecutables: []
+  allowedDirectories: []
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 1
