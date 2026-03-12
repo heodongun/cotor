@@ -119,6 +119,7 @@ Start here:
 - [Desktop App](docs/DESKTOP_APP.md)
 - [Features](docs/FEATURES.md)
 - [Validation Plan](docs/TEST_PLAN.md)
+- [Contributing Guide](CONTRIBUTING.md)
 - [Team Ops](docs/team-ops/README.md)
 - [AI Agent Rules](AGENTS.md)
 
