@@ -62,6 +62,8 @@ cotor run <pipeline> -c <config> --output-format text
 cotor app-server --port 8787
 ```
 
+Smoke check: `./shell/cotor --short` should print the compact CLI help summary after the build completes.
+
 ## macOS Desktop
 
 Build and install the local app bundle:
