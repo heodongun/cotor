@@ -57,6 +57,7 @@ cotor
 cotor --short
 cotor init --starter-template
 cotor template --list
+cotor status
 cotor validate <pipeline> -c <config>
 cotor run <pipeline> -c <config> --output-format text
 cotor app-server --port 8787
