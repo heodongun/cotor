@@ -128,6 +128,8 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 
 Current baseline checks:
 
+Fast CLI smoke check after a local build: `./shell/cotor version`
+
 ```bash
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
 cd macos && swift build
