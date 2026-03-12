@@ -6,22 +6,65 @@ import SwiftUI
 /// The direction is a dense neutral admin shell: restrained contrast, compact
 /// borders, and a TUI-first center stage without third-party branding cues.
 enum ShellPalette {
-    static let canvasTop = Color(nsColor: NSColor(red: 0.05, green: 0.07, blue: 0.10, alpha: 1))
-    static let canvasBottom = Color(nsColor: NSColor(red: 0.03, green: 0.04, blue: 0.06, alpha: 1))
-    static let panel = Color(nsColor: NSColor(red: 0.08, green: 0.10, blue: 0.13, alpha: 0.97))
-    static let panelAlt = Color(nsColor: NSColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 0.99))
-    static let panelRaised = Color(nsColor: NSColor(red: 0.13, green: 0.16, blue: 0.21, alpha: 1))
-    static let panelDeeper = Color(nsColor: NSColor(red: 0.05, green: 0.06, blue: 0.09, alpha: 1))
-    static let line = Color.white.opacity(0.065)
-    static let lineStrong = Color.white.opacity(0.13)
+    private static func dynamic(_ light: NSColor, _ dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let match = appearance.bestMatch(from: [.aqua, .darkAqua])
+            return match == .darkAqua ? dark : light
+        })
+    }
+
+    static let canvasTop = dynamic(
+        NSColor(red: 0.95, green: 0.97, blue: 0.99, alpha: 1),
+        NSColor(red: 0.05, green: 0.07, blue: 0.10, alpha: 1)
+    )
+    static let canvasBottom = dynamic(
+        NSColor(red: 0.91, green: 0.94, blue: 0.97, alpha: 1),
+        NSColor(red: 0.03, green: 0.04, blue: 0.06, alpha: 1)
+    )
+    static let panel = dynamic(
+        NSColor(red: 0.98, green: 0.99, blue: 1.00, alpha: 0.98),
+        NSColor(red: 0.08, green: 0.10, blue: 0.13, alpha: 0.97)
+    )
+    static let panelAlt = dynamic(
+        NSColor(red: 0.95, green: 0.97, blue: 0.99, alpha: 0.99),
+        NSColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 0.99)
+    )
+    static let panelRaised = dynamic(
+        NSColor(red: 0.90, green: 0.93, blue: 0.97, alpha: 1),
+        NSColor(red: 0.13, green: 0.16, blue: 0.21, alpha: 1)
+    )
+    static let panelDeeper = dynamic(
+        NSColor(red: 0.92, green: 0.95, blue: 0.98, alpha: 1),
+        NSColor(red: 0.05, green: 0.06, blue: 0.09, alpha: 1)
+    )
+    static let line = dynamic(
+        NSColor.black.withAlphaComponent(0.07),
+        NSColor.white.withAlphaComponent(0.065)
+    )
+    static let lineStrong = dynamic(
+        NSColor.black.withAlphaComponent(0.14),
+        NSColor.white.withAlphaComponent(0.13)
+    )
     static let border = line
     static let borderStrong = lineStrong
-    static let text = Color.white.opacity(0.94)
-    static let muted = Color.white.opacity(0.56)
-    static let faint = Color.white.opacity(0.34)
+    static let text = dynamic(
+        NSColor.black.withAlphaComponent(0.86),
+        NSColor.white.withAlphaComponent(0.94)
+    )
+    static let muted = dynamic(
+        NSColor.black.withAlphaComponent(0.58),
+        NSColor.white.withAlphaComponent(0.56)
+    )
+    static let faint = dynamic(
+        NSColor.black.withAlphaComponent(0.36),
+        NSColor.white.withAlphaComponent(0.34)
+    )
     static let accent = Color(nsColor: NSColor(red: 0.26, green: 0.56, blue: 0.93, alpha: 1))
     static let accentWarm = Color(nsColor: NSColor(red: 0.10, green: 0.72, blue: 0.66, alpha: 1))
-    static let accentSoft = Color(nsColor: NSColor(red: 0.12, green: 0.19, blue: 0.28, alpha: 1))
+    static let accentSoft = dynamic(
+        NSColor(red: 0.86, green: 0.92, blue: 0.99, alpha: 1),
+        NSColor(red: 0.12, green: 0.19, blue: 0.28, alpha: 1)
+    )
     static let success = Color(nsColor: NSColor(red: 0.36, green: 0.79, blue: 0.52, alpha: 1))
     static let warning = Color(nsColor: NSColor(red: 0.98, green: 0.72, blue: 0.31, alpha: 1))
     static let danger = Color(nsColor: NSColor(red: 0.93, green: 0.38, blue: 0.40, alpha: 1))
@@ -29,9 +72,9 @@ enum ShellPalette {
 
 enum ShellMetrics {
     static let baseSpacing: CGFloat = 8
-    static let radiusLarge: CGFloat = 18
-    static let radiusMedium: CGFloat = 14
-    static let radiusSmall: CGFloat = 10
+    static let radiusLarge: CGFloat = 16
+    static let radiusMedium: CGFloat = 12
+    static let radiusSmall: CGFloat = 8
     static let sidebarMinWidth: CGFloat = 272
     static let sidebarIdealWidth: CGFloat = 304
     static let contentMinWidth: CGFloat = 620
@@ -95,7 +138,7 @@ struct ShellCardModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
                     .stroke(accent ?? ShellPalette.line, lineWidth: accent == nil ? 1 : 1.15)
             )
-            .shadow(color: Color.black.opacity(0.20), radius: 16, x: 0, y: 10)
+            .shadow(color: Color.black.opacity(0.10), radius: 12, x: 0, y: 6)
     }
 }
 
@@ -163,8 +206,8 @@ struct ShellStatChip: View {
                 .foregroundStyle(ShellPalette.text)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
                 .fill(ShellPalette.panelAlt)
@@ -189,8 +232,8 @@ struct ShellStatusPill: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(ShellPalette.text)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
         .background(tint.opacity(0.14))
         .overlay(
             Capsule()

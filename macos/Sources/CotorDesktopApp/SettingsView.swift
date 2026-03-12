@@ -19,6 +19,8 @@ struct SettingsView: View {
 
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 16)], spacing: 16) {
                         languageCard
+                        themeCard
+                        executionBackendCard
                         localPathsCard
                         availableAgentsCard
                         shortcutsCard
@@ -65,6 +67,24 @@ struct SettingsView: View {
         }
     }
 
+    private var themeCard: some View {
+        settingsCard(
+            eyebrow: store.language("Appearance", "화면 모드"),
+            title: store.language("Appearance", "화면 모드"),
+            subtitle: store.language("Choose system, light, or dark mode for the desktop shell.", "데스크톱 셸의 시스템/라이트/다크 모드를 선택합니다.")
+        ) {
+            Picker(store.language("Appearance", "화면 모드"), selection: Binding(
+                get: { store.theme },
+                set: { store.setTheme($0) }
+            )) {
+                ForEach(AppTheme.allCases) { theme in
+                    Text(theme.label(store.language)).tag(theme)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
     private var localPathsCard: some View {
         settingsCard(
             eyebrow: store.text(.paths),
@@ -73,6 +93,76 @@ struct SettingsView: View {
         ) {
             valueRow(store.text(.appHome), store.dashboard.settings.appHome)
             valueRow(store.text(.managedRepos), store.dashboard.settings.managedReposRoot)
+        }
+    }
+
+    private var executionBackendCard: some View {
+        settingsCard(
+            eyebrow: store.language("Execution Backend", "실행 백엔드"),
+            title: store.language("Execution Backend", "실행 백엔드"),
+            subtitle: store.language(
+                "Choose which runtime executes company agents and test Codex app server connectivity.",
+                "회사 에이전트를 어떤 런타임으로 실행할지 고르고 Codex app server 연결을 확인합니다."
+            )
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker(store.language("Default backend", "기본 백엔드"), selection: Binding(
+                    get: { store.defaultBackendKind },
+                    set: { store.defaultBackendKind = $0 }
+                )) {
+                    Text("Local Cotor").tag("LOCAL_COTOR")
+                    Text("Codex App Server").tag("CODEX_APP_SERVER")
+                }
+                .pickerStyle(.segmented)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(store.language("Codex app server URL", "Codex app server 주소").uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(ShellPalette.muted)
+                    TextField("http://127.0.0.1:8788", text: $store.codexAppServerBaseURL)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(ShellPalette.text)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                .fill(ShellPalette.panelAlt)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                .stroke(ShellPalette.border)
+                        )
+                }
+
+                HStack(spacing: 10) {
+                    Button(store.language("Save", "저장")) {
+                        Task { await store.saveBackendSettings() }
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button(store.language("Test connection", "연결 테스트")) {
+                        Task { await store.testCodexBackendConnection() }
+                    }
+                    .buttonStyle(.bordered)
+
+                    if let status = store.codexBackendStatus {
+                        Text(status.health.uppercased())
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(ShellPalette.text)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(ShellPalette.panelAlt)
+                            .clipShape(Capsule())
+                    }
+                }
+
+                if let status = store.codexBackendStatus?.message, !status.isEmpty {
+                    Text(status)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+                }
+            }
         }
     }
 
@@ -135,7 +225,7 @@ struct SettingsView: View {
             title: store.text(.desktopInstaller),
             subtitle: store.text(.desktopInstallerSubtitle)
         ) {
-            valueRow(store.text(.installer), "./shell/install-desktop-app.sh")
+            valueRow(store.text(.installer), "cotor install / cotor update / cotor delete")
             valueRow(store.text(.appLocation), "/Applications/Cotor Desktop.app or ~/Applications/Cotor Desktop.app")
             valueRow(store.text(.downloadArchive), "~/Downloads/Cotor-Desktop-macOS.zip")
         }

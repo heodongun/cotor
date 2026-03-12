@@ -23,15 +23,15 @@ enum AppShellMode: String, CaseIterable, Identifiable {
 
 /// Main view model for the macOS shell.
 ///
-/// It coordinates bootstrap, selection state, optimistic actions, runtime
-/// language choice, and the offline fallback model that keeps the UI explorable
-/// even when the backend is unavailable.
+/// It coordinates bootstrap, selection state, optimistic actions, and runtime
+/// language choice for the live desktop shell.
 @MainActor
 final class DesktopStore: ObservableObject {
     private static let languageDefaultsKey = "cotor.desktop.language"
+    private static let themeDefaultsKey = "cotor.desktop.theme"
 
-    @Published var dashboard: DashboardPayload = MockSeed.dashboard
-    @Published var runs: [RunRecord] = MockSeed.runs
+    @Published var dashboard: DashboardPayload = .empty
+    @Published var runs: [RunRecord] = []
     @Published var tuiSession: TuiSessionRecord?
     @Published var availableBranches: [String] = ["master"]
     @Published var pendingWorkspaceBaseBranch = "master"
@@ -44,11 +44,12 @@ final class DesktopStore: ObservableObject {
     @Published var selectedAgentName: String?
     @Published var shellMode: AppShellMode = .company
     @Published var inspectorTab: InspectorTab = .changes
-    @Published var changes: ChangeSummaryPayload = MockSeed.changes
-    @Published var files: [FileTreeNodePayload] = MockSeed.files
-    @Published var ports: [PortEntryPayload] = MockSeed.ports
+    @Published var changes: ChangeSummaryPayload = ChangeSummaryPayload(runId: "", branchName: "", baseBranch: "", patch: "", changedFiles: [])
+    @Published var files: [FileTreeNodePayload] = []
+    @Published var ports: [PortEntryPayload] = []
     @Published var browserURL: URL?
     @Published var language: AppLanguage
+    @Published var theme: AppTheme
     @Published var isOffline = false
     @Published var isBusy = false
     @Published var repositoryPathInput = ""
@@ -58,9 +59,20 @@ final class DesktopStore: ObservableObject {
     @Published var newCompanyAgentTitle = ""
     @Published var newCompanyAgentCli = ""
     @Published var newCompanyAgentRole = ""
+    @Published var newCompanyAgentSpecialties = ""
+    @Published var newCompanyAgentCollaborationNotes = ""
+    @Published var newCompanyAgentMemoryNotes = ""
+    @Published var newCompanyAgentPreferredCollaboratorIDs: Set<String> = []
+    @Published var newCompanyAgentEnabled = true
+    @Published var editingCompanyAgentID: String?
+    @Published var editingCompanyAgentCompanyID: String?
     @Published var newWorkspaceName = ""
     @Published var newGoalTitle = ""
     @Published var newGoalDescription = ""
+    @Published var editingGoalID: String?
+    @Published var defaultBackendKind = "LOCAL_COTOR"
+    @Published var codexAppServerBaseURL = ""
+    @Published var codexBackendStatus: ExecutionBackendStatusPayload?
     @Published var newTaskTitle = ""
     @Published var newTaskPrompt = ""
     @Published var agentSelection: Set<String> = ["claude", "codex"]
@@ -72,17 +84,21 @@ final class DesktopStore: ObservableObject {
     let api = DesktopAPI()
     private var statusState: StatusState = .connecting
     private var tuiPollingTask: Task<Void, Never>?
+    private var companyEventTask: Task<Void, Never>?
     private var polledTuiSessionID: String?
     private var didInitializeShellMode = false
 
     init() {
         let storedLanguage = UserDefaults.standard.string(forKey: Self.languageDefaultsKey)
         language = AppLanguage(rawValue: storedLanguage ?? "") ?? .english
-        workflowLeadAgent = MockSeed.dashboard.settings.availableAgents.first ?? "claude"
+        let storedTheme = UserDefaults.standard.string(forKey: Self.themeDefaultsKey)
+        theme = AppTheme(rawValue: storedTheme ?? "") ?? .system
+        workflowLeadAgent = ""
     }
 
     deinit {
         tuiPollingTask?.cancel()
+        companyEventTask?.cancel()
     }
 
     /// Header status copy is generated from the current state and active language.
@@ -111,6 +127,14 @@ final class DesktopStore: ObservableObject {
         dashboard.companies.sorted { lhs, rhs in
             lhs.updatedAt > rhs.updatedAt
         }
+    }
+
+    var availableCliAgents: [String] {
+        dashboard.settings.availableAgents.sorted()
+    }
+
+    var availableCompanyAgentCollaborators: [CompanyAgentDefinitionRecord] {
+        companyAgentDefinitions.filter { $0.id != editingCompanyAgentID }
     }
 
     var companyAgentDefinitions: [CompanyAgentDefinitionRecord] {
@@ -267,6 +291,17 @@ final class DesktopStore: ObservableObject {
         objectWillChange.send()
     }
 
+    func setTheme(_ theme: AppTheme) {
+        self.theme = theme
+        UserDefaults.standard.set(theme.rawValue, forKey: Self.themeDefaultsKey)
+        objectWillChange.send()
+    }
+
+    func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     /// The desktop app treats the first workflow agent as the coordinator that
     /// fans work out to the remaining worker agents. The backend still stores a
     /// simple ordered agent list, so keeping this invariant in the client makes
@@ -344,20 +379,27 @@ final class DesktopStore: ObservableObject {
             }
             reconcileWorkflowLeadAgent()
             reconcileSelection()
+            syncBackendFormState()
             await refreshAvailableBranches()
             await refreshTaskDetails()
             await ensureTuiSession()
+            await restartCompanyEventStream()
         } catch {
-            // The desktop shell intentionally stays usable offline with mock data so
-            // UI development and demos do not hard fail when the local server is down.
             isOffline = true
             statusState = .offlineMock
+            errorMessage = error.localizedDescription
+            runs = []
+            changes = emptyChangeSummary()
+            files = []
+            ports = []
+            browserURL = nil
             reconcileWorkflowLeadAgent()
             reconcileSelection()
             selectedAgentName = selectedTask?.agents.first
             await refreshAvailableBranches()
             stopTuiPolling()
-            tuiSession = MockSeed.tuiSession
+            companyEventTask?.cancel()
+            tuiSession = nil
         }
     }
 
@@ -405,18 +447,23 @@ final class DesktopStore: ObservableObject {
         } else {
             selectedAgentName = nil
         }
+        if let editingAgentID = editingCompanyAgentID,
+           !companyAgentDefinitions.contains(where: { $0.id == editingAgentID && $0.companyId == editingCompanyAgentCompanyID }) {
+            resetCompanyAgentComposer()
+        }
         pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? "master"
     }
 
     /// Repair the workflow lead and selected agent roster after bootstrap or
     /// dashboard refresh. This keeps the authoring UI stable even when the
-    /// backend roster changes or the app falls back to offline mock data.
+    /// backend roster changes after a live dashboard refresh.
     private func reconcileWorkflowLeadAgent() {
         let availableAgents = dashboard.settings.availableAgents
 
         if availableAgents.isEmpty {
             workflowLeadAgent = ""
             agentSelection = []
+            newCompanyAgentCli = ""
             return
         }
 
@@ -424,22 +471,31 @@ final class DesktopStore: ObservableObject {
             workflowLeadAgent = availableAgents.first ?? ""
         }
 
+        if newCompanyAgentCli.isEmpty || !availableAgents.contains(newCompanyAgentCli) {
+            newCompanyAgentCli = availableAgents.first ?? ""
+        }
+
         let validSelection = Set(agentSelection.filter { availableAgents.contains($0) })
         agentSelection = validSelection.isEmpty ? [workflowLeadAgent] : validSelection
         agentSelection.insert(workflowLeadAgent)
+    }
+
+    private func syncBackendFormState() {
+        defaultBackendKind = dashboard.settings.backendSettings.defaultBackendKind
+        codexAppServerBaseURL = dashboard.settings.backendSettings.backends
+            .first(where: { $0.kind == "CODEX_APP_SERVER" })?
+            .baseUrl ?? ""
+        codexBackendStatus = dashboard.backendStatuses.first(where: { $0.kind == "CODEX_APP_SERVER" })
     }
 
     /// Refresh the right-hand inspector panels for the currently selected task and agent.
     func refreshTaskDetails() async {
         guard let task = selectedTask else {
             runs = []
-            changes = MockSeed.changes
+            changes = emptyChangeSummary()
             files = []
             ports = []
             browserURL = nil
-            if isOffline {
-                tuiSession = MockSeed.tuiSession
-            }
             return
         }
         let agent = selectedAgentName ?? task.agents.first
@@ -447,34 +503,77 @@ final class DesktopStore: ObservableObject {
         guard let agent else { return }
 
         if isOffline {
-            // Keep every inspector panel populated in offline mode so the shell still
-            // communicates the intended product structure.
-            runs = MockSeed.runs
-            changes = MockSeed.changes
-            files = MockSeed.files
-            ports = MockSeed.ports
-            browserURL = URL(string: MockSeed.ports.first?.url ?? "http://127.0.0.1:8787")
-            tuiSession = MockSeed.tuiSession
+            runs = []
+            changes = emptyChangeSummary()
+            files = []
+            ports = []
+            browserURL = nil
             return
         }
 
         do {
-            async let fetchedRuns = api.runs(taskId: task.id)
-            async let fetchedChanges = api.changes(taskId: task.id, agentName: agent)
-            async let fetchedFiles = api.files(taskId: task.id, agentName: agent, path: nil)
-            async let fetchedPorts = api.ports(taskId: task.id, agentName: agent)
-
-            // Fetch these in parallel because they back separate inspector panels and
-            // none of them depend on the others.
-            runs = try await fetchedRuns.sorted { lhs, rhs in
+            let fetchedRuns = try await api.runs(taskId: task.id).sorted { lhs, rhs in
                 lhs.updatedAt > rhs.updatedAt
             }
-            changes = try await fetchedChanges
-            files = try await fetchedFiles
-            ports = try await fetchedPorts
+            runs = fetchedRuns
+
+            let effectiveRun = fetchedRuns.first { $0.agentName.caseInsensitiveCompare(agent) == .orderedSame }
+                ?? fetchedRuns.first
+            let effectiveAgent = effectiveRun?.agentName ?? agent
+            selectedAgentName = effectiveAgent
+
+            guard let effectiveRun else {
+                changes = emptyChangeSummary()
+                files = []
+                ports = []
+                browserURL = nil
+                return
+            }
+
+            async let fetchedChanges = safeChanges(runId: effectiveRun.id)
+            async let fetchedFiles = safeFiles(runId: effectiveRun.id)
+            async let fetchedPorts = safePorts(runId: effectiveRun.id)
+
+            changes = await fetchedChanges
+            files = await fetchedFiles
+            ports = await fetchedPorts
             browserURL = ports.first.flatMap { URL(string: $0.url) }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func emptyChangeSummary() -> ChangeSummaryPayload {
+        ChangeSummaryPayload(
+            runId: "",
+            branchName: "",
+            baseBranch: selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? "",
+            patch: "",
+            changedFiles: []
+        )
+    }
+
+    private func safeChanges(runId: String) async -> ChangeSummaryPayload {
+        do {
+            return try await api.changes(runId: runId)
+        } catch {
+            return emptyChangeSummary()
+        }
+    }
+
+    private func safeFiles(runId: String) async -> [FileTreeNodePayload] {
+        do {
+            return try await api.files(runId: runId, path: nil)
+        } catch {
+            return []
+        }
+    }
+
+    private func safePorts(runId: String) async -> [PortEntryPayload] {
+        do {
+            return try await api.ports(runId: runId)
+        } catch {
+            return []
         }
     }
 
@@ -532,14 +631,50 @@ final class DesktopStore: ObservableObject {
         guard !title.isEmpty, !description.isEmpty else { return }
 
         do {
-            let created = try await api.createGoal(companyId: company.id, title: title, description: description)
-            newGoalTitle = ""
-            newGoalDescription = ""
+            let saved: GoalRecord
+            if let goalID = editingGoalID {
+                saved = try await api.updateGoal(
+                    companyId: company.id,
+                    goalId: goalID,
+                    title: title,
+                    description: description
+                )
+            } else {
+                saved = try await api.createGoal(companyId: company.id, title: title, description: description)
+            }
+            resetGoalComposer()
             await refreshDashboard()
-            selectedGoalID = created.id
+            selectedGoalID = saved.id
             selectedIssueID = issues.first?.id
             await refreshTaskDetails()
             await ensureTuiSession()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func beginEditingGoal(_ goal: GoalRecord) {
+        editingGoalID = goal.id
+        newGoalTitle = goal.title
+        newGoalDescription = goal.description
+    }
+
+    func cancelGoalEditing() {
+        resetGoalComposer()
+    }
+
+    func deleteSelectedGoal() async {
+        guard let company = selectedCompany, let goal = selectedGoal else { return }
+        do {
+            _ = try await api.deleteGoal(companyId: company.id, goalId: goal.id)
+            if editingGoalID == goal.id {
+                resetGoalComposer()
+            }
+            selectedGoalID = nil
+            selectedIssueID = nil
+            selectedTaskID = nil
+            await refreshDashboard()
+            await refreshTaskDetails()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -563,21 +698,95 @@ final class DesktopStore: ObservableObject {
         }
     }
 
-    func createCompanyAgent() async {
+    func deleteSelectedCompany() async {
         guard let company = selectedCompany else { return }
+        do {
+            _ = try await api.deleteCompany(companyId: company.id)
+            if editingCompanyAgentID != nil {
+                resetCompanyAgentComposer()
+            }
+            if editingGoalID != nil {
+                resetGoalComposer()
+            }
+            selectedCompanyID = nil
+            selectedGoalID = nil
+            selectedIssueID = nil
+            selectedTaskID = nil
+            selectedWorkspaceID = nil
+            await refreshDashboard()
+            if let company = companies.first {
+                await selectCompany(company)
+            } else if let repository = repositories.first {
+                await selectRepository(repository)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func createCompanyAgent() async {
+        let targetCompanyID = editingCompanyAgentCompanyID ?? selectedCompanyID
+        guard let targetCompanyID,
+              companies.contains(where: { $0.id == targetCompanyID }) else { return }
         let title = newCompanyAgentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let cli = newCompanyAgentCli.trimmingCharacters(in: .whitespacesAndNewlines)
         let role = newCompanyAgentRole.trimmingCharacters(in: .whitespacesAndNewlines)
+        let specialties = splitAgentMeta(newCompanyAgentSpecialties)
+        let collaborationNotes = trimmedOptional(newCompanyAgentCollaborationNotes)
+        let memoryNotes = trimmedOptional(newCompanyAgentMemoryNotes)
+        let preferredCollaboratorIds = Array(newCompanyAgentPreferredCollaboratorIDs).sorted()
         guard !title.isEmpty, !cli.isEmpty, !role.isEmpty else { return }
         do {
-            _ = try await api.createCompanyAgent(companyId: company.id, title: title, agentCli: cli, roleSummary: role)
-            newCompanyAgentTitle = ""
-            newCompanyAgentCli = ""
-            newCompanyAgentRole = ""
+            if let agentId = editingCompanyAgentID,
+               companyAgentDefinitions.contains(where: { $0.id == agentId && $0.companyId == targetCompanyID }) {
+                _ = try await api.updateCompanyAgent(
+                    companyId: targetCompanyID,
+                    agentId: agentId,
+                    title: title,
+                    agentCli: cli,
+                    roleSummary: role,
+                    specialties: specialties,
+                    collaborationInstructions: collaborationNotes,
+                    preferredCollaboratorIds: preferredCollaboratorIds,
+                    memoryNotes: memoryNotes,
+                    enabled: newCompanyAgentEnabled
+                )
+            } else {
+                _ = try await api.createCompanyAgent(
+                    companyId: targetCompanyID,
+                    title: title,
+                    agentCli: cli,
+                    roleSummary: role,
+                    specialties: specialties,
+                    collaborationInstructions: collaborationNotes,
+                    preferredCollaboratorIds: preferredCollaboratorIds,
+                    memoryNotes: memoryNotes,
+                    enabled: newCompanyAgentEnabled
+                )
+            }
+            resetCompanyAgentComposer()
             await refreshDashboard()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func beginEditingCompanyAgent(_ agent: CompanyAgentDefinitionRecord) {
+        editingCompanyAgentID = agent.id
+        editingCompanyAgentCompanyID = agent.companyId
+        selectedCompanyID = agent.companyId
+        newCompanyAgentTitle = agent.title
+        newCompanyAgentCli = agent.agentCli
+        newCompanyAgentRole = agent.roleSummary
+        newCompanyAgentSpecialties = agent.specialties.joined(separator: ", ")
+        newCompanyAgentCollaborationNotes = agent.collaborationInstructions ?? ""
+        newCompanyAgentMemoryNotes = agent.memoryNotes ?? ""
+        newCompanyAgentPreferredCollaboratorIDs = Set(agent.preferredCollaboratorIds)
+        newCompanyAgentEnabled = agent.enabled
+    }
+
+    func cancelEditingCompanyAgent() {
+        resetCompanyAgentComposer()
     }
 
     func startSelectedCompanyRuntime() async {
@@ -595,6 +804,19 @@ final class DesktopStore: ObservableObject {
         do {
             _ = try await api.stopCompanyRuntime(companyId: company.id)
             await refreshDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteSelectedIssue() async {
+        guard let company = selectedCompany, let issue = selectedIssue else { return }
+        do {
+            _ = try await api.deleteIssue(companyId: company.id, issueId: issue.id)
+            selectedIssueID = nil
+            selectedTaskID = nil
+            await refreshDashboard()
+            await refreshTaskDetails()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -655,6 +877,49 @@ final class DesktopStore: ObservableObject {
         }
     }
 
+    /// Present a native macOS folder picker for the company root path field.
+    func openCompanyRootPicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = language("Choose Folder", "폴더 선택")
+        if panel.runModal() == .OK, let url = panel.url {
+            newCompanyRootPath = url.path
+        }
+    }
+
+    private func resetCompanyAgentComposer() {
+        editingCompanyAgentID = nil
+        editingCompanyAgentCompanyID = nil
+        newCompanyAgentTitle = ""
+        newCompanyAgentCli = ""
+        newCompanyAgentRole = ""
+        newCompanyAgentSpecialties = ""
+        newCompanyAgentCollaborationNotes = ""
+        newCompanyAgentMemoryNotes = ""
+        newCompanyAgentPreferredCollaboratorIDs = []
+        newCompanyAgentEnabled = true
+    }
+
+    private func splitAgentMeta(_ raw: String) -> [String] {
+        raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func trimmedOptional(_ raw: String) -> String? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func resetGoalComposer() {
+        editingGoalID = nil
+        newGoalTitle = ""
+        newGoalDescription = ""
+    }
+
     /// Submit the path collected from the picker or from a future manual input flow.
     func submitOpenRepository() async {
         let path = repositoryPathInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -695,7 +960,7 @@ final class DesktopStore: ObservableObject {
         }
 
         if isOffline {
-            availableBranches = [selectedWorkspace?.baseBranch ?? repository.defaultBranch]
+            availableBranches = [selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? repository.defaultBranch]
             pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? repository.defaultBranch
             return
         }
@@ -748,6 +1013,7 @@ final class DesktopStore: ObservableObject {
     func selectCompany(_ company: CompanyRecord) async {
         selectedCompanyID = company.id
         selectedRepositoryID = company.repositoryId
+        resetCompanyAgentComposer()
         selectedWorkspaceID = dashboard.workspaces.first(where: { $0.repositoryId == company.repositoryId && $0.baseBranch == company.defaultBaseBranch })?.id
         selectedGoalID = goals.first?.id
         selectedIssueID = issues.first?.id
@@ -755,6 +1021,7 @@ final class DesktopStore: ObservableObject {
         pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? company.defaultBaseBranch
         await refreshAvailableBranches()
         await refreshTaskDetails()
+        await restartCompanyEventStream()
     }
 
     func selectGoal(_ goal: GoalRecord) async {
@@ -810,6 +1077,101 @@ final class DesktopStore: ObservableObject {
         inspectorTab = .browser
     }
 
+    func saveBackendSettings() async {
+        do {
+            let settings = try await api.updateBackendSettings(
+                defaultBackendKind: defaultBackendKind,
+                codexAppServerBaseURL: trimmedOptional(codexAppServerBaseURL),
+                codexAuthMode: nil,
+                codexToken: nil,
+                codexTimeoutSeconds: nil
+            )
+            dashboard = DashboardPayload(
+                repositories: dashboard.repositories,
+                workspaces: dashboard.workspaces,
+                tasks: dashboard.tasks,
+                settings: settings,
+                companies: dashboard.companies,
+                companyAgentDefinitions: dashboard.companyAgentDefinitions,
+                projectContexts: dashboard.projectContexts,
+                goals: dashboard.goals,
+                issues: dashboard.issues,
+                reviewQueue: dashboard.reviewQueue,
+                orgProfiles: dashboard.orgProfiles,
+                workflowTopologies: dashboard.workflowTopologies,
+                goalDecisions: dashboard.goalDecisions,
+                runningAgentSessions: dashboard.runningAgentSessions,
+                backendStatuses: settings.backendStatuses,
+                opsMetrics: dashboard.opsMetrics,
+                activity: dashboard.activity,
+                companyRuntimes: dashboard.companyRuntimes
+            )
+            syncBackendFormState()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func testCodexBackendConnection() async {
+        do {
+            codexBackendStatus = try await api.testBackend(
+                kind: "CODEX_APP_SERVER",
+                baseURL: trimmedOptional(codexAppServerBaseURL),
+                authMode: nil,
+                token: nil,
+                timeoutSeconds: nil
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func updateSelectedCompanyBackend(kind: String) async {
+        guard let company = selectedCompany else { return }
+        do {
+            _ = try await api.updateCompanyBackend(
+                companyId: company.id,
+                backendKind: kind,
+                baseURL: trimmedOptional(codexAppServerBaseURL),
+                authMode: nil,
+                token: nil,
+                timeoutSeconds: nil,
+                useGlobalDefault: false
+            )
+            await refreshDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func restartCompanyEventStream() async {
+        companyEventTask?.cancel()
+        guard !isOffline, shellMode == .company, let companyID = selectedCompanyID else { return }
+        companyEventTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                for try await envelope in api.companyEvents(companyId: companyID) {
+                    await MainActor.run {
+                        if let dashboard = envelope.dashboard {
+                            self.dashboard = dashboard
+                            self.reconcileWorkflowLeadAgent()
+                            self.reconcileSelection()
+                            self.syncBackendFormState()
+                        }
+                    }
+                    if envelope.dashboard == nil {
+                        await self.refreshDashboard()
+                    }
+                }
+            } catch is CancellationError {
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
     /// The center pane should always show the real interactive TUI for the
     /// selected workspace, so the store eagerly opens or reuses that session.
     func ensureTuiSession(forceRestart: Bool = false) async {
@@ -824,7 +1186,7 @@ final class DesktopStore: ObservableObject {
 
         if isOffline {
             stopTuiPolling()
-            tuiSession = MockSeed.tuiSession
+            tuiSession = nil
             return
         }
 
