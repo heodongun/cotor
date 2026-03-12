@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+`./shell/cotor version` is the quickest post-build smoke test for the CLI wrapper.
+
 Common first commands:
 
 ```bash
