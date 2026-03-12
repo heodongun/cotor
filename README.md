@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+For a quick smoke check after install, run `./shell/cotor status`.
+
 Common first commands:
 
 ```bash
