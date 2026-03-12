@@ -657,6 +657,22 @@ class VersionCommand : CliktCommand(
 }
 
 /**
+ * Builder (gemini) 'test' 목표 수행을 위한 인사 명령어
+ */
+class HelloCommand : CliktCommand(
+    name = "hello",
+    help = "Builder (gemini) 'test' 목표 수행을 위한 인사 명령어"
+), KoinComponent {
+    override fun run() {
+        val terminal = Terminal()
+        terminal.println(green("👋 안녕하세요! Cotor Builder (gemini)가 인사드립니다."))
+        terminal.println(blue("✨ 'test' 목표가 성공적으로 수행되었습니다."))
+        terminal.println()
+        terminal.println("🚀 Cotor는 당신의 아이디어를 현실로 만듭니다.")
+    }
+}
+
+/**
  * Print shell completion scripts
  */
 class CompletionCommand : CliktCommand(
@@ -677,7 +693,7 @@ class CompletionCommand : CliktCommand(
     }
 
     private val commonSubcommands = listOf(
-        "init", "list", "run", "validate", "test", "template", "plugin", "dash", "interactive", "tui", "web", "resume", "checkpoint", "stats", "doctor", "status", "lint", "explain", "version", "completion"
+        "init", "list", "run", "validate", "test", "template", "plugin", "dash", "interactive", "tui", "web", "resume", "checkpoint", "stats", "doctor", "status", "lint", "explain", "version", "completion", "hello"
     )
 
     private val bashCompletion: String

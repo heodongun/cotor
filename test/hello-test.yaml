@@ -1,0 +1,27 @@
+version: "1.0"
+
+agents:
+  - name: echo-agent
+    pluginClass: com.cotor.data.plugin.EchoPlugin
+    timeout: 30000
+
+pipelines:
+  - name: hello-test
+    description: "Builder (gemini) 'test' 목표 검증용 파이프라인"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: greet
+        agent:
+          name: echo-agent
+        input: "안녕하세요! Cotor 'test' 목표가 성공적으로 수행되었습니다."
+
+security:
+  useWhitelist: false
+  allowedExecutables: []
+  allowedDirectories: []
+
+logging:
+  level: INFO
+
+performance:
+  maxConcurrentAgents: 1
