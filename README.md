@@ -132,3 +132,5 @@ Current baseline checks:
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
 cd macos && swift build
 ```
+
+For tiny README-only changes, a targeted `rg -n "..." README.md` smoke check is acceptable.
