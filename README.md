@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+A minimal smoke test after setup is `./shell/cotor version`.
+
 Common first commands:
 
 ```bash
