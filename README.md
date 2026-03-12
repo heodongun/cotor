@@ -96,7 +96,7 @@ The current build includes a working local operations layer:
 - create company goals
 - decompose goals into issues
 - delegate and run issues
-- populate a review queue
+- populate and merge ready review queue items
 - inspect runtime status and recent company activity
 - start and stop a local autonomous runtime loop per company
 
