@@ -52,6 +52,8 @@ chmod +x shell/cotor
 
 Common first commands:
 
+`cotor version` prints the current installed build version.
+
 ```bash
 cotor
 cotor --short
