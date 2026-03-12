@@ -62,6 +62,8 @@ cotor run <pipeline> -c <config> --output-format text
 cotor app-server --port 8787
 ```
 
+`./shell/cotor version` is the quickest post-build smoke test for the local CLI wrapper.
+
 ## macOS Desktop
 
 Build and install the local app bundle:
