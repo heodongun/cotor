@@ -488,6 +488,7 @@ private val landingHtml = """
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Cotor | 멀티 에이전트 워크플로 오케스트레이션</title>
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
   <style>
     :root {
       --bg: #060912;
@@ -583,6 +584,7 @@ private val editorHtml = """
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Cotor Flow Studio</title>
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
   <style>
     :root {
       --bg: #0b1224;
