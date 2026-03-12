@@ -55,6 +55,7 @@ Common first commands:
 ```bash
 cotor
 cotor --short
+cotor status
 cotor init --starter-template
 cotor template --list
 cotor validate <pipeline> -c <config>
