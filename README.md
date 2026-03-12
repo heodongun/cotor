@@ -113,6 +113,7 @@ Current limits in this build:
 Start here:
 
 - [Documentation Index](docs/INDEX.md)
+- [Architecture Overview](docs/ARCHITECTURE.md)
 - [English Guide](docs/README.md)
 - [Korean Guide](docs/README.ko.md)
 - [Quick Start](docs/QUICK_START.md)
