@@ -47,12 +47,55 @@ data class Workspace(
  * workflow state.
  */
 @Serializable
+enum class ExecutionBackendKind {
+    LOCAL_COTOR,
+    CODEX_APP_SERVER
+}
+
+@Serializable
+data class BackendConnectionConfig(
+    val kind: ExecutionBackendKind,
+    val baseUrl: String? = null,
+    val healthCheckPath: String = "/health",
+    val authMode: String = "none",
+    val token: String? = null,
+    val timeoutSeconds: Int = 30,
+    val enabled: Boolean = true
+)
+
+@Serializable
+data class ExecutionBackendCapabilities(
+    val canStreamEvents: Boolean = false,
+    val canResumeRuns: Boolean = true,
+    val canSpawnParallelAgents: Boolean = true,
+    val canPublishPullRequests: Boolean = true
+)
+
+@Serializable
+data class ExecutionBackendStatus(
+    val kind: ExecutionBackendKind,
+    val displayName: String,
+    val health: String = "unknown",
+    val message: String? = null,
+    val config: BackendConnectionConfig,
+    val capabilities: ExecutionBackendCapabilities = ExecutionBackendCapabilities()
+)
+
+@Serializable
+data class DesktopBackendSettings(
+    val defaultBackendKind: ExecutionBackendKind = ExecutionBackendKind.LOCAL_COTOR,
+    val backends: List<BackendConnectionConfig> = defaultBackendConfigs()
+)
+
+@Serializable
 data class Company(
     val id: String,
     val name: String,
     val rootPath: String,
     val repositoryId: String,
     val defaultBaseBranch: String,
+    val backendKind: ExecutionBackendKind = ExecutionBackendKind.LOCAL_COTOR,
+    val backendConfigOverride: BackendConnectionConfig? = null,
     val autonomyEnabled: Boolean = true,
     val createdAt: Long,
     val updatedAt: Long
@@ -70,6 +113,10 @@ data class CompanyAgentDefinition(
     val title: String,
     val agentCli: String,
     val roleSummary: String,
+    val specialties: List<String> = emptyList(),
+    val collaborationInstructions: String? = null,
+    val preferredCollaboratorIds: List<String> = emptyList(),
+    val memoryNotes: String? = null,
     val enabled: Boolean = true,
     val displayOrder: Int = 0,
     val createdAt: Long,
@@ -106,6 +153,56 @@ data class CompanyActivityItem(
     val detail: String? = null,
     val severity: String = "info",
     val createdAt: Long
+)
+
+@Serializable
+data class AgentCollaborationEdge(
+    val companyId: String,
+    val fromAgentId: String,
+    val toAgentId: String,
+    val reason: String,
+    val handoffType: String
+)
+
+@Serializable
+data class WorkflowTopologySnapshot(
+    val companyId: String,
+    val agents: List<String> = emptyList(),
+    val edges: List<AgentCollaborationEdge> = emptyList(),
+    val activeLoops: List<String> = emptyList(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Serializable
+data class GoalOrchestrationDecision(
+    val id: String,
+    val companyId: String,
+    val goalId: String? = null,
+    val issueId: String? = null,
+    val title: String,
+    val summary: String,
+    val createdIssues: List<String> = emptyList(),
+    val assignments: List<String> = emptyList(),
+    val escalations: List<String> = emptyList(),
+    val createdAt: Long
+)
+
+@Serializable
+data class RunningAgentSession(
+    val companyId: String,
+    val runId: String,
+    val taskId: String,
+    val issueId: String? = null,
+    val goalId: String? = null,
+    val agentId: String,
+    val agentName: String,
+    val roleName: String? = null,
+    val status: AgentRunStatus,
+    val branchName: String,
+    val processId: Long? = null,
+    val outputSnippet: String? = null,
+    val startedAt: Long,
+    val updatedAt: Long
 )
 
 /**
@@ -237,8 +334,10 @@ data class TaskExecutionPlan(
  */
 @Serializable
 data class AgentAssignmentPlan(
+    val participantId: String? = null,
     val agentName: String,
     val role: String,
+    val phase: String = "execution",
     val focus: String,
     val subtasks: List<TaskSubtask> = emptyList(),
     val assignedPrompt: String
@@ -417,7 +516,23 @@ data class CompanyRuntimeSnapshot(
     val lastStoppedAt: Long? = null,
     val lastTickAt: Long? = null,
     val lastAction: String? = null,
-    val lastError: String? = null
+    val lastError: String? = null,
+    val backendKind: ExecutionBackendKind = ExecutionBackendKind.LOCAL_COTOR,
+    val backendHealth: String = "unknown",
+    val backendMessage: String? = null
+)
+
+@Serializable
+data class CompanyEvent(
+    val id: String,
+    val companyId: String,
+    val type: String,
+    val title: String,
+    val detail: String? = null,
+    val goalId: String? = null,
+    val issueId: String? = null,
+    val runId: String? = null,
+    val createdAt: Long
 )
 
 /**
@@ -531,6 +646,8 @@ data class DesktopSettings(
     val availableCliAgents: List<String> = availableAgents,
     val recentCompanies: List<String> = emptyList(),
     val defaultLaunchMode: String = "company",
+    val backendSettings: DesktopBackendSettings = DesktopBackendSettings(),
+    val backendStatuses: List<ExecutionBackendStatus> = emptyList(),
     val shortcuts: ShortcutConfig = ShortcutConfig()
 )
 
@@ -568,12 +685,34 @@ data class DesktopAppState(
     val issues: List<CompanyIssue> = emptyList(),
     val issueDependencies: List<IssueDependency> = emptyList(),
     val orgProfiles: List<OrgAgentProfile> = emptyList(),
+    val workflowTopologies: List<WorkflowTopologySnapshot> = emptyList(),
+    val goalDecisions: List<GoalOrchestrationDecision> = emptyList(),
     val reviewQueue: List<ReviewQueueItem> = emptyList(),
     val companyActivity: List<CompanyActivityItem> = emptyList(),
     val opsMetrics: OpsMetricSnapshot = OpsMetricSnapshot(),
     val signals: List<OpsSignal> = emptyList(),
+    val backendSettings: DesktopBackendSettings = DesktopBackendSettings(),
     val runtime: CompanyRuntimeSnapshot = CompanyRuntimeSnapshot(),
     val companyRuntimes: List<CompanyRuntimeSnapshot> = emptyList()
+)
+
+private fun defaultBackendConfigs(): List<BackendConnectionConfig> = listOf(
+    BackendConnectionConfig(
+        kind = ExecutionBackendKind.LOCAL_COTOR,
+        baseUrl = "http://127.0.0.1:8787",
+        healthCheckPath = "/api/app/health",
+        authMode = "bearer",
+        timeoutSeconds = 30,
+        enabled = true
+    ),
+    BackendConnectionConfig(
+        kind = ExecutionBackendKind.CODEX_APP_SERVER,
+        baseUrl = System.getenv("CODEX_APP_SERVER_URL")?.takeIf { it.isNotBlank() },
+        healthCheckPath = "/health",
+        authMode = "none",
+        timeoutSeconds = 30,
+        enabled = true
+    )
 )
 
 /**
