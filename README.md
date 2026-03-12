@@ -48,6 +48,7 @@ cd cotor
 ./gradlew shadowJar
 chmod +x shell/cotor
 ./shell/cotor version
+# Smoke test the local install with `./shell/cotor status`.
 ```
 
 Common first commands:
