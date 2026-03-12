@@ -62,6 +62,8 @@ cotor run <pipeline> -c <config> --output-format text
 cotor app-server --port 8787
 ```
 
+Repository smoke check: `./gradlew run --args='version'`
+
 ## macOS Desktop
 
 Build and install the local app bundle:
