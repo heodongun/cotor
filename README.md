@@ -62,6 +62,8 @@ cotor run <pipeline> -c <config> --output-format text
 cotor app-server --port 8787
 ```
 
+Quick smoke test after the initial build: `./shell/cotor version`
+
 ## macOS Desktop
 
 Build and install the local app bundle:
