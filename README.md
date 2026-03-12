@@ -129,6 +129,7 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 Current baseline checks:
 
 ```bash
+PYTHONPATH=. python3 test/github/test_linear_pr_failure_gate.py
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
 cd macos && swift build
 ```
