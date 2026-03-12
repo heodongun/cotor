@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+Minimal smoke check: run `./shell/cotor version` after the build completes to verify the local CLI wrapper starts correctly.
+
 Common first commands:
 
 ```bash
