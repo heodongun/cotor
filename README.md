@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+Smoke test: `./shell/cotor version` should print the current CLI version after the local launcher builds or finds the shaded JAR.
+
 Common first commands:
 
 ```bash
