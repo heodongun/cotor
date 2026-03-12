@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+Fast smoke test: `./shell/cotor --short`
+
 Common first commands:
 
 ```bash
