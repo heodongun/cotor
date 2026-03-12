@@ -128,6 +128,8 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 
 Current baseline checks:
 
+README smoke check: `./gradlew --no-build-cache test -x jacocoTestCoverageVerification`
+
 ```bash
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
 cd macos && swift build
