@@ -1,6 +1,7 @@
 # Cotor
 
 Cotor is a local-first AI workflow runner that grew into a company-style AI operating system: a CEO AI delegates work to subordinate AIs, CLI agents keep costs down, workflows stay visible in macOS, and a goal can drive an always-on issue loop. The same Kotlin core powers pipeline execution, the localhost `app-server`, and the native desktop shell.
+Smoke test note: this README line was added through the direct worker flow.
 
 ## What Is Current In This Build
 
