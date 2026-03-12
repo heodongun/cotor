@@ -48,6 +48,7 @@ cd cotor
 ./gradlew shadowJar
 chmod +x shell/cotor
 ./shell/cotor version
+# smoke test: prints the current Cotor CLI version
 ```
 
 Common first commands:
