@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+Use `./shell/cotor version` as a quick smoke test after building the CLI wrapper.
+
 Common first commands:
 
 ```bash
