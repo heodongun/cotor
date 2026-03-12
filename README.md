@@ -129,6 +129,7 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 Current baseline checks:
 
 ```bash
+./gradlew test --tests com.cotor.app.AppServerTest
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
 cd macos && swift build
 ```
