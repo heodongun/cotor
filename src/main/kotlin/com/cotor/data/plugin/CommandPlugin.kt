@@ -74,7 +74,8 @@ class CommandPlugin : AgentPlugin {
             input = stdin,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {

@@ -1,6 +1,5 @@
 package com.cotor.checkpoint
 
-import com.cotor.model.AgentResult
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
@@ -26,7 +25,14 @@ class CheckpointManagerTest : FunSpec({
 
     test("save and load checkpoint with metadata") {
         val pipelineId = "test-pipeline-1"
-        val stageCheckpoint = AgentResult("test-agent", true, "output", null, 100, emptyMap()).toCheckpoint("stage-1")
+        val stageCheckpoint = StageCheckpoint(
+            stageId = "stage-1",
+            agentName = "test-agent",
+            output = "output",
+            isSuccess = true,
+            duration = 100,
+            timestamp = Instant.now().toString()
+        )
 
         checkpointManager.saveCheckpoint(
             pipelineId = pipelineId,
@@ -49,7 +55,14 @@ class CheckpointManagerTest : FunSpec({
     }
 
     test("list checkpoints with metadata") {
-        val stageCheckpoint = AgentResult("test-agent", true, "output", null, 100, emptyMap()).toCheckpoint("stage-1")
+        val stageCheckpoint = StageCheckpoint(
+            stageId = "stage-1",
+            agentName = "test-agent",
+            output = "output",
+            isSuccess = true,
+            duration = 100,
+            timestamp = Instant.now().toString()
+        )
         checkpointManager.saveCheckpoint("p1", "Pipeline 1", listOf(stageCheckpoint), "1.0.0", "abc", "os1", "jvm1")
         checkpointManager.saveCheckpoint("p2", "Pipeline 2", listOf(stageCheckpoint), "1.1.0", "def", "os2", "jvm2")
 

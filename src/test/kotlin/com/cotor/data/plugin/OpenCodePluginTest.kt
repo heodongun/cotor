@@ -24,7 +24,8 @@ class OpenCodePluginTest : FunSpec({
                 input: String?,
                 environment: Map<String, String>,
                 timeout: Long,
-                workingDirectory: Path?
+                workingDirectory: Path?,
+                onStart: ((Long) -> Unit)?
             ): ProcessResult {
                 // Assert the wrapper builds the expected argv and then simulate
                 // a non-zero child process result without launching the real CLI.

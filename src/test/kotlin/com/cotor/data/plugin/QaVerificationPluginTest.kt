@@ -74,7 +74,8 @@ private class CapturingProcessManager : ProcessManager {
         input: String?,
         environment: Map<String, String>,
         timeout: Long,
-        workingDirectory: Path?
+        workingDirectory: Path?,
+        onStart: ((Long) -> Unit)?
     ): ProcessResult {
         lastCommand = command
         return ProcessResult(exitCode = 0, stdout = "ok", stderr = "", isSuccess = true, processId = 42)
