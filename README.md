@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+`./shell/cotor version` is the quickest smoke test for a fresh local build.
+
 Common first commands:
 
 ```bash
