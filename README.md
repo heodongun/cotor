@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+Minimal smoke check: run `./shell/cotor version` after the build completes.
+
 Common first commands:
 
 ```bash
