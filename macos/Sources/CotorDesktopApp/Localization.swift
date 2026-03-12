@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Supported shell languages for the desktop client.
 ///
@@ -18,6 +19,70 @@ enum AppLanguage: String, CaseIterable, Identifiable {
             return "English"
         case .korean:
             return "한국어"
+        }
+    }
+}
+
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system:
+            return nil
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .system:
+            return "circle.lefthalf.filled"
+        case .light:
+            return "sun.max.fill"
+        case .dark:
+            return "moon.fill"
+        }
+    }
+
+    func label(_ language: AppLanguage) -> String {
+        switch (self, language) {
+        case (.system, .english):
+            return "System"
+        case (.light, .english):
+            return "Light"
+        case (.dark, .english):
+            return "Dark"
+        case (.system, .korean):
+            return "시스템"
+        case (.light, .korean):
+            return "라이트"
+        case (.dark, .korean):
+            return "다크"
+        }
+    }
+
+    func shortLabel(_ language: AppLanguage) -> String {
+        switch (self, language) {
+        case (.system, .english):
+            return "Auto"
+        case (.light, .english):
+            return "Light"
+        case (.dark, .english):
+            return "Dark"
+        case (.system, .korean):
+            return "자동"
+        case (.light, .korean):
+            return "화이트"
+        case (.dark, .korean):
+            return "블랙"
         }
     }
 }
@@ -230,6 +295,40 @@ struct DesktopStrings {
 
     static func status(_ status: String, language: AppLanguage) -> String {
         switch (language, status.uppercased()) {
+        case (.english, "PLANNED"):
+            return "Planned"
+        case (.english, "BACKLOG"):
+            return "Backlog"
+        case (.english, "DELEGATED"):
+            return "Delegated"
+        case (.english, "IN_PROGRESS"):
+            return "In Progress"
+        case (.english, "IN_REVIEW"):
+            return "In Review"
+        case (.english, "BLOCKED"):
+            return "Blocked"
+        case (.english, "DONE"):
+            return "Done"
+        case (.english, "DRAFT"):
+            return "Draft"
+        case (.english, "ACTIVE"):
+            return "Active"
+        case (.english, "PAUSED"):
+            return "Paused"
+        case (.english, "READY_TO_MERGE"):
+            return "Ready to Merge"
+        case (.english, "AWAITING_QA"):
+            return "Awaiting QA"
+        case (.english, "AWAITING_REVIEW"):
+            return "Awaiting Review"
+        case (.english, "CHANGES_REQUESTED"):
+            return "Changes Requested"
+        case (.english, "FAILED_CHECKS"):
+            return "Failed Checks"
+        case (.english, "MERGED"):
+            return "Merged"
+        case (.english, "STOPPED"):
+            return "Stopped"
         case (.english, "RUNNING"):
             return "Running"
         case (.english, "QUEUED"):
@@ -243,7 +342,41 @@ struct DesktopStrings {
         case (.english, "EXITED"):
             return "Exited"
         case (.english, _):
-            return status.capitalized
+            return status.replacingOccurrences(of: "_", with: " ").capitalized
+        case (.korean, "PLANNED"):
+            return "계획됨"
+        case (.korean, "BACKLOG"):
+            return "백로그"
+        case (.korean, "DELEGATED"):
+            return "배정됨"
+        case (.korean, "IN_PROGRESS"):
+            return "진행 중"
+        case (.korean, "IN_REVIEW"):
+            return "검토 중"
+        case (.korean, "BLOCKED"):
+            return "차단됨"
+        case (.korean, "DONE"):
+            return "완료"
+        case (.korean, "DRAFT"):
+            return "초안"
+        case (.korean, "ACTIVE"):
+            return "활성"
+        case (.korean, "PAUSED"):
+            return "일시정지"
+        case (.korean, "READY_TO_MERGE"):
+            return "병합 준비"
+        case (.korean, "AWAITING_QA"):
+            return "QA 대기"
+        case (.korean, "AWAITING_REVIEW"):
+            return "리뷰 대기"
+        case (.korean, "CHANGES_REQUESTED"):
+            return "수정 요청"
+        case (.korean, "FAILED_CHECKS"):
+            return "체크 실패"
+        case (.korean, "MERGED"):
+            return "병합됨"
+        case (.korean, "STOPPED"):
+            return "중지됨"
         case (.korean, "RUNNING"):
             return "실행 중"
         case (.korean, "QUEUED"):
@@ -320,7 +453,7 @@ struct DesktopStrings {
         case .compactWorkspace: return "Workspace"
         case .compactConsole: return "Console"
         case .compactInspector: return "Inspector"
-        case .offlinePreview: return "Offline Preview"
+        case .offlinePreview: return "Disconnected"
         case .liveLocalSession: return "Live Local Session"
         case .source: return "Source"
         case .repositories: return "Repositories"
@@ -435,7 +568,7 @@ struct DesktopStrings {
         case .browserTab: return "Browser Tab"
         case .connectingToServer: return "Connecting to local Cotor app-server..."
         case .waitingForServer: return "Waiting for local Cotor app-server to finish starting..."
-        case .offlineMockData: return "App-server unavailable. Showing offline mock data."
+        case .offlineMockData: return "App-server unavailable. Showing only live data already loaded."
         case .openRepositoryPrompt: return "Open Repository"
         }
     }
@@ -452,7 +585,7 @@ struct DesktopStrings {
         case .compactWorkspace: return "워크스페이스"
         case .compactConsole: return "콘솔"
         case .compactInspector: return "인스펙터"
-        case .offlinePreview: return "오프라인 미리보기"
+        case .offlinePreview: return "연결 끊김"
         case .liveLocalSession: return "로컬 실시간 세션"
         case .source: return "소스"
         case .repositories: return "저장소"
@@ -567,7 +700,7 @@ struct DesktopStrings {
         case .browserTab: return "브라우저 탭"
         case .connectingToServer: return "로컬 Cotor app-server에 연결 중..."
         case .waitingForServer: return "로컬 Cotor app-server가 시작되기를 기다리는 중..."
-        case .offlineMockData: return "app-server에 연결할 수 없어 오프라인 목업 데이터를 표시합니다."
+        case .offlineMockData: return "app-server에 연결할 수 없어 이미 불러온 실제 데이터만 표시합니다."
         case .openRepositoryPrompt: return "저장소 열기"
         }
     }

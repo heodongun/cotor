@@ -28,9 +28,43 @@ struct CompanyRecord: Codable, Identifiable, Hashable {
     let rootPath: String
     let repositoryId: String
     let defaultBaseBranch: String
+    let backendKind: String
     let autonomyEnabled: Bool
     let createdAt: Int64
     let updatedAt: Int64
+}
+
+struct BackendConnectionConfigPayload: Codable, Hashable {
+    let kind: String
+    let baseUrl: String?
+    let healthCheckPath: String
+    let authMode: String
+    let token: String?
+    let timeoutSeconds: Int
+    let enabled: Bool
+}
+
+struct ExecutionBackendCapabilitiesPayload: Codable, Hashable {
+    let canStreamEvents: Bool
+    let canResumeRuns: Bool
+    let canSpawnParallelAgents: Bool
+    let canPublishPullRequests: Bool
+}
+
+struct ExecutionBackendStatusPayload: Codable, Hashable, Identifiable {
+    var id: String { kind }
+
+    let kind: String
+    let displayName: String
+    let health: String
+    let message: String?
+    let config: BackendConnectionConfigPayload
+    let capabilities: ExecutionBackendCapabilitiesPayload
+}
+
+struct DesktopBackendSettingsPayload: Codable, Hashable {
+    let defaultBackendKind: String
+    let backends: [BackendConnectionConfigPayload]
 }
 
 struct CompanyAgentDefinitionRecord: Codable, Identifiable, Hashable {
@@ -39,6 +73,10 @@ struct CompanyAgentDefinitionRecord: Codable, Identifiable, Hashable {
     let title: String
     let agentCli: String
     let roleSummary: String
+    let specialties: [String]
+    let collaborationInstructions: String?
+    let preferredCollaboratorIds: [String]
+    let memoryNotes: String?
     let enabled: Bool
     let displayOrder: Int
     let createdAt: Int64
@@ -203,6 +241,78 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
     let lastTickAt: Int64?
     let lastAction: String?
     let lastError: String?
+    let backendKind: String
+    let backendHealth: String
+    let backendMessage: String?
+}
+
+struct AgentCollaborationEdgeRecord: Codable, Hashable, Identifiable {
+    var id: String { "\(companyId)-\(fromAgentId)-\(toAgentId)-\(handoffType)" }
+
+    let companyId: String
+    let fromAgentId: String
+    let toAgentId: String
+    let reason: String
+    let handoffType: String
+}
+
+struct WorkflowTopologySnapshotRecord: Codable, Hashable, Identifiable {
+    var id: String { companyId }
+
+    let companyId: String
+    let agents: [String]
+    let edges: [AgentCollaborationEdgeRecord]
+    let activeLoops: [String]
+    let updatedAt: Int64
+}
+
+struct GoalOrchestrationDecisionRecord: Codable, Hashable, Identifiable {
+    let id: String
+    let companyId: String
+    let goalId: String?
+    let issueId: String?
+    let title: String
+    let summary: String
+    let createdIssues: [String]
+    let assignments: [String]
+    let escalations: [String]
+    let createdAt: Int64
+}
+
+struct RunningAgentSessionRecord: Codable, Hashable, Identifiable {
+    var id: String { runId }
+
+    let companyId: String
+    let runId: String
+    let taskId: String
+    let issueId: String?
+    let goalId: String?
+    let agentId: String
+    let agentName: String
+    let roleName: String?
+    let status: String
+    let branchName: String
+    let processId: Int64?
+    let outputSnippet: String?
+    let startedAt: Int64
+    let updatedAt: Int64
+}
+
+struct CompanyEventRecord: Codable, Hashable, Identifiable {
+    let id: String
+    let companyId: String
+    let type: String
+    let title: String
+    let detail: String?
+    let goalId: String?
+    let issueId: String?
+    let runId: String?
+    let createdAt: Int64
+}
+
+struct CompanyEventEnvelopePayload: Codable {
+    let event: CompanyEventRecord
+    let dashboard: DashboardPayload?
 }
 
 /// Live TUI session snapshot rendered in the center terminal surface.
@@ -273,6 +383,8 @@ struct DesktopSettingsPayload: Codable, Hashable {
     let availableCliAgents: [String]
     let recentCompanies: [String]
     let defaultLaunchMode: String
+    let backendSettings: DesktopBackendSettingsPayload
+    let backendStatuses: [ExecutionBackendStatusPayload]
     let shortcuts: ShortcutConfigPayload
 }
 
@@ -301,9 +413,53 @@ struct DashboardPayload: Codable {
     let issues: [IssueRecord]
     let reviewQueue: [ReviewQueueItemRecord]
     let orgProfiles: [OrgAgentProfileRecord]
+    let workflowTopologies: [WorkflowTopologySnapshotRecord]
+    let goalDecisions: [GoalOrchestrationDecisionRecord]
+    let runningAgentSessions: [RunningAgentSessionRecord]
+    let backendStatuses: [ExecutionBackendStatusPayload]
     let opsMetrics: OpsMetricSnapshotRecord
     let activity: [CompanyActivityItemRecord]
     let companyRuntimes: [CompanyRuntimeSnapshotRecord]
+}
+
+extension DashboardPayload {
+    static let empty = DashboardPayload(
+        repositories: [],
+        workspaces: [],
+        tasks: [],
+        settings: DesktopSettingsPayload(
+            appHome: "",
+            managedReposRoot: "",
+            availableAgents: [],
+            availableCliAgents: [],
+            recentCompanies: [],
+            defaultLaunchMode: "company",
+            backendSettings: DesktopBackendSettingsPayload(defaultBackendKind: "LOCAL_COTOR", backends: []),
+            backendStatuses: [],
+            shortcuts: ShortcutConfigPayload(bindings: [])
+        ),
+        companies: [],
+        companyAgentDefinitions: [],
+        projectContexts: [],
+        goals: [],
+        issues: [],
+        reviewQueue: [],
+        orgProfiles: [],
+        workflowTopologies: [],
+        goalDecisions: [],
+        runningAgentSessions: [],
+        backendStatuses: [],
+        opsMetrics: OpsMetricSnapshotRecord(
+            openGoals: 0,
+            activeIssues: 0,
+            blockedIssues: 0,
+            readyToMergeCount: 0,
+            mergedCount: 0,
+            lastUpdatedAt: 0
+        ),
+        activity: [],
+        companyRuntimes: []
+    )
 }
 
 /// Request body for creating a workspace from the macOS client.
@@ -333,6 +489,13 @@ struct CreateGoalPayload: Codable {
     let autonomyEnabled: Bool
 }
 
+struct UpdateGoalPayload: Codable {
+    let title: String?
+    let description: String?
+    let successMetrics: [String]?
+    let autonomyEnabled: Bool?
+}
+
 struct CreateCompanyPayload: Codable {
     let name: String
     let rootPath: String
@@ -344,7 +507,23 @@ struct CreateCompanyAgentPayload: Codable {
     let title: String
     let agentCli: String
     let roleSummary: String
+    let specialties: [String]
+    let collaborationInstructions: String?
+    let preferredCollaboratorIds: [String]
+    let memoryNotes: String?
     let enabled: Bool
+}
+
+struct UpdateCompanyAgentPayload: Codable {
+    let title: String?
+    let agentCli: String?
+    let roleSummary: String?
+    let specialties: [String]?
+    let collaborationInstructions: String?
+    let preferredCollaboratorIds: [String]?
+    let memoryNotes: String?
+    let enabled: Bool?
+    let displayOrder: Int?
 }
 
 /// Request body for opening or reusing the TUI session tied to a workspace.
@@ -437,6 +616,11 @@ struct MockSeed {
             availableCliAgents: ["claude", "codex", "gemini", "opencode"],
             recentCompanies: ["company-demo"],
             defaultLaunchMode: "company",
+            backendSettings: DesktopBackendSettingsPayload(
+                defaultBackendKind: "LOCAL_COTOR",
+                backends: []
+            ),
+            backendStatuses: [],
             shortcuts: ShortcutConfigPayload(bindings: [
                 ShortcutBindingPayload(id: "openRepository", title: "Open Repository", shortcut: "Command-N"),
                 ShortcutBindingPayload(id: "createTask", title: "Create Task", shortcut: "Command-T"),
@@ -457,6 +641,7 @@ struct MockSeed {
                 rootPath: "/Users/demo/cotor",
                 repositoryId: "repo-demo",
                 defaultBaseBranch: "master",
+                backendKind: "LOCAL_COTOR",
                 autonomyEnabled: true,
                 createdAt: 0,
                 updatedAt: 0
@@ -469,6 +654,10 @@ struct MockSeed {
                 title: "CEO",
                 agentCli: "claude",
                 roleSummary: "lead strategy, planning, triage, final merge",
+                specialties: ["planning", "triage", "approval"],
+                collaborationInstructions: "Break goals into issues and route work to the strongest specialists first.",
+                preferredCollaboratorIds: ["agent-def-builder", "agent-def-qa"],
+                memoryNotes: "Own final merge decisions.",
                 enabled: true,
                 displayOrder: 0,
                 createdAt: 0,
@@ -480,6 +669,10 @@ struct MockSeed {
                 title: "Builder",
                 agentCli: "codex",
                 roleSummary: "implementation, integration, delivery",
+                specialties: ["implementation", "integration"],
+                collaborationInstructions: "Hand off risky or ambiguous work back to CEO and route finished work to QA.",
+                preferredCollaboratorIds: ["agent-def-ceo", "agent-def-qa"],
+                memoryNotes: "Keep branches narrowly scoped.",
                 enabled: true,
                 displayOrder: 1,
                 createdAt: 0,
@@ -491,6 +684,10 @@ struct MockSeed {
                 title: "QA",
                 agentCli: "gemini",
                 roleSummary: "qa, review, verification",
+                specialties: ["qa", "review", "verification"],
+                collaborationInstructions: "Review implementation output and escalate blockers to CEO.",
+                preferredCollaboratorIds: ["agent-def-builder", "agent-def-ceo"],
+                memoryNotes: "Track regressions before merge.",
                 enabled: true,
                 displayOrder: 2,
                 createdAt: 0,
@@ -641,6 +838,10 @@ struct MockSeed {
                 enabled: true
             )
         ],
+        workflowTopologies: [],
+        goalDecisions: [],
+        runningAgentSessions: [],
+        backendStatuses: [],
         opsMetrics: OpsMetricSnapshotRecord(
             openGoals: 1,
             activeIssues: 3,
@@ -687,7 +888,10 @@ struct MockSeed {
                 lastStoppedAt: nil,
                 lastTickAt: 0,
                 lastAction: "started:issue-demo-build",
-                lastError: nil
+                lastError: nil,
+                backendKind: "LOCAL_COTOR",
+                backendHealth: "healthy",
+                backendMessage: "Using local Cotor app-server and CLI execution."
             )
         ]
     )

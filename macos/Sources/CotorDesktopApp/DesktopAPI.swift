@@ -41,15 +41,31 @@ struct DesktopAPI {
         try await get(path: "api/app/tasks/\(taskId)/changes/\(agentName)")
     }
 
+    /// Fetch the git diff summary for one concrete run.
+    func changes(runId: String) async throws -> ChangeSummaryPayload {
+        try await get(path: "api/app/changes", query: [URLQueryItem(name: "runId", value: runId)])
+    }
+
     /// Fetch the nested file tree rooted at one agent worktree.
     func files(taskId: String, agentName: String, path: String?) async throws -> [FileTreeNodePayload] {
         let query = path.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "path", value: $0) }.map { [$0] } ?? []
         return try await get(path: "api/app/tasks/\(taskId)/files/\(agentName)", query: query)
     }
 
+    /// Fetch the nested file tree rooted at one concrete run worktree.
+    func files(runId: String, path: String?) async throws -> [FileTreeNodePayload] {
+        let query = [URLQueryItem(name: "runId", value: runId)] + (path.flatMap { $0.isEmpty ? nil : URLQueryItem(name: "path", value: $0) }.map { [$0] } ?? [])
+        return try await get(path: "api/app/files", query: query)
+    }
+
     /// Fetch ports exposed by the process attached to one agent run.
     func ports(taskId: String, agentName: String) async throws -> [PortEntryPayload] {
         try await get(path: "api/app/tasks/\(taskId)/ports/\(agentName)")
+    }
+
+    /// Fetch ports exposed by one concrete run process.
+    func ports(runId: String) async throws -> [PortEntryPayload] {
+        try await get(path: "api/app/ports", query: [URLQueryItem(name: "runId", value: runId)])
     }
 
     /// Register an existing local checkout with the desktop backend.
@@ -97,6 +113,29 @@ struct DesktopAPI {
         )
     }
 
+    func updateGoal(
+        companyId: String,
+        goalId: String,
+        title: String,
+        description: String,
+        successMetrics: [String] = [],
+        autonomyEnabled: Bool = true
+    ) async throws -> GoalRecord {
+        try await patch(
+            path: "api/app/companies/\(companyId)/goals/\(goalId)",
+            body: UpdateGoalPayload(
+                title: title,
+                description: description,
+                successMetrics: successMetrics,
+                autonomyEnabled: autonomyEnabled
+            )
+        )
+    }
+
+    func deleteGoal(companyId: String, goalId: String) async throws -> GoalRecord {
+        try await delete(path: "api/app/companies/\(companyId)/goals/\(goalId)")
+    }
+
     func createCompany(name: String, rootPath: String, defaultBaseBranch: String?) async throws -> CompanyRecord {
         try await post(
             path: "api/app/companies",
@@ -109,14 +148,124 @@ struct DesktopAPI {
         )
     }
 
-    func createCompanyAgent(companyId: String, title: String, agentCli: String, roleSummary: String, enabled: Bool = true) async throws -> CompanyAgentDefinitionRecord {
+    func updateBackendSettings(
+        defaultBackendKind: String,
+        codexAppServerBaseURL: String?,
+        codexAuthMode: String?,
+        codexToken: String?,
+        codexTimeoutSeconds: Int?
+    ) async throws -> DesktopSettingsPayload {
+        try await patch(
+            path: "api/app/settings/backends/default",
+            body: UpdateBackendSettingsPayload(
+                defaultBackendKind: defaultBackendKind,
+                codexAppServerBaseUrl: codexAppServerBaseURL,
+                codexAuthMode: codexAuthMode,
+                codexToken: codexToken,
+                codexTimeoutSeconds: codexTimeoutSeconds
+            )
+        )
+    }
+
+    func testBackend(
+        kind: String,
+        baseURL: String?,
+        authMode: String?,
+        token: String?,
+        timeoutSeconds: Int?
+    ) async throws -> ExecutionBackendStatusPayload {
+        try await post(
+            path: "api/app/settings/backends/test",
+            body: TestBackendPayload(
+                kind: kind,
+                baseUrl: baseURL,
+                authMode: authMode,
+                token: token,
+                timeoutSeconds: timeoutSeconds
+            )
+        )
+    }
+
+    func updateCompanyBackend(
+        companyId: String,
+        backendKind: String,
+        baseURL: String?,
+        authMode: String?,
+        token: String?,
+        timeoutSeconds: Int?,
+        useGlobalDefault: Bool
+    ) async throws -> CompanyRecord {
+        try await patch(
+            path: "api/app/companies/\(companyId)/backend",
+            body: UpdateCompanyBackendPayload(
+                backendKind: backendKind,
+                baseUrl: baseURL,
+                authMode: authMode,
+                token: token,
+                timeoutSeconds: timeoutSeconds,
+                useGlobalDefault: useGlobalDefault
+            )
+        )
+    }
+
+    func deleteCompany(companyId: String) async throws -> CompanyRecord {
+        try await delete(path: "api/app/companies/\(companyId)")
+    }
+
+    func deleteIssue(companyId: String, issueId: String) async throws -> IssueRecord {
+        try await delete(path: "api/app/companies/\(companyId)/issues/\(issueId)")
+    }
+
+    func createCompanyAgent(
+        companyId: String,
+        title: String,
+        agentCli: String,
+        roleSummary: String,
+        specialties: [String],
+        collaborationInstructions: String?,
+        preferredCollaboratorIds: [String],
+        memoryNotes: String?,
+        enabled: Bool = true
+    ) async throws -> CompanyAgentDefinitionRecord {
         try await post(
             path: "api/app/companies/\(companyId)/agents",
             body: CreateCompanyAgentPayload(
                 title: title,
                 agentCli: agentCli,
                 roleSummary: roleSummary,
+                specialties: specialties,
+                collaborationInstructions: collaborationInstructions,
+                preferredCollaboratorIds: preferredCollaboratorIds,
+                memoryNotes: memoryNotes,
                 enabled: enabled
+            )
+        )
+    }
+
+    func updateCompanyAgent(
+        companyId: String,
+        agentId: String,
+        title: String,
+        agentCli: String,
+        roleSummary: String,
+        specialties: [String],
+        collaborationInstructions: String?,
+        preferredCollaboratorIds: [String],
+        memoryNotes: String?,
+        enabled: Bool
+    ) async throws -> CompanyAgentDefinitionRecord {
+        try await patch(
+            path: "api/app/companies/\(companyId)/agents/\(agentId)",
+            body: UpdateCompanyAgentPayload(
+                title: title,
+                agentCli: agentCli,
+                roleSummary: roleSummary,
+                specialties: specialties,
+                collaborationInstructions: collaborationInstructions,
+                preferredCollaboratorIds: preferredCollaboratorIds,
+                memoryNotes: memoryNotes,
+                enabled: enabled,
+                displayOrder: nil
             )
         )
     }
@@ -169,6 +318,34 @@ struct DesktopAPI {
         try await post(path: "api/app/tui/sessions/\(sessionId)/terminate", body: EmptyPayload())
     }
 
+    func companyEvents(companyId: String) -> AsyncThrowingStream<CompanyEventEnvelopePayload, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var request = URLRequest(url: try makeURL(path: "api/app/companies/\(companyId)/events"))
+                    request.httpMethod = "GET"
+                    addHeaders(to: &request)
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+                        throw URLError(.badServerResponse)
+                    }
+                    for try await line in bytes.lines {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { continue }
+                        let data = Data(trimmed.utf8)
+                        continuation.yield(try JSONDecoder().decode(CompanyEventEnvelopePayload.self, from: data))
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     private func get<T: Decodable>(path: String, query: [URLQueryItem] = []) async throws -> T {
         var request = URLRequest(url: try makeURL(path: path, query: query))
         request.httpMethod = "GET"
@@ -188,6 +365,13 @@ struct DesktopAPI {
         var request = URLRequest(url: try makeURL(path: path))
         request.httpMethod = "PATCH"
         request.httpBody = try JSONEncoder().encode(body)
+        addHeaders(to: &request)
+        return try await decode(request)
+    }
+
+    private func delete<T: Decodable>(path: String) async throws -> T {
+        var request = URLRequest(url: try makeURL(path: path))
+        request.httpMethod = "DELETE"
         addHeaders(to: &request)
         return try await decode(request)
     }
@@ -227,6 +411,31 @@ struct DesktopAPI {
 }
 
 private struct EmptyPayload: Codable {}
+
+private struct UpdateBackendSettingsPayload: Codable {
+    let defaultBackendKind: String
+    let codexAppServerBaseUrl: String?
+    let codexAuthMode: String?
+    let codexToken: String?
+    let codexTimeoutSeconds: Int?
+}
+
+private struct TestBackendPayload: Codable {
+    let kind: String
+    let baseUrl: String?
+    let authMode: String?
+    let token: String?
+    let timeoutSeconds: Int?
+}
+
+private struct UpdateCompanyBackendPayload: Codable {
+    let backendKind: String
+    let baseUrl: String?
+    let authMode: String?
+    let token: String?
+    let timeoutSeconds: Int?
+    let useGlobalDefault: Bool
+}
 
 enum APIError: LocalizedError {
     case http(Int, String)
