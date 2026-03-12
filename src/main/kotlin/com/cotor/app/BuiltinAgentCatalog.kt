@@ -16,37 +16,39 @@ private data class BuiltinAgentSpec(
  * `cotor.yaml` overrides or extends them.
  */
 object BuiltinAgentCatalog {
+    private const val DEFAULT_AI_TIMEOUT_MS = 15 * 60_000L
+
     private val specs = mapOf(
         "claude" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.ClaudePlugin",
-            defaultTimeoutMs = 60_000,
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
             defaultParameters = mapOf("model" to "claude-sonnet-4-20250514")
         ),
         "codex" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.CodexPlugin",
-            defaultTimeoutMs = 60_000,
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
             defaultParameters = mapOf("model" to "gpt-5.3-codex-spark")
         ),
         "gemini" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.GeminiPlugin",
-            defaultTimeoutMs = 60_000,
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
             defaultParameters = mapOf("model" to "gemini-3.0-flash")
         ),
         "copilot" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.CopilotPlugin",
-            defaultTimeoutMs = 60_000
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS
         ),
         "cursor" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.CursorPlugin",
-            defaultTimeoutMs = 60_000
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS
         ),
         "opencode" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.OpenCodePlugin",
-            defaultTimeoutMs = 60_000
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS
         ),
         "qwen" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.CommandPlugin",
-            defaultTimeoutMs = 60_000,
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
             defaultParameters = mapOf("argvJson" to """["qwen","{input}"]""")
         ),
         "echo" to BuiltinAgentSpec(

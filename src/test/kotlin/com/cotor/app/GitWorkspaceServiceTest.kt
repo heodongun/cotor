@@ -115,7 +115,8 @@ private class FakeProcessManager(
         input: String?,
         environment: Map<String, String>,
         timeout: Long,
-        workingDirectory: Path?
+        workingDirectory: Path?,
+        onStart: ((Long) -> Unit)?
     ): ProcessResult {
         val next = steps.removeFirstOrNull() ?: error("Unexpected command: ${command.joinToString(" ")}")
         next.command shouldBe command

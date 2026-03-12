@@ -59,7 +59,8 @@ class QaVerificationPlugin : AgentPlugin {
             input = stdin,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory ?: context.repoRoot
+            workingDirectory = context.workingDirectory ?: context.repoRoot,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {

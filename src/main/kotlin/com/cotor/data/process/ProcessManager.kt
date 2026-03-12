@@ -3,7 +3,10 @@ package com.cotor.data.process
 import com.cotor.model.ProcessResult
 import kotlinx.coroutines.*
 import org.slf4j.Logger
+import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.exists
+import kotlin.io.path.isExecutable
 
 /**
  * Interface for managing external process execution
@@ -23,7 +26,8 @@ interface ProcessManager {
         input: String?,
         environment: Map<String, String>,
         timeout: Long,
-        workingDirectory: Path? = null
+        workingDirectory: Path? = null,
+        onStart: ((Long) -> Unit)? = null
     ): ProcessResult
 }
 
@@ -39,9 +43,11 @@ class CoroutineProcessManager(
         input: String?,
         environment: Map<String, String>,
         timeout: Long,
-        workingDirectory: Path?
+        workingDirectory: Path?,
+        onStart: ((Long) -> Unit)?
     ): ProcessResult = withContext(Dispatchers.IO) {
-        val processBuilder = ProcessBuilder(command)
+        val resolvedCommand = resolveProcessCommand(command)
+        val processBuilder = ProcessBuilder(resolvedCommand)
             .redirectErrorStream(false)
 
         workingDirectory?.let {
@@ -53,8 +59,9 @@ class CoroutineProcessManager(
         // Set environment variables
         processBuilder.environment().putAll(environment)
 
-        logger.debug("Starting process: ${command.joinToString(" ")}")
+        logger.debug("Starting process: ${resolvedCommand.joinToString(" ")}")
         val process = processBuilder.start()
+        onStart?.invoke(process.pid())
 
         try {
             withTimeout(timeout) {
@@ -120,4 +127,56 @@ class CoroutineProcessManager(
             throw e
         }
     }
+}
+
+fun resolveExecutablePath(command: String): Path? {
+    val normalized = command.trim().trim('"')
+    if (normalized.isBlank()) {
+        return null
+    }
+
+    val directPath = runCatching { Path.of(normalized) }.getOrNull()
+    if (directPath != null && (normalized.contains("/") || normalized.startsWith("."))) {
+        val absolute = directPath.toAbsolutePath().normalize()
+        if (absolute.exists() && absolute.isExecutable()) {
+            return absolute
+        }
+    }
+
+    val searchDirectories = buildList {
+        val rawPath = System.getenv("PATH").orEmpty()
+        rawPath.split(java.io.File.pathSeparator)
+            .map { it.trim().trim('"') }
+            .filter { it.isNotBlank() }
+            .forEach { add(it) }
+
+        val home = System.getProperty("user.home").orEmpty()
+        add("/opt/homebrew/bin")
+        add("/usr/local/bin")
+        add("/usr/bin")
+        add("/bin")
+        add("/usr/sbin")
+        add("/sbin")
+        if (home.isNotBlank()) {
+            add("$home/.local/bin")
+            add("$home/bin")
+        }
+    }.distinct()
+
+    return searchDirectories.firstNotNullOfOrNull { directory ->
+        val candidate = runCatching { Path.of(directory, normalized).toAbsolutePath().normalize() }.getOrNull()
+        if (candidate != null && candidate.exists() && candidate.isExecutable() && !Files.isDirectory(candidate)) {
+            candidate
+        } else {
+            null
+        }
+    }
+}
+
+private fun resolveProcessCommand(command: List<String>): List<String> {
+    if (command.isEmpty()) {
+        return command
+    }
+    val executable = resolveExecutablePath(command.first())?.toString() ?: command.first()
+    return listOf(executable) + command.drop(1)
 }

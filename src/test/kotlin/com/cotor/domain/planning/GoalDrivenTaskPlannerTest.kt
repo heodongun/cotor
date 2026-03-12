@@ -17,7 +17,7 @@ class GoalDrivenTaskPlannerTest {
         )
 
         assertEquals("Improve desktop task orchestration", plan.goalSummary)
-        assertEquals("goal-template", plan.decompositionSource)
+        assertEquals("roster-aware", plan.decompositionSource)
         assertEquals(listOf("claude", "codex"), plan.assignments.map { it.agentName })
         assertTrue(plan.assignments.all { it.subtasks.size >= 2 })
         assertTrue(plan.assignments.all { it.assignedPrompt.contains("Assigned subtasks:") })
@@ -44,5 +44,82 @@ class GoalDrivenTaskPlannerTest {
         assertTrue(subtaskTitles.contains("Add task planning metadata to the desktop task model"))
         assertTrue(subtaskTitles.contains("Persist per-agent assignments during task creation"))
         assertTrue(subtaskTitles.contains("Route each run through its assigned prompt"))
+    }
+
+    @Test
+    fun `buildPlan includes A2A collaboration metadata in assigned prompts`() {
+        val plan = planner.buildPlanForParticipants(
+            title = "Run an autonomous company loop",
+            prompt = "Let the CEO delegate builder work and have QA verify the result.",
+            participants = listOf(
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ceo-1",
+                    agentName = "codex",
+                    title = "CEO",
+                    roleSummary = "lead strategy and final approval",
+                    specialties = listOf("planning", "delegation"),
+                    collaborationInstructions = "Break work into slices and hand implementation to builders before asking QA for verification.",
+                    preferredCollaborators = listOf("Builder A", "QA Lead"),
+                    memoryNotes = "Own final merge decisions.",
+                    mergeAuthority = true
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "builder-1",
+                    agentName = "claude",
+                    title = "Builder A",
+                    roleSummary = "implementation and delivery",
+                    specialties = listOf("backend", "integration"),
+                    collaborationInstructions = "Return completed work to QA after implementation."
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "qa-1",
+                    agentName = "gemini",
+                    title = "QA Lead",
+                    roleSummary = "qa, review, verification"
+                )
+            )
+        )
+
+        val approvalPrompt = plan.assignments.first { it.role == "CEO" }.assignedPrompt
+        assertTrue(approvalPrompt.contains("A2A collaboration contract:"))
+        assertTrue(approvalPrompt.contains("Preferred collaborators: Builder A, QA Lead"))
+        assertTrue(approvalPrompt.contains("Persistent agent memory:"))
+        assertTrue(approvalPrompt.contains("Own final merge decisions."))
+    }
+
+    @Test
+    fun `collaboration notes do not accidentally turn builders into reviewers`() {
+        val plan = planner.buildPlanForParticipants(
+            title = "Ship a feature",
+            prompt = "Have builders implement, then QA review.",
+            participants = listOf(
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ceo-1",
+                    agentName = "codex",
+                    title = "CEO",
+                    roleSummary = "lead strategy and approval",
+                    specialties = listOf("planning"),
+                    mergeAuthority = true
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "builder-1",
+                    agentName = "claude",
+                    title = "Builder A",
+                    roleSummary = "implementation and delivery",
+                    specialties = listOf("implementation", "integration"),
+                    collaborationInstructions = "Hand results to QA after implementation."
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "qa-1",
+                    agentName = "gemini",
+                    title = "QA",
+                    roleSummary = "qa review verification",
+                    specialties = listOf("qa", "review")
+                )
+            )
+        )
+
+        assertEquals(1, plan.assignments.count { it.phase == "review" })
+        assertEquals("QA", plan.assignments.first { it.phase == "review" }.role)
     }
 }

@@ -393,7 +393,8 @@ data class ExecutionContext(
     @Serializable(with = NullablePathSerializer::class)
     val workingDirectory: Path? = null,
     val pipelineContext: PipelineContext? = null,
-    val currentStageId: String? = null
+    val currentStageId: String? = null,
+    val onProcessStarted: ((Long) -> Unit)? = null
 )
 
 /**
@@ -412,7 +413,8 @@ data class AgentExecutionMetadata(
     // Passed out-of-band so callers that do not care about cwd do not need to thread it
     // through every public agent-facing API.
     @Serializable(with = NullablePathSerializer::class)
-    val workingDirectory: Path? = null
+    val workingDirectory: Path? = null,
+    val onProcessStarted: ((Long) -> Unit)? = null
 )
 
 /**

@@ -57,7 +57,8 @@ class ClaudePlugin : AgentPlugin {
             input = null,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {
@@ -113,7 +114,8 @@ class CodexPlugin : AgentPlugin {
             input = null,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {
@@ -169,7 +171,8 @@ class CopilotPlugin : AgentPlugin {
             input = null,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {
@@ -217,7 +220,8 @@ class GeminiPlugin : AgentPlugin {
             input = null,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {
@@ -265,7 +269,8 @@ class CursorPlugin : AgentPlugin {
             input = null,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {
@@ -314,7 +319,8 @@ class OpenCodePlugin : AgentPlugin {
             input = null,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {

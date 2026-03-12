@@ -34,7 +34,8 @@ class NaturalLanguageProcessorPlugin : AgentPlugin {
             input = context.input,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {
@@ -97,7 +98,8 @@ class CodeGeneratorPlugin : AgentPlugin {
             input = context.input,
             environment = context.environment,
             timeout = context.timeout,
-            workingDirectory = context.workingDirectory
+            workingDirectory = context.workingDirectory,
+            onStart = context.onProcessStarted
         )
 
         if (!result.isSuccess) {

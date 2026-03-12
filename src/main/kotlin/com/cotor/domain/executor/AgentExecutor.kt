@@ -97,7 +97,8 @@ class DefaultAgentExecutor(
                     branchName = metadata.branchName,
                     workingDirectory = metadata.workingDirectory,
                     pipelineContext = metadata.pipelineContext,
-                    currentStageId = metadata.stageId
+                    currentStageId = metadata.stageId,
+                    onProcessStarted = metadata.onProcessStarted
                 )
 
                 // Time only the plugin body itself so reported duration reflects the
