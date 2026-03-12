@@ -50,6 +50,8 @@ chmod +x shell/cotor
 ./shell/cotor version
 ```
 
+Smoke test: `./shell/cotor version` should print the local CLI version after the build completes.
+
 Common first commands:
 
 ```bash
