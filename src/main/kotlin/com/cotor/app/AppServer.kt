@@ -2,6 +2,7 @@ package com.cotor.app
 
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
@@ -13,12 +14,16 @@ import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondTextWriter
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.flow.collect
+import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -54,6 +59,7 @@ internal fun Application.cotorAppModule(
     desktopService: DesktopAppService,
     tuiSessionService: DesktopTuiSessionService
 ) {
+    val streamJson = Json { ignoreUnknownKeys = true }
     install(ContentNegotiation) {
         json()
     }
@@ -77,9 +83,49 @@ internal fun Application.cotorAppModule(
         }
 
         route("/api/app") {
+            get("/health") {
+                if (!requireToken(token)) return@get
+                call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
+            }
+
             get("/dashboard") {
                 if (!requireToken(token)) return@get
                 call.respond(desktopService.dashboard())
+            }
+
+            route("/settings/backends") {
+                get {
+                    if (!requireToken(token)) return@get
+                    call.respond(desktopService.backendStatuses())
+                }
+
+                patch("/default") {
+                    if (!requireToken(token)) return@patch
+                    val request = call.receive<UpdateBackendSettingsRequest>()
+                    respondDesktopRequest {
+                        desktopService.updateBackendSettings(
+                            defaultBackendKind = request.defaultBackendKind,
+                            codexAppServerBaseUrl = request.codexAppServerBaseUrl,
+                            codexAuthMode = request.codexAuthMode,
+                            codexToken = request.codexToken,
+                            codexTimeoutSeconds = request.codexTimeoutSeconds
+                        )
+                    }
+                }
+
+                post("/test") {
+                    if (!requireToken(token)) return@post
+                    val request = call.receive<TestBackendRequest>()
+                    respondDesktopRequest {
+                        desktopService.testBackend(
+                            kind = request.kind,
+                            baseUrl = request.baseUrl,
+                            authMode = request.authMode,
+                            token = request.token,
+                            timeoutSeconds = request.timeoutSeconds
+                        )
+                    }
+                }
             }
 
             get("/agents") {
@@ -167,10 +213,24 @@ internal fun Application.cotorAppModule(
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "taskId is required"))
                     val agentName = call.parameters["agentName"]
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "agentName is required"))
+                    val task = desktopService.getTask(taskId)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Task not found: $taskId"))
+                    val workspace = desktopService.listWorkspaces().firstOrNull { it.id == task.workspaceId }
                     val run = desktopService.listRuns(taskId)
                         .firstOrNull { it.agentName.equals(agentName, ignoreCase = true) }
-                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "No run found for $agentName"))
-                    call.respond(desktopService.getChanges(run.id))
+                    if (run == null) {
+                        call.respond(
+                            ChangeSummary(
+                                runId = "",
+                                branchName = "",
+                                baseBranch = workspace?.baseBranch ?: "",
+                                patch = "",
+                                changedFiles = emptyList()
+                            )
+                        )
+                    } else {
+                        call.respond(desktopService.getChanges(run.id))
+                    }
                 }
 
                 get("/{taskId}/files/{agentName}") {
@@ -181,9 +241,12 @@ internal fun Application.cotorAppModule(
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "agentName is required"))
                     val run = desktopService.listRuns(taskId)
                         .firstOrNull { it.agentName.equals(agentName, ignoreCase = true) }
-                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "No run found for $agentName"))
                     val relativePath = call.request.queryParameters["path"]
-                    call.respond(desktopService.listFiles(run.id, relativePath))
+                    if (run == null) {
+                        call.respond(emptyList<FileTreeNode>())
+                    } else {
+                        call.respond(desktopService.listFiles(run.id, relativePath))
+                    }
                 }
 
                 get("/{taskId}/ports/{agentName}") {
@@ -194,8 +257,11 @@ internal fun Application.cotorAppModule(
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "agentName is required"))
                     val run = desktopService.listRuns(taskId)
                         .firstOrNull { it.agentName.equals(agentName, ignoreCase = true) }
-                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "No run found for $agentName"))
-                    call.respond(desktopService.listPorts(run.id))
+                    if (run == null) {
+                        call.respond(emptyList<PortEntry>())
+                    } else {
+                        call.respond(desktopService.listPorts(run.id))
+                    }
                 }
             }
 
@@ -204,7 +270,9 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@get
                     val runId = call.request.queryParameters["runId"]
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
-                    call.respond(desktopService.getChanges(runId))
+                    respondDesktopRequest {
+                        desktopService.getChanges(runId)
+                    }
                 }
             }
 
@@ -214,7 +282,9 @@ internal fun Application.cotorAppModule(
                     val runId = call.request.queryParameters["runId"]
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
                     val relativePath = call.request.queryParameters["path"]
-                    call.respond(desktopService.listFiles(runId, relativePath))
+                    respondDesktopRequest {
+                        desktopService.listFiles(runId, relativePath)
+                    }
                 }
             }
 
@@ -223,7 +293,9 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@get
                     val runId = call.request.queryParameters["runId"]
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
-                    call.respond(desktopService.listPorts(runId))
+                    respondDesktopRequest {
+                        desktopService.listPorts(runId)
+                    }
                 }
             }
 
@@ -468,8 +540,36 @@ internal fun Application.cotorAppModule(
                             companyId = companyId,
                             name = request.name,
                             defaultBaseBranch = request.defaultBaseBranch,
-                            autonomyEnabled = request.autonomyEnabled
+                            autonomyEnabled = request.autonomyEnabled,
+                            backendKind = request.backendKind
                         )
+                    }
+                }
+
+                patch("/{companyId}/backend") {
+                    if (!requireToken(token)) return@patch
+                    val companyId = call.parameters["companyId"]
+                        ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    val request = call.receive<UpdateCompanyBackendRequest>()
+                    respondDesktopRequest {
+                        desktopService.updateCompanyBackend(
+                            companyId = companyId,
+                            backendKind = request.backendKind,
+                            baseUrl = request.baseUrl,
+                            authMode = request.authMode,
+                            token = request.token,
+                            timeoutSeconds = request.timeoutSeconds,
+                            useGlobalDefault = request.useGlobalDefault
+                        )
+                    }
+                }
+
+                delete("/{companyId}") {
+                    if (!requireToken(token)) return@delete
+                    val companyId = call.parameters["companyId"]
+                        ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    respondDesktopRequest {
+                        desktopService.deleteCompany(companyId)
                     }
                 }
 
@@ -492,6 +592,10 @@ internal fun Application.cotorAppModule(
                                 title = request.title,
                                 agentCli = request.agentCli,
                                 roleSummary = request.roleSummary,
+                                specialties = request.specialties,
+                                collaborationInstructions = request.collaborationInstructions,
+                                preferredCollaboratorIds = request.preferredCollaboratorIds,
+                                memoryNotes = request.memoryNotes,
                                 enabled = request.enabled
                             )
                         }
@@ -511,6 +615,10 @@ internal fun Application.cotorAppModule(
                                 title = request.title,
                                 agentCli = request.agentCli,
                                 roleSummary = request.roleSummary,
+                                specialties = request.specialties,
+                                collaborationInstructions = request.collaborationInstructions,
+                                preferredCollaboratorIds = request.preferredCollaboratorIds,
+                                memoryNotes = request.memoryNotes,
                                 enabled = request.enabled,
                                 displayOrder = request.displayOrder
                             )
@@ -550,6 +658,39 @@ internal fun Application.cotorAppModule(
                             )
                         }
                     }
+
+                    patch("/{goalId}") {
+                        if (!requireToken(token)) return@patch
+                        val companyId = call.parameters["companyId"]
+                            ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val goalId = call.parameters["goalId"]
+                            ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "goalId is required"))
+                        val goal = desktopService.listGoals().firstOrNull { it.id == goalId && it.companyId == companyId }
+                            ?: return@patch call.respond(HttpStatusCode.NotFound, mapOf("error" to "Goal not found: $goalId"))
+                        val request = call.receive<UpdateGoalRequest>()
+                        respondDesktopRequest {
+                            desktopService.updateGoal(
+                                goalId = goal.id,
+                                title = request.title,
+                                description = request.description,
+                                successMetrics = request.successMetrics,
+                                autonomyEnabled = request.autonomyEnabled
+                            )
+                        }
+                    }
+
+                    delete("/{goalId}") {
+                        if (!requireToken(token)) return@delete
+                        val companyId = call.parameters["companyId"]
+                            ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val goalId = call.parameters["goalId"]
+                            ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "goalId is required"))
+                        val goal = desktopService.listGoals().firstOrNull { it.id == goalId && it.companyId == companyId }
+                            ?: return@delete call.respond(HttpStatusCode.NotFound, mapOf("error" to "Goal not found: $goalId"))
+                        respondDesktopRequest {
+                            desktopService.deleteGoal(goal.id)
+                        }
+                    }
                 }
 
                 route("/{companyId}/issues") {
@@ -559,6 +700,30 @@ internal fun Application.cotorAppModule(
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
                         val goalId = call.request.queryParameters["goalId"]
                         call.respond(desktopService.listIssues(goalId, companyId))
+                    }
+
+                    get("/{issueId}") {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val issueId = call.parameters["issueId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                        val issue = desktopService.listIssues(companyId = companyId).firstOrNull { it.id == issueId }
+                            ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found: $issueId"))
+                        call.respond(issue)
+                    }
+
+                    delete("/{issueId}") {
+                        if (!requireToken(token)) return@delete
+                        val companyId = call.parameters["companyId"]
+                            ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val issueId = call.parameters["issueId"]
+                            ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                        val issue = desktopService.listIssues(companyId = companyId).firstOrNull { it.id == issueId }
+                            ?: return@delete call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found: $issueId"))
+                        respondDesktopRequest {
+                            desktopService.deleteIssue(issue.id)
+                        }
                     }
                 }
 
@@ -577,6 +742,39 @@ internal fun Application.cotorAppModule(
                         val companyId = call.parameters["companyId"]
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
                         call.respond(desktopService.listCompanyActivity(companyId))
+                    }
+                }
+
+                route("/{companyId}/events") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respondTextWriter(ContentType.parse("application/x-ndjson")) {
+                            desktopService.companyEvents(companyId).collect { envelope ->
+                                write(streamJson.encodeToString(CompanyEventEnvelope.serializer(), envelope))
+                                write("\n")
+                                flush()
+                            }
+                        }
+                    }
+                }
+
+                route("/{companyId}/topology") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.companyDashboard(companyId).workflowTopologies)
+                    }
+                }
+
+                route("/{companyId}/decisions") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.companyDashboard(companyId).goalDecisions)
                     }
                 }
 
