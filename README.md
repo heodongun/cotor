@@ -62,6 +62,8 @@ cotor run <pipeline> -c <config> --output-format text
 cotor app-server --port 8787
 ```
 
+The `./shell/cotor` wrapper auto-builds the shaded CLI JAR when it is missing.
+
 ## macOS Desktop
 
 Build and install the local app bundle:
