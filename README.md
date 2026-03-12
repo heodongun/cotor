@@ -48,6 +48,7 @@ cd cotor
 ./gradlew shadowJar
 chmod +x shell/cotor
 ./shell/cotor version
+./shell/cotor --short
 ```
 
 Common first commands:
