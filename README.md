@@ -52,6 +52,8 @@ chmod +x shell/cotor
 
 Common first commands:
 
+The final `./shell/cotor version` call is the quickest smoke test for the local CLI wrapper.
+
 ```bash
 cotor
 cotor --short
