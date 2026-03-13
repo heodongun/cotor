@@ -250,9 +250,15 @@ class GitWorkspaceService(
                 )
             }
 
-            if (!hasOriginRemote(worktreePath)) {
+            val hasRemote = if (hasOriginRemote(worktreePath)) {
+                true
+            } else {
+                ensureGitHubOrigin(worktreePath, baseBranch)
+            }
+            if (!hasRemote) {
                 return PublishMetadata(
-                    commitSha = commitSha
+                    commitSha = commitSha,
+                    error = "No GitHub remote configured; kept local commit only"
                 )
             }
 
@@ -290,6 +296,68 @@ class GitWorkspaceService(
             return false
         }
         return result.stdout.trim().isNotBlank()
+    }
+
+    private suspend fun ensureGitHubOrigin(worktreePath: Path, baseBranch: String): Boolean {
+        val authReady = runCommand(
+            worktreePath,
+            listOf("gh", "auth", "status"),
+            failOnError = false
+        ).isSuccess
+        if (!authReady) {
+            return false
+        }
+
+        val repositoryRoot = repositoryCommonRoot(worktreePath)
+        val repoName = chooseGitHubRepositoryName(worktreePath, repositoryRoot)
+        val createResult = runCommand(
+            worktreePath,
+            listOf("gh", "repo", "create", repoName, "--private", "--source", ".", "--remote", "origin"),
+            failOnError = false
+        )
+        if (!createResult.isSuccess && !hasOriginRemote(worktreePath)) {
+            return false
+        }
+
+        runGit(
+            worktreePath,
+            "push",
+            "--set-upstream",
+            "origin",
+            "refs/heads/$baseBranch:refs/heads/$baseBranch",
+            failOnError = false
+        )
+        return hasOriginRemote(worktreePath)
+    }
+
+    private suspend fun repositoryCommonRoot(worktreePath: Path): Path {
+        val commonDirRaw = gitOutput(worktreePath, "rev-parse", "--git-common-dir").trim()
+        val commonDir = Path.of(commonDirRaw).let {
+            if (it.isAbsolute) it else worktreePath.resolve(it).normalize()
+        }
+        return commonDir.parent?.toAbsolutePath()?.normalize()
+            ?: worktreePath.toAbsolutePath().normalize()
+    }
+
+    private suspend fun chooseGitHubRepositoryName(worktreePath: Path, repositoryRoot: Path): String {
+        val baseName = slugify(repositoryRoot.fileName?.toString().orEmpty()).ifBlank { "cotor-company" }
+        val attempts = buildList {
+            add(baseName)
+            add("$baseName-${System.currentTimeMillis().toString().takeLast(6)}")
+            add("$baseName-${worktreePath.fileName?.toString().orEmpty().take(8)}")
+        }.distinct()
+
+        attempts.forEach { candidate ->
+            val probe = runCommand(
+                worktreePath,
+                listOf("gh", "repo", "view", candidate, "--json", "name"),
+                failOnError = false
+            )
+            if (!probe.isSuccess) {
+                return candidate
+            }
+        }
+        return attempts.last()
     }
 
     /**

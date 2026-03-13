@@ -222,6 +222,45 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("issue runs route returns all runs linked to an issue when authorized") {
+        coEvery { desktopService.listIssueRuns("issue-1") } returns listOf(
+            AgentRun(
+                id = "run-1",
+                taskId = "task-1",
+                workspaceId = "workspace-1",
+                repositoryId = "repo-1",
+                agentId = "agent-1",
+                agentName = "codex",
+                repoRoot = "/tmp/repo",
+                baseBranch = "master",
+                branchName = "codex/task-1",
+                worktreePath = "/tmp/repo/.cotor/worktrees/task-1",
+                status = AgentRunStatus.COMPLETED,
+                output = "reviewed implementation successfully",
+                createdAt = 1L,
+                updatedAt = 2L
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/issues/issue-1/runs") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"id\":\"run-1\""
+            response.bodyAsText() shouldContain "reviewed implementation successfully"
+        }
+    }
+
     test("backend settings and company topology routes respond when authorized") {
         coEvery { desktopService.backendStatuses() } returns listOf(
             ExecutionBackendStatus(
