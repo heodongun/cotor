@@ -9,6 +9,7 @@ Cotor is a local-first AI workflow runner that grew into a company-style AI oper
 - Local web editor with YAML export and run support
 - macOS desktop shell backed by `cotor app-server`
 - Multi-company operations layer with companies, agent definitions, goals, issues, review queue, activity feed, and runtime start/stop/status
+- Per-agent git branch and worktree isolation for delegated execution
 
 ## Current Command Surface
 
