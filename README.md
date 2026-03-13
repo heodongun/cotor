@@ -55,6 +55,8 @@ Minimal smoke check: run `./shell/cotor version` after the build completes to ve
 
 Common first commands:
 
+The final `./shell/cotor version` call is the quickest smoke test for the local CLI wrapper.
+
 ```bash
 cotor --help
 cotor
