@@ -71,6 +71,8 @@ private enum CompanySidebarSurface: CaseIterable, Identifiable {
 
 @main
 struct CotorDesktopApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+    @NSApplicationDelegateAdaptor(DesktopAppLifecycleDelegate.self) private var appDelegate
     @StateObject private var store = DesktopStore()
 
     var body: some Scene {
@@ -83,6 +85,12 @@ struct CotorDesktopApp: App {
                     await store.bootstrap()
                 }
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            Task {
+                await store.bootstrap()
+            }
+        }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1480, height: 920)
         .commands {
@@ -93,6 +101,20 @@ struct CotorDesktopApp: App {
             SettingsView()
                 .environmentObject(store)
                 .frame(width: 720, height: 560)
+        }
+    }
+}
+
+final class DesktopAppLifecycleDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task {
+            await EmbeddedBackendLauncher.shared.ensureRunning()
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        Task {
+            await EmbeddedBackendLauncher.shared.ensureRunning()
         }
     }
 }
@@ -128,12 +150,17 @@ struct ContentView: View {
             CloneRepositorySheet()
         }
         .alert(l.text(.requestFailed), isPresented: Binding(
-            get: { store.errorMessage != nil },
-            set: { if !$0 { store.errorMessage = nil } }
+            get: { store.actionErrorMessage != nil },
+            set: {
+                if !$0 {
+                    store.actionErrorMessage = nil
+                    store.errorMessage = nil
+                }
+            }
         )) {
             Button(l.text(.close), role: .cancel) {}
         } message: {
-            Text(store.errorMessage ?? "")
+            Text(store.actionErrorMessage ?? "")
         }
         .animation(ShellMotion.spring, value: store.selectedGoalID)
         .animation(ShellMotion.spring, value: store.selectedIssueID)
@@ -716,6 +743,61 @@ private struct SidebarView: View {
                     Text("Codex App Server").tag("CODEX_APP_SERVER")
                 }
                 .pickerStyle(.menu)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle(isOn: $store.companyLinearSyncEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(l("Optional: share progress to Linear", "선택 사항: 진행 상황을 Linear에 공유"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(ShellPalette.text)
+                            Text(l("Turn this on only if you want Cotor issues and updates to appear in Linear too.", "원할 때만 켜서 Cotor 이슈와 업데이트를 Linear에도 보이게 합니다."))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(ShellPalette.muted)
+                        }
+                    }
+                    .toggleStyle(.switch)
+
+                    TextField(l("Linear endpoint", "Linear 엔드포인트"), text: $store.companyLinearEndpoint)
+                        .textFieldStyle(.roundedBorder)
+
+                    HStack(spacing: 8) {
+                        TextField(l("Team ID", "팀 ID"), text: $store.companyLinearTeamID)
+                            .textFieldStyle(.roundedBorder)
+                        TextField(l("Project ID", "프로젝트 ID"), text: $store.companyLinearProjectID)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            Task { await store.saveSelectedCompanyLinearSettings() }
+                        } label: {
+                            Label(l("Save Linear", "Linear 저장"), systemImage: "arrow.triangle.branch")
+                                .frame(maxWidth: .infinity)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+
+                        Button {
+                            Task { await store.resyncSelectedCompanyLinear() }
+                        } label: {
+                            Label(l("Resync", "다시 동기화"), systemImage: "arrow.clockwise")
+                                .frame(maxWidth: .infinity)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                        .disabled(!(store.selectedCompany?.linearSyncEnabled ?? false) && !store.companyLinearSyncEnabled)
+                    }
+
+                    if let message = store.companyLinearStatusMessage, !message.isEmpty {
+                        Text(message)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(ShellPalette.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(12)
+                .background(ShellPalette.panelAlt)
+                .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
             }
 
             VStack(spacing: 8) {
@@ -829,7 +911,7 @@ private struct SidebarView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(store.newGoalTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.newGoalDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(store.newGoalTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 if store.editingGoalID != nil {
                     Button {
@@ -905,7 +987,7 @@ private struct SidebarView: View {
                 Picker(l("AI CLI", "AI CLI"), selection: Binding(
                     get: {
                         if store.newCompanyAgentCli.isEmpty {
-                            return store.availableCliAgents.first ?? ""
+                            return store.preferredCliAgent
                         }
                         return store.newCompanyAgentCli
                     },
@@ -1506,6 +1588,9 @@ private struct IssueSummaryRow: View {
                     if let assignee {
                         StatusSummaryPill(text: assignee.roleName, tint: ShellPalette.accent)
                     }
+                    if let linearIdentifier = issue.linearIssueIdentifier, !linearIdentifier.isEmpty {
+                        StatusSummaryPill(text: linearIdentifier, tint: ShellPalette.accentWarm)
+                    }
                 }
             }
         }
@@ -1516,6 +1601,20 @@ private struct IssueSummaryRow: View {
                 .stroke(ShellPalette.line, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+    }
+}
+
+private func valueLine(label: String, value: String) -> some View {
+    HStack(alignment: .top, spacing: 8) {
+        Text(label)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(ShellPalette.muted)
+        Spacer(minLength: 8)
+        Text(value)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(ShellPalette.text)
+            .multilineTextAlignment(.trailing)
+            .textSelection(.enabled)
     }
 }
 
@@ -2142,6 +2241,16 @@ private struct CenterPaneView: View {
                 subtitle: l("Use this page as the summary room for what the company is doing right now.", "회사가 지금 무엇을 하고 있는지 보는 요약방입니다.")
             )
             operationsBanner
+            if store.companyStreamStatusMessage != nil || store.backendStatusMessage != nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let stream = store.companyStreamStatusMessage, !stream.isEmpty {
+                        StatusSummaryPill(text: stream, tint: ShellPalette.warning)
+                    }
+                    if let backend = store.backendStatusMessage, !backend.isEmpty {
+                        StatusSummaryPill(text: backend, tint: ShellPalette.warning)
+                    }
+                }
+            }
 
             if layoutMode == .wide {
                 HStack(alignment: .top, spacing: 12) {
@@ -2167,6 +2276,7 @@ private struct CenterPaneView: View {
                 }
             }
 
+            companyLinearPanel
             companyActivityFeed
         }
     }
@@ -2225,11 +2335,86 @@ private struct CenterPaneView: View {
                 title: l("Issues", "이슈"),
                 subtitle: l("Select an issue to see its status, linked task, and latest execution log.", "이슈를 선택하면 상태, 연결된 task, 최근 실행 로그를 볼 수 있습니다.")
             )
+            issueComposerPanel
             surfaceSwitcher
             issueSurface
             selectedIssueDetailPanel
             detailDrawer
         }
+    }
+
+    private var issueComposerPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(l("Create Issue", "이슈 만들기"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ShellPalette.text)
+                Spacer()
+                if let company = store.issueComposerCompany {
+                    StatusSummaryPill(text: company.name, tint: ShellPalette.accent)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Picker(l("Company", "회사"), selection: Binding(
+                    get: { store.newIssueCompanyID ?? store.selectedCompanyID ?? store.companies.first?.id ?? "" },
+                    set: {
+                        store.newIssueCompanyID = $0
+                        if !store.issueComposerGoals.contains(where: { $0.id == store.newIssueGoalID }) {
+                            store.newIssueGoalID = store.issueComposerGoals.first?.id
+                        }
+                    }
+                )) {
+                    ForEach(store.companies) { company in
+                        Text(company.name).tag(company.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 170)
+
+                Picker(l("Goal", "목표"), selection: Binding(
+                    get: { store.newIssueGoalID ?? store.issueComposerGoals.first?.id ?? "" },
+                    set: { store.newIssueGoalID = $0 }
+                )) {
+                    ForEach(store.issueComposerGoals) { goal in
+                        Text(goal.title).tag(goal.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(store.issueComposerGoals.isEmpty)
+            }
+
+            TextField(l("Issue title", "이슈 제목"), text: $store.newIssueTitle)
+                .textFieldStyle(.roundedBorder)
+
+            TextEditor(text: $store.newIssueDescription)
+                .font(.system(size: 12, weight: .medium))
+                .frame(minHeight: 88)
+                .padding(10)
+                .scrollContentBackground(.hidden)
+                .background(ShellPalette.panelAlt)
+                .overlay(
+                    RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                        .stroke(ShellPalette.line, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+
+            Button {
+                Task { await store.createIssue() }
+            } label: {
+                Label(l("Create Issue", "이슈 만들기"), systemImage: "plus.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(
+                store.issueComposerCompany == nil ||
+                store.issueComposerGoals.isEmpty ||
+                store.newIssueTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                store.newIssueDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            )
+        }
+        .padding(14)
+        .shellInset()
     }
 
     private var goalNodeGrid: some View {
@@ -2472,6 +2657,40 @@ private struct CenterPaneView: View {
         .shellInset()
     }
 
+    private var companyLinearPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(l("Linear Mirror", "Linear 미러"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ShellPalette.text)
+                Spacer()
+                StatusSummaryPill(
+                    text: (store.selectedCompany?.linearSyncEnabled ?? false) ? l("Enabled", "사용 중") : l("Optional", "선택 사항"),
+                    tint: (store.selectedCompany?.linearSyncEnabled ?? false) ? ShellPalette.success : ShellPalette.warning
+                )
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                valueLine(label: l("Endpoint", "엔드포인트"), value: store.companyLinearEndpoint.isEmpty ? "https://api.linear.app/graphql" : store.companyLinearEndpoint)
+                valueLine(label: l("Team", "팀"), value: store.companyLinearTeamID.isEmpty ? l("Not set", "미설정") : store.companyLinearTeamID)
+                valueLine(label: l("Project", "프로젝트"), value: store.companyLinearProjectID.isEmpty ? l("Not set", "미설정") : store.companyLinearProjectID)
+
+                if let message = store.companyLinearStatusMessage, !message.isEmpty {
+                    Text(message)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(l("If you enable it, Linear sync events and failures will appear here.", "켜 두면 Linear 동기화 이벤트와 실패가 여기에 표시됩니다."))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+                }
+            }
+        }
+        .padding(14)
+        .shellInset()
+    }
+
     private var organizationChartPanel: some View {
         let leader = store.orgProfiles.first(where: { $0.mergeAuthority }) ?? store.orgProfiles.first
         let others = store.orgProfiles.filter { $0.id != leader?.id }
@@ -2567,6 +2786,9 @@ private struct CenterPaneView: View {
                         if let assignee = store.selectedIssueAssignee {
                             StatusSummaryPill(text: assignee.roleName, tint: ShellPalette.accent)
                         }
+                        if let linearIdentifier = issue.linearIssueIdentifier, !linearIdentifier.isEmpty {
+                            StatusSummaryPill(text: linearIdentifier, tint: ShellPalette.accentWarm)
+                        }
                         if let task = selectedIssueTask {
                             StatusSummaryPill(text: l.status(task.status), tint: statusTint(for: task.status))
                         }
@@ -2583,6 +2805,27 @@ private struct CenterPaneView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                    }
+
+                    if issue.linearIssueId != nil {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(l("Linear", "Linear"))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(ShellPalette.text)
+                            if let linearIdentifier = issue.linearIssueIdentifier, !linearIdentifier.isEmpty {
+                                valueLine(label: l("Issue", "이슈"), value: linearIdentifier)
+                            }
+                            if let linearIssueUrl = issue.linearIssueUrl, let url = URL(string: linearIssueUrl) {
+                                Link(destination: url) {
+                                    Label(l("Open in Linear", "Linear에서 열기"), systemImage: "arrow.up.right.square")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .foregroundStyle(ShellPalette.accent)
+                            }
+                            if let lastSyncAt = issue.lastLinearSyncAt {
+                                valueLine(label: l("Last sync", "마지막 동기화"), value: relativeTimestamp(lastSyncAt))
+                            }
+                        }
                     }
 
                     if !issue.acceptanceCriteria.isEmpty {

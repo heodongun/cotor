@@ -70,21 +70,41 @@ final class DesktopStore: ObservableObject {
     @Published var newGoalTitle = ""
     @Published var newGoalDescription = ""
     @Published var editingGoalID: String?
+    @Published var newIssueCompanyID: String?
+    @Published var newIssueGoalID: String?
+    @Published var newIssueTitle = ""
+    @Published var newIssueDescription = ""
     @Published var defaultBackendKind = "LOCAL_COTOR"
+    @Published var codexLaunchMode = "MANAGED"
+    @Published var codexCommand = "codex"
+    @Published var codexArgs = "app-server --host 127.0.0.1 --port {port}"
+    @Published var codexWorkingDirectory = ""
+    @Published var codexPort = ""
+    @Published var codexStartupTimeoutSeconds = "15"
     @Published var codexAppServerBaseURL = ""
     @Published var codexBackendStatus: ExecutionBackendStatusPayload?
+    @Published var companyLinearSyncEnabled = false
+    @Published var companyLinearEndpoint = ""
+    @Published var companyLinearTeamID = ""
+    @Published var companyLinearProjectID = ""
+    @Published var companyLinearStatusMessage: String?
     @Published var newTaskTitle = ""
     @Published var newTaskPrompt = ""
     @Published var agentSelection: Set<String> = ["claude", "codex"]
     @Published var workflowLeadAgent: String
     @Published var showingOpenSheet = false
     @Published var showingCloneSheet = false
+    @Published var actionErrorMessage: String?
+    @Published var companyStreamStatusMessage: String?
+    @Published var backendStatusMessage: String?
     @Published var errorMessage: String?
 
     let api = DesktopAPI()
     private var statusState: StatusState = .connecting
     private var tuiPollingTask: Task<Void, Never>?
     private var companyEventTask: Task<Void, Never>?
+    private var companyPollingTask: Task<Void, Never>?
+    private var backendWatchdogTask: Task<Void, Never>?
     private var polledTuiSessionID: String?
     private var didInitializeShellMode = false
 
@@ -99,6 +119,8 @@ final class DesktopStore: ObservableObject {
     deinit {
         tuiPollingTask?.cancel()
         companyEventTask?.cancel()
+        companyPollingTask?.cancel()
+        backendWatchdogTask?.cancel()
     }
 
     /// Header status copy is generated from the current state and active language.
@@ -130,7 +152,12 @@ final class DesktopStore: ObservableObject {
     }
 
     var availableCliAgents: [String] {
-        dashboard.settings.availableAgents.sorted()
+        let cliAgents = dashboard.settings.availableCliAgents.sorted()
+        return cliAgents.isEmpty ? dashboard.settings.availableAgents.sorted() : cliAgents
+    }
+
+    var preferredCliAgent: String {
+        preferredAgent(from: availableCliAgents) ?? preferredAgent(from: dashboard.settings.availableAgents) ?? ""
     }
 
     var availableCompanyAgentCollaborators: [CompanyAgentDefinitionRecord] {
@@ -237,6 +264,21 @@ final class DesktopStore: ObservableObject {
 
     var selectedIssue: IssueRecord? {
         dashboard.issues.first { $0.id == selectedIssueID }
+    }
+
+    var issueComposerCompany: CompanyRecord? {
+        if let newIssueCompanyID,
+           let explicit = companies.first(where: { $0.id == newIssueCompanyID }) {
+            return explicit
+        }
+        return selectedCompany
+    }
+
+    var issueComposerGoals: [GoalRecord] {
+        let companyID = issueComposerCompany?.id
+        return dashboard.goals
+            .filter { companyID == nil || $0.companyId == companyID }
+            .sorted { $0.updatedAt > $1.updatedAt }
     }
 
     var selectedReviewQueueItem: ReviewQueueItemRecord? {
@@ -347,6 +389,9 @@ final class DesktopStore: ObservableObject {
 
     /// Entry point invoked by the app scene once the window becomes active.
     func bootstrap() async {
+        startCompanyStatePolling()
+        startEmbeddedBackendWatchdog()
+        await EmbeddedBackendLauncher.shared.ensureRunning()
         // Installed app bundles launch the backend lazily, so the first request can
         // arrive before `cotor app-server` has finished binding its localhost port.
         for attempt in 0 ..< 4 {
@@ -357,18 +402,21 @@ final class DesktopStore: ObservableObject {
             if attempt < 3 {
                 statusState = .waitingForServer
                 objectWillChange.send()
+                await EmbeddedBackendLauncher.shared.ensureRunning()
                 try? await Task.sleep(for: .seconds(1))
             }
         }
     }
 
     /// Reload the top-level dashboard payload and preserve/repair selection state.
-    func refreshDashboard() async {
+    func refreshDashboard(restartEventStream: Bool = true) async {
         isBusy = true
         defer { isBusy = false }
 
         do {
-            let fresh = try await api.dashboard()
+            let fresh = try await runWithEmbeddedBackendRecovery {
+                try await api.dashboard()
+            }
             dashboard = fresh
             errorMessage = nil
             isOffline = false
@@ -379,14 +427,32 @@ final class DesktopStore: ObservableObject {
             }
             reconcileWorkflowLeadAgent()
             reconcileSelection()
+            syncIssueComposerState()
             syncBackendFormState()
             await refreshAvailableBranches()
             await refreshTaskDetails()
             await ensureTuiSession()
-            await restartCompanyEventStream()
+            if restartEventStream {
+                await restartCompanyEventStream()
+            }
+        } catch is CancellationError {
+            // Dashboard refresh is also used from the live company event stream.
+            // When that stream is restarted we can cancel an in-flight refresh as
+            // part of normal control flow, which should not be treated as a
+            // backend disconnect or a failed goal creation request.
+            return
         } catch {
+            let backendStillHealthy = (try? await api.health()) == true
+            if backendStillHealthy {
+                AppLogger.error("Dashboard refresh failed while backend remained healthy: \(error.localizedDescription)")
+                isOffline = false
+                statusState = .connected(api.baseURL.absoluteString)
+                errorMessage = error.localizedDescription
+                return
+            }
             isOffline = true
             statusState = .offlineMock
+            AppLogger.error("Dashboard refresh marked app offline: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
             runs = []
             changes = emptyChangeSummary()
@@ -395,6 +461,7 @@ final class DesktopStore: ObservableObject {
             browserURL = nil
             reconcileWorkflowLeadAgent()
             reconcileSelection()
+            syncIssueComposerState()
             selectedAgentName = selectedTask?.agents.first
             await refreshAvailableBranches()
             stopTuiPolling()
@@ -454,11 +521,26 @@ final class DesktopStore: ObservableObject {
         pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? "master"
     }
 
+    private func syncIssueComposerState() {
+        if issueComposerCompany == nil {
+            newIssueCompanyID = selectedCompanyID ?? companies.first?.id
+        }
+        let validCompanyID = issueComposerCompany?.id
+        if let currentGoalID = newIssueGoalID,
+           !dashboard.goals.contains(where: { $0.id == currentGoalID && $0.companyId == validCompanyID }) {
+            newIssueGoalID = nil
+        }
+        if newIssueGoalID == nil {
+            newIssueGoalID = issueComposerGoals.first?.id ?? selectedGoalID
+        }
+    }
+
     /// Repair the workflow lead and selected agent roster after bootstrap or
     /// dashboard refresh. This keeps the authoring UI stable even when the
     /// backend roster changes after a live dashboard refresh.
     private func reconcileWorkflowLeadAgent() {
         let availableAgents = dashboard.settings.availableAgents
+        let cliAgents = availableCliAgents
 
         if availableAgents.isEmpty {
             workflowLeadAgent = ""
@@ -468,11 +550,11 @@ final class DesktopStore: ObservableObject {
         }
 
         if workflowLeadAgent.isEmpty || !availableAgents.contains(workflowLeadAgent) {
-            workflowLeadAgent = availableAgents.first ?? ""
+            workflowLeadAgent = preferredAgent(from: availableAgents) ?? ""
         }
 
-        if newCompanyAgentCli.isEmpty || !availableAgents.contains(newCompanyAgentCli) {
-            newCompanyAgentCli = availableAgents.first ?? ""
+        if newCompanyAgentCli.isEmpty || !cliAgents.contains(newCompanyAgentCli) {
+            newCompanyAgentCli = preferredAgent(from: cliAgents) ?? preferredAgent(from: availableAgents) ?? ""
         }
 
         let validSelection = Set(agentSelection.filter { availableAgents.contains($0) })
@@ -480,12 +562,94 @@ final class DesktopStore: ObservableObject {
         agentSelection.insert(workflowLeadAgent)
     }
 
+    private func preferredAgent(from agents: [String]) -> String? {
+        let normalized = agents.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if let codex = normalized.first(where: { $0.caseInsensitiveCompare("codex") == .orderedSame }) {
+            return codex
+        }
+        return normalized.first
+    }
+
     private func syncBackendFormState() {
         defaultBackendKind = dashboard.settings.backendSettings.defaultBackendKind
-        codexAppServerBaseURL = dashboard.settings.backendSettings.backends
-            .first(where: { $0.kind == "CODEX_APP_SERVER" })?
-            .baseUrl ?? ""
+        if let config = dashboard.settings.backendSettings.backends.first(where: { $0.kind == "CODEX_APP_SERVER" }) {
+            codexLaunchMode = config.launchMode
+            codexCommand = config.command
+            codexArgs = config.args.joined(separator: " ")
+            codexWorkingDirectory = config.workingDirectory ?? ""
+            codexPort = config.port.map(String.init) ?? ""
+            codexStartupTimeoutSeconds = String(config.startupTimeoutSeconds)
+            codexAppServerBaseURL = config.baseUrl ?? ""
+        } else {
+            codexLaunchMode = "MANAGED"
+            codexCommand = "codex"
+            codexArgs = "app-server --host 127.0.0.1 --port {port}"
+            codexWorkingDirectory = ""
+            codexPort = ""
+            codexStartupTimeoutSeconds = "15"
+            codexAppServerBaseURL = ""
+        }
         codexBackendStatus = dashboard.backendStatuses.first(where: { $0.kind == "CODEX_APP_SERVER" })
+        syncSelectedCompanyLinearFormState()
+    }
+
+    private func syncSelectedCompanyLinearFormState() {
+        guard let company = selectedCompany else {
+            companyLinearSyncEnabled = false
+            companyLinearEndpoint = dashboard.settings.linearSettings?.defaultConfig.endpoint ?? ""
+            companyLinearTeamID = ""
+            companyLinearProjectID = ""
+            companyLinearStatusMessage = nil
+            return
+        }
+
+        let config = company.linearConfigOverride ?? dashboard.settings.linearSettings?.defaultConfig
+        companyLinearSyncEnabled = company.linearSyncEnabled ?? false
+        companyLinearEndpoint = config?.endpoint ?? ""
+        companyLinearTeamID = config?.teamId ?? ""
+        companyLinearProjectID = config?.projectId ?? ""
+        companyLinearStatusMessage = latestCompanyLinearActivityMessage(companyId: company.id)
+    }
+
+    private func latestCompanyLinearActivityMessage(companyId: String) -> String? {
+        activity
+            .first(where: { $0.companyId == companyId && ($0.source == "linear-sync" || $0.source == "linear") })
+            .flatMap { item in
+                [item.title, item.detail].compactMap { value in
+                    guard let value, !value.isEmpty else { return nil }
+                    return value
+                }.joined(separator: " · ")
+            }
+    }
+
+    func saveSelectedCompanyLinearSettings() async {
+        guard let company = selectedCompany else { return }
+        do {
+            _ = try await api.updateCompanyLinear(
+                companyId: company.id,
+                enabled: companyLinearSyncEnabled,
+                endpoint: trimmedOptional(companyLinearEndpoint),
+                apiToken: nil,
+                teamId: trimmedOptional(companyLinearTeamID),
+                projectId: trimmedOptional(companyLinearProjectID),
+                useGlobalDefault: false
+            )
+            await refreshDashboard()
+            companyLinearStatusMessage = language("Saved company Linear mirror settings.", "회사 Linear 미러 설정을 저장했습니다.")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func resyncSelectedCompanyLinear() async {
+        guard let company = selectedCompany else { return }
+        do {
+            let result = try await api.resyncCompanyLinear(companyId: company.id)
+            companyLinearStatusMessage = result.message
+            await refreshDashboard()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     /// Refresh the right-hand inspector panels for the currently selected task and agent.
@@ -628,29 +792,104 @@ final class DesktopStore: ObservableObject {
         guard let company = selectedCompany else { return }
         let title = newGoalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let description = newGoalDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, !description.isEmpty else { return }
+        let effectiveDescription = description.isEmpty ? title : description
+        guard !title.isEmpty else { return }
 
         do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            AppLogger.info("Saving goal '\(title)' for company \(company.id).")
             let saved: GoalRecord
             if let goalID = editingGoalID {
-                saved = try await api.updateGoal(
+                saved = try await runWithEmbeddedBackendRecovery {
+                    try await api.updateGoal(
+                        companyId: company.id,
+                        goalId: goalID,
+                        title: title,
+                        description: effectiveDescription
+                    )
+                }
+            } else {
+                saved = try await runWithEmbeddedBackendRecovery {
+                    try await api.createGoal(companyId: company.id, title: title, description: effectiveDescription)
+                }
+            }
+            resetGoalComposer()
+            selectedGoalID = saved.id
+            selectedCompanyID = company.id
+            AppLogger.info("Saved goal '\(saved.title)' (\(saved.id)) for company \(company.id).")
+            await performNonCriticalGoalRefresh(saved, companyID: company.id)
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+        } catch {
+            AppLogger.error("Save goal failed for company \(company.id): \(error.localizedDescription)")
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func createIssue() async {
+        guard let company = issueComposerCompany else { return }
+        let title = newIssueTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = newIssueDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !description.isEmpty, let goalID = newIssueGoalID else { return }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            AppLogger.info("Creating issue '\(title)' for company \(company.id), goal \(goalID).")
+            let saved = try await runWithEmbeddedBackendRecovery {
+                try await api.createIssue(
                     companyId: company.id,
                     goalId: goalID,
                     title: title,
                     description: description
                 )
-            } else {
-                saved = try await api.createGoal(companyId: company.id, title: title, description: description)
             }
-            resetGoalComposer()
-            await refreshDashboard()
-            selectedGoalID = saved.id
-            selectedIssueID = issues.first?.id
-            await refreshTaskDetails()
-            await ensureTuiSession()
+            selectedCompanyID = saved.companyId
+            selectedGoalID = saved.goalId
+            selectedIssueID = saved.id
+            resetIssueComposer()
+            AppLogger.info("Created issue '\(saved.title)' (\(saved.id)) for company \(saved.companyId).")
+            await performNonCriticalIssueRefresh(saved)
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
         } catch {
+            AppLogger.error("Create issue failed for company \(company.id): \(error.localizedDescription)")
+            actionErrorMessage = error.localizedDescription
             errorMessage = error.localizedDescription
         }
+    }
+
+
+    private func performNonCriticalCompanyRefresh(selecting company: CompanyRecord) async {
+        await refreshDashboard()
+        selectedCompanyID = company.id
+        if let repository = repositories.first(where: { $0.id == company.repositoryId }) {
+            await selectRepository(repository)
+        }
+    }
+
+    private func performNonCriticalGoalRefresh(_ goal: GoalRecord, companyID: String) async {
+        await refreshDashboard()
+        selectedCompanyID = companyID
+        selectedGoalID = goal.id
+        selectedIssueID = dashboard.issues
+            .filter { $0.goalId == goal.id }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .first?.id
+        await refreshTaskDetails()
+        await ensureTuiSession()
+    }
+
+    private func performNonCriticalIssueRefresh(_ issue: IssueRecord) async {
+        await refreshDashboard()
+        selectedCompanyID = issue.companyId
+        selectedGoalID = issue.goalId
+        selectedIssueID = issue.id
+        await refreshTaskDetails()
     }
 
     func beginEditingGoal(_ goal: GoalRecord) {
@@ -685,15 +924,23 @@ final class DesktopStore: ObservableObject {
         let rootPath = newCompanyRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !rootPath.isEmpty else { return }
         do {
-            let company = try await api.createCompany(name: name, rootPath: rootPath, defaultBaseBranch: pendingWorkspaceBaseBranch)
+            actionErrorMessage = nil
+            errorMessage = nil
+            AppLogger.info("Creating company '\(name)' with rootPath '\(rootPath)'.")
+            let company = try await runWithEmbeddedBackendRecovery {
+                try await api.createCompany(name: name, rootPath: rootPath, defaultBaseBranch: pendingWorkspaceBaseBranch)
+            }
             newCompanyName = ""
             newCompanyRootPath = ""
-            await refreshDashboard()
             selectedCompanyID = company.id
-            if let repository = repositories.first(where: { $0.id == company.repositoryId }) {
-                await selectRepository(repository)
-            }
+            AppLogger.info("Created company '\(company.name)' (\(company.id)).")
+            await performNonCriticalCompanyRefresh(selecting: company)
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
         } catch {
+            actionErrorMessage = error.localizedDescription
+            AppLogger.error("Create company failed for '\(name)': \(error.localizedDescription)")
             errorMessage = error.localizedDescription
         }
     }
@@ -737,36 +984,43 @@ final class DesktopStore: ObservableObject {
         let preferredCollaboratorIds = Array(newCompanyAgentPreferredCollaboratorIDs).sorted()
         guard !title.isEmpty, !cli.isEmpty, !role.isEmpty else { return }
         do {
+            actionErrorMessage = nil
+            errorMessage = nil
             if let agentId = editingCompanyAgentID,
                companyAgentDefinitions.contains(where: { $0.id == agentId && $0.companyId == targetCompanyID }) {
-                _ = try await api.updateCompanyAgent(
-                    companyId: targetCompanyID,
-                    agentId: agentId,
-                    title: title,
-                    agentCli: cli,
-                    roleSummary: role,
-                    specialties: specialties,
-                    collaborationInstructions: collaborationNotes,
-                    preferredCollaboratorIds: preferredCollaboratorIds,
-                    memoryNotes: memoryNotes,
-                    enabled: newCompanyAgentEnabled
-                )
+                _ = try await runWithEmbeddedBackendRecovery {
+                    try await api.updateCompanyAgent(
+                        companyId: targetCompanyID,
+                        agentId: agentId,
+                        title: title,
+                        agentCli: cli,
+                        roleSummary: role,
+                        specialties: specialties,
+                        collaborationInstructions: collaborationNotes,
+                        preferredCollaboratorIds: preferredCollaboratorIds,
+                        memoryNotes: memoryNotes,
+                        enabled: newCompanyAgentEnabled
+                    )
+                }
             } else {
-                _ = try await api.createCompanyAgent(
-                    companyId: targetCompanyID,
-                    title: title,
-                    agentCli: cli,
-                    roleSummary: role,
-                    specialties: specialties,
-                    collaborationInstructions: collaborationNotes,
-                    preferredCollaboratorIds: preferredCollaboratorIds,
-                    memoryNotes: memoryNotes,
-                    enabled: newCompanyAgentEnabled
-                )
+                _ = try await runWithEmbeddedBackendRecovery {
+                    try await api.createCompanyAgent(
+                        companyId: targetCompanyID,
+                        title: title,
+                        agentCli: cli,
+                        roleSummary: role,
+                        specialties: specialties,
+                        collaborationInstructions: collaborationNotes,
+                        preferredCollaboratorIds: preferredCollaboratorIds,
+                        memoryNotes: memoryNotes,
+                        enabled: newCompanyAgentEnabled
+                    )
+                }
             }
             resetCompanyAgentComposer()
             await refreshDashboard()
         } catch {
+            actionErrorMessage = error.localizedDescription
             errorMessage = error.localizedDescription
         }
     }
@@ -893,7 +1147,7 @@ final class DesktopStore: ObservableObject {
         editingCompanyAgentID = nil
         editingCompanyAgentCompanyID = nil
         newCompanyAgentTitle = ""
-        newCompanyAgentCli = ""
+        newCompanyAgentCli = preferredCliAgent
         newCompanyAgentRole = ""
         newCompanyAgentSpecialties = ""
         newCompanyAgentCollaborationNotes = ""
@@ -914,10 +1168,63 @@ final class DesktopStore: ObservableObject {
         return value.isEmpty ? nil : value
     }
 
+    private func runWithEmbeddedBackendRecovery<T>(_ action: () async throws -> T) async throws -> T {
+        do {
+            return try await action()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            guard shouldAttemptEmbeddedBackendRecovery(for: error) else {
+                AppLogger.error("Desktop action failed without backend recovery: \(error.localizedDescription)")
+                throw error
+            }
+            AppLogger.info("Attempting embedded backend recovery after error: \(error.localizedDescription)")
+            statusState = .waitingForServer
+            await EmbeddedBackendLauncher.shared.ensureRunning()
+            do {
+                return try await action()
+            } catch {
+                AppLogger.error("Desktop action failed after backend recovery retry: \(error.localizedDescription)")
+                throw error
+            }
+        }
+    }
+
+    private func shouldAttemptEmbeddedBackendRecovery(for error: Error) -> Bool {
+        if error is CancellationError {
+            return false
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorCannotConnectToHost,
+                 NSURLErrorCannotFindHost,
+                 NSURLErrorNetworkConnectionLost,
+                 NSURLErrorNotConnectedToInternet,
+                 NSURLErrorTimedOut:
+                return true
+            default:
+                break
+            }
+        }
+        let message = error.localizedDescription.lowercased()
+        return message.contains("network connection was lost")
+            || message.contains("couldn't connect to server")
+            || message.contains("cannot connect to host")
+            || message.contains("connection refused")
+    }
+
     private func resetGoalComposer() {
         editingGoalID = nil
         newGoalTitle = ""
         newGoalDescription = ""
+    }
+
+    private func resetIssueComposer() {
+        newIssueCompanyID = selectedCompanyID ?? companies.first?.id
+        newIssueGoalID = issueComposerGoals.first?.id ?? selectedGoalID
+        newIssueTitle = ""
+        newIssueDescription = ""
     }
 
     /// Submit the path collected from the picker or from a future manual input flow.
@@ -1012,6 +1319,7 @@ final class DesktopStore: ObservableObject {
 
     func selectCompany(_ company: CompanyRecord) async {
         selectedCompanyID = company.id
+        newIssueCompanyID = company.id
         selectedRepositoryID = company.repositoryId
         resetCompanyAgentComposer()
         selectedWorkspaceID = dashboard.workspaces.first(where: { $0.repositoryId == company.repositoryId && $0.baseBranch == company.defaultBaseBranch })?.id
@@ -1021,12 +1329,16 @@ final class DesktopStore: ObservableObject {
         pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? company.defaultBaseBranch
         await refreshAvailableBranches()
         await refreshTaskDetails()
+        syncIssueComposerState()
+        syncSelectedCompanyLinearFormState()
         await restartCompanyEventStream()
     }
 
     func selectGoal(_ goal: GoalRecord) async {
         selectedCompanyID = goal.companyId
+        newIssueCompanyID = goal.companyId
         selectedGoalID = goal.id
+        newIssueGoalID = goal.id
         selectedIssueID = issues.first?.id
         if let issue = selectedIssue {
             selectedWorkspaceID = issue.workspaceId
@@ -1079,8 +1391,17 @@ final class DesktopStore: ObservableObject {
 
     func saveBackendSettings() async {
         do {
+            backendStatusMessage = nil
             let settings = try await api.updateBackendSettings(
                 defaultBackendKind: defaultBackendKind,
+                codexLaunchMode: codexLaunchMode,
+                codexCommand: trimmedOptional(codexCommand),
+                codexArgs: codexArgs
+                    .split(whereSeparator: \.isWhitespace)
+                    .map(String.init),
+                codexWorkingDirectory: trimmedOptional(codexWorkingDirectory),
+                codexPort: Int(trimmedOptional(codexPort) ?? ""),
+                codexStartupTimeoutSeconds: Int(trimmedOptional(codexStartupTimeoutSeconds) ?? ""),
                 codexAppServerBaseURL: trimmedOptional(codexAppServerBaseURL),
                 codexAuthMode: nil,
                 codexToken: nil,
@@ -1108,30 +1429,44 @@ final class DesktopStore: ObservableObject {
             )
             syncBackendFormState()
         } catch {
-            errorMessage = error.localizedDescription
+            backendStatusMessage = error.localizedDescription
         }
     }
 
     func testCodexBackendConnection() async {
         do {
+            backendStatusMessage = nil
             codexBackendStatus = try await api.testBackend(
                 kind: "CODEX_APP_SERVER",
+                launchMode: codexLaunchMode,
+                command: trimmedOptional(codexCommand),
+                args: codexArgs.split(whereSeparator: \.isWhitespace).map(String.init),
+                workingDirectory: trimmedOptional(codexWorkingDirectory),
+                port: Int(trimmedOptional(codexPort) ?? ""),
+                startupTimeoutSeconds: Int(trimmedOptional(codexStartupTimeoutSeconds) ?? ""),
                 baseURL: trimmedOptional(codexAppServerBaseURL),
                 authMode: nil,
                 token: nil,
                 timeoutSeconds: nil
             )
         } catch {
-            errorMessage = error.localizedDescription
+            backendStatusMessage = error.localizedDescription
         }
     }
 
     func updateSelectedCompanyBackend(kind: String) async {
         guard let company = selectedCompany else { return }
         do {
+            backendStatusMessage = nil
             _ = try await api.updateCompanyBackend(
                 companyId: company.id,
                 backendKind: kind,
+                launchMode: codexLaunchMode,
+                command: trimmedOptional(codexCommand),
+                args: codexArgs.split(whereSeparator: \.isWhitespace).map(String.init),
+                workingDirectory: trimmedOptional(codexWorkingDirectory),
+                port: Int(trimmedOptional(codexPort) ?? ""),
+                startupTimeoutSeconds: Int(trimmedOptional(codexStartupTimeoutSeconds) ?? ""),
                 baseURL: trimmedOptional(codexAppServerBaseURL),
                 authMode: nil,
                 token: nil,
@@ -1140,7 +1475,7 @@ final class DesktopStore: ObservableObject {
             )
             await refreshDashboard()
         } catch {
-            errorMessage = error.localizedDescription
+            backendStatusMessage = error.localizedDescription
         }
     }
 
@@ -1152,6 +1487,7 @@ final class DesktopStore: ObservableObject {
             do {
                 for try await envelope in api.companyEvents(companyId: companyID) {
                     await MainActor.run {
+                        self.companyStreamStatusMessage = nil
                         if let dashboard = envelope.dashboard {
                             self.dashboard = dashboard
                             self.reconcileWorkflowLeadAgent()
@@ -1160,16 +1496,76 @@ final class DesktopStore: ObservableObject {
                         }
                     }
                     if envelope.dashboard == nil {
-                        await self.refreshDashboard()
+                        await self.refreshDashboard(restartEventStream: false)
                     }
                 }
             } catch is CancellationError {
             } catch {
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
+                let shouldRetry = await MainActor.run { () -> Bool in
+                    guard self.selectedCompanyID == companyID, self.shellMode == .company else { return false }
+                    if self.isBenignCompanyEventError(error) {
+                        self.companyStreamStatusMessage = self.language(
+                            "Reconnecting to company events…",
+                            "회사 이벤트를 다시 연결하는 중…"
+                        )
+                        return true
+                    }
+                    self.companyStreamStatusMessage = error.localizedDescription
+                    return true
                 }
+                guard shouldRetry else { return }
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                await self.restartCompanyEventStream()
             }
         }
+    }
+
+    private func startCompanyStatePolling() {
+        guard companyPollingTask == nil else { return }
+        companyPollingTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                let pollState = await MainActor.run { () -> (shouldRefresh: Bool, isOffline: Bool) in
+                    (
+                        shouldRefresh: self.shellMode == .company && self.selectedCompanyID != nil && !self.isBusy,
+                        isOffline: self.isOffline
+                    )
+                }
+                if pollState.shouldRefresh && pollState.isOffline {
+                    await EmbeddedBackendLauncher.shared.ensureRunning()
+                }
+                if pollState.shouldRefresh {
+                    await self.refreshDashboard(restartEventStream: false)
+                }
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+    }
+
+    private func startEmbeddedBackendWatchdog() {
+        guard backendWatchdogTask == nil else { return }
+        backendWatchdogTask = Task {
+            while !Task.isCancelled {
+                await EmbeddedBackendLauncher.shared.ensureRunning()
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    private func isBenignCompanyEventError(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cancelled, .networkConnectionLost, .timedOut, .cannotConnectToHost, .cannotFindHost, .notConnectedToInternet:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     /// The center pane should always show the real interactive TUI for the
