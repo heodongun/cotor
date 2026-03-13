@@ -93,7 +93,11 @@ class DesktopAppService(
     }
 
     suspend fun companyDashboard(companyId: String? = null): CompanyDashboardResponse {
-        queueAutomationRefresh(companyId)
+        if (companyId == null) {
+            queueAutomationRefresh(companyId)
+        } else {
+            prepareCompanyAutomationState(companyId)
+        }
         val state = stateStore.load().withDerivedMetrics()
         val filteredGoals = state.goals
             .filter { companyId == null || it.companyId == companyId }
@@ -170,6 +174,7 @@ class DesktopAppService(
             .filter { companyId == null || it == companyId }
         targetCompanyIds.forEach { activeCompanyId ->
             normalizeCompanyAutomationState(activeCompanyId)
+            reconcileNonPublishingReviewRuns(activeCompanyId)
             reconcileTerminalIssueStates(activeCompanyId)
             archiveRecursiveFollowUpGoals(activeCompanyId)
             requeueRecoverableBlockedIssues(activeCompanyId)
@@ -388,6 +393,16 @@ class DesktopAppService(
     suspend fun listRuns(taskId: String? = null): List<AgentRun> {
         val runs = stateStore.load().runs.sortedByDescending { it.createdAt }
         return taskId?.let { id -> runs.filter { it.taskId == id } } ?: runs
+    }
+
+    suspend fun listIssueRuns(issueId: String): List<AgentRun> {
+        val state = stateStore.load()
+        val taskIds = state.tasks
+            .filter { it.issueId == issueId }
+            .mapTo(linkedSetOf()) { it.id }
+        return state.runs
+            .filter { it.taskId in taskIds }
+            .sortedByDescending { it.updatedAt }
     }
 
     suspend fun listGoals(): List<CompanyGoal> =
@@ -1802,6 +1817,7 @@ class DesktopAppService(
         }
         return tickMutex.withLock {
             reconcileStaleAgentRuns(companyId)
+            reconcileNonPublishingReviewRuns(companyId)
             val reconciledIssues = reconcileTerminalIssueStates(companyId)
             val initial = stateStore.load()
             val runtime = initial.companyRuntimes.firstOrNull { it.companyId == companyId } ?: CompanyRuntimeSnapshot(companyId = companyId)
@@ -1809,11 +1825,14 @@ class DesktopAppService(
                 return@withLock runtimeStatus(companyId)
             }
             runCatching { startCompanyBackend(companyId) }
-            reconcileNonPublishingReviewRuns(companyId)
 
             val actions = mutableListOf<String>()
             if (reconciledIssues > 0) {
                 actions += "reconciled-issues:$reconciledIssues"
+            }
+            val recoveredBlockedIssues = requeueRecoverableBlockedIssues(companyId)
+            if (recoveredBlockedIssues > 0) {
+                actions += "retried-recoverable:$recoveredBlockedIssues"
             }
             val archivedRecursiveGoals = archiveRecursiveFollowUpGoals(companyId)
             if (archivedRecursiveGoals > 0) {
@@ -1934,7 +1953,11 @@ class DesktopAppService(
                 .toSet()
             var changed = false
             val updatedIssues = state.issues.map { issue ->
-                if (issue.companyId != companyId || issue.status != IssueStatus.BLOCKED) {
+                if (
+                    issue.companyId != companyId ||
+                    issue.status != IssueStatus.BLOCKED ||
+                    issue.kind.equals("planning", ignoreCase = true)
+                ) {
                     return@map issue
                 }
                 val goal = state.goals.firstOrNull { it.id == issue.goalId } ?: return@map issue
@@ -2000,7 +2023,8 @@ class DesktopAppService(
                     val dependenciesSatisfied = issue.dependsOn.all { dependencyId ->
                         issuesById[dependencyId]?.status == IssueStatus.DONE
                     }
-                    val goalAllowsAutomation = goal?.status == GoalStatus.ACTIVE && goal.autonomyEnabled
+                    val goalAllowsAutomation = goal?.autonomyEnabled == true &&
+                        goal.status != GoalStatus.COMPLETED
                     if (!goalAllowsAutomation || !dependenciesSatisfied) {
                         return@map issue
                     }
@@ -3561,7 +3585,7 @@ class DesktopAppService(
             } else {
                 null
             }
-            val finalError = result.error ?: if (publishRequired) publish?.error else null
+            val finalError = result.error ?: if (publishRequired) publish?.error?.takeUnless(::isNonFatalPublishError) else null
 
             replaceRun(
                 startedRun.copy(
@@ -3575,11 +3599,21 @@ class DesktopAppService(
                 )
             )
             company?.let {
+                val successDetail = result.output
+                    ?.lineSequence()
+                    ?.filter { it.isNotBlank() }
+                    ?.take(6)
+                    ?.joinToString("\n")
+                    ?.takeIf { detail -> detail.isNotBlank() }
                 publishCompanyEvent(
                     companyId = it.id,
                     type = if (result.isSuccess && finalError == null) "run.completed" else "run.failed",
                     title = if (result.isSuccess && finalError == null) "Completed agent run" else "Agent run failed",
-                    detail = result.error ?: publish?.error ?: "${agent.name} finished ${task.title}",
+                    detail = if (result.isSuccess && finalError == null) {
+                        successDetail ?: "${agent.name} finished ${task.title}"
+                    } else {
+                        result.error ?: publish?.error ?: "${agent.name} finished ${task.title}"
+                    },
                     goalId = issue?.goalId,
                     issueId = issue?.id,
                     runId = startedRun.id
@@ -3746,14 +3780,16 @@ class DesktopAppService(
             val repairedRuns = state.runs.map { run ->
                 val task = tasksById[run.taskId] ?: return@map run
                 val issue = task.issueId?.let(issuesById::get) ?: return@map run
-                if (issue.companyId != companyId || requiresCodePublish(issue)) {
+                if (issue.companyId != companyId) {
                     return@map run
                 }
                 if (run.status != AgentRunStatus.FAILED) {
                     return@map run
                 }
                 val publishError = run.publish?.error ?: return@map run
-                if (!publishError.startsWith("No changes to publish")) {
+                val noChangesPublishOnly = !requiresCodePublish(issue) && publishError.startsWith("No changes to publish")
+                val localOnlyPublish = isNonFatalPublishError(publishError)
+                if (!noChangesPublishOnly && !localOnlyPublish) {
                     return@map run
                 }
                 changed = true
@@ -3803,9 +3839,52 @@ class DesktopAppService(
             prompt = goal.description,
             participants = participants
         )
+        val chiefProfile = profiles.firstOrNull {
+            it.companyId == goal.companyId && (it.mergeAuthority || it.roleName.equals("CEO", ignoreCase = true))
+        }
         val issueIds = plan.assignments.map { UUID.randomUUID().toString() }
         val dependencyIdsByPhase = linkedMapOf<String, MutableList<String>>()
-        val issues = plan.assignments.mapIndexed { index, assignment ->
+        val issues = buildList {
+            if (chiefProfile != null) {
+                val planningIssueId = UUID.randomUUID().toString()
+                add(
+                    CompanyIssue(
+                        id = planningIssueId,
+                        companyId = goal.companyId,
+                        projectContextId = goal.projectContextId,
+                        goalId = goal.id,
+                        workspaceId = workspace.id,
+                        title = "CEO plan and delegate \"${goal.title}\"",
+                        description = buildString {
+                            appendLine("CEO planning issue for the company goal.")
+                            appendLine()
+                            appendLine("Goal: ${goal.title}")
+                            appendLine("Description:")
+                            appendLine(goal.description.ifBlank { goal.title })
+                            appendLine()
+                            appendLine("Responsibilities:")
+                            appendLine("- Break the goal into the next concrete work slices.")
+                            appendLine("- Assign downstream work to the right agents in the roster.")
+                            appendLine("- Keep the company moving by creating the next actions after each loop.")
+                        },
+                        status = IssueStatus.DONE,
+                        priority = 1,
+                        kind = "planning",
+                        assigneeProfileId = chiefProfile.id,
+                        blockedBy = emptyList(),
+                        dependsOn = emptyList(),
+                        acceptanceCriteria = listOf(
+                            "Clarify the next concrete work slices for the goal.",
+                            "Delegate downstream execution work to the best-fit agents.",
+                            "Keep the company moving with explicit next actions."
+                        ),
+                        riskLevel = "medium",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            }
+            addAll(plan.assignments.mapIndexed { index, assignment ->
             val profile = profiles.firstOrNull {
                 it.id == assignment.participantId ||
                     (assignment.participantId == null && it.executionAgentName.equals(assignment.agentName, ignoreCase = true))
@@ -3845,6 +3924,7 @@ class DesktopAppService(
                 createdAt = now + index,
                 updatedAt = now + index
             )
+            })
         }
         val dependencies = issues.flatMap { issue ->
             issue.dependsOn.map { dependencyId ->
@@ -3905,7 +3985,11 @@ class DesktopAppService(
             .firstOrNull()
 
         val blockedIssueCandidate = state.issues
-            .filter { it.companyId == companyId && it.status == IssueStatus.BLOCKED }
+            .filter {
+                it.companyId == companyId &&
+                    it.status == IssueStatus.BLOCKED &&
+                    !it.kind.equals("planning", ignoreCase = true)
+            }
             .sortedByDescending { it.updatedAt }
             .mapNotNull { issue ->
                 if (issue.id in activeTaskIssueIds) return@mapNotNull null
@@ -3923,35 +4007,108 @@ class DesktopAppService(
             }
             .firstOrNull()
 
-        val candidate = failedReviewCandidate ?: blockedIssueCandidate ?: return null
-        val parentGoal = state.goals.firstOrNull { it.id == candidate.issue.goalId }
-        val title = "Resolve follow-up for \"${candidate.issue.title}\""
+        val candidate = failedReviewCandidate ?: blockedIssueCandidate
+        if (candidate != null) {
+            val parentGoal = state.goals.firstOrNull { it.id == candidate.issue.goalId }
+            val title = "Resolve follow-up for \"${candidate.issue.title}\""
+            val description = buildString {
+                appendLine("CEO generated this goal automatically because follow-up work is required.")
+                appendLine()
+                appendLine("Company: ${company.name}")
+                parentGoal?.let {
+                    appendLine("Parent goal: ${it.title}")
+                }
+                appendLine("Trigger issue: ${candidate.issue.title}")
+                appendLine("Reason: ${candidate.reason}")
+                appendLine()
+                appendLine("Required outcome:")
+                appendLine("- Unblock the affected work or satisfy the failed review signal.")
+                appendLine("- Re-run validation and capture any residual risk.")
+                appendLine("- Hand the result back to the CEO for another decision cycle.")
+            }
+            return createGoal(
+                companyId = companyId,
+                title = title,
+                description = description,
+                successMetrics = listOf(
+                    "The triggering issue is no longer blocked or failed in review.",
+                    "Validation is re-run and residual risks are documented."
+                ),
+                autonomyEnabled = true,
+                priority = 1,
+                operatingPolicy = candidate.marker,
+                startRuntimeIfNeeded = false
+            )
+        }
+
+        val hasActiveTasks = state.tasks.any { task ->
+            (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED) &&
+                task.issueId?.let(issuesById::containsKey) == true
+        }
+        val unresolvedIssues = state.issues.filter {
+            it.companyId == companyId && it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED
+        }
+        val hasActiveAutonomousGoals = openGoals.any { it.autonomyEnabled && it.status == GoalStatus.ACTIVE }
+        val companyHasHistory = state.goals.any { it.companyId == companyId } || state.companyActivity.any { it.companyId == companyId }
+        if (!companyHasHistory || hasActiveTasks || unresolvedIssues.isNotEmpty() || hasActiveAutonomousGoals) {
+            return null
+        }
+
+        val lastContinuousCycle = state.goals
+            .filter { it.companyId == companyId }
+            .mapNotNull { goal ->
+                goal.operatingPolicy
+                    ?.takeIf { it.startsWith("auto-loop:continuous:") }
+                    ?.removePrefix("auto-loop:continuous:")
+                    ?.toIntOrNull()
+            }
+            .maxOrNull() ?: 0
+        val nextCycle = lastContinuousCycle + 1
+        val recentCompletedGoals = state.goals
+            .filter { it.companyId == companyId && it.status == GoalStatus.COMPLETED }
+            .sortedByDescending { it.updatedAt }
+            .take(3)
+        val recentCompletedIssues = state.issues
+            .filter { it.companyId == companyId && it.status == IssueStatus.DONE }
+            .sortedByDescending { it.updatedAt }
+            .take(5)
+        val title = "CEO continuous improvement cycle #$nextCycle for ${company.name}"
         val description = buildString {
-            appendLine("CEO generated this goal automatically because follow-up work is required.")
+            appendLine("CEO generated this goal automatically to keep the company operating without a manual pause.")
             appendLine()
             appendLine("Company: ${company.name}")
-            parentGoal?.let {
-                appendLine("Parent goal: ${it.title}")
+            appendLine("Cycle: #$nextCycle")
+            if (recentCompletedGoals.isNotEmpty()) {
+                appendLine()
+                appendLine("Recently completed goals:")
+                recentCompletedGoals.forEach { goal ->
+                    appendLine("- ${goal.title}")
+                }
             }
-            appendLine("Trigger issue: ${candidate.issue.title}")
-            appendLine("Reason: ${candidate.reason}")
+            if (recentCompletedIssues.isNotEmpty()) {
+                appendLine()
+                appendLine("Recently completed issues:")
+                recentCompletedIssues.forEach { issue ->
+                    appendLine("- ${issue.title}")
+                }
+            }
             appendLine()
-            appendLine("Required outcome:")
-            appendLine("- Unblock the affected work or satisfy the failed review signal.")
-            appendLine("- Re-run validation and capture any residual risk.")
-            appendLine("- Hand the result back to the CEO for another decision cycle.")
+            appendLine("CEO directive:")
+            appendLine("- Review the current company state and identify the next highest-leverage improvement.")
+            appendLine("- Create the next set of implementation, review, and approval issues for the current roster.")
+            appendLine("- Keep the company moving with one validated, reviewable slice of progress.")
         }
         return createGoal(
             companyId = companyId,
             title = title,
             description = description,
             successMetrics = listOf(
-                "The triggering issue is no longer blocked or failed in review.",
-                "Validation is re-run and residual risks are documented."
+                "The CEO identifies the next improvement cycle and delegates it across the current roster.",
+                "At least one new reviewed execution slice is completed and residual risk is recorded."
             ),
             autonomyEnabled = true,
-            priority = 1,
-            operatingPolicy = candidate.marker,
+            priority = 2,
+            operatingPolicy = "auto-loop:continuous:$nextCycle",
             startRuntimeIfNeeded = false
         )
     }
@@ -4386,7 +4543,7 @@ class DesktopAppService(
                     capabilities += listOf("implementation", "integration")
                 }
                 val capabilityList = capabilities.toList()
-                val isChief = capabilityList.any { it == "planning" || it == "triage" } || role.equals("CEO", ignoreCase = true)
+                val isChief = role.equals("CEO", ignoreCase = true)
                 val isQa = capabilityList.any { it == "qa" || it == "review" }
                 OrgAgentProfile(
                     id = definition.id,
@@ -4410,18 +4567,94 @@ class DesktopAppService(
             ?: builtins.firstOrNull { isExecutableAvailable(it) }
             ?: builtins.firstOrNull()
             ?: "codex"
-        return listOf("CEO", "Builder", "QA").mapIndexed { index, roleTitle ->
-            val roleSummary = when (index) {
-                0 -> "lead strategy, planning, triage, final merge"
-                1 -> "implementation, integration, delivery"
-                else -> "qa, review, verification"
-            }
+        data class SeededRole(
+            val title: String,
+            val roleSummary: String,
+            val specialties: List<String> = emptyList(),
+            val collaborationInstructions: String? = null,
+            val preferredCollaborators: List<String> = emptyList(),
+            val memoryNotes: String? = null
+        )
+
+        val templates = listOf(
+            SeededRole(
+                title = "CEO",
+                roleSummary = "lead strategy, planning, triage, staffing decisions, and final merge approval",
+                specialties = listOf("strategy", "triage", "merge", "escalation"),
+                collaborationInstructions = "Review company state first, then assign execution and review work to the rest of the organization.",
+                preferredCollaborators = listOf("Product Strategist", "Engineering Lead", "QA"),
+                memoryNotes = "You are the top-level owner. Keep the company moving and decide the next cycle."
+            ),
+            SeededRole(
+                title = "Product Strategist",
+                roleSummary = "translate company goals into scoped work, requirements, and prioritization guidance",
+                specialties = listOf("product", "requirements", "roadmap", "discovery"),
+                collaborationInstructions = "Clarify the next slice before builders start, and hand planning context back to the CEO.",
+                preferredCollaborators = listOf("CEO", "UX Builder", "Engineering Lead")
+            ),
+            SeededRole(
+                title = "Engineering Lead",
+                roleSummary = "coordinate architecture, implementation direction, integration planning, and technical delegation",
+                specialties = listOf("architecture", "integration", "backend", "frontend"),
+                collaborationInstructions = "Split technical work across builders and surface integration risks early.",
+                preferredCollaborators = listOf("CEO", "Builder", "Backend Builder", "Release Manager")
+            ),
+            SeededRole(
+                title = "UX Builder",
+                roleSummary = "shape product flows, usability, interaction clarity, and user-facing experience",
+                specialties = listOf("ux", "research", "flows", "usability"),
+                collaborationInstructions = "Turn product requirements into clearer flows before UI polish begins.",
+                preferredCollaborators = listOf("Product Strategist", "UI Builder", "Builder")
+            ),
+            SeededRole(
+                title = "UI Builder",
+                roleSummary = "craft visual interface details, component polish, layout quality, and design fidelity",
+                specialties = listOf("ui", "design", "components", "visual polish"),
+                collaborationInstructions = "Convert UX intent into concrete screens and hand implementation-ready guidance to frontend.",
+                preferredCollaborators = listOf("UX Builder", "Builder")
+            ),
+            SeededRole(
+                title = "Builder",
+                roleSummary = "implement assigned product slices, integrate changes, and deliver reviewable work",
+                specialties = listOf("implementation", "integration", "delivery"),
+                collaborationInstructions = "Own user-facing implementation and coordinate with UI/UX roles on fidelity gaps.",
+                preferredCollaborators = listOf("UI Builder", "UX Builder", "Backend Builder")
+            ),
+            SeededRole(
+                title = "Backend Builder",
+                roleSummary = "implement backend behavior, orchestration logic, APIs, and integration reliability",
+                specialties = listOf("backend", "api", "kotlin", "orchestration"),
+                collaborationInstructions = "Own service and runtime changes, then hand integration notes to QA and release.",
+                preferredCollaborators = listOf("Engineering Lead", "Builder", "QA")
+            ),
+            SeededRole(
+                title = "QA",
+                roleSummary = "review completed work, verify behavior, run qa checks, and summarize residual risk",
+                specialties = listOf("qa", "review", "verification", "testing"),
+                collaborationInstructions = "Review every completed slice and decide whether more remediation is needed before release.",
+                preferredCollaborators = listOf("Backend Builder", "Builder", "Release Manager")
+            ),
+            SeededRole(
+                title = "Release Manager",
+                roleSummary = "coordinate release readiness, final integration checks, operational notes, and delivery handoff",
+                specialties = listOf("release", "ops", "integration", "delivery"),
+                collaborationInstructions = "Prepare the final slice for CEO approval and call out any operational or release blockers.",
+                preferredCollaborators = listOf("QA", "Engineering Lead", "CEO")
+            )
+        )
+
+        val idByTitle = templates.associate { it.title to UUID.randomUUID().toString() }
+        return templates.mapIndexed { index, template ->
             CompanyAgentDefinition(
-                id = UUID.randomUUID().toString(),
+                id = idByTitle.getValue(template.title),
                 companyId = companyId,
-                title = roleTitle,
+                title = template.title,
                 agentCli = preferredAgent,
-                roleSummary = roleSummary,
+                roleSummary = template.roleSummary,
+                specialties = template.specialties,
+                collaborationInstructions = template.collaborationInstructions,
+                preferredCollaboratorIds = template.preferredCollaborators.mapNotNull(idByTitle::get),
+                memoryNotes = template.memoryNotes,
                 displayOrder = index,
                 createdAt = now,
                 updatedAt = now
@@ -4957,6 +5190,10 @@ class DesktopAppService(
         updated: CompanyRuntimeSnapshot
     ): List<CompanyRuntimeSnapshot> =
         runtimes.filterNot { it.companyId == updated.companyId } + updated
+
+    private fun isNonFatalPublishError(error: String): Boolean {
+        return error == "No GitHub remote configured; kept local commit only"
+    }
 }
 
 private fun defaultCommandAvailability(command: String): Boolean {
