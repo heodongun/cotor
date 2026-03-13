@@ -161,4 +161,57 @@ class GoalDrivenTaskPlannerTest {
         )
         assertTrue(executionAssignment.subtasks.none { it.title.contains("Clarify the success conditions") })
     }
+
+    @Test
+    fun `generic goal with enterprise roster falls back to Builder instead of UX roles`() {
+        val plan = planner.buildPlanForParticipants(
+            title = "sayhello",
+            prompt = "sayhello",
+            participants = listOf(
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ceo-1",
+                    agentName = "codex",
+                    title = "CEO",
+                    roleSummary = "lead strategy, planning, triage, final merge",
+                    capabilities = listOf("planning", "triage"),
+                    mergeAuthority = true
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ux-1",
+                    agentName = "codex",
+                    title = "UX Builder",
+                    roleSummary = "shape product flows, usability, interaction clarity, and user-facing experience",
+                    specialties = listOf("ux", "research", "flows", "usability"),
+                    capabilities = listOf("ux", "research", "flows", "usability")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ui-1",
+                    agentName = "codex",
+                    title = "UI Builder",
+                    roleSummary = "craft visual interface details, component polish, layout quality, and design fidelity",
+                    specialties = listOf("ui", "design", "components", "visual polish"),
+                    capabilities = listOf("ui", "design", "components")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "builder-1",
+                    agentName = "codex",
+                    title = "Builder",
+                    roleSummary = "implement assigned product slices, integrate changes, and deliver reviewable work",
+                    specialties = listOf("implementation", "integration", "delivery"),
+                    capabilities = listOf("implementation", "integration", "delivery")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "qa-1",
+                    agentName = "codex",
+                    title = "QA",
+                    roleSummary = "qa, review, verification",
+                    capabilities = listOf("qa", "review")
+                )
+            )
+        )
+
+        val executionAssignments = plan.assignments.filter { it.phase == "execution" }
+        assertTrue(executionAssignments.isNotEmpty())
+        assertEquals("Builder", executionAssignments.first().role)
+    }
 }
