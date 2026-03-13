@@ -120,6 +120,8 @@ Current limits in this build:
 - company context persistence exists as local `.cotor/companies/...` snapshots, but it is still a lightweight knowledge layer
 - `resume` inspects checkpoints but does not resume execution yet
 
+Inspect `.cotor/companies/` in the working folder to review the persisted company state.
+
 ## Documentation
 
 Start here:
