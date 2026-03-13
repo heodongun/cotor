@@ -81,7 +81,13 @@ class GoalDrivenTaskPlanner {
         val reviewers = normalizedParticipants.filter { participant ->
             participant.participantId != chief?.participantId && isReviewer(participant)
         }
-        val executionParticipants = selectExecutionParticipants(normalizedParticipants, chief, reviewers)
+        val executionParticipants = selectExecutionParticipants(
+            participants = normalizedParticipants,
+            chief = chief,
+            reviewers = reviewers,
+            originalPrompt = normalizedPrompt,
+            workItems = workItems
+        )
 
         val assignments = mutableListOf<AgentAssignmentPlan>()
         val executionAssignments = buildExecutionAssignments(
@@ -383,7 +389,9 @@ class GoalDrivenTaskPlanner {
     private fun selectExecutionParticipants(
         participants: List<PlanningParticipant>,
         chief: PlanningParticipant?,
-        reviewers: List<PlanningParticipant>
+        reviewers: List<PlanningParticipant>,
+        originalPrompt: String,
+        workItems: List<String>
     ): List<PlanningParticipant> {
         val reviewerIds = reviewers.map { it.participantId }.toSet()
         val chiefId = chief?.participantId
@@ -393,12 +401,92 @@ class GoalDrivenTaskPlanner {
                 isExecutionParticipant(participant)
         }
         if (explicitExecutors.isNotEmpty()) {
-            return explicitExecutors
+            return prioritizeExecutionParticipants(explicitExecutors, originalPrompt, workItems)
         }
         val fallbackExecutors = participants.filter {
             it.participantId != chiefId && it.participantId !in reviewerIds
         }
-        return if (fallbackExecutors.isNotEmpty()) fallbackExecutors else listOfNotNull(chief).ifEmpty { participants }
+        return if (fallbackExecutors.isNotEmpty()) {
+            prioritizeExecutionParticipants(fallbackExecutors, originalPrompt, workItems)
+        } else {
+            listOfNotNull(chief).ifEmpty { participants }
+        }
+    }
+
+    private fun prioritizeExecutionParticipants(
+        participants: List<PlanningParticipant>,
+        originalPrompt: String,
+        workItems: List<String>
+    ): List<PlanningParticipant> {
+        if (participants.size <= 1) {
+            return participants
+        }
+        val targetCount = workItems.size.coerceAtLeast(1).coerceAtMost(participants.size)
+        val promptText = originalPrompt.lowercase()
+        val promptRelevant = participants.map { participant ->
+            participant to executionRelevanceScore(participant, promptText)
+        }
+            .filter { (_, score) -> score > 0 }
+            .sortedWith(compareByDescending<Pair<PlanningParticipant, Int>> { it.second }.thenBy { participantRank(it.first) })
+            .map { it.first }
+        if (promptRelevant.isNotEmpty()) {
+            return promptRelevant.take(targetCount)
+        }
+        val genericBuilder = participants.firstOrNull { it.title.equals("Builder", ignoreCase = true) }
+        if (genericBuilder != null) {
+            return listOf(genericBuilder)
+        }
+        val workItemText = workItems.joinToString(" ").lowercase()
+        val workItemRelevant = participants.map { participant ->
+            participant to executionRelevanceScore(participant, workItemText)
+        }
+            .filter { (_, score) -> score > 0 }
+            .sortedWith(compareByDescending<Pair<PlanningParticipant, Int>> { it.second }.thenBy { participantRank(it.first) })
+            .map { it.first }
+        if (workItemRelevant.isNotEmpty()) {
+            return workItemRelevant.take(targetCount)
+        }
+        return participants
+            .sortedBy(::participantRank)
+            .take(1)
+    }
+
+    private fun executionRelevanceScore(participant: PlanningParticipant, routingText: String): Int {
+        val descriptorTokens = participantRoutingDescriptor(participant)
+            .split(Regex("[^a-z0-9]+"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        val titleTokens = participant.title.lowercase()
+            .split(Regex("[^a-z0-9]+"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        val capabilityTokens = participant.capabilities.map { it.lowercase() }
+        val tokens = (descriptorTokens + titleTokens + capabilityTokens).distinct()
+        val tokenScore = tokens.fold(0) { total, token ->
+            total + when {
+                token.length < 3 -> 0
+                routingText.contains(token) -> 2
+                else -> 0
+            }
+        }
+        return tokenScore + when {
+            participant.title.equals("Builder", ignoreCase = true) -> 1
+            else -> 0
+        }
+    }
+
+    private fun participantRank(participant: PlanningParticipant): Int {
+        val title = participant.title.lowercase()
+        return when {
+            title == "builder" -> 0
+            title.contains("backend") -> 1
+            title.contains("ui") -> 2
+            title.contains("ux") -> 3
+            title.contains("product") -> 4
+            title.contains("engineering") -> 5
+            title.contains("release") -> 6
+            else -> 20
+        }
     }
 
     private fun isChief(participant: PlanningParticipant): Boolean {
