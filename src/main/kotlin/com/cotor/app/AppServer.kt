@@ -320,6 +320,15 @@ internal fun Application.cotorAppModule(
                 }
             }
 
+            route("/issues/{issueId}/runs") {
+                get {
+                    if (!requireToken(token)) return@get
+                    val issueId = call.parameters["issueId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    call.respond(desktopService.listIssueRuns(issueId).map(::toApiRunRecord))
+                }
+            }
+
             route("/goals") {
                 get {
                     if (!requireToken(token)) return@get

@@ -206,7 +206,8 @@ class GitWorkspaceServiceTest : FunSpec({
                 FakeProcessManager.Step(listOf("git", "commit", "-m", "Local-only execution (codex)"), ProcessResult(0, "[branch abc1234] Local-only execution\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
-                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(1, "", "", false))
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(1, "", "", false)),
+                FakeProcessManager.Step(listOf("gh", "auth", "status"), ProcessResult(1, "", "not logged in", false))
             )
         )
         val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
@@ -231,22 +232,76 @@ class GitWorkspaceServiceTest : FunSpec({
         publish.commitSha shouldBe "abc1234567890"
         publish.pushedBranch.shouldBeNull()
         publish.pullRequestUrl.shouldBeNull()
+        publish.error shouldBe "No GitHub remote configured; kept local commit only"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("publishRun creates a GitHub remote when origin is missing and gh is available") {
+        val worktree = Files.createTempDirectory("git-workspace-service-auto-github")
+        val repoName = worktree.fileName.toString()
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(listOf("git", "status", "--porcelain"), ProcessResult(0, " M README.md\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "add", "-A"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "commit", "-m", "Auto publish to GitHub (codex)"), ProcessResult(0, "[branch abc1234] Auto publish to GitHub\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(1, "", "", false)),
+                FakeProcessManager.Step(listOf("gh", "auth", "status"), ProcessResult(0, "logged in", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-parse", "--git-common-dir"), ProcessResult(0, ".git\n", "", true)),
+                FakeProcessManager.Step(listOf("gh", "repo", "view", repoName, "--json", "name"), ProcessResult(1, "", "not found", false)),
+                FakeProcessManager.Step(listOf("gh", "repo", "create", repoName, "--private", "--source", ".", "--remote", "origin"), ProcessResult(0, "created", "", true)),
+                FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "refs/heads/master:refs/heads/master"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/$repoName.git\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "HEAD:codex/cotor/auto-publish/codex"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/auto-publish/codex", "--state", "open", "--json", "number,url,state"), ProcessResult(0, "[]", "", true)),
+                FakeProcessManager.Step(listOf("gh", "pr", "create", "--base", "master", "--head", "codex/cotor/auto-publish/codex", "--title", "[codex] Auto publish to GitHub", "--body", expectedPullRequestBody("Auto publish to GitHub", "Ship this change to GitHub.", "codex/cotor/auto-publish/codex")), ProcessResult(0, "https://github.com/heodongun/cotor/pull/124\n", "", true)),
+                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/auto-publish/codex", "--json", "number,url,state"), ProcessResult(0, """{"number":124,"url":"https://github.com/heodongun/cotor/pull/124","state":"OPEN"}""", "", true))
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val publish = service.publishRun(
+            task = AgentTask(
+                id = "task-4",
+                workspaceId = "ws-1",
+                title = "Auto publish to GitHub",
+                prompt = "Ship this change to GitHub.",
+                agents = listOf("codex"),
+                status = DesktopTaskStatus.RUNNING,
+                createdAt = 0,
+                updatedAt = 0
+            ),
+            agentName = "codex",
+            worktreePath = worktree,
+            branchName = "codex/cotor/auto-publish/codex",
+            baseBranch = "master"
+        )
+
+        publish.commitSha shouldBe "abc1234567890"
+        publish.pushedBranch shouldBe "codex/cotor/auto-publish/codex"
+        publish.pullRequestNumber shouldBe 124
+        publish.pullRequestUrl shouldBe "https://github.com/heodongun/cotor/pull/124"
         publish.error.shouldBeNull()
         processManager.remainingSteps() shouldBe 0
     }
 })
 
-private fun expectedPullRequestBody(): String = """
+private fun expectedPullRequestBody(
+    taskTitle: String = "Ship desktop publish flow",
+    prompt: String = "Implement the desktop publish flow.",
+    branchName: String = "codex/cotor/ship-flow/codex"
+): String = """
 ## Summary
 - Auto-published by the Cotor desktop app after task completion.
-- Task: Ship desktop publish flow
+- Task: $taskTitle
 - Agent: codex
-- Branch: codex/cotor/ship-flow/codex
+- Branch: $branchName
 - Base: master
 
 ## Prompt
 ```text
-Implement the desktop publish flow.
+$prompt
 ```
 """.trimIndent() + "\n"
 
