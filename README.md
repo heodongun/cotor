@@ -142,3 +142,5 @@ Fast CLI smoke check after a local build: `./shell/cotor version`
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
 cd macos && swift build
 ```
+
+Tiny smoke test: `./shell/cotor version`
