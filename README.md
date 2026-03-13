@@ -127,6 +127,7 @@ Inspect `.cotor/companies/` in the working folder to review the persisted compan
 Start here:
 
 - [Documentation Index](docs/INDEX.md)
+- [Architecture Overview](docs/ARCHITECTURE.md)
 - [English Guide](docs/README.md)
 - [Korean Guide](docs/README.ko.md)
 - [Quick Start](docs/QUICK_START.md)
