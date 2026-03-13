@@ -49,6 +49,11 @@ struct DesktopAPI {
         try await get(path: "api/app/runs", query: [URLQueryItem(name: "taskId", value: taskId)])
     }
 
+    /// Fetch all persisted runs belonging to one company issue.
+    func issueRuns(issueId: String) async throws -> [RunRecord] {
+        try await get(path: "api/app/issues/\(issueId)/runs")
+    }
+
     /// Fetch the git diff summary for one task/agent pair.
     func changes(taskId: String, agentName: String) async throws -> ChangeSummaryPayload {
         try await get(path: "api/app/tasks/\(taskId)/changes/\(agentName)")
