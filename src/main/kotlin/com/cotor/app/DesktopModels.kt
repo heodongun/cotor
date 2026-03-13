@@ -53,8 +53,30 @@ enum class ExecutionBackendKind {
 }
 
 @Serializable
+enum class BackendLaunchMode {
+    MANAGED,
+    ATTACHED
+}
+
+@Serializable
+enum class BackendLifecycleState {
+    STOPPED,
+    STARTING,
+    RUNNING,
+    RESTARTING,
+    FAILED,
+    ATTACHED
+}
+
+@Serializable
 data class BackendConnectionConfig(
     val kind: ExecutionBackendKind,
+    val launchMode: BackendLaunchMode = BackendLaunchMode.ATTACHED,
+    val command: String = "",
+    val args: List<String> = emptyList(),
+    val workingDirectory: String? = null,
+    val port: Int? = null,
+    val startupTimeoutSeconds: Int = 15,
     val baseUrl: String? = null,
     val healthCheckPath: String = "/health",
     val authMode: String = "none",
@@ -77,6 +99,11 @@ data class ExecutionBackendStatus(
     val displayName: String,
     val health: String = "unknown",
     val message: String? = null,
+    val lifecycleState: BackendLifecycleState = BackendLifecycleState.STOPPED,
+    val managed: Boolean = false,
+    val pid: Long? = null,
+    val port: Int? = null,
+    val lastError: String? = null,
     val config: BackendConnectionConfig,
     val capabilities: ExecutionBackendCapabilities = ExecutionBackendCapabilities()
 )
@@ -88,6 +115,26 @@ data class DesktopBackendSettings(
 )
 
 @Serializable
+data class LinearStateMapping(
+    val localStatus: String,
+    val linearStateName: String
+)
+
+@Serializable
+data class LinearConnectionConfig(
+    val endpoint: String = "https://api.linear.app/graphql",
+    val apiToken: String? = System.getenv("LINEAR_API_TOKEN")?.takeIf { it.isNotBlank() },
+    val teamId: String? = System.getenv("LINEAR_TEAM_ID")?.takeIf { it.isNotBlank() },
+    val projectId: String? = System.getenv("LINEAR_PROJECT_ID")?.takeIf { it.isNotBlank() },
+    val stateMappings: List<LinearStateMapping> = defaultLinearStateMappings()
+)
+
+@Serializable
+data class DesktopLinearSettings(
+    val defaultConfig: LinearConnectionConfig = defaultLinearConfig()
+)
+
+@Serializable
 data class Company(
     val id: String,
     val name: String,
@@ -96,6 +143,8 @@ data class Company(
     val defaultBaseBranch: String,
     val backendKind: ExecutionBackendKind = ExecutionBackendKind.LOCAL_COTOR,
     val backendConfigOverride: BackendConnectionConfig? = null,
+    val linearSyncEnabled: Boolean = false,
+    val linearConfigOverride: LinearConnectionConfig? = null,
     val autonomyEnabled: Boolean = true,
     val createdAt: Long,
     val updatedAt: Long
@@ -416,6 +465,9 @@ data class CompanyIssue(
     val kind: String = "implementation",
     val assigneeProfileId: String? = null,
     val linearIssueId: String? = null,
+    val linearIssueIdentifier: String? = null,
+    val linearIssueUrl: String? = null,
+    val lastLinearSyncAt: Long? = null,
     val blockedBy: List<String> = emptyList(),
     val dependsOn: List<String> = emptyList(),
     val acceptanceCriteria: List<String> = emptyList(),
@@ -519,7 +571,10 @@ data class CompanyRuntimeSnapshot(
     val lastError: String? = null,
     val backendKind: ExecutionBackendKind = ExecutionBackendKind.LOCAL_COTOR,
     val backendHealth: String = "unknown",
-    val backendMessage: String? = null
+    val backendMessage: String? = null,
+    val backendLifecycleState: BackendLifecycleState = BackendLifecycleState.STOPPED,
+    val backendPid: Long? = null,
+    val backendPort: Int? = null
 )
 
 @Serializable
@@ -647,6 +702,7 @@ data class DesktopSettings(
     val recentCompanies: List<String> = emptyList(),
     val defaultLaunchMode: String = "company",
     val backendSettings: DesktopBackendSettings = DesktopBackendSettings(),
+    val linearSettings: DesktopLinearSettings = DesktopLinearSettings(),
     val backendStatuses: List<ExecutionBackendStatus> = emptyList(),
     val shortcuts: ShortcutConfig = ShortcutConfig()
 )
@@ -692,6 +748,7 @@ data class DesktopAppState(
     val opsMetrics: OpsMetricSnapshot = OpsMetricSnapshot(),
     val signals: List<OpsSignal> = emptyList(),
     val backendSettings: DesktopBackendSettings = DesktopBackendSettings(),
+    val linearSettings: DesktopLinearSettings = DesktopLinearSettings(),
     val runtime: CompanyRuntimeSnapshot = CompanyRuntimeSnapshot(),
     val companyRuntimes: List<CompanyRuntimeSnapshot> = emptyList()
 )
@@ -699,6 +756,8 @@ data class DesktopAppState(
 private fun defaultBackendConfigs(): List<BackendConnectionConfig> = listOf(
     BackendConnectionConfig(
         kind = ExecutionBackendKind.LOCAL_COTOR,
+        launchMode = BackendLaunchMode.ATTACHED,
+        command = "cotor",
         baseUrl = "http://127.0.0.1:8787",
         healthCheckPath = "/api/app/health",
         authMode = "bearer",
@@ -707,12 +766,29 @@ private fun defaultBackendConfigs(): List<BackendConnectionConfig> = listOf(
     ),
     BackendConnectionConfig(
         kind = ExecutionBackendKind.CODEX_APP_SERVER,
+        launchMode = BackendLaunchMode.MANAGED,
+        command = "codex",
+        args = listOf("app-server", "--host", "127.0.0.1", "--port", "{port}"),
+        startupTimeoutSeconds = 15,
         baseUrl = System.getenv("CODEX_APP_SERVER_URL")?.takeIf { it.isNotBlank() },
         healthCheckPath = "/health",
         authMode = "none",
         timeoutSeconds = 30,
         enabled = true
     )
+)
+
+private fun defaultLinearConfig(): LinearConnectionConfig = LinearConnectionConfig()
+
+private fun defaultLinearStateMappings(): List<LinearStateMapping> = listOf(
+    LinearStateMapping(localStatus = IssueStatus.BACKLOG.name, linearStateName = "Todo"),
+    LinearStateMapping(localStatus = IssueStatus.PLANNED.name, linearStateName = "Todo"),
+    LinearStateMapping(localStatus = IssueStatus.DELEGATED.name, linearStateName = "In Progress"),
+    LinearStateMapping(localStatus = IssueStatus.IN_PROGRESS.name, linearStateName = "In Progress"),
+    LinearStateMapping(localStatus = IssueStatus.IN_REVIEW.name, linearStateName = "In Review"),
+    LinearStateMapping(localStatus = IssueStatus.BLOCKED.name, linearStateName = "Blocked"),
+    LinearStateMapping(localStatus = IssueStatus.DONE.name, linearStateName = "Done"),
+    LinearStateMapping(localStatus = IssueStatus.CANCELED.name, linearStateName = "Canceled")
 )
 
 /**

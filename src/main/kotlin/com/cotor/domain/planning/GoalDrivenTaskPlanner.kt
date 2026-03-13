@@ -286,9 +286,8 @@ class GoalDrivenTaskPlanner {
     }
 
     private fun defaultWorkItems(goalSummary: String): List<String> = listOf(
-        "Clarify the success conditions and constraints for \"$goalSummary\"",
-        "Implement the repository changes required to deliver \"$goalSummary\"",
-        "Validate the outcome for \"$goalSummary\" and capture any remaining risks"
+        "Deliver the smallest complete repository change for \"$goalSummary\"",
+        "Validate \"$goalSummary\" and summarize any residual risks"
     )
 
     private fun fallbackWorkItem(goalSummary: String, focus: String): String =

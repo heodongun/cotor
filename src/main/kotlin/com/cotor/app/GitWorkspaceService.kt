@@ -38,6 +38,44 @@ class GitWorkspaceService(
     }
 
     /**
+     * Company creation should work for a plain folder picked from Finder.
+     * If the folder is not a git repository yet, initialize one in place first.
+     */
+    suspend fun ensureInitializedRepositoryRoot(candidate: Path, preferredDefaultBranch: String?): Path {
+        val normalized = candidate.toAbsolutePath().normalize()
+        return runCatching {
+            resolveRepositoryRoot(normalized).also { ensureBootstrapCommit(it) }
+        }.getOrElse {
+            Files.createDirectories(normalized)
+            val branch = preferredDefaultBranch?.trim().takeUnless { it.isNullOrBlank() } ?: "master"
+            runGit(normalized, "init", "-b", branch)
+            ensureBootstrapCommit(normalized)
+            normalized
+        }
+    }
+
+    private suspend fun ensureBootstrapCommit(repositoryRoot: Path) {
+        val hasCommit = runGit(repositoryRoot, "rev-parse", "--verify", "HEAD", failOnError = false).isSuccess
+        if (hasCommit) {
+            return
+        }
+        runCommand(
+            repositoryRoot,
+            listOf(
+                "git",
+                "-c",
+                "user.name=Cotor",
+                "-c",
+                "user.email=cotor@local",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "Initialize repository"
+            )
+        )
+    }
+
+    /**
      * Clone into the managed repository area owned by the desktop app, not into the
      * user's current shell directory. That gives the app a stable location to reopen later.
      */
@@ -66,6 +104,13 @@ class GitWorkspaceService(
 
         if (!remoteHead.isNullOrBlank()) {
             return remoteHead
+        }
+
+        val symbolicHead = runCatching {
+            gitOutput(repositoryRoot, "symbolic-ref", "--short", "HEAD").trim()
+        }.getOrNull()
+        if (!symbolicHead.isNullOrBlank() && symbolicHead != "HEAD") {
+            return symbolicHead
         }
 
         val currentHead = gitOutput(repositoryRoot, "rev-parse", "--abbrev-ref", "HEAD").trim()
@@ -144,8 +189,10 @@ class GitWorkspaceService(
         agentName: String,
         baseBranch: String
     ): WorktreeBinding {
+        ensureBootstrapCommit(repositoryRoot)
         val agentSlug = slugify(agentName).ifBlank { "agent" }
-        val branchName = "codex/cotor/${slugify(taskTitle).ifBlank { taskId.take(8) }}/$agentSlug"
+        val taskSlug = slugify(taskTitle).ifBlank { "task" }
+        val branchName = "codex/cotor/${taskSlug}-${taskId.take(8)}/$agentSlug"
         val worktreePath = repositoryRoot
             .resolve(".cotor")
             .resolve("worktrees")
@@ -203,6 +250,12 @@ class GitWorkspaceService(
                 )
             }
 
+            if (!hasOriginRemote(worktreePath)) {
+                return PublishMetadata(
+                    commitSha = commitSha
+                )
+            }
+
             runGit(worktreePath, "push", "--set-upstream", "origin", "HEAD:$branchName")
             pushedBranch = branchName
 
@@ -229,6 +282,14 @@ class GitWorkspaceService(
                 error = buildPublishError(t)
             )
         }
+    }
+
+    private suspend fun hasOriginRemote(repositoryRoot: Path): Boolean {
+        val result = runGit(repositoryRoot, "config", "--get", "remote.origin.url", failOnError = false)
+        if (!result.isSuccess) {
+            return false
+        }
+        return result.stdout.trim().isNotBlank()
     }
 
     /**
