@@ -56,6 +56,7 @@ Minimal smoke check: run `./shell/cotor version` after the build completes to ve
 Common first commands:
 
 ```bash
+cotor --help
 cotor
 cotor --short
 cotor init --starter-template
