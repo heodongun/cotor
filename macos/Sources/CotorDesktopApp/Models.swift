@@ -29,13 +29,34 @@ struct CompanyRecord: Codable, Identifiable, Hashable {
     let repositoryId: String
     let defaultBaseBranch: String
     let backendKind: String
+    let linearSyncEnabled: Bool?
+    let linearConfigOverride: LinearConnectionConfigPayload?
     let autonomyEnabled: Bool
     let createdAt: Int64
     let updatedAt: Int64
 }
 
+struct LinearStateMappingPayload: Codable, Hashable {
+    let localStatus: String
+    let linearStateName: String
+}
+
+struct LinearConnectionConfigPayload: Codable, Hashable {
+    let endpoint: String
+    let apiToken: String?
+    let teamId: String?
+    let projectId: String?
+    let stateMappings: [LinearStateMappingPayload]
+}
+
 struct BackendConnectionConfigPayload: Codable, Hashable {
     let kind: String
+    let launchMode: String
+    let command: String
+    let args: [String]
+    let workingDirectory: String?
+    let port: Int?
+    let startupTimeoutSeconds: Int
     let baseUrl: String?
     let healthCheckPath: String
     let authMode: String
@@ -58,6 +79,11 @@ struct ExecutionBackendStatusPayload: Codable, Hashable, Identifiable {
     let displayName: String
     let health: String
     let message: String?
+    let lifecycleState: String
+    let managed: Bool
+    let pid: Int64?
+    let port: Int?
+    let lastError: String?
     let config: BackendConnectionConfigPayload
     let capabilities: ExecutionBackendCapabilitiesPayload
 }
@@ -183,6 +209,9 @@ struct IssueRecord: Codable, Identifiable, Hashable {
     let kind: String
     let assigneeProfileId: String?
     let linearIssueId: String?
+    let linearIssueIdentifier: String?
+    let linearIssueUrl: String?
+    let lastLinearSyncAt: Int64?
     let blockedBy: [String]
     let dependsOn: [String]
     let acceptanceCriteria: [String]
@@ -244,6 +273,9 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
     let backendKind: String
     let backendHealth: String
     let backendMessage: String?
+    let backendLifecycleState: String
+    let backendPid: Int64?
+    let backendPort: Int?
 }
 
 struct AgentCollaborationEdgeRecord: Codable, Hashable, Identifiable {
@@ -384,8 +416,13 @@ struct DesktopSettingsPayload: Codable, Hashable {
     let recentCompanies: [String]
     let defaultLaunchMode: String
     let backendSettings: DesktopBackendSettingsPayload
+    let linearSettings: DesktopLinearSettingsPayload?
     let backendStatuses: [ExecutionBackendStatusPayload]
     let shortcuts: ShortcutConfigPayload
+}
+
+struct DesktopLinearSettingsPayload: Codable, Hashable {
+    let defaultConfig: LinearConnectionConfigPayload
 }
 
 /// Settings metadata for the currently active keyboard shortcuts.
@@ -435,6 +472,7 @@ extension DashboardPayload {
             recentCompanies: [],
             defaultLaunchMode: "company",
             backendSettings: DesktopBackendSettingsPayload(defaultBackendKind: "LOCAL_COTOR", backends: []),
+            linearSettings: nil,
             backendStatuses: [],
             shortcuts: ShortcutConfigPayload(bindings: [])
         ),
@@ -496,11 +534,38 @@ struct UpdateGoalPayload: Codable {
     let autonomyEnabled: Bool?
 }
 
+struct CreateIssuePayload: Codable {
+    let goalId: String
+    let title: String
+    let description: String
+    let priority: Int
+    let kind: String
+}
+
 struct CreateCompanyPayload: Codable {
     let name: String
     let rootPath: String
     let defaultBaseBranch: String?
     let autonomyEnabled: Bool
+}
+
+struct UpdateCompanyLinearPayload: Codable {
+    let enabled: Bool
+    let endpoint: String?
+    let apiToken: String?
+    let teamId: String?
+    let projectId: String?
+    let stateMappings: [LinearStateMappingPayload]?
+    let useGlobalDefault: Bool
+}
+
+struct LinearSyncResponsePayload: Codable, Hashable {
+    let ok: Bool
+    let message: String
+    let syncedIssues: Int
+    let createdIssues: Int
+    let commentedIssues: Int
+    let failedIssues: [String]
 }
 
 struct CreateCompanyAgentPayload: Codable {
@@ -620,6 +685,7 @@ struct MockSeed {
                 defaultBackendKind: "LOCAL_COTOR",
                 backends: []
             ),
+            linearSettings: nil,
             backendStatuses: [],
             shortcuts: ShortcutConfigPayload(bindings: [
                 ShortcutBindingPayload(id: "openRepository", title: "Open Repository", shortcut: "Command-N"),
@@ -642,6 +708,8 @@ struct MockSeed {
                 repositoryId: "repo-demo",
                 defaultBaseBranch: "master",
                 backendKind: "LOCAL_COTOR",
+                linearSyncEnabled: false,
+                linearConfigOverride: nil,
                 autonomyEnabled: true,
                 createdAt: 0,
                 updatedAt: 0
@@ -735,6 +803,9 @@ struct MockSeed {
                 kind: "planning",
                 assigneeProfileId: "profile-ceo",
                 linearIssueId: nil,
+                linearIssueIdentifier: nil,
+                linearIssueUrl: nil,
+                lastLinearSyncAt: nil,
                 blockedBy: [],
                 dependsOn: [],
                 acceptanceCriteria: ["Goal decomposes into issues", "Roles are explicit"],
@@ -756,6 +827,9 @@ struct MockSeed {
                 kind: "implementation",
                 assigneeProfileId: "profile-builder",
                 linearIssueId: nil,
+                linearIssueIdentifier: nil,
+                linearIssueUrl: nil,
+                lastLinearSyncAt: nil,
                 blockedBy: ["issue-demo-plan"],
                 dependsOn: ["issue-demo-plan"],
                 acceptanceCriteria: ["Goal sidebar exists", "Issue board is visible"],
@@ -777,6 +851,9 @@ struct MockSeed {
                 kind: "qa",
                 assigneeProfileId: "profile-qa",
                 linearIssueId: nil,
+                linearIssueIdentifier: nil,
+                linearIssueUrl: nil,
+                lastLinearSyncAt: nil,
                 blockedBy: ["issue-demo-build"],
                 dependsOn: ["issue-demo-build"],
                 acceptanceCriteria: ["Review queue item appears", "Merge action is visible"],
@@ -891,7 +968,10 @@ struct MockSeed {
                 lastError: nil,
                 backendKind: "LOCAL_COTOR",
                 backendHealth: "healthy",
-                backendMessage: "Using local Cotor app-server and CLI execution."
+                backendMessage: "Using local Cotor app-server and CLI execution.",
+                backendLifecycleState: "RUNNING",
+                backendPid: nil,
+                backendPort: 8787
             )
         ]
     )

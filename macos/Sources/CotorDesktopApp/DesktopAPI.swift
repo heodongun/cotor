@@ -5,6 +5,7 @@ import Foundation
 /// Keeping transport concerns here lets the view model stay focused on user intent
 /// and state transitions instead of URLSession boilerplate.
 struct DesktopAPI {
+    static let embeddedAppToken = "cotor-desktop-local-token"
     let baseURL: URL
     let token: String?
 
@@ -13,12 +14,24 @@ struct DesktopAPI {
         // overrides so developers can point it at a custom backend process.
         let rawURL = ProcessInfo.processInfo.environment["COTOR_APP_SERVER_URL"] ?? "http://127.0.0.1:8787"
         self.baseURL = URL(string: rawURL) ?? URL(string: "http://127.0.0.1:8787")!
-        self.token = ProcessInfo.processInfo.environment["COTOR_APP_TOKEN"]
+        self.token = ProcessInfo.processInfo.environment["COTOR_APP_TOKEN"] ?? Self.embeddedAppToken
     }
 
     /// Fetch the full dashboard payload used to bootstrap most of the app state.
     func dashboard() async throws -> DashboardPayload {
         try await get(path: "api/app/dashboard")
+    }
+
+    func health() async throws -> Bool {
+        struct HealthPayload: Decodable {
+            let status: String?
+            let ok: Bool?
+        }
+        let payload: HealthPayload = try await get(path: "api/app/health")
+        if let ok = payload.ok {
+            return ok
+        }
+        return payload.status?.lowercased() == "ok"
     }
 
     /// Return the selectable base branches for the currently focused repository.
@@ -150,6 +163,12 @@ struct DesktopAPI {
 
     func updateBackendSettings(
         defaultBackendKind: String,
+        codexLaunchMode: String?,
+        codexCommand: String?,
+        codexArgs: [String],
+        codexWorkingDirectory: String?,
+        codexPort: Int?,
+        codexStartupTimeoutSeconds: Int?,
         codexAppServerBaseURL: String?,
         codexAuthMode: String?,
         codexToken: String?,
@@ -159,6 +178,12 @@ struct DesktopAPI {
             path: "api/app/settings/backends/default",
             body: UpdateBackendSettingsPayload(
                 defaultBackendKind: defaultBackendKind,
+                codexLaunchMode: codexLaunchMode,
+                codexCommand: codexCommand,
+                codexArgs: codexArgs,
+                codexWorkingDirectory: codexWorkingDirectory,
+                codexPort: codexPort,
+                codexStartupTimeoutSeconds: codexStartupTimeoutSeconds,
                 codexAppServerBaseUrl: codexAppServerBaseURL,
                 codexAuthMode: codexAuthMode,
                 codexToken: codexToken,
@@ -169,6 +194,12 @@ struct DesktopAPI {
 
     func testBackend(
         kind: String,
+        launchMode: String?,
+        command: String?,
+        args: [String],
+        workingDirectory: String?,
+        port: Int?,
+        startupTimeoutSeconds: Int?,
         baseURL: String?,
         authMode: String?,
         token: String?,
@@ -178,6 +209,12 @@ struct DesktopAPI {
             path: "api/app/settings/backends/test",
             body: TestBackendPayload(
                 kind: kind,
+                launchMode: launchMode,
+                command: command,
+                args: args,
+                workingDirectory: workingDirectory,
+                port: port,
+                startupTimeoutSeconds: startupTimeoutSeconds,
                 baseUrl: baseURL,
                 authMode: authMode,
                 token: token,
@@ -189,6 +226,12 @@ struct DesktopAPI {
     func updateCompanyBackend(
         companyId: String,
         backendKind: String,
+        launchMode: String?,
+        command: String?,
+        args: [String],
+        workingDirectory: String?,
+        port: Int?,
+        startupTimeoutSeconds: Int?,
         baseURL: String?,
         authMode: String?,
         token: String?,
@@ -199,6 +242,12 @@ struct DesktopAPI {
             path: "api/app/companies/\(companyId)/backend",
             body: UpdateCompanyBackendPayload(
                 backendKind: backendKind,
+                launchMode: launchMode,
+                command: command,
+                args: args,
+                workingDirectory: workingDirectory,
+                port: port,
+                startupTimeoutSeconds: startupTimeoutSeconds,
                 baseUrl: baseURL,
                 authMode: authMode,
                 token: token,
@@ -208,8 +257,71 @@ struct DesktopAPI {
         )
     }
 
+    func companyBackendStatus(companyId: String) async throws -> ExecutionBackendStatusPayload {
+        try await get(path: "api/app/companies/\(companyId)/backend")
+    }
+
+    func startCompanyBackend(companyId: String) async throws -> ExecutionBackendStatusPayload {
+        try await post(path: "api/app/companies/\(companyId)/backend/start", body: EmptyPayload())
+    }
+
+    func stopCompanyBackend(companyId: String) async throws -> ExecutionBackendStatusPayload {
+        try await post(path: "api/app/companies/\(companyId)/backend/stop", body: EmptyPayload())
+    }
+
+    func restartCompanyBackend(companyId: String) async throws -> ExecutionBackendStatusPayload {
+        try await post(path: "api/app/companies/\(companyId)/backend/restart", body: EmptyPayload())
+    }
+
+    func updateCompanyLinear(
+        companyId: String,
+        enabled: Bool,
+        endpoint: String?,
+        apiToken: String?,
+        teamId: String?,
+        projectId: String?,
+        useGlobalDefault: Bool
+    ) async throws -> CompanyRecord {
+        try await patch(
+            path: "api/app/companies/\(companyId)/linear",
+            body: UpdateCompanyLinearPayload(
+                enabled: enabled,
+                endpoint: endpoint,
+                apiToken: apiToken,
+                teamId: teamId,
+                projectId: projectId,
+                stateMappings: nil,
+                useGlobalDefault: useGlobalDefault
+            )
+        )
+    }
+
+    func resyncCompanyLinear(companyId: String) async throws -> LinearSyncResponsePayload {
+        try await post(path: "api/app/companies/\(companyId)/linear/resync", body: EmptyPayload())
+    }
+
     func deleteCompany(companyId: String) async throws -> CompanyRecord {
         try await delete(path: "api/app/companies/\(companyId)")
+    }
+
+    func createIssue(
+        companyId: String,
+        goalId: String,
+        title: String,
+        description: String,
+        priority: Int = 3,
+        kind: String = "manual"
+    ) async throws -> IssueRecord {
+        try await post(
+            path: "api/app/companies/\(companyId)/issues",
+            body: CreateIssuePayload(
+                goalId: goalId,
+                title: title,
+                description: description,
+                priority: priority,
+                kind: kind
+            )
+        )
     }
 
     func deleteIssue(companyId: String, issueId: String) async throws -> IssueRecord {
@@ -414,6 +526,12 @@ private struct EmptyPayload: Codable {}
 
 private struct UpdateBackendSettingsPayload: Codable {
     let defaultBackendKind: String
+    let codexLaunchMode: String?
+    let codexCommand: String?
+    let codexArgs: [String]
+    let codexWorkingDirectory: String?
+    let codexPort: Int?
+    let codexStartupTimeoutSeconds: Int?
     let codexAppServerBaseUrl: String?
     let codexAuthMode: String?
     let codexToken: String?
@@ -422,6 +540,12 @@ private struct UpdateBackendSettingsPayload: Codable {
 
 private struct TestBackendPayload: Codable {
     let kind: String
+    let launchMode: String?
+    let command: String?
+    let args: [String]
+    let workingDirectory: String?
+    let port: Int?
+    let startupTimeoutSeconds: Int?
     let baseUrl: String?
     let authMode: String?
     let token: String?
@@ -430,6 +554,12 @@ private struct TestBackendPayload: Codable {
 
 private struct UpdateCompanyBackendPayload: Codable {
     let backendKind: String
+    let launchMode: String?
+    let command: String?
+    let args: [String]
+    let workingDirectory: String?
+    let port: Int?
+    let startupTimeoutSeconds: Int?
     let baseUrl: String?
     let authMode: String?
     let token: String?

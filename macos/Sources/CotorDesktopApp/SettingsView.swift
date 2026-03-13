@@ -21,6 +21,7 @@ struct SettingsView: View {
                         languageCard
                         themeCard
                         executionBackendCard
+                        logsCard
                         localPathsCard
                         availableAgentsCard
                         shortcutsCard
@@ -96,6 +97,21 @@ struct SettingsView: View {
         }
     }
 
+    private var logsCard: some View {
+        settingsCard(
+            eyebrow: store.language("Logs", "로그"),
+            title: store.language("Runtime Logs", "런타임 로그"),
+            subtitle: store.language(
+                "Use these files to debug company creation, goal execution, and backend recovery failures.",
+                "회사 생성, 목표 실행, 백엔드 복구 실패를 디버깅할 때 이 파일을 확인하세요."
+            )
+        ) {
+            valueRow(store.language("Desktop app log", "데스크톱 앱 로그"), AppLogger.path())
+            valueRow(store.language("Backend stdout", "백엔드 표준 출력"), "~/Library/Application Support/CotorDesktop/runtime/backend/app-server.out.log")
+            valueRow(store.language("Backend stderr", "백엔드 표준 오류"), "~/Library/Application Support/CotorDesktop/runtime/backend/app-server.err.log")
+        }
+    }
+
     private var executionBackendCard: some View {
         settingsCard(
             eyebrow: store.language("Execution Backend", "실행 백엔드"),
@@ -116,10 +132,21 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(store.language("Codex app server URL", "Codex app server 주소").uppercased())
+                    Text(store.language("Codex runtime", "Codex 실행기").uppercased())
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .foregroundStyle(ShellPalette.muted)
-                    TextField("http://127.0.0.1:8788", text: $store.codexAppServerBaseURL)
+                    Picker(store.language("Launch mode", "실행 모드"), selection: $store.codexLaunchMode) {
+                        Text(store.language("Managed by Cotor", "Cotor가 직접 관리")).tag("MANAGED")
+                        Text(store.language("Attached URL", "이미 실행 중인 서버")).tag("ATTACHED")
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(store.language("Command", "명령").uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(ShellPalette.muted)
+                    TextField("codex", text: $store.codexCommand)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(ShellPalette.text)
@@ -135,6 +162,53 @@ struct SettingsView: View {
                         )
                 }
 
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(store.language("Arguments", "인자").uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(ShellPalette.muted)
+                    TextField("app-server --host 127.0.0.1 --port {port}", text: $store.codexArgs)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(ShellPalette.text)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                .fill(ShellPalette.panelAlt)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                .stroke(ShellPalette.border)
+                        )
+                }
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(store.language("Port", "포트").uppercased())
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundStyle(ShellPalette.muted)
+                        TextField("8788", text: $store.codexPort)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(store.language("Startup timeout", "기동 제한 시간").uppercased())
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundStyle(ShellPalette.muted)
+                        TextField("15", text: $store.codexStartupTimeoutSeconds)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                if store.codexLaunchMode == "ATTACHED" {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(store.language("Attached URL", "연결할 URL").uppercased())
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundStyle(ShellPalette.muted)
+                        TextField("http://127.0.0.1:8788", text: $store.codexAppServerBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
                 HStack(spacing: 10) {
                     Button(store.language("Save", "저장")) {
                         Task { await store.saveBackendSettings() }
@@ -147,7 +221,7 @@ struct SettingsView: View {
                     .buttonStyle(.bordered)
 
                     if let status = store.codexBackendStatus {
-                        Text(status.health.uppercased())
+                        Text(status.lifecycleState.uppercased())
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(ShellPalette.text)
                             .padding(.horizontal, 10)
@@ -155,6 +229,12 @@ struct SettingsView: View {
                             .background(ShellPalette.panelAlt)
                             .clipShape(Capsule())
                     }
+                }
+
+                if let status = store.backendStatusMessage, !status.isEmpty {
+                    Text(status)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(ShellPalette.warning)
                 }
 
                 if let status = store.codexBackendStatus?.message, !status.isEmpty {
