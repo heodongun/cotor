@@ -12,6 +12,7 @@ import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.request.header
+import io.ktor.server.request.path
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondTextWriter
@@ -105,6 +106,12 @@ internal fun Application.cotorAppModule(
                     respondDesktopRequest {
                         desktopService.updateBackendSettings(
                             defaultBackendKind = request.defaultBackendKind,
+                            codexLaunchMode = request.codexLaunchMode,
+                            codexCommand = request.codexCommand,
+                            codexArgs = request.codexArgs,
+                            codexWorkingDirectory = request.codexWorkingDirectory,
+                            codexPort = request.codexPort,
+                            codexStartupTimeoutSeconds = request.codexStartupTimeoutSeconds,
                             codexAppServerBaseUrl = request.codexAppServerBaseUrl,
                             codexAuthMode = request.codexAuthMode,
                             codexToken = request.codexToken,
@@ -119,6 +126,12 @@ internal fun Application.cotorAppModule(
                     respondDesktopRequest {
                         desktopService.testBackend(
                             kind = request.kind,
+                            launchMode = request.launchMode,
+                            command = request.command,
+                            args = request.args,
+                            workingDirectory = request.workingDirectory,
+                            port = request.port,
+                            startupTimeoutSeconds = request.startupTimeoutSeconds,
                             baseUrl = request.baseUrl,
                             authMode = request.authMode,
                             token = request.token,
@@ -303,7 +316,7 @@ internal fun Application.cotorAppModule(
                 get {
                     if (!requireToken(token)) return@get
                     val taskId = call.request.queryParameters["taskId"]
-                    call.respond(desktopService.listRuns(taskId))
+                    call.respond(desktopService.listRuns(taskId).map(::toApiRunRecord))
                 }
             }
 
@@ -472,12 +485,11 @@ internal fun Application.cotorAppModule(
 
                 post("/linear/sync") {
                     if (!requireToken(token)) return@post
-                    call.respond(
-                        LinearSyncResponse(
-                            ok = false,
-                            message = "Linear sync adapter is not configured yet in this build"
-                        )
-                    )
+                    respondDesktopRequest {
+                        val companyId = desktopService.listCompanies().maxByOrNull { it.updatedAt }?.id
+                            ?: throw IllegalStateException("Create a company before syncing Linear")
+                        desktopService.syncCompanyLinear(companyId)
+                    }
                 }
 
                 route("/runtime") {
@@ -555,12 +567,82 @@ internal fun Application.cotorAppModule(
                         desktopService.updateCompanyBackend(
                             companyId = companyId,
                             backendKind = request.backendKind,
+                            launchMode = request.launchMode,
+                            command = request.command,
+                            args = request.args,
+                            workingDirectory = request.workingDirectory,
+                            port = request.port,
+                            startupTimeoutSeconds = request.startupTimeoutSeconds,
                             baseUrl = request.baseUrl,
                             authMode = request.authMode,
                             token = request.token,
                             timeoutSeconds = request.timeoutSeconds,
                             useGlobalDefault = request.useGlobalDefault
                         )
+                    }
+                }
+
+                get("/{companyId}/backend") {
+                    if (!requireToken(token)) return@get
+                    val companyId = call.parameters["companyId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    respondDesktopRequest {
+                        desktopService.companyBackendStatus(companyId)
+                    }
+                }
+
+                post("/{companyId}/backend/start") {
+                    if (!requireToken(token)) return@post
+                    val companyId = call.parameters["companyId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    respondDesktopRequest {
+                        desktopService.startCompanyBackend(companyId)
+                    }
+                }
+
+                post("/{companyId}/backend/stop") {
+                    if (!requireToken(token)) return@post
+                    val companyId = call.parameters["companyId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    respondDesktopRequest {
+                        desktopService.stopCompanyBackend(companyId)
+                    }
+                }
+
+                post("/{companyId}/backend/restart") {
+                    if (!requireToken(token)) return@post
+                    val companyId = call.parameters["companyId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    respondDesktopRequest {
+                        desktopService.restartCompanyBackend(companyId)
+                    }
+                }
+
+                patch("/{companyId}/linear") {
+                    if (!requireToken(token)) return@patch
+                    val companyId = call.parameters["companyId"]
+                        ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    val request = call.receive<UpdateCompanyLinearRequest>()
+                    respondDesktopRequest {
+                        desktopService.updateCompanyLinear(
+                            companyId = companyId,
+                            enabled = request.enabled,
+                            endpoint = request.endpoint,
+                            apiToken = request.apiToken,
+                            teamId = request.teamId,
+                            projectId = request.projectId,
+                            stateMappings = request.stateMappings,
+                            useGlobalDefault = request.useGlobalDefault
+                        )
+                    }
+                }
+
+                post("/{companyId}/linear/resync") {
+                    if (!requireToken(token)) return@post
+                    val companyId = call.parameters["companyId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    respondDesktopRequest {
+                        desktopService.syncCompanyLinear(companyId)
                     }
                 }
 
@@ -702,13 +784,30 @@ internal fun Application.cotorAppModule(
                         call.respond(desktopService.listIssues(goalId, companyId))
                     }
 
+                    post {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val request = call.receive<CreateIssueRequest>()
+                        respondDesktopRequest {
+                            desktopService.createIssue(
+                                companyId = companyId,
+                                goalId = request.goalId,
+                                title = request.title,
+                                description = request.description,
+                                priority = request.priority,
+                                kind = request.kind
+                            )
+                        }
+                    }
+
                     get("/{issueId}") {
                         if (!requireToken(token)) return@get
                         val companyId = call.parameters["companyId"]
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
                         val issueId = call.parameters["issueId"]
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
-                        val issue = desktopService.listIssues(companyId = companyId).firstOrNull { it.id == issueId }
+                        val issue = desktopService.getIssue(issueId)?.takeIf { it.companyId == companyId }
                             ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found: $issueId"))
                         call.respond(issue)
                     }
@@ -869,12 +968,11 @@ internal fun Application.cotorAppModule(
 
             post("/linear/sync") {
                 if (!requireToken(token)) return@post
-                call.respond(
-                    LinearSyncResponse(
-                        ok = false,
-                        message = "Linear sync adapter is not configured yet in this build"
-                    )
-                )
+                respondDesktopRequest {
+                    val companyId = desktopService.listCompanies().maxByOrNull { it.updatedAt }?.id
+                        ?: throw IllegalStateException("Create a company before syncing Linear")
+                    desktopService.syncCompanyLinear(companyId)
+                }
             }
 
             route("/tui/sessions") {
@@ -933,6 +1031,27 @@ internal fun Application.cotorAppModule(
     }
 }
 
+private const val RUN_OUTPUT_LIMIT = 40_000
+private const val RUN_ERROR_LIMIT = 8_000
+
+private fun toApiRunRecord(run: AgentRun): AgentRun =
+    run.copy(
+        output = run.output?.let { truncateForApi(it, RUN_OUTPUT_LIMIT) },
+        error = run.error?.let { truncateForApi(it, RUN_ERROR_LIMIT) }
+    )
+
+private fun truncateForApi(value: String, maxChars: Int): String {
+    if (value.length <= maxChars) return value
+    val head = value.take(maxChars)
+    val omitted = value.length - maxChars
+    return buildString(head.length + 64) {
+        append(head)
+        append("\n\n... [truncated ")
+        append(omitted)
+        append(" chars]")
+    }
+}
+
 /**
  * Token auth is intentionally minimal because the server only binds to localhost.
  * The token mainly protects against accidental cross-process access on the same machine.
@@ -956,6 +1075,12 @@ private suspend fun RoutingContext.respondDesktopRequest(block: suspend () -> An
         call.respond(block())
     } catch (cause: IllegalArgumentException) {
         val message = cause.message ?: "Invalid request"
+        call.application.environment.log.warn(
+            "Desktop request {} {} failed with IllegalArgumentException: {}",
+            call.request.local.method,
+            call.request.path(),
+            message
+        )
         val status = if (message.contains("not found", ignoreCase = true)) {
             HttpStatusCode.NotFound
         } else {
@@ -963,8 +1088,20 @@ private suspend fun RoutingContext.respondDesktopRequest(block: suspend () -> An
         }
         call.respond(status, mapOf("error" to message))
     } catch (cause: IllegalStateException) {
+        call.application.environment.log.warn(
+            "Desktop request {} {} failed with IllegalStateException: {}",
+            call.request.local.method,
+            call.request.path(),
+            cause.message ?: "Invalid state"
+        )
         call.respond(HttpStatusCode.Conflict, mapOf("error" to (cause.message ?: "Invalid state")))
     } catch (cause: Throwable) {
+        call.application.environment.log.error(
+            "Desktop request {} {} failed with unhandled exception",
+            call.request.local.method,
+            call.request.path(),
+            cause
+        )
         call.respond(
             HttpStatusCode.InternalServerError,
             mapOf("error" to (cause.message ?: cause::class.simpleName ?: "Internal server error"))

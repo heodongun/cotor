@@ -65,6 +65,15 @@ data class UpdateGoalRequest(
 )
 
 @Serializable
+data class CreateIssueRequest(
+    val goalId: String,
+    val title: String,
+    val description: String,
+    val priority: Int = 3,
+    val kind: String = "manual"
+)
+
+@Serializable
 data class CreateCompanyRequest(
     val name: String,
     val rootPath: String,
@@ -78,6 +87,17 @@ data class UpdateCompanyRequest(
     val defaultBaseBranch: String? = null,
     val autonomyEnabled: Boolean? = null,
     val backendKind: ExecutionBackendKind? = null
+)
+
+@Serializable
+data class UpdateCompanyLinearRequest(
+    val enabled: Boolean,
+    val endpoint: String? = null,
+    val apiToken: String? = null,
+    val teamId: String? = null,
+    val projectId: String? = null,
+    val stateMappings: List<LinearStateMapping>? = null,
+    val useGlobalDefault: Boolean = false
 )
 
 @Serializable
@@ -108,6 +128,12 @@ data class UpdateCompanyAgentDefinitionRequest(
 @Serializable
 data class UpdateBackendSettingsRequest(
     val defaultBackendKind: ExecutionBackendKind,
+    val codexLaunchMode: BackendLaunchMode? = null,
+    val codexCommand: String? = null,
+    val codexArgs: List<String>? = null,
+    val codexWorkingDirectory: String? = null,
+    val codexPort: Int? = null,
+    val codexStartupTimeoutSeconds: Int? = null,
     val codexAppServerBaseUrl: String? = null,
     val codexAuthMode: String? = null,
     val codexToken: String? = null,
@@ -117,6 +143,12 @@ data class UpdateBackendSettingsRequest(
 @Serializable
 data class UpdateCompanyBackendRequest(
     val backendKind: ExecutionBackendKind,
+    val launchMode: BackendLaunchMode? = null,
+    val command: String? = null,
+    val args: List<String>? = null,
+    val workingDirectory: String? = null,
+    val port: Int? = null,
+    val startupTimeoutSeconds: Int? = null,
     val baseUrl: String? = null,
     val authMode: String? = null,
     val token: String? = null,
@@ -127,6 +159,12 @@ data class UpdateCompanyBackendRequest(
 @Serializable
 data class TestBackendRequest(
     val kind: ExecutionBackendKind,
+    val launchMode: BackendLaunchMode? = null,
+    val command: String? = null,
+    val args: List<String>? = null,
+    val workingDirectory: String? = null,
+    val port: Int? = null,
+    val startupTimeoutSeconds: Int? = null,
     val baseUrl: String? = null,
     val authMode: String? = null,
     val token: String? = null,
@@ -139,13 +177,14 @@ data class CompanyEventEnvelope(
     val dashboard: DashboardResponse? = null
 )
 
-/**
- * Placeholder sync response until the real Linear adapter lands.
- */
 @Serializable
 data class LinearSyncResponse(
     val ok: Boolean,
-    val message: String
+    val message: String,
+    val syncedIssues: Int = 0,
+    val createdIssues: Int = 0,
+    val commentedIssues: Int = 0,
+    val failedIssues: List<String> = emptyList()
 )
 
 /**

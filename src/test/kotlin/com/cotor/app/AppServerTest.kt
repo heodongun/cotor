@@ -201,8 +201,7 @@ class AppServerTest : FunSpec({
             issueResponse.status shouldBe HttpStatusCode.OK
             issueResponse.bodyAsText() shouldContain "\"id\":\"issue-1\""
 
-            coEvery { desktopService.listIssues(companyId = "company-1") } returns listOf(
-                CompanyIssue(
+            coEvery { desktopService.getIssue("issue-1") } returns CompanyIssue(
                     id = "issue-1",
                     companyId = "company-1",
                     projectContextId = "project-1",
@@ -214,7 +213,6 @@ class AppServerTest : FunSpec({
                     createdAt = 1L,
                     updatedAt = 1L
                 )
-            )
 
             val issueDetailResponse = client.get("/api/app/companies/company-1/issues/issue-1") {
                 header("Authorization", "Bearer secret-token")
@@ -343,6 +341,80 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("company Linear routes update config and trigger sync when authorized") {
+        coEvery {
+            desktopService.updateCompanyLinear(
+                companyId = "company-1",
+                enabled = true,
+                endpoint = "https://api.linear.app/graphql",
+                apiToken = "token-1",
+                teamId = "team-1",
+                projectId = "project-1",
+                stateMappings = any(),
+                useGlobalDefault = false
+            )
+        } returns Company(
+            id = "company-1",
+            name = "Linear Co",
+            rootPath = "/tmp/linear",
+            repositoryId = "repo-1",
+            defaultBaseBranch = "master",
+            linearSyncEnabled = true,
+            linearConfigOverride = LinearConnectionConfig(
+                endpoint = "https://api.linear.app/graphql",
+                apiToken = "token-1",
+                teamId = "team-1",
+                projectId = "project-1"
+            ),
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+        coEvery { desktopService.syncCompanyLinear("company-1") } returns LinearSyncResponse(
+            ok = true,
+            message = "Synced 2 issues to Linear",
+            syncedIssues = 2,
+            createdIssues = 2
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val update = client.patch("/api/app/companies/company-1/linear") {
+                header("Authorization", "Bearer secret-token")
+                setBody(
+                    """
+                    {
+                      "enabled": true,
+                      "endpoint": "https://api.linear.app/graphql",
+                      "apiToken": "token-1",
+                      "teamId": "team-1",
+                      "projectId": "project-1",
+                      "stateMappings": [
+                        {"localStatus":"IN_PROGRESS","linearStateName":"In Progress"}
+                      ]
+                    }
+                    """.trimIndent()
+                )
+                header("Content-Type", "application/json")
+            }
+            update.status shouldBe HttpStatusCode.OK
+            update.bodyAsText() shouldContain "\"linearSyncEnabled\":true"
+
+            val sync = client.post("/api/app/companies/company-1/linear/resync") {
+                header("Authorization", "Bearer secret-token")
+            }
+            sync.status shouldBe HttpStatusCode.OK
+            sync.bodyAsText() shouldContain "\"ok\":true"
+            sync.bodyAsText() shouldContain "\"syncedIssues\":2"
+        }
+    }
+
     test("task detail routes return empty payloads when no agent run exists yet") {
         coEvery { desktopService.getTask("task-1") } returns AgentTask(
             id = "task-1",
@@ -393,6 +465,49 @@ class AppServerTest : FunSpec({
             }
             ports.status shouldBe HttpStatusCode.OK
             ports.bodyAsText() shouldBe "[]"
+        }
+    }
+
+    test("company issue create route creates a scoped issue when authorized") {
+        coEvery { desktopService.createIssue("company-1", "goal-1", "Issue", "Issue desc", 3, "manual") } returns CompanyIssue(
+            id = "issue-1",
+            companyId = "company-1",
+            projectContextId = "project-1",
+            goalId = "goal-1",
+            workspaceId = "workspace-1",
+            title = "Issue",
+            description = "Issue desc",
+            status = IssueStatus.DELEGATED,
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/companies/company-1/issues") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "goalId": "goal-1",
+                      "title": "Issue",
+                      "description": "Issue desc"
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"id\":\"issue-1\""
+            response.bodyAsText() shouldContain "\"companyId\":\"company-1\""
         }
     }
 })
