@@ -118,14 +118,14 @@ class CodexPlugin : AgentPlugin {
             onStart = context.onProcessStarted
         )
 
-        if (!result.isSuccess) {
-            throw AgentExecutionException("Codex execution failed: ${result.stderr.ifBlank { result.stdout }}")
-        }
-
         // Prefer the captured final assistant message and fall back to stdout only when
         // the file is empty, which keeps the plugin resilient across CLI versions.
         val finalText = java.nio.file.Files.readString(outputFile).trim()
         java.nio.file.Files.deleteIfExists(outputFile)
+
+        if (!result.isSuccess && finalText.isBlank()) {
+            throw AgentExecutionException("Codex execution failed: ${result.stderr.ifBlank { result.stdout }}")
+        }
 
         return PluginExecutionOutput(
             output = if (finalText.isNotBlank()) finalText else result.stdout,
