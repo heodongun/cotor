@@ -82,6 +82,8 @@ class CodexAppServerBackend(
                 displayName = displayName,
                 health = "disabled",
                 message = "Disabled in settings.",
+                lifecycleState = BackendLifecycleState.STOPPED,
+                managed = config.launchMode == BackendLaunchMode.MANAGED,
                 config = config,
                 capabilities = capabilities
             )
@@ -92,7 +94,18 @@ class CodexAppServerBackend(
                 kind = kind,
                 displayName = displayName,
                 health = "degraded",
-                message = "Base URL is not configured.",
+                message = if (config.launchMode == BackendLaunchMode.MANAGED) {
+                    "Managed Codex app server is not running."
+                } else {
+                    "Attached Codex app server URL is not configured."
+                },
+                lifecycleState = if (config.launchMode == BackendLaunchMode.MANAGED) {
+                    BackendLifecycleState.STOPPED
+                } else {
+                    BackendLifecycleState.FAILED
+                },
+                managed = config.launchMode == BackendLaunchMode.MANAGED,
+                port = config.port,
                 config = config,
                 capabilities = capabilities
             )
@@ -108,6 +121,9 @@ class CodexAppServerBackend(
                 displayName = displayName,
                 health = if (healthy) "healthy" else "degraded",
                 message = if (healthy) "Connected to Codex app server." else "Health check returned HTTP ${response.statusCode()}",
+                lifecycleState = if (config.launchMode == BackendLaunchMode.MANAGED) BackendLifecycleState.RUNNING else BackendLifecycleState.ATTACHED,
+                managed = config.launchMode == BackendLaunchMode.MANAGED,
+                port = config.port,
                 config = config,
                 capabilities = capabilities
             )
@@ -117,6 +133,10 @@ class CodexAppServerBackend(
                 displayName = displayName,
                 health = "offline",
                 message = error.message ?: "Failed to reach Codex app server.",
+                lifecycleState = BackendLifecycleState.FAILED,
+                managed = config.launchMode == BackendLaunchMode.MANAGED,
+                port = config.port,
+                lastError = error.message,
                 config = config,
                 capabilities = capabilities
             )

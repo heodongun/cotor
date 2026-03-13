@@ -122,4 +122,43 @@ class GoalDrivenTaskPlannerTest {
         assertEquals(1, plan.assignments.count { it.phase == "review" })
         assertEquals("QA", plan.assignments.first { it.phase == "review" }.role)
     }
+
+    @Test
+    fun `builder execution focus does not infer frontend from the word builder`() {
+        val plan = planner.buildPlanForParticipants(
+            title = "Ship a tiny smoke-tested change",
+            prompt = "Create one tiny artifact, verify it, and report review status.",
+            participants = listOf(
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ceo-1",
+                    agentName = "codex",
+                    title = "CEO",
+                    roleSummary = "lead strategy, planning, triage, final merge",
+                    capabilities = listOf("planning", "triage"),
+                    mergeAuthority = true
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "builder-1",
+                    agentName = "codex",
+                    title = "Builder",
+                    roleSummary = "implementation, integration, delivery",
+                    capabilities = listOf("implementation", "integration")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "qa-1",
+                    agentName = "codex",
+                    title = "QA",
+                    roleSummary = "qa, review, verification",
+                    capabilities = listOf("qa", "review")
+                )
+            )
+        )
+
+        val executionAssignment = plan.assignments.first { it.phase == "execution" }
+        assertEquals(
+            "implementation depth, integration quality, and completing the assigned slice",
+            executionAssignment.focus
+        )
+        assertTrue(executionAssignment.subtasks.none { it.title.contains("Clarify the success conditions") })
+    }
 }

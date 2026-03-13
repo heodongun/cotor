@@ -3,6 +3,7 @@ package com.cotor.data.process
 import com.cotor.model.ProcessResult
 import kotlinx.coroutines.*
 import org.slf4j.Logger
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -58,6 +59,15 @@ class CoroutineProcessManager(
 
         // Set environment variables
         processBuilder.environment().putAll(environment)
+        val resolvedExecutable = resolvedCommand.firstOrNull()?.let { runCatching { Path.of(it) }.getOrNull() }
+        val effectivePath = buildEffectivePath(
+            inheritedPath = processBuilder.environment()["PATH"],
+            overridePath = environment["PATH"],
+            resolvedExecutable = resolvedExecutable
+        )
+        if (effectivePath.isNotBlank()) {
+            processBuilder.environment()["PATH"] = effectivePath
+        }
 
         logger.debug("Starting process: ${resolvedCommand.joinToString(" ")}")
         val process = processBuilder.start()
@@ -127,6 +137,51 @@ class CoroutineProcessManager(
             throw e
         }
     }
+}
+
+private fun buildEffectivePath(
+    inheritedPath: String?,
+    overridePath: String?,
+    resolvedExecutable: Path?
+): String {
+    val entries = linkedSetOf<String>()
+
+    fun addPathEntries(raw: String?) {
+        raw.orEmpty()
+            .split(File.pathSeparator)
+            .map { it.trim().trim('"') }
+            .filter { it.isNotBlank() }
+            .forEach(entries::add)
+    }
+
+    addPathEntries(overridePath)
+    resolvedExecutable?.parent?.toString()?.let(entries::add)
+    addPathEntries(inheritedPath)
+    addPathEntries(System.getenv("PATH"))
+
+    val home = System.getProperty("user.home").orEmpty()
+    listOf(
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin"
+    ).forEach(entries::add)
+    if (home.isNotBlank()) {
+        listOf(
+            "$home/.local/bin",
+            "$home/bin",
+            "$home/.npm-global/bin",
+            "$home/.yarn/bin",
+            "$home/.foundry/bin",
+            "/Applications/Codex.app/Contents/Resources"
+        ).forEach(entries::add)
+    }
+
+    return entries.joinToString(File.pathSeparator)
 }
 
 fun resolveExecutablePath(command: String): Path? {

@@ -6,6 +6,8 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
 import org.slf4j.Logger
+import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermission
 
 class ProcessManagerTest : FunSpec({
 
@@ -27,5 +29,53 @@ class ProcessManagerTest : FunSpec({
         pid shouldBeGreaterThan 0
         val resultPid = result.processId.shouldNotBeNull()
         resultPid shouldBeGreaterThan 0
+    }
+
+    test("executeProcess augments PATH so env-based scripts can resolve helper binaries") {
+        val processManager = CoroutineProcessManager(mockk<Logger>(relaxed = true))
+        val tempDir = Files.createTempDirectory("process-manager-path-test")
+        val fakeNode = tempDir.resolve("node")
+        Files.writeString(
+            fakeNode,
+            """
+            #!/bin/sh
+            echo "fake-node:$1"
+            """.trimIndent()
+        )
+        Files.setPosixFilePermissions(
+            fakeNode,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE
+            )
+        )
+
+        val tool = tempDir.resolve("tool")
+        Files.writeString(
+            tool,
+            """
+            #!/usr/bin/env node
+            console.log("hello")
+            """.trimIndent()
+        )
+        Files.setPosixFilePermissions(
+            tool,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE
+            )
+        )
+
+        val result = processManager.executeProcess(
+            command = listOf(tool.toString()),
+            input = null,
+            environment = mapOf("PATH" to ""),
+            timeout = 5_000
+        )
+
+        result.isSuccess shouldBe true
+        result.stdout.trim() shouldBe "fake-node:$tool"
     }
 })

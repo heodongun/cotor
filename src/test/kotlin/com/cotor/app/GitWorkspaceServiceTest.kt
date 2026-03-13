@@ -5,12 +5,119 @@ import com.cotor.model.ProcessResult
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.mockk
 import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.Path
 
 class GitWorkspaceServiceTest : FunSpec({
+    test("ensureWorktree uses unique branches for repeated task titles") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-repo")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--verify", "HEAD"),
+                    ProcessResult(0, "abc1234567890\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "show-ref", "--verify", "--quiet", "refs/heads/codex/cotor/re-run-validation-and-capture-any-residual-risk-task-a-1/codex"),
+                    ProcessResult(1, "", "", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf(
+                        "git",
+                        "worktree",
+                        "add",
+                        "-b",
+                        "codex/cotor/re-run-validation-and-capture-any-residual-risk-task-a-1/codex",
+                        repositoryRoot.resolve(".cotor").resolve("worktrees").resolve("task-a-1").resolve("codex").toString(),
+                        "master"
+                    ),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--verify", "HEAD"),
+                    ProcessResult(0, "abc1234567890\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "show-ref", "--verify", "--quiet", "refs/heads/codex/cotor/re-run-validation-and-capture-any-residual-risk-task-b-2/codex"),
+                    ProcessResult(1, "", "", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf(
+                        "git",
+                        "worktree",
+                        "add",
+                        "-b",
+                        "codex/cotor/re-run-validation-and-capture-any-residual-risk-task-b-2/codex",
+                        repositoryRoot.resolve(".cotor").resolve("worktrees").resolve("task-b-2").resolve("codex").toString(),
+                        "master"
+                    ),
+                    ProcessResult(0, "", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val first = service.ensureWorktree(
+            repositoryRoot = repositoryRoot,
+            taskId = "task-a-1",
+            taskTitle = "Re-run validation and capture any residual risk",
+            agentName = "codex",
+            baseBranch = "master"
+        )
+        val second = service.ensureWorktree(
+            repositoryRoot = repositoryRoot,
+            taskId = "task-b-2",
+            taskTitle = "Re-run validation and capture any residual risk",
+            agentName = "codex",
+            baseBranch = "master"
+        )
+
+        first.branchName shouldBe "codex/cotor/re-run-validation-and-capture-any-residual-risk-task-a-1/codex"
+        second.branchName shouldBe "codex/cotor/re-run-validation-and-capture-any-residual-risk-task-b-2/codex"
+        first.branchName shouldContain "task-a-1"
+        second.branchName shouldContain "task-b-2"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("ensureInitializedRepositoryRoot bootstraps an existing repo that has no commits yet") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-existing-repo")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--show-toplevel"),
+                    ProcessResult(0, repositoryRoot.toString() + "\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--verify", "HEAD"),
+                    ProcessResult(1, "", "", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf(
+                        "git",
+                        "-c",
+                        "user.name=Cotor",
+                        "-c",
+                        "user.email=cotor@local",
+                        "commit",
+                        "--allow-empty",
+                        "-m",
+                        "Initialize repository"
+                    ),
+                    ProcessResult(0, "[master (root-commit) abc1234] Initialize repository\n", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val resolved = service.ensureInitializedRepositoryRoot(repositoryRoot, "master")
+
+        resolved shouldBe repositoryRoot
+        processManager.remainingSteps() shouldBe 0
+    }
+
     test("publishRun commits, pushes, and creates a pull request when the worktree has changes") {
         val worktree = Files.createTempDirectory("git-workspace-service-test")
         val processManager = FakeProcessManager(
@@ -20,6 +127,7 @@ class GitWorkspaceServiceTest : FunSpec({
                 FakeProcessManager.Step(listOf("git", "commit", "-m", "Ship desktop publish flow (codex)"), ProcessResult(0, "[branch abc1234] Ship desktop publish flow\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "HEAD:codex/cotor/ship-flow/codex"), ProcessResult(0, "", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/ship-flow/codex", "--state", "open", "--json", "number,url,state"), ProcessResult(0, "[]", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "create", "--base", "master", "--head", "codex/cotor/ship-flow/codex", "--title", "[codex] Ship desktop publish flow", "--body", expectedPullRequestBody()), ProcessResult(0, "https://github.com/heodongun/cotor/pull/123\n", "", true)),
@@ -86,6 +194,44 @@ class GitWorkspaceServiceTest : FunSpec({
         publish.pushedBranch.shouldBeNull()
         publish.pullRequestUrl.shouldBeNull()
         publish.error shouldBe "No changes to publish from codex/cotor/read-only/codex against master"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("publishRun succeeds locally when no origin remote is configured") {
+        val worktree = Files.createTempDirectory("git-workspace-service-local-only")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(listOf("git", "status", "--porcelain"), ProcessResult(0, "?? smoke-artifact.txt\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "add", "-A"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "commit", "-m", "Local-only execution (codex)"), ProcessResult(0, "[branch abc1234] Local-only execution\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(1, "", "", false))
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val publish = service.publishRun(
+            task = AgentTask(
+                id = "task-3",
+                workspaceId = "ws-1",
+                title = "Local-only execution",
+                prompt = "Create a local artifact only.",
+                agents = listOf("codex"),
+                status = DesktopTaskStatus.RUNNING,
+                createdAt = 0,
+                updatedAt = 0
+            ),
+            agentName = "codex",
+            worktreePath = worktree,
+            branchName = "codex/cotor/local-only/codex",
+            baseBranch = "master"
+        )
+
+        publish.commitSha shouldBe "abc1234567890"
+        publish.pushedBranch.shouldBeNull()
+        publish.pullRequestUrl.shouldBeNull()
+        publish.error.shouldBeNull()
         processManager.remainingSteps() shouldBe 0
     }
 })
