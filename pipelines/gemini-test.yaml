@@ -1,0 +1,13 @@
+pipelines:
+  - name: builder-gemini-test
+    description: "Visual completeness and interaction test for Builder agent"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: hello-world
+        agent:
+          name: gemini
+        input: |
+          Respond to the user's greeting "안녕" in Korean.
+          Then, generate a "Welcome to Cotor" message that is visually appealing for a CLI.
+          Include a small ASCII art box or a structured table to show off visual completeness.
+          Keep it professional and friendly.
