@@ -59,6 +59,7 @@ Common first commands:
 cotor --help
 cotor
 cotor --short
+cotor status
 cotor init --starter-template
 cotor template --list
 cotor status
