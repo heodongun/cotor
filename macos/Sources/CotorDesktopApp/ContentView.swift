@@ -2049,9 +2049,7 @@ private struct CenterPaneView: View {
     }
 
     private var selectedIssueRuns: [RunRecord] {
-        guard let task = selectedIssueTask else { return [] }
-        return store.runs
-            .filter { $0.taskId == task.id }
+        store.runs
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -2068,7 +2066,17 @@ private struct CenterPaneView: View {
         if let run = selectedIssueRuns.first, let error = run.error, !error.isEmpty {
             return error
         }
-        return l("No execution log yet. Run the issue to populate live agent output here.", "아직 실행 로그가 없습니다. 이슈를 실행하면 에이전트 출력이 여기에 표시됩니다.")
+        if let issueId = store.selectedIssueID,
+           let liveSnippet = runningSessions.first(where: { $0.issueId == issueId })?.outputSnippet,
+           !liveSnippet.isEmpty {
+            return liveSnippet
+        }
+        if let issueId = store.selectedIssueID,
+           let recentDetail = visibleActivity.first(where: { $0.issueId == issueId })?.detail,
+           !recentDetail.isEmpty {
+            return recentDetail
+        }
+        return l("No execution log has been captured for this issue yet.", "이 이슈에 대해 아직 캡처된 실행 로그가 없습니다.")
     }
 
     private var visibleActivity: [CompanyActivityItemRecord] {

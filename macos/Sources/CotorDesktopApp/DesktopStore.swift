@@ -317,10 +317,16 @@ final class DesktopStore: ObservableObject {
     }
 
     var selectedRun: RunRecord? {
-        runs.first {
-            $0.taskId == selectedTaskID &&
-            $0.agentName == (selectedAgentName ?? selectedTask?.agents.first)
+        let preferredAgent = selectedAgentName ?? selectedTask?.agents.first
+        if let selectedTaskID,
+           let exact = runs.first(where: { $0.taskId == selectedTaskID && $0.agentName == preferredAgent }) {
+            return exact
         }
+        if let selectedTaskID,
+           let latestForTask = runs.first(where: { $0.taskId == selectedTaskID }) {
+            return latestForTask
+        }
+        return runs.first
     }
 
     func text(_ key: DesktopTextKey) -> String {
@@ -676,13 +682,26 @@ final class DesktopStore: ObservableObject {
         }
 
         do {
-            let fetchedRuns = try await api.runs(taskId: task.id).sorted { lhs, rhs in
-                lhs.updatedAt > rhs.updatedAt
+            let fetchedRuns: [RunRecord]
+            if let issueId = selectedIssueID {
+                fetchedRuns = try await api.issueRuns(issueId: issueId).sorted { lhs, rhs in
+                    lhs.updatedAt > rhs.updatedAt
+                }
+            } else {
+                fetchedRuns = try await api.runs(taskId: task.id).sorted { lhs, rhs in
+                    lhs.updatedAt > rhs.updatedAt
+                }
             }
             runs = fetchedRuns
 
-            let effectiveRun = fetchedRuns.first { $0.agentName.caseInsensitiveCompare(agent) == .orderedSame }
+            let latestForTask = fetchedRuns.filter { $0.taskId == task.id }
+            let effectiveRun = latestForTask.first { $0.agentName.caseInsensitiveCompare(agent) == .orderedSame }
+                ?? latestForTask.first
+                ?? fetchedRuns.first { $0.agentName.caseInsensitiveCompare(agent) == .orderedSame }
                 ?? fetchedRuns.first
+            if let effectiveRun {
+                selectedTaskID = effectiveRun.taskId
+            }
             let effectiveAgent = effectiveRun?.agentName ?? agent
             selectedAgentName = effectiveAgent
 
