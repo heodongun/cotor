@@ -146,6 +146,7 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 ## Validation
 
 Current baseline checks:
+For a tiny smoke check, run `test -x shell/cotor` to confirm the CLI launcher is present.
 
 Fast CLI smoke check after a local build: `./shell/cotor version`
 
