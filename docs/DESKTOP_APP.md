@@ -99,6 +99,8 @@ Current company-first routes:
 - `GET /api/app/companies/{companyId}/runtime`
 - `POST /api/app/companies/{companyId}/runtime/start`
 - `POST /api/app/companies/{companyId}/runtime/stop`
+- `PATCH /api/app/companies/{companyId}/linear`
+- `POST /api/app/companies/{companyId}/linear/resync`
 - `PATCH /api/app/workspaces/{workspaceId}/base-branch`
 
 Compatibility routes under `/api/app/company/*` still exist for older clients.
@@ -111,6 +113,7 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - create a company goal
 - auto-decompose that goal into issues
 - delegate and run issues
+- mirror company issues and progress to Linear when company-scoped Linear sync is enabled
 - inspect linked tasks and runs
 - populate and merge review queue items
 - inspect company activity
@@ -120,7 +123,7 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 ## Current Limits
 
 - macOS shell only
-- the issue board is Linear-style inside Cotor; this build does not perform external Linear sync
+- Linear sync is company-scoped and mirrors Cotor-managed issues outward; it does not yet import existing Linear issues back into Cotor
 - runtime automation does not yet include the planned policy engine or follow-up issue generation
 - review and PR sync are local-state driven in this build, not full live GitHub/CI orchestration
 - `resume` remains a checkpoint inspection flow, not full run resumption
