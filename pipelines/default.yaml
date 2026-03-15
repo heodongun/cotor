@@ -1,0 +1,13 @@
+pipelines:
+  - name: cotor-project-starter
+    description: "Starter workflow for cotor-project"
+    executionMode: SEQUENTIAL
+    stages:
+      - id: brief
+        agent:
+          name: codex
+        input: "Summarize the goal of cotor-project and propose the next implementation step."
+      - id: refine
+        agent:
+          name: codex
+        input: "Take the previous result and turn it into a concise execution checklist."

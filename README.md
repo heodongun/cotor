@@ -1,6 +1,9 @@
 # Cotor
 
 Cotor is a local-first AI workflow runner that grew into a company-style AI operating system: a CEO AI delegates work to subordinate AIs, CLI agents keep costs down, workflows stay visible in macOS, and a goal can drive an always-on issue loop. The same Kotlin core powers pipeline execution, the localhost `app-server`, and the native desktop shell.
+Smoke test note: this README line was added through the direct worker flow.
+
+The quickest post-build smoke test is `./shell/cotor version`.
 
 ## What Is Current In This Build
 
@@ -9,6 +12,7 @@ Cotor is a local-first AI workflow runner that grew into a company-style AI oper
 - Local web editor with YAML export and run support
 - macOS desktop shell backed by `cotor app-server`
 - Multi-company operations layer with companies, agent definitions, goals, issues, review queue, activity feed, and runtime start/stop/status
+- Per-agent git branch and worktree isolation for delegated execution
 
 ## Current Command Surface
 
@@ -46,21 +50,32 @@ Current template types:
 git clone https://github.com/yourusername/cotor.git
 cd cotor
 ./gradlew shadowJar
+./gradlew test
 chmod +x shell/cotor
 ./shell/cotor version
+# Smoke test the local install with `./shell/cotor status`.
 ```
+
+Minimal smoke check: run `./shell/cotor version` after the build completes to verify the local CLI wrapper starts correctly.
 
 Common first commands:
 
+The final `./shell/cotor version` call is the quickest smoke test for the local CLI wrapper.
+
 ```bash
+cotor --help
 cotor
 cotor --short
+cotor status
 cotor init --starter-template
 cotor template --list
+cotor status
 cotor validate <pipeline> -c <config>
 cotor run <pipeline> -c <config> --output-format text
 cotor app-server --port 8787
 ```
+
+Tiny smoke test: `cotor version` should print the current CLI version after setup.
 
 ## macOS Desktop
 
@@ -96,7 +111,7 @@ The current build includes a working local operations layer:
 - create company goals
 - decompose goals into issues
 - delegate and run issues
-- populate a review queue
+- populate and merge ready review queue items
 - inspect runtime status and recent company activity
 - start and stop a local autonomous runtime loop per company
 
@@ -108,17 +123,21 @@ Current limits in this build:
 - company context persistence exists as local `.cotor/companies/...` snapshots, but it is still a lightweight knowledge layer
 - `resume` inspects checkpoints but does not resume execution yet
 
+Inspect `.cotor/companies/` in the working folder to review the persisted company state.
+
 ## Documentation
 
 Start here:
 
 - [Documentation Index](docs/INDEX.md)
+- [Architecture Overview](docs/ARCHITECTURE.md)
 - [English Guide](docs/README.md)
 - [Korean Guide](docs/README.ko.md)
 - [Quick Start](docs/QUICK_START.md)
 - [Desktop App](docs/DESKTOP_APP.md)
 - [Features](docs/FEATURES.md)
 - [Validation Plan](docs/TEST_PLAN.md)
+- [Contributing Guide](CONTRIBUTING.md)
 - [Team Ops](docs/team-ops/README.md)
 - [AI Agent Rules](AGENTS.md)
 
@@ -127,8 +146,14 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 ## Validation
 
 Current baseline checks:
+For a tiny smoke check, run `test -x shell/cotor` to confirm the CLI launcher is present.
+
+Fast CLI smoke check after a local build: `./shell/cotor version`
 
 ```bash
+./shell/cotor version
 ./gradlew --no-build-cache test -x jacocoTestCoverageVerification
 cd macos && swift build
 ```
+
+Tiny smoke test: `./shell/cotor version`
