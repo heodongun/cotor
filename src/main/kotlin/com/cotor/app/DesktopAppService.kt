@@ -26,11 +26,39 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
-import java.nio.file.Path
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.Comparator
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.exists
+
+@kotlinx.serialization.Serializable
+private data class CompanyAutomationTraceEvent(
+    val timestamp: Long,
+    val companyId: String,
+    val projectContextId: String? = null,
+    val goalId: String? = null,
+    val issueId: String,
+    val issueTitle: String,
+    val issueKind: String,
+    val oldStatus: IssueStatus,
+    val newStatus: IssueStatus,
+    val source: String,
+    val reason: String,
+    val operatingPolicy: String? = null,
+    val latestTaskId: String? = null,
+    val latestTaskStatus: String? = null,
+    val latestTaskUpdatedAt: Long? = null,
+    val latestRunId: String? = null,
+    val latestRunStatus: String? = null,
+    val latestRunUpdatedAt: Long? = null,
+    val retryEligible: Boolean? = null,
+    val runErrorSnippet: String? = null
+)
 
 /**
  * High-level application service that owns the desktop-facing workflow.
@@ -49,6 +77,12 @@ class DesktopAppService(
     private val linearTracker: LinearTrackerAdapter = DefaultLinearTrackerAdapter(),
     private val codexAppServerManager: CodexAppServerManager = CodexAppServerManager()
 ) {
+    companion object {
+        private const val COMPANY_TRACE_DEDUP_WINDOW_MS = 30_000L
+        private const val COMPANY_TRACE_ROTATE_BYTES = 8L * 1024L * 1024L
+        private const val COMPANY_RUNTIME_ERROR_ROTATE_BYTES = 2L * 1024L * 1024L
+    }
+
     // Reads are cheap and frequent, but writes must be serialized so the state file
     // cannot be partially overwritten when multiple agent runs finish at once.
     private val stateMutex = Mutex()
@@ -59,11 +93,18 @@ class DesktopAppService(
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val companyRuntimeJobs: MutableMap<String, Job> = linkedMapOf()
     private val automationRefreshJobs: MutableMap<String, Job> = linkedMapOf()
+    private val recentCompanyAutomationTraceKeys = ConcurrentHashMap<String, Long>()
     private val staleRunStartupGraceMs = 15_000L
     private val companyEventStream = MutableSharedFlow<CompanyEventEnvelope>(replay = 0, extraBufferCapacity = 64)
     private val backendJson = Json { ignoreUnknownKeys = true }
     private val localExecutionBackend = LocalCotorBackend(agentExecutor)
     private val codexAppServerBackend = CodexAppServerBackend(backendJson)
+
+    init {
+        // Runtime state is persisted across app-server restarts. Reattach loops eagerly
+        // on service startup so companies keep progressing even before the UI polls.
+        queueAutomationRefresh()
+    }
 
     suspend fun dashboard(): DashboardResponse {
         queueAutomationRefresh()
@@ -93,11 +134,7 @@ class DesktopAppService(
     }
 
     suspend fun companyDashboard(companyId: String? = null): CompanyDashboardResponse {
-        if (companyId == null) {
-            queueAutomationRefresh(companyId)
-        } else {
-            prepareCompanyAutomationState(companyId)
-        }
+        queueAutomationRefresh(companyId)
         val state = stateStore.load().withDerivedMetrics()
         val filteredGoals = state.goals
             .filter { companyId == null || it.companyId == companyId }
@@ -147,6 +184,21 @@ class DesktopAppService(
         )
     }
 
+    suspend fun listWorkflowTopologies(companyId: String? = null): List<WorkflowTopologySnapshot> {
+        queueAutomationRefresh(companyId)
+        val state = stateStore.load().withDerivedMetrics()
+        val orgProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+        return computeWorkflowTopologies(state, orgProfiles)
+            .filter { companyId == null || it.companyId == companyId }
+    }
+
+    suspend fun listGoalDecisions(companyId: String? = null): List<GoalOrchestrationDecision> {
+        queueAutomationRefresh(companyId)
+        return stateStore.load().goalDecisions
+            .filter { companyId == null || it.companyId == companyId }
+            .sortedByDescending { it.createdAt }
+    }
+
     private fun queueAutomationRefresh(companyId: String? = null) {
         val key = companyId ?: "__all__"
         if (automationRefreshJobs[key]?.isActive == true) {
@@ -155,6 +207,9 @@ class DesktopAppService(
         automationRefreshJobs[key] = serviceScope.launch {
             try {
                 prepareCompanyAutomationState(companyId)
+            } catch (cause: Throwable) {
+                companyId?.let { markCompanyRuntimeError(it, cause) }
+                throw cause
             } finally {
                 automationRefreshJobs.remove(key)
             }
@@ -166,6 +221,7 @@ class DesktopAppService(
 
     private suspend fun prepareCompanyAutomationState(companyId: String? = null) {
         migrateLegacyCompanyRosters(companyId)
+        migrateLegacyFollowUpGoals(companyId)
         resumeRunningCompanyRuntimes(companyId)
         ensureAutonomousCompanyRuntimes(companyId)
         reconcileStaleAgentRuns(companyId)
@@ -178,7 +234,6 @@ class DesktopAppService(
             reconcileTerminalIssueStates(activeCompanyId)
             archiveRecursiveFollowUpGoals(activeCompanyId)
             requeueRecoverableBlockedIssues(activeCompanyId)
-            requeueBlockedRemediationIssues(activeCompanyId)
         }
         stimulateAutonomousCompanyProgress(companyId)
     }
@@ -222,6 +277,139 @@ class DesktopAppService(
         }
     }
 
+    private suspend fun migrateLegacyFollowUpGoals(companyId: String? = null) {
+        val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val issuesById = state.issues.associateBy { it.id }
+            val goalsById = state.goals.associateBy { it.id }
+            val reviewQueueById = state.reviewQueue.associateBy { it.id }
+            val now = System.currentTimeMillis()
+            var changed = false
+
+            val canonicalGoals = state.goals.map { goal ->
+                if ((companyId != null && goal.companyId != companyId) || !goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) {
+                    return@map goal
+                }
+                val rootGoalId = resolveFollowUpRootGoalId(goal.id, issuesById, goalsById, reviewQueueById)
+                    ?: return@map goal
+                val canonicalPolicy = "auto-follow-up:goal:$rootGoalId"
+                val canonicalTitle = generatedFollowUpSubject(goal.title)
+                    ?.let(::canonicalFollowUpSubject)
+                    ?.let { subject -> "Resolve follow-up for \"$subject\"" }
+                    ?: goal.title
+                if (goal.operatingPolicy == canonicalPolicy && goal.title == canonicalTitle) {
+                    return@map goal
+                }
+                changed = true
+                goal.copy(
+                    operatingPolicy = canonicalPolicy,
+                    title = canonicalTitle,
+                    updatedAt = now
+                )
+            }
+
+            val canonicalGoalsById = canonicalGoals.associateBy { it.id }
+            val activeGoalIdsWithTasks = state.tasks
+                .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
+                .mapNotNull { task -> task.issueId?.let { issuesById[it]?.goalId } }
+                .toSet()
+            val duplicateGoalIds = canonicalGoals
+                .filter { goal ->
+                    (companyId == null || goal.companyId == companyId) &&
+                        goal.status == GoalStatus.ACTIVE &&
+                        goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")
+                }
+                .groupBy { resolveFollowUpRootGoalId(it.id, issuesById, canonicalGoalsById, reviewQueueById) ?: canonicalFollowUpSubject(it.title) }
+                .values
+                .flatMap { goalsForLineage ->
+                    if (goalsForLineage.size <= 1) {
+                        emptyList()
+                    } else {
+                        val keepGoal = goalsForLineage.maxWithOrNull(
+                            compareBy<CompanyGoal>(
+                                { if (it.id in activeGoalIdsWithTasks) 1 else 0 },
+                                { it.updatedAt }
+                            )
+                        )
+                        goalsForLineage
+                            .filterNot { it.id == keepGoal?.id || it.id in activeGoalIdsWithTasks }
+                            .map { it.id }
+                    }
+                }
+                .toSet()
+            if (duplicateGoalIds.isNotEmpty()) {
+                changed = true
+            }
+
+            if (!changed) {
+                return@withLock
+            }
+
+            val nextIssues = state.issues.map { issue ->
+                if (issue.goalId !in duplicateGoalIds || issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED) {
+                    issue
+                } else {
+                    traceEvents += CompanyAutomationTraceEvent(
+                        timestamp = now,
+                        companyId = issue.companyId,
+                        projectContextId = issue.projectContextId,
+                        goalId = issue.goalId,
+                        issueId = issue.id,
+                        issueTitle = issue.title,
+                        issueKind = issue.kind,
+                        oldStatus = issue.status,
+                        newStatus = IssueStatus.CANCELED,
+                        source = "migrateLegacyFollowUpGoals",
+                        reason = "Canceled a duplicate historical follow-up goal during root-goal lineage migration.",
+                        operatingPolicy = canonicalGoalsById[issue.goalId]?.operatingPolicy
+                    )
+                    issue.copy(
+                        status = IssueStatus.CANCELED,
+                        updatedAt = now
+                    )
+                }
+            }
+            val nextGoals = canonicalGoals.map { goal ->
+                if (goal.id !in duplicateGoalIds) {
+                    goal
+                } else {
+                    goal.copy(
+                        status = GoalStatus.COMPLETED,
+                        updatedAt = now
+                    )
+                }
+            }
+            val changedCompanies = nextGoals
+                .filter { goal ->
+                    val previousGoal = goalsById[goal.id]
+                    previousGoal != null &&
+                        (previousGoal.operatingPolicy != goal.operatingPolicy || previousGoal.title != goal.title || previousGoal.status != goal.status)
+                }
+                .map { it.companyId }
+                .distinct()
+            var nextState = state.copy(
+                goals = nextGoals,
+                issues = nextIssues
+            )
+            val detailParts = buildList {
+                if (canonicalGoals != state.goals) add("canonicalized follow-up markers")
+                if (duplicateGoalIds.isNotEmpty()) add("collapsed ${duplicateGoalIds.size} duplicate follow-up goals")
+            }
+            changedCompanies.forEach { changedCompanyId ->
+                nextState = nextState.recordCompanyActivity(
+                    companyId = changedCompanyId,
+                    source = "company-runtime",
+                    title = "Migrated legacy follow-up state",
+                    detail = detailParts.joinToString(", ")
+                )
+            }
+            nextState = nextState.withDerivedMetrics()
+            stateStore.save(nextState)
+        }
+        traceEvents.forEach(::appendCompanyAutomationTrace)
+    }
+
     private suspend fun resumeRunningCompanyRuntimes(companyId: String? = null) {
         val runningCompanyIds = stateStore.load().companyRuntimes
             .filter { it.status == CompanyRuntimeStatus.RUNNING }
@@ -233,8 +421,10 @@ class DesktopAppService(
                 return@forEach
             }
             runCatching { startCompanyBackend(runningCompanyId) }
+                .onFailure { cause -> markCompanyRuntimeError(runningCompanyId, cause) }
             ensureCompanyRuntimeLoop(runningCompanyId)
             runCatching { runCompanyRuntimeTick(runningCompanyId) }
+                .onFailure { cause -> markCompanyRuntimeError(runningCompanyId, cause) }
         }
     }
 
@@ -655,6 +845,7 @@ class DesktopAppService(
 
     suspend fun updateBackendSettings(
         defaultBackendKind: ExecutionBackendKind,
+        codePublishMode: CodePublishMode? = null,
         codexLaunchMode: BackendLaunchMode? = null,
         codexCommand: String? = null,
         codexArgs: List<String>? = null,
@@ -689,6 +880,7 @@ class DesktopAppService(
             state.copy(
                 backendSettings = state.backendSettings.copy(
                     defaultBackendKind = defaultBackendKind,
+                    codePublishMode = codePublishMode ?: state.backendSettings.codePublishMode,
                     backends = updatedConfigs
                 )
             )
@@ -1541,6 +1733,8 @@ class DesktopAppService(
     private suspend fun startDelegatedIssue(issue: CompanyIssue): CompanyIssue {
         val executableIssue = ensureIssueWorkspace(issue)
         val state = stateStore.load()
+        val workspace = state.workspaces.firstOrNull { it.id == executableIssue.workspaceId }
+        val repository = workspace?.let { ws -> state.repositories.firstOrNull { it.id == ws.repositoryId } }
         val profile = state.orgProfiles.firstOrNull { it.id == executableIssue.assigneeProfileId }
             ?: ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
                 .firstOrNull { it.companyId == executableIssue.companyId }
@@ -1553,6 +1747,19 @@ class DesktopAppService(
                 capabilities = listOf("implementation", "integration"),
                 mergeAuthority = true
             )
+        if (requiresGitHubPullRequest(executableIssue, state) && workspace != null && repository != null) {
+            val readiness = runCatching {
+                gitWorkspaceService.ensureGitHubPublishReady(
+                    worktreePath = Path.of(repository.localPath),
+                    baseBranch = workspace.baseBranch
+                )
+            }.getOrElse { cause ->
+                return handleDelegatedIssueStartFailure(executableIssue, cause)
+            }
+            if (!readiness.ready) {
+                return blockIssueForGitHubReadiness(executableIssue, readiness.error ?: "GitHub publishing is unavailable")
+            }
+        }
         val latestTask = state.tasks
             .filter { it.issueId == executableIssue.id }
             .maxByOrNull { it.updatedAt }
@@ -1571,7 +1778,12 @@ class DesktopAppService(
             latestTask
         }
         if (task.status == DesktopTaskStatus.QUEUED) {
-            runTaskIfPresent(task.id)
+            serviceScope.launch {
+                runCatching { runTaskIfPresent(task.id) }
+                    .onFailure { cause ->
+                        markCompanyRuntimeError(executableIssue.companyId, cause)
+                    }
+            }
         }
         val runningIssue = stateMutex.withLock {
             val latest = stateStore.load()
@@ -1610,6 +1822,15 @@ class DesktopAppService(
         return runningIssue
     }
 
+    private suspend fun handleDelegatedIssueStartFailure(issue: CompanyIssue, cause: Throwable): CompanyIssue {
+        val reason = cause.message ?: cause::class.simpleName ?: "Unknown issue start failure"
+        return if (requiresGitHubPullRequest(issue, stateStore.load())) {
+            blockIssueForGitHubReadiness(issue, "GitHub readiness check failed: $reason")
+        } else {
+            blockIssueForRuntimeStartFailure(issue, reason)
+        }
+    }
+
     private suspend fun ensureIssueWorkspace(issue: CompanyIssue): CompanyIssue = stateMutex.withLock {
         val state = stateStore.load()
         if (state.workspaces.any { it.id == issue.workspaceId }) {
@@ -1630,58 +1851,299 @@ class DesktopAppService(
         updatedIssue
     }
 
-    suspend fun mergeReviewQueueItem(itemId: String): ReviewQueueItem {
-        val mergedItem = stateMutex.withLock {
-        val state = stateStore.load()
-        val item = state.reviewQueue.firstOrNull { it.id == itemId }
-            ?: throw IllegalArgumentException("Review queue item not found: $itemId")
-        val mergedAt = System.currentTimeMillis()
-        val mergedItem = item.copy(status = ReviewQueueStatus.MERGED, updatedAt = mergedAt)
-        val nextIssues = state.issues.map { issue ->
-            if (issue.id == item.issueId) {
-                issue.copy(status = IssueStatus.DONE, updatedAt = mergedAt)
-            } else {
-                issue
+    private suspend fun blockIssueForGitHubReadiness(issue: CompanyIssue, reason: String): CompanyIssue {
+        return stateMutex.withLock {
+            val state = stateStore.load()
+            val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock issue
+            val now = System.currentTimeMillis()
+            val existingInfraIssue = state.issues.firstOrNull {
+                it.companyId == currentIssue.companyId &&
+                    it.goalId == currentIssue.goalId &&
+                    it.kind.equals("infra", ignoreCase = true) &&
+                    it.title == "Restore GitHub publishing for ${currentIssue.title}"
+            }
+            val infraIssue = existingInfraIssue?.copy(
+                status = IssueStatus.PLANNED,
+                updatedAt = now
+            ) ?: CompanyIssue(
+                id = UUID.randomUUID().toString(),
+                companyId = currentIssue.companyId,
+                projectContextId = currentIssue.projectContextId,
+                goalId = currentIssue.goalId,
+                workspaceId = currentIssue.workspaceId,
+                title = "Restore GitHub publishing for ${currentIssue.title}",
+                description = "GitHub publishing is required before this code issue can continue.\n\n$reason",
+                status = IssueStatus.PLANNED,
+                priority = 1,
+                kind = "infra",
+                sourceSignal = "github-readiness",
+                createdAt = now,
+                updatedAt = now
+            )
+            val blockedIssue = currentIssue.copy(
+                status = IssueStatus.BLOCKED,
+                blockedBy = (currentIssue.blockedBy + infraIssue.id).distinct(),
+                updatedAt = now
+            )
+            val nextIssues = state.issues
+                .filterNot { it.id == blockedIssue.id || it.id == infraIssue.id } + blockedIssue + infraIssue
+            val nextState = state.copy(
+                issues = nextIssues
+            ).recordCompanyActivity(
+                companyId = currentIssue.companyId,
+                projectContextId = currentIssue.projectContextId,
+                goalId = currentIssue.goalId,
+                issueId = currentIssue.id,
+                source = "github-readiness",
+                title = "Blocked code issue",
+                detail = reason,
+                severity = "warning"
+            ).recordCompanyActivity(
+                companyId = currentIssue.companyId,
+                projectContextId = currentIssue.projectContextId,
+                goalId = currentIssue.goalId,
+                issueId = infraIssue.id,
+                source = "github-readiness",
+                title = if (existingInfraIssue == null) "Created infra issue" else "Reopened infra issue",
+                detail = infraIssue.title,
+                severity = "warning"
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            blockedIssue
+        }
+    }
+
+    private suspend fun blockIssueForRuntimeStartFailure(issue: CompanyIssue, reason: String): CompanyIssue =
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock issue
+            val now = System.currentTimeMillis()
+            val blockedIssue = currentIssue.copy(
+                status = IssueStatus.BLOCKED,
+                updatedAt = now
+            )
+            val nextState = state.copy(
+                issues = state.issues.map { existing ->
+                    if (existing.id == currentIssue.id) blockedIssue else existing
+                }
+            ).recordCompanyActivity(
+                companyId = currentIssue.companyId,
+                projectContextId = currentIssue.projectContextId,
+                goalId = currentIssue.goalId,
+                issueId = currentIssue.id,
+                source = "issue-run",
+                title = "Failed to start issue run",
+                detail = reason,
+                severity = "error"
+            ).recordSignal(
+                source = "issue-run",
+                message = "Failed to start ${currentIssue.title}: $reason",
+                companyId = currentIssue.companyId,
+                projectContextId = currentIssue.projectContextId,
+                goalId = currentIssue.goalId,
+                issueId = currentIssue.id,
+                severity = "error"
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            blockedIssue
+        }
+
+    private fun isDependencySatisfied(
+        issue: CompanyIssue,
+        dependency: CompanyIssue,
+        state: DesktopAppState
+    ): Boolean {
+        if (isSupersededCanceledDependency(dependency, state)) {
+            return true
+        }
+        return when (issue.kind.lowercase()) {
+            "review" -> dependency.status == IssueStatus.IN_REVIEW ||
+                dependency.status == IssueStatus.READY_FOR_CEO ||
+                dependency.status == IssueStatus.DONE
+            else -> dependency.status == IssueStatus.DONE
+        }
+    }
+
+    private fun isSupersededCanceledDependency(
+        dependency: CompanyIssue,
+        state: DesktopAppState
+    ): Boolean {
+        if (dependency.status != IssueStatus.CANCELED) {
+            return false
+        }
+        val latestSuccessfulReplacement = state.issues
+            .asSequence()
+            .filter { candidate ->
+                candidate.companyId == dependency.companyId &&
+                    candidate.id != dependency.id &&
+                    candidate.status == IssueStatus.DONE &&
+                    candidate.kind.equals(dependency.kind, ignoreCase = true) &&
+                    candidate.title.trim().equals(dependency.title.trim(), ignoreCase = true)
+            }
+            .maxOfOrNull { it.updatedAt }
+        return latestSuccessfulReplacement != null && latestSuccessfulReplacement > dependency.updatedAt
+    }
+
+    private data class StructuredVerdict(
+        val value: String,
+        val feedback: String
+    )
+
+    private fun parseStructuredVerdict(
+        output: String?,
+        marker: String,
+        successVerdict: String,
+        failureVerdict: String
+    ): StructuredVerdict? {
+        val text = output?.trim().orEmpty()
+        if (text.isBlank()) {
+            return null
+        }
+        val regex = Regex("(?im)^\\s*${Regex.escape(marker)}\\s*:\\s*([A-Z_]+)\\s*$")
+        val explicit = regex.find(text)?.groupValues?.getOrNull(1)?.trim()?.uppercase()
+        val normalized = when (explicit) {
+            successVerdict -> successVerdict
+            failureVerdict -> failureVerdict
+            else -> null
+        } ?: run {
+            val lower = text.lowercase()
+            when {
+                lower.contains("changes requested") || lower.contains("request changes") || lower.contains("needs follow-up") || lower.contains("blocked") -> failureVerdict
+                lower.contains("ready for approval") || lower.contains("approve") || lower.contains("pass") || lower.contains("ready") -> successVerdict
+                else -> successVerdict
             }
         }
-        val nextGoals = state.goals.map { goal ->
-            val unresolved = nextIssues.any { it.goalId == goal.id && it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
-            if (goal.id == nextIssues.firstOrNull { it.id == item.issueId }?.goalId && !unresolved) {
-                goal.copy(status = GoalStatus.COMPLETED, updatedAt = mergedAt)
-            } else {
-                goal
+        val feedback = text
+            .lineSequence()
+            .filterNot { it.trim().startsWith("$marker:", ignoreCase = true) }
+            .joinToString("\n")
+            .trim()
+        return StructuredVerdict(
+            value = normalized,
+            feedback = feedback.ifBlank { summarizeForPrompt(text, 240) }
+        )
+    }
+
+    private suspend fun completeApprovalIssueAfterMerge(issueId: String) {
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val issue = state.issues.firstOrNull { it.id == issueId } ?: return@withLock
+            val now = System.currentTimeMillis()
+            val nextIssues = state.issues.map { existing ->
+                if (existing.id == issueId) existing.copy(status = IssueStatus.DONE, updatedAt = now) else existing
             }
-        }
-        val mergedIssue = nextIssues.firstOrNull { it.id == item.issueId }
-        val nextState = state.copy(
-            reviewQueue = state.reviewQueue.map { if (it.id == itemId) mergedItem else it },
-            issues = nextIssues,
-            goals = nextGoals
-        ).recordCompanyActivity(
-            companyId = mergedIssue?.companyId ?: item.companyId,
-            projectContextId = mergedIssue?.projectContextId ?: item.projectContextId,
-            goalId = mergedIssue?.goalId,
-            issueId = item.issueId,
-            source = "review-queue",
-            title = "Merged issue",
-            detail = mergedIssue?.title ?: item.id
-        ).recordSignal(
-            source = "review-queue",
-            message = "Merged review queue item ${item.id}",
-            companyId = mergedIssue?.companyId ?: item.companyId,
-            projectContextId = mergedIssue?.projectContextId ?: item.projectContextId,
-            goalId = nextIssues.firstOrNull { it.id == item.issueId }?.goalId,
-            issueId = item.issueId
-        ).withDerivedMetrics()
-        stateStore.save(nextState)
-        mergedIssue?.let { issue ->
-            state.companies.firstOrNull { it.id == issue.companyId }?.let { company ->
-                nextState.projectContexts.firstOrNull { it.id == issue.projectContextId }?.let { context ->
-                    writeCompanyContextSnapshot(nextState, company, context)
+            val nextGoals = state.goals.map { goal ->
+                if (goal.id != issue.goalId) {
+                    goal
+                } else {
+                    val unresolved = nextIssues.any { it.goalId == goal.id && it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
+                    if (!unresolved) goal.copy(status = GoalStatus.COMPLETED, updatedAt = now) else goal
                 }
             }
+            stateStore.save(
+                state.copy(
+                    issues = nextIssues,
+                    goals = nextGoals
+                ).recordCompanyActivity(
+                    companyId = issue.companyId,
+                    projectContextId = issue.projectContextId,
+                    goalId = issue.goalId,
+                    issueId = issue.id,
+                    source = "ceo-approval",
+                    title = "Completed approval issue",
+                    detail = issue.title
+                ).withDerivedMetrics()
+            )
         }
-        mergedItem
+    }
+
+    suspend fun mergeReviewQueueItem(itemId: String): ReviewQueueItem {
+        val before = stateStore.load()
+        val item = before.reviewQueue.firstOrNull { it.id == itemId }
+            ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+        val run = before.runs.firstOrNull { it.id == item.runId }
+        val worktreePath = item.worktreePath?.takeIf { it.isNotBlank() } ?: run?.worktreePath
+        val pullRequestNumber = item.pullRequestNumber ?: run?.publish?.pullRequestNumber
+        if (worktreePath.isNullOrBlank() || pullRequestNumber == null) {
+            throw IllegalStateException("Review queue item $itemId is missing branch or pull request metadata")
+        }
+
+        val reviewBody = item.ceoFeedback?.takeIf { it.isNotBlank() }
+            ?: "CEO approved this pull request after QA review."
+        val approvedMetadata = gitWorkspaceService.submitPullRequestReview(
+            worktreePath = Path.of(worktreePath),
+            pullRequestNumber = pullRequestNumber,
+            verdict = PullRequestReviewVerdict.APPROVE,
+            body = reviewBody
+        )
+        val mergeResult = gitWorkspaceService.mergePullRequest(
+            worktreePath = Path.of(worktreePath),
+            pullRequestNumber = pullRequestNumber
+        )
+
+        val mergedItem = stateMutex.withLock {
+            val state = stateStore.load()
+            val currentItem = state.reviewQueue.firstOrNull { it.id == itemId }
+                ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+            val mergedAt = System.currentTimeMillis()
+            val nextMergedItem = currentItem.copy(
+                status = ReviewQueueStatus.MERGED,
+                pullRequestNumber = approvedMetadata.pullRequestNumber ?: currentItem.pullRequestNumber,
+                pullRequestUrl = approvedMetadata.pullRequestUrl ?: currentItem.pullRequestUrl,
+                pullRequestState = mergeResult.state ?: approvedMetadata.pullRequestState ?: currentItem.pullRequestState,
+                mergeability = approvedMetadata.mergeability ?: currentItem.mergeability,
+                ceoVerdict = currentItem.ceoVerdict ?: "APPROVE",
+                ceoFeedback = currentItem.ceoFeedback ?: reviewBody,
+                ceoReviewedAt = currentItem.ceoReviewedAt ?: mergedAt,
+                mergeCommitSha = mergeResult.mergeCommitSha,
+                mergedAt = mergedAt,
+                updatedAt = mergedAt
+            )
+            val nextIssues = state.issues.map { issue ->
+                if (issue.id == currentItem.issueId) {
+                    issue.copy(status = IssueStatus.DONE, updatedAt = mergedAt)
+                } else {
+                    issue
+                }
+            }
+            val nextGoals = state.goals.map { goal ->
+                val unresolved = nextIssues.any { it.goalId == goal.id && it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
+                if (goal.id == nextIssues.firstOrNull { it.id == currentItem.issueId }?.goalId && !unresolved) {
+                    goal.copy(status = GoalStatus.COMPLETED, updatedAt = mergedAt)
+                } else {
+                    goal
+                }
+            }
+            val mergedIssue = nextIssues.firstOrNull { it.id == currentItem.issueId }
+            val nextState = state.copy(
+                reviewQueue = state.reviewQueue.map { if (it.id == itemId) nextMergedItem else it },
+                issues = nextIssues,
+                goals = nextGoals
+            ).recordCompanyActivity(
+                companyId = mergedIssue?.companyId ?: currentItem.companyId,
+                projectContextId = mergedIssue?.projectContextId ?: currentItem.projectContextId,
+                goalId = mergedIssue?.goalId,
+                issueId = currentItem.issueId,
+                source = "review-queue",
+                title = "Merged issue",
+                detail = mergedIssue?.title ?: currentItem.id
+            ).recordSignal(
+                source = "review-queue",
+                message = "Merged review queue item ${currentItem.id}",
+                companyId = mergedIssue?.companyId ?: currentItem.companyId,
+                projectContextId = mergedIssue?.projectContextId ?: currentItem.projectContextId,
+                goalId = nextIssues.firstOrNull { it.id == currentItem.issueId }?.goalId,
+                issueId = currentItem.issueId
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            mergedIssue?.let { issue ->
+                state.companies.firstOrNull { it.id == issue.companyId }?.let { company ->
+                    nextState.projectContexts.firstOrNull { it.id == issue.projectContextId }?.let { context ->
+                        writeCompanyContextSnapshot(nextState, company, context)
+                    }
+                }
+            }
+            nextMergedItem
         }
         val mergedIssue = stateStore.load().issues.firstOrNull { it.id == mergedItem.issueId }
         if (mergedIssue != null) {
@@ -1757,7 +2219,10 @@ class DesktopAppService(
             title = "Started runtime"
         )
         ensureCompanyRuntimeLoop(effectiveCompanyId)
-        runCompanyRuntimeTick(effectiveCompanyId)
+        serviceScope.launch {
+            runCatching { runCompanyRuntimeTick(effectiveCompanyId) }
+                .onFailure { cause -> markCompanyRuntimeError(effectiveCompanyId, cause) }
+        }
         return runtimeStatus(effectiveCompanyId)
     }
 
@@ -1816,9 +2281,11 @@ class DesktopAppService(
             companyRuntimeTickMutexes.getOrPut(companyId) { Mutex() }
         }
         return tickMutex.withLock {
+            markRuntimeTickHeartbeat(companyId, "tick-started")
             reconcileStaleAgentRuns(companyId)
             reconcileNonPublishingReviewRuns(companyId)
             val reconciledIssues = reconcileTerminalIssueStates(companyId)
+            var normalizedStates = normalizeCompanyAutomationState(companyId)
             val initial = stateStore.load()
             val runtime = initial.companyRuntimes.firstOrNull { it.companyId == companyId } ?: CompanyRuntimeSnapshot(companyId = companyId)
             if (runtime.status != CompanyRuntimeStatus.RUNNING) {
@@ -1830,17 +2297,20 @@ class DesktopAppService(
             if (reconciledIssues > 0) {
                 actions += "reconciled-issues:$reconciledIssues"
             }
+            if (normalizedStates > 0) {
+                actions += "normalized-states:$normalizedStates"
+            }
             val recoveredBlockedIssues = requeueRecoverableBlockedIssues(companyId)
             if (recoveredBlockedIssues > 0) {
                 actions += "retried-recoverable:$recoveredBlockedIssues"
+                normalizedStates = normalizeCompanyAutomationState(companyId)
+                if (normalizedStates > 0) {
+                    actions += "reactivated-goals:$normalizedStates"
+                }
             }
             val archivedRecursiveGoals = archiveRecursiveFollowUpGoals(companyId)
             if (archivedRecursiveGoals > 0) {
                 actions += "archived-recursive-goals:$archivedRecursiveGoals"
-            }
-            val retriedBlockedIssues = requeueBlockedRemediationIssues(companyId)
-            if (retriedBlockedIssues > 0) {
-                actions += "retried-blocked:$retriedBlockedIssues"
             }
             synthesizeAutonomousFollowUpGoal(companyId)?.let { synthesizedGoal ->
                 actions += "goal-added:${synthesizedGoal.id}"
@@ -1863,19 +2333,6 @@ class DesktopAppService(
                     actions += "decomposed:${goal.id}"
                 }
             }
-
-            val reviewSnapshot = stateStore.load()
-            reviewSnapshot.reviewQueue
-                .filter { it.status == ReviewQueueStatus.READY_TO_MERGE }
-                .filter { item ->
-                    val issue = reviewSnapshot.issues.firstOrNull { it.id == item.issueId } ?: return@filter false
-                    reviewSnapshot.goals.firstOrNull { it.id == issue.goalId }?.autonomyEnabled == true &&
-                        issue.companyId == companyId
-                }
-                .forEach { item ->
-                    mergeReviewQueueItem(item.id)
-                    actions += "merged:${item.id}"
-                }
 
             val executionSnapshot = stateStore.load()
             val companyProfiles = ensureOrgProfiles(
@@ -1903,7 +2360,8 @@ class DesktopAppService(
                 .sortedWith(compareBy<CompanyIssue> { it.priority }.thenBy { it.createdAt })
                 .filter { issue ->
                     val dependenciesSatisfied = issue.dependsOn.all { dependencyId ->
-                        executionSnapshot.issues.firstOrNull { it.id == dependencyId }?.status == IssueStatus.DONE
+                        val dependency = executionSnapshot.issues.firstOrNull { it.id == dependencyId } ?: return@all false
+                        isDependencySatisfied(issue, dependency, executionSnapshot)
                     }
                     val alreadyStarted = executionSnapshot.tasks.any { task ->
                         task.issueId == issue.id &&
@@ -1930,9 +2388,14 @@ class DesktopAppService(
                 }
             }
 
-            startableIssues.forEach { runnableIssue ->
-                startDelegatedIssue(runnableIssue)
-                actions += "started:${runnableIssue.id}"
+            for (runnableIssue in startableIssues) {
+                val startedIssue = runCatching { startDelegatedIssue(runnableIssue) }
+                    .getOrElse { cause -> handleDelegatedIssueStartFailure(runnableIssue, cause) }
+                actions += if (startedIssue.status == IssueStatus.BLOCKED) {
+                    "start-blocked:${startedIssue.id}"
+                } else {
+                    "started:${startedIssue.id}"
+                }
             }
 
             updateRuntimeAfterTick(
@@ -1942,62 +2405,31 @@ class DesktopAppService(
         }
     }
 
-    private suspend fun requeueBlockedRemediationIssues(companyId: String): Int {
-        var retried = 0
+    private suspend fun markRuntimeTickHeartbeat(companyId: String, lastAction: String) {
         stateMutex.withLock {
             val state = stateStore.load()
-            val now = System.currentTimeMillis()
-            val activeTaskIssueIds = state.tasks
-                .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
-                .mapNotNull { it.issueId }
-                .toSet()
-            var changed = false
-            val updatedIssues = state.issues.map { issue ->
-                if (
-                    issue.companyId != companyId ||
-                    issue.status != IssueStatus.BLOCKED ||
-                    issue.kind.equals("planning", ignoreCase = true)
-                ) {
-                    return@map issue
-                }
-                val goal = state.goals.firstOrNull { it.id == issue.goalId } ?: return@map issue
-                if (!goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) {
-                    return@map issue
-                }
-                if (issue.id in activeTaskIssueIds) {
-                    return@map issue
-                }
-                val priorAttempts = state.tasks.count { it.issueId == issue.id }
-                if (priorAttempts >= 3) {
-                    return@map issue
-                }
-                changed = true
-                retried += 1
-                issue.copy(
-                    status = IssueStatus.PLANNED,
-                    blockedBy = emptyList(),
-                    updatedAt = now
-                )
-            }
-            if (!changed) {
+            val current = state.companyRuntimes.firstOrNull { it.companyId == companyId } ?: return@withLock
+            if (current.status != CompanyRuntimeStatus.RUNNING) {
                 return@withLock
             }
             stateStore.save(
-                state.copy(issues = updatedIssues)
-                    .recordCompanyActivity(
-                        companyId = companyId,
-                        source = "company-runtime",
-                        title = "Retried blocked remediation work",
-                        detail = "Moved blocked follow-up issues back to planned for another attempt."
+                state.copy(
+                    companyRuntimes = upsertCompanyRuntime(
+                        state.companyRuntimes,
+                        current.copy(
+                            lastTickAt = System.currentTimeMillis(),
+                            lastAction = lastAction,
+                            lastError = null
+                        )
                     )
-                    .withDerivedMetrics()
+                ).withDerivedMetrics()
             )
         }
-        return retried
     }
 
     private suspend fun requeueRecoverableBlockedIssues(companyId: String): Int {
         var retried = 0
+        val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         stateMutex.withLock {
             val state = stateStore.load()
             val now = System.currentTimeMillis()
@@ -2008,6 +2440,7 @@ class DesktopAppService(
                 .mapNotNull { it.issueId }
                 .toSet()
             var changed = false
+            var nextState = state
             val updatedIssues = state.issues.map { issue ->
                 if (issue.companyId != companyId || issue.status != IssueStatus.BLOCKED) {
                     return@map issue
@@ -2030,11 +2463,20 @@ class DesktopAppService(
                     }
                     changed = true
                     retried += 1
-                    return@map issue.copy(
+                    val updatedIssue = issue.copy(
                         status = IssueStatus.PLANNED,
                         blockedBy = emptyList(),
                         updatedAt = now
                     )
+                    traceEvents += buildCompanyAutomationTraceEvent(
+                        issue = issue,
+                        goal = goal,
+                        oldStatus = issue.status,
+                        newStatus = updatedIssue.status,
+                        source = "requeueRecoverableBlockedIssues",
+                        reason = "No tasks exist yet and all dependencies are done, so the issue is recoverable."
+                    )
+                    return@map updatedIssue
                 }
                 val latestTask = issueTasks.first()
                 val latestRun = state.runs
@@ -2043,31 +2485,44 @@ class DesktopAppService(
                 if (!isRecoverableInfrastructureFailure(latestTask, latestRun)) {
                     return@map issue
                 }
-                if (issueTasks.size >= 3) {
-                    return@map issue
-                }
                 changed = true
                 retried += 1
-                issue.copy(
+                val updatedIssue = issue.copy(
                     status = IssueStatus.PLANNED,
                     blockedBy = emptyList(),
                     updatedAt = now
                 )
+                traceEvents += buildCompanyAutomationTraceEvent(
+                    issue = issue,
+                    goal = goal,
+                    oldStatus = issue.status,
+                    newStatus = updatedIssue.status,
+                    source = "requeueRecoverableBlockedIssues",
+                    reason = "Retrying recoverable infrastructure failure.",
+                    latestTask = latestTask,
+                    latestRun = latestRun
+                )
+                updatedIssue
             }
             if (!changed) {
                 return@withLock
             }
-            stateStore.save(
-                state.copy(issues = updatedIssues)
-                    .recordCompanyActivity(
-                        companyId = companyId,
-                        source = "company-runtime",
-                        title = "Retried recoverable blocked issues",
-                        detail = "Moved infrastructure-blocked issues back to planned for another attempt."
-                    )
-                    .withDerivedMetrics()
-            )
+            nextState = nextState.copy(issues = updatedIssues)
+            traceEvents.forEach { trace ->
+                nextState = nextState.recordCompanyActivity(
+                    companyId = trace.companyId,
+                    projectContextId = trace.projectContextId,
+                    goalId = trace.goalId,
+                    issueId = trace.issueId,
+                    source = trace.source,
+                    title = "Retried blocked issue",
+                    detail = "${trace.issueTitle}: ${trace.reason}",
+                    severity = "warning"
+                )
+            }
+            stateStore.save(nextState.withDerivedMetrics())
         }
+        traceEvents.forEach(::appendCompanyAutomationTrace)
         return retried
     }
 
@@ -2085,12 +2540,16 @@ class DesktopAppService(
                 message.contains("could not connect to the server") ||
                 message.contains("network connection was lost") ||
                 message.contains("connection refused") ||
-                message.contains("no run found")
+                message.contains("no run found") ||
+                message.contains("exited before cotor recorded a final result") ||
+                message.contains("pull request create failed") ||
+                message.contains("submitted too quickly")
         }
     }
 
     private suspend fun reconcileTerminalIssueStates(companyId: String): Int {
         val taskIdsToSync = mutableListOf<String>()
+        val informationalTraceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         stateMutex.withLock {
             val state = stateStore.load()
             val activeTaskIssueIds = state.tasks
@@ -2109,7 +2568,27 @@ class DesktopAppService(
                         .filter { it.issueId == issue.id }
                         .maxByOrNull { it.updatedAt }
                         ?: return@forEach
+                    val latestRun = state.runs
+                        .filter { it.taskId == latestTask.id }
+                        .maxByOrNull { it.updatedAt }
                     if (latestTask.status == DesktopTaskStatus.RUNNING || latestTask.status == DesktopTaskStatus.QUEUED) {
+                        return@forEach
+                    }
+                    val recoverableRetryPending =
+                        issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
+                            isRecoverableInfrastructureFailure(latestTask, latestRun)
+                    if (recoverableRetryPending) {
+                        informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                            issue = issue,
+                            goal = state.goals.firstOrNull { it.id == issue.goalId },
+                            oldStatus = issue.status,
+                            newStatus = issue.status,
+                            source = "reconcileTerminalIssueStates",
+                            reason = "Skipped task-to-issue reconciliation because a recoverable retry is pending a new task run.",
+                            latestTask = latestTask,
+                            latestRun = latestRun,
+                            retryEligible = true
+                        )
                         return@forEach
                     }
                     taskIdsToSync += latestTask.id
@@ -2120,11 +2599,14 @@ class DesktopAppService(
                 syncIssueFromTask(task.id, task.status)
             }
         }
+        informationalTraceEvents.forEach(::appendCompanyAutomationTrace)
         return taskIdsToSync.distinct().size
     }
 
     private suspend fun normalizeCompanyAutomationState(companyId: String): Int {
         var changed = 0
+        val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        val informationalTraceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         stateMutex.withLock {
             val state = stateStore.load()
             val now = System.currentTimeMillis()
@@ -2155,36 +2637,143 @@ class DesktopAppService(
                             val issueId = reviewQueueById[reviewId]?.issueId
                             issueId?.let(issuesById::get)?.goalId?.let(goalsById::get)
                         }
+                        goal.operatingPolicy?.startsWith("auto-follow-up:goal:") == true -> {
+                            val parentGoalId = goal.operatingPolicy.removePrefix("auto-follow-up:goal:")
+                            goalsById[parentGoalId]
+                        }
                         else -> null
                     } ?: return@mapNotNull null
                     if (parentGoal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) goal.id else null
                 }
                 .toSet()
+            val doneIssueSignatureLatestUpdatedAt = state.issues
+                .filter { it.companyId == companyId && it.status == IssueStatus.DONE }
+                .groupBy { issue -> issue.kind.lowercase() to issue.title.trim().lowercase() }
+                .mapValues { (_, issues) -> issues.maxOf { it.updatedAt } }
             val nextIssues = state.issues.map { issue ->
                 if (issue.companyId != companyId) {
                     return@map issue
                 }
                 val latestTask = tasksByIssueId[issue.id].orEmpty().maxByOrNull { it.updatedAt }
                 val goal = goalsById[issue.goalId]
+                val workflowDrivenIssue = issue.kind.lowercase() in setOf("execution", "review", "approval")
+                val latestRun = latestTask?.let { task ->
+                    state.runs
+                        .filter { it.taskId == task.id }
+                        .maxByOrNull { it.updatedAt }
+                }
+                val recoverableRetryPending =
+                    latestTask != null &&
+                        latestTask.status != DesktopTaskStatus.RUNNING &&
+                        latestTask.status != DesktopTaskStatus.QUEUED &&
+                        issue.id !in activeTaskIssueIds &&
+                        issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
+                        isRecoverableInfrastructureFailure(latestTask, latestRun)
+                val recoverableBlockedIssueReadyForRetry =
+                    latestTask != null &&
+                        latestTask.status != DesktopTaskStatus.RUNNING &&
+                        latestTask.status != DesktopTaskStatus.QUEUED &&
+                        issue.id !in activeTaskIssueIds &&
+                        issue.status == IssueStatus.BLOCKED &&
+                        goal?.autonomyEnabled == true &&
+                        goal.status != GoalStatus.COMPLETED &&
+                        isRecoverableInfrastructureFailure(latestTask, latestRun)
+                val supersededBySuccessfulRetry =
+                    goal?.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
+                        issue.status != IssueStatus.DONE &&
+                        issue.status != IssueStatus.CANCELED &&
+                        (
+                            doneIssueSignatureLatestUpdatedAt[issue.kind.lowercase() to issue.title.trim().lowercase()]
+                                ?.let { latestDoneUpdatedAt -> latestDoneUpdatedAt > issue.updatedAt }
+                        ) == true
                 val nextStatus = when {
+                    supersededBySuccessfulRetry -> IssueStatus.CANCELED
                     issue.goalId in recursiveGoalIds && issue.status != IssueStatus.DONE && issue.status != IssueStatus.CANCELED -> IssueStatus.CANCELED
+                    recoverableBlockedIssueReadyForRetry -> IssueStatus.PLANNED
+                    recoverableRetryPending -> issue.status
                     latestTask == null || issue.id in activeTaskIssueIds || issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED -> issue.status
+                    workflowDrivenIssue -> issue.status
                     latestTask.status == DesktopTaskStatus.COMPLETED -> IssueStatus.DONE
-                    latestTask.status == DesktopTaskStatus.FAILED || latestTask.status == DesktopTaskStatus.PARTIAL -> {
-                        if (goal?.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) {
-                            val attempts = tasksByIssueId[issue.id].orEmpty().size
-                            if (attempts < 3) IssueStatus.PLANNED else IssueStatus.BLOCKED
-                        } else {
-                            IssueStatus.BLOCKED
-                        }
-                    }
+                    latestTask.status == DesktopTaskStatus.FAILED || latestTask.status == DesktopTaskStatus.PARTIAL -> IssueStatus.BLOCKED
                     else -> issue.status
                 }
                 if (nextStatus == issue.status) {
+                    if (recoverableRetryPending) {
+                        informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                            issue = issue,
+                            goal = goal,
+                            oldStatus = issue.status,
+                            newStatus = issue.status,
+                            source = "normalizeCompanyAutomationState",
+                            reason = "Skipped blocking because a recoverable retry is pending a new task run.",
+                            latestTask = latestTask,
+                            latestRun = latestRun,
+                            retryEligible = true
+                        )
+                    } else if (
+                        issue.status == IssueStatus.BLOCKED &&
+                        latestTask != null &&
+                        latestTask.status != DesktopTaskStatus.RUNNING &&
+                        latestTask.status != DesktopTaskStatus.QUEUED &&
+                        issue.id !in activeTaskIssueIds &&
+                        workflowDrivenIssue
+                    ) {
+                        informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                            issue = issue,
+                            goal = goal,
+                            oldStatus = issue.status,
+                            newStatus = issue.status,
+                            source = "normalizeCompanyAutomationState",
+                            reason = if (isRecoverableInfrastructureFailure(latestTask, latestRun)) {
+                                "Blocked workflow issue is recoverable but could not be reopened because its goal is not autonomous."
+                            } else {
+                                "Blocked workflow issue remains blocked because its latest failure is not recoverable."
+                            },
+                            latestTask = latestTask,
+                            latestRun = latestRun,
+                            retryEligible = latestTask.let { isRecoverableInfrastructureFailure(it, latestRun) }
+                        )
+                    } else if (workflowDrivenIssue && latestTask != null && latestTask.status != DesktopTaskStatus.RUNNING && latestTask.status != DesktopTaskStatus.QUEUED) {
+                        informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                            issue = issue,
+                            goal = goal,
+                            oldStatus = issue.status,
+                            newStatus = issue.status,
+                            source = "normalizeCompanyAutomationState",
+                            reason = "Skipped overriding a workflow-driven issue because task reconciliation owns its final status.",
+                            latestTask = latestTask,
+                            latestRun = latestRun,
+                            retryEligible = latestTask.let { isRecoverableInfrastructureFailure(it, latestRun) }
+                        )
+                    }
                     issue
                 } else {
                     changed += 1
-                    issue.copy(status = nextStatus, blockedBy = if (nextStatus == IssueStatus.PLANNED) emptyList() else issue.blockedBy, updatedAt = now)
+                    val updatedIssue = issue.copy(
+                        status = nextStatus,
+                        blockedBy = if (nextStatus == IssueStatus.PLANNED) emptyList() else issue.blockedBy,
+                        updatedAt = now
+                    )
+                    val reason = when {
+                        supersededBySuccessfulRetry -> "A newer retry with the same title and kind already finished successfully."
+                        issue.goalId in recursiveGoalIds -> "Canceled recursive nested follow-up work."
+                        recoverableBlockedIssueReadyForRetry -> "Reopened a blocked issue because the latest task failed with a recoverable infrastructure error."
+                        latestTask?.status == DesktopTaskStatus.COMPLETED -> "Latest task completed successfully."
+                        latestTask?.status == DesktopTaskStatus.FAILED || latestTask?.status == DesktopTaskStatus.PARTIAL -> "Latest task failed; keeping the issue blocked until recoverable retry logic handles it."
+                        else -> "Normalized issue state from task and goal status."
+                    }
+                    traceEvents += buildCompanyAutomationTraceEvent(
+                        issue = issue,
+                        goal = goal,
+                        oldStatus = issue.status,
+                        newStatus = updatedIssue.status,
+                        source = "normalizeCompanyAutomationState",
+                        reason = reason,
+                        latestTask = latestTask,
+                        latestRun = latestRun,
+                        retryEligible = latestTask?.let { isRecoverableInfrastructureFailure(it, latestRun) }
+                    )
+                    updatedIssue
                 }
             }
             val activeTaskIssueIdsForGoals = state.tasks
@@ -2230,7 +2819,8 @@ class DesktopAppService(
                                 it.status == IssueStatus.PLANNED ||
                                     it.status == IssueStatus.DELEGATED ||
                                     it.status == IssueStatus.IN_PROGRESS ||
-                                    it.status == IssueStatus.IN_REVIEW
+                                    it.status == IssueStatus.IN_REVIEW ||
+                                    it.status == IssueStatus.READY_FOR_CEO
                             } -> GoalStatus.ACTIVE
                             else -> goal.status
                         }
@@ -2263,18 +2853,38 @@ class DesktopAppService(
                 if (changed > 0) add("reconciled $changed issue states")
                 if (recursiveGoalIds.isNotEmpty()) add("archived ${recursiveGoalIds.size} recursive follow-up goals")
             }
-            stateStore.save(
-                state.copy(
-                    issues = finalizedIssues,
-                    goals = nextGoals
-                ).recordCompanyActivity(
-                    companyId = companyId,
-                    source = "company-runtime",
-                    title = "Normalized autonomous company state",
-                    detail = detailParts.joinToString(", ")
-                ).withDerivedMetrics()
+            var nextState = state.copy(
+                issues = finalizedIssues,
+                goals = nextGoals
             )
+            nextState = nextState.recordCompanyActivity(
+                companyId = companyId,
+                source = "company-runtime",
+                title = "Normalized autonomous company state",
+                detail = detailParts.joinToString(", ")
+            )
+            traceEvents
+                .filter { it.newStatus == IssueStatus.BLOCKED || it.newStatus == IssueStatus.CANCELED }
+                .forEach { trace ->
+                    nextState = nextState.recordCompanyActivity(
+                        companyId = trace.companyId,
+                        projectContextId = trace.projectContextId,
+                        goalId = trace.goalId,
+                        issueId = trace.issueId,
+                        source = trace.source,
+                        title = when (trace.newStatus) {
+                            IssueStatus.BLOCKED -> "Blocked issue"
+                            IssueStatus.CANCELED -> "Canceled issue"
+                            else -> "Updated issue"
+                        },
+                        detail = "${trace.issueTitle}: ${trace.reason}",
+                        severity = if (trace.newStatus == IssueStatus.BLOCKED) "warning" else "info"
+                    )
+                }
+            stateStore.save(nextState.withDerivedMetrics())
         }
+        traceEvents.forEach(::appendCompanyAutomationTrace)
+        informationalTraceEvents.forEach(::appendCompanyAutomationTrace)
         return changed
     }
 
@@ -2308,18 +2918,45 @@ class DesktopAppService(
                             val issueId = reviewQueueById[reviewId]?.issueId
                             issueId?.let(issuesById::get)?.goalId?.let(goalsById::get)
                         }
+                        goal.operatingPolicy?.startsWith("auto-follow-up:goal:") == true -> {
+                            val parentGoalId = goal.operatingPolicy.removePrefix("auto-follow-up:goal:")
+                            goalsById[parentGoalId]
+                        }
                         else -> null
                     } ?: return@mapNotNull null
                     if (parentGoal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) goal.id else null
                 }
                 .toSet()
-            if (recursiveGoalIds.isEmpty()) {
+            val duplicateFollowUpGoalIds = state.goals
+                .filter { goal ->
+                    goal.companyId == companyId &&
+                        goal.status == GoalStatus.ACTIVE &&
+                        goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")
+                }
+                .groupBy { resolveFollowUpRootGoalId(it.id, issuesById, goalsById, reviewQueueById) ?: canonicalFollowUpSubject(it.title) }
+                .values
+                .flatMap { goalsForSubject ->
+                    if (goalsForSubject.size <= 1) {
+                        emptyList()
+                    } else {
+                        val keepGoal = goalsForSubject.maxWithOrNull(
+                            compareBy<CompanyGoal>(
+                                { if (it.id in activeGoalIdsWithTasks) 1 else 0 },
+                                { it.updatedAt }
+                            )
+                        )
+                        goalsForSubject.filterNot { it.id == keepGoal?.id }.map { it.id }
+                    }
+                }
+                .toSet()
+            val archivedGoalIds = recursiveGoalIds + duplicateFollowUpGoalIds
+            if (archivedGoalIds.isEmpty()) {
                 return@withLock
             }
-            archivedCount = recursiveGoalIds.size
+            archivedCount = archivedGoalIds.size
             val nextState = state.copy(
                 goals = state.goals.map { goal ->
-                    if (goal.id !in recursiveGoalIds) {
+                    if (goal.id !in archivedGoalIds) {
                         goal
                     } else {
                         goal.copy(
@@ -2329,7 +2966,7 @@ class DesktopAppService(
                     }
                 },
                 issues = state.issues.map { issue ->
-                    if (issue.goalId !in recursiveGoalIds || issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED) {
+                    if (issue.goalId !in archivedGoalIds || issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED) {
                         issue
                     } else {
                         issue.copy(
@@ -2347,6 +2984,58 @@ class DesktopAppService(
             stateStore.save(nextState)
         }
         return archivedCount
+    }
+
+    private fun isGeneratedFollowUpTitle(title: String): Boolean =
+        title.trim().startsWith("Resolve follow-up for \"")
+
+    private fun canonicalFollowUpSubject(title: String): String {
+        var current = title.trim()
+        while (true) {
+            val nested = generatedFollowUpSubject(current) ?: break
+            current = nested.trim()
+        }
+        return current
+    }
+
+    private fun generatedFollowUpSubject(title: String): String? {
+        val trimmed = title.trim()
+        val prefix = "Resolve follow-up for \""
+        return if (trimmed.startsWith(prefix) && trimmed.endsWith("\"") && trimmed.length > prefix.length + 1) {
+            trimmed.removePrefix(prefix).removeSuffix("\"")
+        } else {
+            null
+        }
+    }
+
+    private fun resolveFollowUpRootGoalId(
+        goalId: String,
+        issuesById: Map<String, CompanyIssue>,
+        goalsById: Map<String, CompanyGoal>,
+        reviewQueueById: Map<String, ReviewQueueItem>
+    ): String? {
+        var currentGoalId = goalId
+        val visitedGoalIds = mutableSetOf<String>()
+        while (visitedGoalIds.add(currentGoalId)) {
+            val goal = goalsById[currentGoalId] ?: return currentGoalId
+            val policy = goal.operatingPolicy.orEmpty()
+            currentGoalId = when {
+                policy.startsWith("auto-follow-up:issue:") -> {
+                    val issueId = policy.removePrefix("auto-follow-up:issue:")
+                    issuesById[issueId]?.goalId ?: return currentGoalId
+                }
+                policy.startsWith("auto-follow-up:review:") -> {
+                    val reviewId = policy.removePrefix("auto-follow-up:review:")
+                    val issueId = reviewQueueById[reviewId]?.issueId
+                    issueId?.let(issuesById::get)?.goalId ?: return currentGoalId
+                }
+                policy.startsWith("auto-follow-up:goal:") -> {
+                    policy.removePrefix("auto-follow-up:goal:").ifBlank { return currentGoalId }
+                }
+                else -> return currentGoalId
+            }
+        }
+        return currentGoalId
     }
 
     suspend fun openLocalRepository(path: String): ManagedRepository {
@@ -2641,6 +3330,7 @@ class DesktopAppService(
 
     fun settings(): DesktopSettings {
         val state = runBlocking { stateStore.load() }
+        val githubPublishStatus = runBlocking { computeGitHubPublishStatus(state) }
         return DesktopSettings(
             appHome = stateStore.appHome().toString(),
             managedReposRoot = stateStore.managedReposRoot().toString(),
@@ -2649,11 +3339,38 @@ class DesktopAppService(
             recentCompanies = emptyList(),
             defaultLaunchMode = "company",
             backendSettings = state.backendSettings,
+            githubPublishStatus = githubPublishStatus,
             linearSettings = state.linearSettings,
             backendStatuses = computeBackendStatuses(state),
             shortcuts = ShortcutConfig()
         )
     }
+
+    private suspend fun computeGitHubPublishStatus(state: DesktopAppState): GitHubPublishStatus {
+        val company = state.companies.maxByOrNull { it.updatedAt }
+        val repository = company?.let { linked ->
+            state.repositories.firstOrNull { it.id == linked.repositoryId }
+        } ?: state.repositories.maxByOrNull { it.updatedAt }
+        val environment = gitWorkspaceService.inspectGitHubPublishEnvironment(
+            repositoryRoot = repository?.localPath?.let(Path::of),
+            baseBranch = company?.defaultBaseBranch ?: repository?.defaultBranch
+        )
+        return GitHubPublishStatus(
+            policy = state.backendSettings.codePublishMode,
+            ghInstalled = environment.ghInstalled,
+            ghAuthenticated = environment.ghAuthenticated,
+            originConfigured = environment.originConfigured,
+            originUrl = environment.originUrl,
+            bootstrapAvailable = environment.bootstrapAvailable,
+            repositoryPath = environment.repositoryPath,
+            companyId = company?.id,
+            companyName = company?.name,
+            message = environment.message
+        )
+    }
+
+    private fun requiresGitHubPullRequest(issue: CompanyIssue?, state: DesktopAppState): Boolean =
+        requiresCodePublish(issue) && state.backendSettings.codePublishMode == CodePublishMode.REQUIRE_GITHUB_PR
 
     private fun effectiveBackendConfig(company: Company?, state: DesktopAppState): BackendConnectionConfig {
         val kind = company?.backendKind ?: state.backendSettings.defaultBackendKind
@@ -3574,6 +4291,7 @@ class DesktopAppService(
                 )
             }
             val publishRequired = requiresCodePublish(issue)
+            val pullRequestRequired = requiresGitHubPullRequest(issue, currentState) && issue != null
             val publish = if (result.isSuccess && publishRequired) {
                 gitWorkspaceService.publishRun(
                     task = task,
@@ -3585,7 +4303,15 @@ class DesktopAppService(
             } else {
                 null
             }
-            val finalError = result.error ?: if (publishRequired) publish?.error?.takeUnless(::isNonFatalPublishError) else null
+            val finalError = result.error ?: when {
+                !publishRequired -> null
+                !pullRequestRequired -> publish?.error?.takeUnless { isNonFatalPublishError(it, currentState) }
+                publish == null -> "GitHub publishing did not run for required code work"
+                publish.error != null -> publish.error?.takeUnless { isNonFatalPublishError(it, currentState) }
+                publish.pullRequestUrl.isNullOrBlank() || publish.pullRequestNumber == null ->
+                    "GitHub pull request was not created for required code work"
+                else -> null
+            }
 
             replaceRun(
                 startedRun.copy(
@@ -3764,7 +4490,7 @@ class DesktopAppService(
     private fun requiresCodePublish(issue: CompanyIssue?): Boolean {
         if (issue == null) return true
         return when (issue.kind.lowercase()) {
-            "review", "approval" -> false
+            "review", "approval", "planning", "infra" -> false
             else -> true
         }
     }
@@ -3788,7 +4514,7 @@ class DesktopAppService(
                 }
                 val publishError = run.publish?.error ?: return@map run
                 val noChangesPublishOnly = !requiresCodePublish(issue) && publishError.startsWith("No changes to publish")
-                val localOnlyPublish = isNonFatalPublishError(publishError)
+                val localOnlyPublish = isNonFatalPublishError(publishError, state)
                 if (!noChangesPublishOnly && !localOnlyPublish) {
                     return@map run
                 }
@@ -3951,15 +4677,23 @@ class DesktopAppService(
         val issuesById = state.issues
             .filter { it.companyId == companyId }
             .associateBy { it.id }
+        val goalsById = state.goals.associateBy { it.id }
+        val reviewQueueById = state.reviewQueue.associateBy { it.id }
 
         data class FollowUpCandidate(
             val issue: CompanyIssue,
             val reason: String,
-            val marker: String
+            val marker: String,
+            val subject: String
         )
 
         fun hasOpenFollowUp(marker: String): Boolean =
             openGoals.any { it.operatingPolicy == marker }
+
+        val openFollowUpSubjects = openGoals
+            .filter { it.operatingPolicy.orEmpty().startsWith("auto-follow-up:") }
+            .map { canonicalFollowUpSubject(it.title) }
+            .toSet()
 
         val failedReviewCandidate = state.reviewQueue
             .filter { it.companyId == companyId }
@@ -3973,14 +4707,18 @@ class DesktopAppService(
                 if (parentGoal?.operatingPolicy?.startsWith("auto-follow-up:") == true) {
                     return@mapNotNull null
                 }
-                val marker = "auto-follow-up:review:${item.id}"
+                val rootGoalId = resolveFollowUpRootGoalId(issue.goalId, issuesById, goalsById, reviewQueueById)
+                    ?: issue.goalId
+                val marker = "auto-follow-up:goal:$rootGoalId"
                 if (hasOpenFollowUp(marker)) return@mapNotNull null
+                val subject = canonicalFollowUpSubject(issue.title)
+                if (subject in openFollowUpSubjects) return@mapNotNull null
                 val reason = when (item.status) {
                     ReviewQueueStatus.FAILED_CHECKS -> "Review queue checks failed and require a remediation loop."
                     ReviewQueueStatus.CHANGES_REQUESTED -> "Review requested changes and requires a remediation loop."
                     else -> return@mapNotNull null
                 }
-                FollowUpCandidate(issue = issue, reason = reason, marker = marker)
+                FollowUpCandidate(issue = issue, reason = reason, marker = marker, subject = subject)
             }
             .firstOrNull()
 
@@ -3997,12 +4735,17 @@ class DesktopAppService(
                 if (parentGoal?.operatingPolicy?.startsWith("auto-follow-up:") == true) {
                     return@mapNotNull null
                 }
-                val marker = "auto-follow-up:issue:${issue.id}"
+                val rootGoalId = resolveFollowUpRootGoalId(issue.goalId, issuesById, goalsById, reviewQueueById)
+                    ?: issue.goalId
+                val marker = "auto-follow-up:goal:$rootGoalId"
                 if (hasOpenFollowUp(marker)) return@mapNotNull null
+                val subject = canonicalFollowUpSubject(issue.title)
+                if (subject in openFollowUpSubjects) return@mapNotNull null
                 FollowUpCandidate(
                     issue = issue,
                     reason = "Execution is blocked and needs a new CEO-managed remediation goal.",
-                    marker = marker
+                    marker = marker,
+                    subject = subject
                 )
             }
             .firstOrNull()
@@ -4010,7 +4753,7 @@ class DesktopAppService(
         val candidate = failedReviewCandidate ?: blockedIssueCandidate
         if (candidate != null) {
             val parentGoal = state.goals.firstOrNull { it.id == candidate.issue.goalId }
-            val title = "Resolve follow-up for \"${candidate.issue.title}\""
+            val title = "Resolve follow-up for \"${candidate.subject}\""
             val description = buildString {
                 appendLine("CEO generated this goal automatically because follow-up work is required.")
                 appendLine()
@@ -4065,11 +4808,20 @@ class DesktopAppService(
             .maxOrNull() ?: 0
         val nextCycle = lastContinuousCycle + 1
         val recentCompletedGoals = state.goals
-            .filter { it.companyId == companyId && it.status == GoalStatus.COMPLETED }
+            .filter {
+                it.companyId == companyId &&
+                    it.status == GoalStatus.COMPLETED &&
+                    !it.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
+                    !isGeneratedFollowUpTitle(it.title)
+            }
             .sortedByDescending { it.updatedAt }
             .take(3)
         val recentCompletedIssues = state.issues
-            .filter { it.companyId == companyId && it.status == IssueStatus.DONE }
+            .filter {
+                it.companyId == companyId &&
+                    it.status == IssueStatus.DONE &&
+                    !isGeneratedFollowUpTitle(it.title)
+            }
             .sortedByDescending { it.updatedAt }
             .take(5)
         val title = "CEO continuous improvement cycle #$nextCycle for ${company.name}"
@@ -4162,9 +4914,29 @@ class DesktopAppService(
                 profile = profile
             )
         }
-        val completedExecutionRuns = state.issues
-            .filter { it.goalId == issue.goalId && it.kind.equals("execution", ignoreCase = true) && it.status == IssueStatus.DONE }
+        val goalReviewQueueItems = state.reviewQueue
+            .filter { reviewItem ->
+                state.issues.firstOrNull { it.id == reviewItem.issueId }?.goalId == issue.goalId
+            }
             .sortedByDescending { it.updatedAt }
+        val qaPendingQueueItems = goalReviewQueueItems
+            .filter { it.status == ReviewQueueStatus.AWAITING_QA }
+        val ceoReadyQueueItems = goalReviewQueueItems
+            .filter { it.status == ReviewQueueStatus.READY_FOR_CEO }
+        val scopedExecutionIssueIds = when (issue.kind.lowercase()) {
+            "review" -> qaPendingQueueItems.map { it.issueId }.toSet()
+            "approval" -> ceoReadyQueueItems.map { it.issueId }.toSet()
+            else -> emptySet()
+        }
+        val scopedExecutionIssues = state.issues
+            .filter {
+                it.goalId == issue.goalId &&
+                    it.kind.equals("execution", ignoreCase = true) &&
+                    (it.status == IssueStatus.IN_REVIEW || it.status == IssueStatus.READY_FOR_CEO || it.status == IssueStatus.DONE) &&
+                    (scopedExecutionIssueIds.isEmpty() || it.id in scopedExecutionIssueIds)
+            }
+            .sortedByDescending { it.updatedAt }
+        val completedExecutionRuns = scopedExecutionIssues
             .mapNotNull { completedIssue ->
                 val completedTask = state.tasks
                     .filter { it.issueId == completedIssue.id }
@@ -4181,9 +4953,7 @@ class DesktopAppService(
                 }
             }
             .take(3)
-        val completedExecutionEvidence = state.issues
-            .filter { it.goalId == issue.goalId && it.kind.equals("execution", ignoreCase = true) && it.status == IssueStatus.DONE }
-            .sortedByDescending { it.updatedAt }
+        val completedExecutionEvidence = scopedExecutionIssues
             .mapNotNull { completedIssue ->
                 val completedTask = state.tasks
                     .filter { it.issueId == completedIssue.id }
@@ -4203,26 +4973,39 @@ class DesktopAppService(
                 }.trimEnd()
             }
             .take(3)
-        val completedReviewEvidence = state.issues
-            .filter { it.goalId == issue.goalId && it.kind.equals("review", ignoreCase = true) && it.status == IssueStatus.DONE }
-            .sortedByDescending { it.updatedAt }
-            .mapNotNull { reviewIssue ->
-                val reviewTask = state.tasks
-                    .filter { it.issueId == reviewIssue.id }
-                    .maxByOrNull { it.updatedAt }
-                    ?: return@mapNotNull null
-                val reviewRun = state.runs
-                    .filter { it.taskId == reviewTask.id && it.status == AgentRunStatus.COMPLETED }
-                    .maxByOrNull { it.updatedAt }
-                    ?: return@mapNotNull null
+        val completedReviewEvidence = when (issue.kind.lowercase()) {
+            "approval" -> ceoReadyQueueItems.map { reviewItem ->
                 buildString {
-                    appendLine("- ${reviewIssue.title}")
-                    reviewRun.output?.takeIf { it.isNotBlank() }?.let { output ->
-                        appendLine("  review summary: ${summarizeForPrompt(output, 280)}")
+                    appendLine("- issueId: ${reviewItem.issueId}")
+                    reviewItem.pullRequestUrl?.let { appendLine("  pr: $it") }
+                    reviewItem.qaVerdict?.let { appendLine("  qaVerdict: $it") }
+                    reviewItem.qaFeedback?.takeIf { it.isNotBlank() }?.let { feedback ->
+                        appendLine("  qaFeedback: ${summarizeForPrompt(feedback, 280)}")
                     }
                 }.trimEnd()
             }
             .take(3)
+            else -> state.issues
+                .filter { it.goalId == issue.goalId && it.kind.equals("review", ignoreCase = true) && it.status == IssueStatus.DONE }
+                .sortedByDescending { it.updatedAt }
+                .mapNotNull { reviewIssue ->
+                    val reviewTask = state.tasks
+                        .filter { it.issueId == reviewIssue.id }
+                        .maxByOrNull { it.updatedAt }
+                        ?: return@mapNotNull null
+                    val reviewRun = state.runs
+                        .filter { it.taskId == reviewTask.id && it.status == AgentRunStatus.COMPLETED }
+                        .maxByOrNull { it.updatedAt }
+                        ?: return@mapNotNull null
+                    buildString {
+                        appendLine("- ${reviewIssue.title}")
+                        reviewRun.output?.takeIf { it.isNotBlank() }?.let { output ->
+                            appendLine("  review summary: ${summarizeForPrompt(output, 280)}")
+                        }
+                    }.trimEnd()
+                }
+                .take(3)
+        }
         val promptBody = when (issue.kind.lowercase()) {
             "review" -> buildString {
                 appendLine("Company review context")
@@ -4245,6 +5028,17 @@ class DesktopAppService(
                     appendLine("Execution evidence:")
                     completedExecutionEvidence.forEach(::appendLine)
                 }
+                val qaPromptQueueItems = qaPendingQueueItems.ifEmpty { goalReviewQueueItems.filter { it.status != ReviewQueueStatus.MERGED } }
+                if (qaPromptQueueItems.isNotEmpty()) {
+                    appendLine()
+                    appendLine("Open pull request handoffs:")
+                    qaPromptQueueItems.forEach { reviewItem ->
+                        appendLine("- issueId: ${reviewItem.issueId}")
+                        reviewItem.branchName?.let { appendLine("  branch: $it") }
+                        reviewItem.pullRequestUrl?.let { appendLine("  pr: $it") }
+                        reviewItem.checksSummary?.let { appendLine("  checks: ${summarizeForPrompt(it, 220)}") }
+                    }
+                }
                 if (issue.acceptanceCriteria.isNotEmpty()) {
                     appendLine()
                     appendLine("Acceptance criteria:")
@@ -4261,7 +5055,8 @@ class DesktopAppService(
                 appendLine("- Do not modify repository files unless a tiny fix is absolutely required to unblock the flow.")
                 appendLine("- No publish is required for a pure review step.")
                 appendLine("- If the provided execution evidence is sufficient and you do not find a concrete defect, mark the work ready instead of asking for speculative follow-up.")
-                appendLine("- Return a concise verdict, residual risks, and whether the goal is ready for approval.")
+                appendLine("- The first line of your response must be exactly `QA_VERDICT: PASS` or `QA_VERDICT: CHANGES_REQUESTED`.")
+                appendLine("- After the verdict line, return concise feedback, residual risks, and whether the work is ready for CEO approval.")
                 memoryBundle?.let { memory ->
                     appendLine()
                     appendLine("Workflow memory:")
@@ -4292,6 +5087,17 @@ class DesktopAppService(
                     appendLine("Completed review evidence:")
                     completedReviewEvidence.forEach(::appendLine)
                 }
+                if (ceoReadyQueueItems.isNotEmpty()) {
+                    appendLine()
+                    appendLine("Pull requests awaiting CEO approval:")
+                    ceoReadyQueueItems.forEach { reviewItem ->
+                        appendLine("- issueId: ${reviewItem.issueId}")
+                        reviewItem.branchName?.let { appendLine("  branch: $it") }
+                        reviewItem.pullRequestUrl?.let { appendLine("  pr: $it") }
+                        reviewItem.qaVerdict?.let { appendLine("  qaVerdict: $it") }
+                        reviewItem.qaFeedback?.let { appendLine("  qaFeedback: ${summarizeForPrompt(it, 220)}") }
+                    }
+                }
                 if (issue.acceptanceCriteria.isNotEmpty()) {
                     appendLine()
                     appendLine("Acceptance criteria:")
@@ -4307,7 +5113,8 @@ class DesktopAppService(
                 appendLine("- Do not create commits, branches, pushes, or pull requests. Cotor will handle workflow publishing.")
                 appendLine("- Do not modify repository files unless a tiny unblocker is required.")
                 appendLine("- No publish is required for a pure approval step.")
-                appendLine("- Return a final decision: ready, blocked, or needs follow-up, with one short rationale.")
+                appendLine("- The first line of your response must be exactly `CEO_VERDICT: APPROVE` or `CEO_VERDICT: CHANGES_REQUESTED`.")
+                appendLine("- After the verdict line, return one concise rationale for merge or rework.")
                 memoryBundle?.let { memory ->
                     appendLine()
                     appendLine("Workflow memory:")
@@ -4861,37 +5668,99 @@ class DesktopAppService(
     }
 
     private suspend fun syncIssueFromTask(taskId: String, finalStatus: DesktopTaskStatus) {
-        var runtimeContinuationCompanyId: String? = null
         val snapshot = stateStore.load()
         val task = snapshot.tasks.firstOrNull { it.id == taskId } ?: return
         val issueId = task.issueId ?: return
         val latestRuns = snapshot.runs.filter { it.taskId == taskId }
         val primaryRun = latestRuns.firstOrNull { it.publish?.pullRequestUrl != null } ?: latestRuns.firstOrNull()
+        val issue = snapshot.issues.firstOrNull { it.id == issueId } ?: return
+        when (issue.kind.lowercase()) {
+            "review" -> syncReviewIssueFromTask(task, issue, primaryRun, finalStatus)
+            "approval" -> syncApprovalIssueFromTask(task, issue, primaryRun, finalStatus)
+            else -> syncExecutionIssueFromTask(task, issue, primaryRun, finalStatus)
+        }
+    }
+
+    private suspend fun syncExecutionIssueFromTask(
+        task: AgentTask,
+        issue: CompanyIssue,
+        primaryRun: AgentRun?,
+        finalStatus: DesktopTaskStatus
+    ) {
+        var runtimeContinuationCompanyId: String? = null
         val now = System.currentTimeMillis()
+        val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        val informationalTraceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         stateMutex.withLock {
             val state = stateStore.load()
-            val issue = state.issues.firstOrNull { it.id == issueId } ?: return@withLock
+            val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
+            val recoverableRetryPending =
+                currentIssue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
+                    isRecoverableInfrastructureFailure(task, primaryRun)
+            if (recoverableRetryPending) {
+                informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                    issue = currentIssue,
+                    goal = state.goals.firstOrNull { it.id == currentIssue.goalId },
+                    oldStatus = currentIssue.status,
+                    newStatus = currentIssue.status,
+                    source = "syncExecutionIssueFromTask",
+                    reason = "Skipped execution issue synchronization because a recoverable retry is pending a new task run.",
+                    latestTask = task,
+                    latestRun = primaryRun,
+                    retryEligible = true
+                )
+                return@withLock
+            }
+            val hasPublishMetadata = primaryRun?.publish?.pullRequestUrl != null || primaryRun?.publish?.pullRequestNumber != null
+            val pullRequestRequired = requiresGitHubPullRequest(currentIssue, state)
             val nextIssueStatus = when {
-                finalStatus == DesktopTaskStatus.COMPLETED && primaryRun?.publish?.pullRequestUrl != null -> IssueStatus.IN_REVIEW
-                finalStatus == DesktopTaskStatus.COMPLETED -> IssueStatus.DONE
+                finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata -> IssueStatus.IN_REVIEW
+                finalStatus == DesktopTaskStatus.COMPLETED && !requiresCodePublish(currentIssue) -> IssueStatus.DONE
+                finalStatus == DesktopTaskStatus.COMPLETED && !pullRequestRequired -> IssueStatus.DONE
+                finalStatus == DesktopTaskStatus.COMPLETED -> IssueStatus.BLOCKED
                 else -> IssueStatus.BLOCKED
             }
-            val updatedIssue = issue.copy(status = nextIssueStatus, updatedAt = now)
+            if (nextIssueStatus == currentIssue.status && !hasPublishMetadata) {
+                return@withLock
+            }
+            val updatedIssue = currentIssue.copy(status = nextIssueStatus, updatedAt = now)
+            if (updatedIssue.status != currentIssue.status) {
+                val reason = when {
+                    finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata -> "Task completed and published a pull request."
+                    finalStatus == DesktopTaskStatus.COMPLETED && !requiresCodePublish(currentIssue) -> "Task completed without a required publish step."
+                    finalStatus == DesktopTaskStatus.COMPLETED && !pullRequestRequired -> "Task completed and local git publishing is allowed by settings."
+                    finalStatus == DesktopTaskStatus.COMPLETED -> "Task completed but no pull request was created for required code work."
+                    else -> "Task finished with ${finalStatus.name}; issue is blocked until a recoverable retry is detected."
+                }
+                traceEvents += buildCompanyAutomationTraceEvent(
+                    issue = currentIssue,
+                    goal = state.goals.firstOrNull { it.id == currentIssue.goalId },
+                    oldStatus = currentIssue.status,
+                    newStatus = updatedIssue.status,
+                    source = "syncExecutionIssueFromTask",
+                    reason = reason,
+                    latestTask = task,
+                    latestRun = primaryRun
+                )
+            }
             val queueStatus = when {
                 primaryRun?.publish?.error != null -> ReviewQueueStatus.FAILED_CHECKS
-                primaryRun?.publish?.pullRequestUrl != null -> ReviewQueueStatus.READY_TO_MERGE
+                hasPublishMetadata -> ReviewQueueStatus.AWAITING_QA
                 else -> ReviewQueueStatus.AWAITING_QA
             }
-            val nextReviewQueue = if (primaryRun?.publish?.pullRequestUrl != null || primaryRun?.publish?.pullRequestNumber != null) {
-                val existing = state.reviewQueue.firstOrNull { it.issueId == issueId }
+            val nextReviewQueue = if (pullRequestRequired && hasPublishMetadata) {
+                val existing = state.reviewQueue.firstOrNull { it.issueId == currentIssue.id }
                 val queueItem = ReviewQueueItem(
                     id = existing?.id ?: UUID.randomUUID().toString(),
-                    companyId = issue.companyId,
-                    projectContextId = issue.projectContextId,
-                    issueId = issueId,
+                    companyId = currentIssue.companyId,
+                    projectContextId = currentIssue.projectContextId,
+                    issueId = currentIssue.id,
                     runId = primaryRun?.id ?: "",
+                    branchName = primaryRun?.branchName,
+                    worktreePath = primaryRun?.worktreePath,
                     pullRequestNumber = primaryRun?.publish?.pullRequestNumber,
                     pullRequestUrl = primaryRun?.publish?.pullRequestUrl,
+                    pullRequestState = primaryRun?.publish?.pullRequestState,
                     status = queueStatus,
                     checksSummary = primaryRun?.publish?.checksSummary ?: primaryRun?.error,
                     mergeability = primaryRun?.publish?.mergeability,
@@ -4899,26 +5768,22 @@ class DesktopAppService(
                     createdAt = existing?.createdAt ?: now,
                     updatedAt = now
                 )
-                state.reviewQueue.filterNot { it.id == queueItem.id || it.issueId == issueId } + queueItem
+                state.reviewQueue.filterNot { it.id == queueItem.id || it.issueId == currentIssue.id } + queueItem
             } else {
                 state.reviewQueue
             }
             val nextGoals = state.goals.map { goal ->
-                if (goal.id != issue.goalId) {
+                if (goal.id != currentIssue.goalId) {
                     goal
                 } else {
                     val unresolved = state.issues
-                        .map { if (it.id == issueId) updatedIssue else it }
+                        .map { if (it.id == currentIssue.id) updatedIssue else it }
                         .any { it.goalId == goal.id && it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
-                    if (!unresolved) {
-                        goal.copy(status = GoalStatus.COMPLETED, updatedAt = now)
-                    } else {
-                        goal
-                    }
+                    if (!unresolved) goal.copy(status = GoalStatus.COMPLETED, updatedAt = now) else goal
                 }
             }
             val nextState = state.copy(
-                issues = state.issues.map { if (it.id == issueId) updatedIssue else it },
+                issues = state.issues.map { if (it.id == currentIssue.id) updatedIssue else it },
                 reviewQueue = nextReviewQueue,
                 goals = nextGoals
             ).recordCompanyActivity(
@@ -4928,7 +5793,10 @@ class DesktopAppService(
                 issueId = updatedIssue.id,
                 source = "task-run",
                 title = "Updated issue state",
-                detail = "${updatedIssue.title} -> ${updatedIssue.status}"
+                detail = buildString {
+                    append("${updatedIssue.title} -> ${updatedIssue.status}")
+                    traceEvents.firstOrNull()?.reason?.let { append(" ($it)") }
+                }
             ).recordSignal(
                 source = "task-run",
                 message = "Issue ${updatedIssue.title} moved to ${updatedIssue.status}",
@@ -4944,16 +5812,409 @@ class DesktopAppService(
                 runtimeContinuationCompanyId = updatedIssue.companyId
             }
         }
+        traceEvents.forEach(::appendCompanyAutomationTrace)
+        informationalTraceEvents.forEach(::appendCompanyAutomationTrace)
         val syncComment = buildString {
             append("Cotor finished task \"${task.title}\" with ${finalStatus.name}.")
             primaryRun?.publish?.pullRequestUrl?.let { append("\nPR: $it") }
             primaryRun?.error?.takeIf { it.isNotBlank() }?.let { append("\nError: $it") }
         }
-        mirrorIssueToLinear(issueId, syncComment)
+        mirrorIssueToLinear(issue.id, syncComment)
         runtimeContinuationCompanyId?.let { companyId ->
             serviceScope.launch {
                 runCatching { runCompanyRuntimeTick(companyId) }
             }
+        }
+    }
+
+    private suspend fun syncReviewIssueFromTask(
+        task: AgentTask,
+        issue: CompanyIssue,
+        primaryRun: AgentRun?,
+        finalStatus: DesktopTaskStatus
+    ) {
+        var runtimeContinuationCompanyId: String? = null
+        val queueReviews = mutableListOf<Pair<ReviewQueueItem, PullRequestReviewVerdict>>()
+        val rerunTaskIds = mutableListOf<String>()
+        val now = System.currentTimeMillis()
+        val verdict = parseStructuredVerdict(primaryRun?.output, "QA_VERDICT", "PASS", "CHANGES_REQUESTED")
+            ?: StructuredVerdict("PASS", summarizeForPrompt(primaryRun?.output.orEmpty(), 240))
+        val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
+            val goalIssueIds = state.issues.filter { it.goalId == currentIssue.goalId }.map { it.id }.toSet()
+            val targetQueueItems = state.reviewQueue
+                .filter { it.issueId in goalIssueIds && it.status != ReviewQueueStatus.MERGED }
+                .filter { it.pullRequestUrl != null || it.pullRequestNumber != null }
+            val targetIssueIds = targetQueueItems.map { it.issueId }.toSet()
+            val targetExecutionTasks = state.tasks
+                .filter { it.issueId in targetIssueIds }
+                .groupBy { it.issueId!! }
+                .mapValues { (_, tasks) -> tasks.maxByOrNull { it.updatedAt } }
+            val reviewPassed = finalStatus == DesktopTaskStatus.COMPLETED && verdict.value == "PASS"
+            val approvalIssueId = state.issues.firstOrNull {
+                it.goalId == currentIssue.goalId && it.kind.equals("approval", ignoreCase = true)
+            }?.id
+            val updatedReviewIssue = currentIssue.copy(
+                status = if (reviewPassed) IssueStatus.DONE else IssueStatus.BLOCKED,
+                updatedAt = now
+            )
+            val approvalIssue = approvalIssueId?.let { id -> state.issues.firstOrNull { it.id == id } }
+            val updatedIssues = state.issues.map { existing ->
+                when {
+                    existing.id == currentIssue.id -> updatedReviewIssue
+                    existing.id in targetIssueIds && reviewPassed -> existing.copy(status = IssueStatus.READY_FOR_CEO, updatedAt = now)
+                    existing.id in targetIssueIds && !reviewPassed -> existing.copy(status = IssueStatus.IN_PROGRESS, updatedAt = now)
+                    reviewPassed &&
+                        approvalIssueId != null &&
+                        existing.id == approvalIssueId &&
+                        existing.status != IssueStatus.DONE &&
+                        existing.status != IssueStatus.CANCELED ->
+                        existing.copy(status = IssueStatus.PLANNED, updatedAt = now)
+                    else -> existing
+                }
+            }
+            val updatedTasks = state.tasks.map { existing ->
+                val targetTask = targetExecutionTasks[existing.issueId]
+                if (!reviewPassed && targetTask?.id == existing.id && existing.status == DesktopTaskStatus.COMPLETED) {
+                    rerunTaskIds += existing.id
+                    existing.copy(status = DesktopTaskStatus.QUEUED, updatedAt = now)
+                } else {
+                    existing
+                }
+            }
+            val updatedReviewQueue = state.reviewQueue.map { item ->
+                if (item.id !in targetQueueItems.map { it.id }.toSet()) {
+                    item
+                } else {
+                    val nextItem = item.copy(
+                        status = if (reviewPassed) ReviewQueueStatus.READY_FOR_CEO else ReviewQueueStatus.CHANGES_REQUESTED,
+                        qaVerdict = verdict.value,
+                        qaFeedback = verdict.feedback,
+                        qaReviewedAt = now,
+                        qaIssueId = currentIssue.id,
+                        ceoVerdict = if (reviewPassed) null else item.ceoVerdict,
+                        ceoFeedback = if (reviewPassed) null else item.ceoFeedback,
+                        ceoReviewedAt = if (reviewPassed) null else item.ceoReviewedAt,
+                        approvalIssueId = approvalIssueId,
+                        updatedAt = now
+                    )
+                    queueReviews += nextItem to if (reviewPassed) PullRequestReviewVerdict.COMMENT else PullRequestReviewVerdict.REQUEST_CHANGES
+                    nextItem
+                }
+            }
+            traceEvents += buildCompanyAutomationTraceEvent(
+                issue = currentIssue,
+                goal = state.goals.firstOrNull { it.id == currentIssue.goalId },
+                oldStatus = currentIssue.status,
+                newStatus = updatedReviewIssue.status,
+                source = "syncReviewIssueFromTask",
+                reason = if (reviewPassed) {
+                    "QA approved the published pull request and handed it to the CEO."
+                } else {
+                    "QA requested changes and sent remediation back to the execution branch."
+                },
+                latestTask = task,
+                latestRun = primaryRun
+            )
+            if (
+                reviewPassed &&
+                approvalIssue != null &&
+                approvalIssue.status != IssueStatus.DONE &&
+                approvalIssue.status != IssueStatus.CANCELED &&
+                approvalIssue.status != IssueStatus.PLANNED
+            ) {
+                traceEvents += buildCompanyAutomationTraceEvent(
+                    issue = approvalIssue,
+                    goal = state.goals.firstOrNull { it.id == approvalIssue.goalId },
+                    oldStatus = approvalIssue.status,
+                    newStatus = IssueStatus.PLANNED,
+                    source = "syncReviewIssueFromTask",
+                    reason = "QA approval reopened the CEO approval issue after earlier changes were addressed.",
+                    latestTask = task,
+                    latestRun = primaryRun
+                )
+            }
+            val nextState = state.copy(
+                issues = updatedIssues,
+                tasks = updatedTasks,
+                reviewQueue = updatedReviewQueue
+            ).recordCompanyActivity(
+                companyId = currentIssue.companyId,
+                projectContextId = currentIssue.projectContextId,
+                goalId = currentIssue.goalId,
+                issueId = currentIssue.id,
+                source = "qa-review",
+                title = if (reviewPassed) "QA approved pull requests" else "QA requested changes",
+                detail = verdict.feedback.ifBlank { currentIssue.title },
+                severity = if (reviewPassed) "info" else "warning"
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            val runtime = nextState.companyRuntimes.firstOrNull { it.companyId == currentIssue.companyId }
+            if (runtime?.status == CompanyRuntimeStatus.RUNNING) {
+                runtimeContinuationCompanyId = currentIssue.companyId
+            }
+        }
+        traceEvents.forEach(::appendCompanyAutomationTrace)
+        queueReviews.forEach { (item, reviewVerdict) ->
+            val prNumber = item.pullRequestNumber ?: return@forEach
+            val worktreePath = item.worktreePath ?: return@forEach
+            runCatching {
+                gitWorkspaceService.submitPullRequestReview(
+                    worktreePath = Path.of(worktreePath),
+                    pullRequestNumber = prNumber,
+                    verdict = reviewVerdict,
+                    body = buildString {
+                        appendLine("QA_VERDICT: ${item.qaVerdict ?: verdict.value}")
+                        if (!item.qaFeedback.isNullOrBlank()) {
+                            appendLine(item.qaFeedback)
+                        }
+                    }.trim()
+                )
+            }
+        }
+        rerunTaskIds.distinct().forEach { rerunTaskId ->
+            runTaskIfPresent(rerunTaskId)
+        }
+        mirrorIssueToLinear(
+            issue.id,
+            "QA completed review for \"${issue.title}\" with verdict ${verdict.value}."
+        )
+        runtimeContinuationCompanyId?.let { companyId ->
+            serviceScope.launch {
+                runCatching { runCompanyRuntimeTick(companyId) }
+            }
+        }
+    }
+
+    private suspend fun syncApprovalIssueFromTask(
+        task: AgentTask,
+        issue: CompanyIssue,
+        primaryRun: AgentRun?,
+        finalStatus: DesktopTaskStatus
+    ) {
+        var runtimeContinuationCompanyId: String? = null
+        val rerunTaskIds = mutableListOf<String>()
+        val mergeQueueIds = mutableListOf<String>()
+        val ceoReviews = mutableListOf<Pair<ReviewQueueItem, PullRequestReviewVerdict>>()
+        val now = System.currentTimeMillis()
+        val verdict = parseStructuredVerdict(primaryRun?.output, "CEO_VERDICT", "APPROVE", "CHANGES_REQUESTED")
+            ?: StructuredVerdict("APPROVE", summarizeForPrompt(primaryRun?.output.orEmpty(), 240))
+        val approvalGranted = finalStatus == DesktopTaskStatus.COMPLETED && verdict.value == "APPROVE"
+        val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
+            val goalIssueIds = state.issues.filter { it.goalId == currentIssue.goalId }.map { it.id }.toSet()
+            val targetQueueItems = state.reviewQueue
+                .filter { it.issueId in goalIssueIds && it.status == ReviewQueueStatus.READY_FOR_CEO }
+            val targetIssueIds = targetQueueItems.map { it.issueId }.toSet()
+            val targetExecutionTasks = state.tasks
+                .filter { it.issueId in targetIssueIds }
+                .groupBy { it.issueId!! }
+                .mapValues { (_, tasks) -> tasks.maxByOrNull { it.updatedAt } }
+            val updatedApprovalIssue = currentIssue.copy(
+                status = if (approvalGranted) IssueStatus.IN_PROGRESS else IssueStatus.BLOCKED,
+                updatedAt = now
+            )
+            val updatedIssues = state.issues.map { existing ->
+                when {
+                    existing.id == currentIssue.id -> updatedApprovalIssue
+                    existing.id in targetIssueIds && !approvalGranted -> existing.copy(status = IssueStatus.IN_PROGRESS, updatedAt = now)
+                    else -> existing
+                }
+            }
+            val updatedTasks = state.tasks.map { existing ->
+                val targetTask = targetExecutionTasks[existing.issueId]
+                if (!approvalGranted && targetTask?.id == existing.id && existing.status == DesktopTaskStatus.COMPLETED) {
+                    rerunTaskIds += existing.id
+                    existing.copy(status = DesktopTaskStatus.QUEUED, updatedAt = now)
+                } else {
+                    existing
+                }
+            }
+            val updatedReviewQueue = state.reviewQueue.map { item ->
+                if (item.id !in targetQueueItems.map { it.id }.toSet()) {
+                    item
+                } else {
+                    val nextStatus = if (approvalGranted) ReviewQueueStatus.READY_FOR_CEO else ReviewQueueStatus.CHANGES_REQUESTED
+                    val nextItem = item.copy(
+                        status = nextStatus,
+                        ceoVerdict = verdict.value,
+                        ceoFeedback = verdict.feedback,
+                        ceoReviewedAt = now,
+                        approvalIssueId = currentIssue.id,
+                        updatedAt = now
+                    )
+                    if (approvalGranted) {
+                        mergeQueueIds += item.id
+                    } else {
+                        ceoReviews += nextItem to PullRequestReviewVerdict.REQUEST_CHANGES
+                    }
+                    nextItem
+                }
+            }
+            traceEvents += buildCompanyAutomationTraceEvent(
+                issue = currentIssue,
+                goal = state.goals.firstOrNull { it.id == currentIssue.goalId },
+                oldStatus = currentIssue.status,
+                newStatus = updatedApprovalIssue.status,
+                source = "syncApprovalIssueFromTask",
+                reason = if (approvalGranted) {
+                    "CEO approved the reviewed pull request and queued it for merge."
+                } else {
+                    "CEO requested changes and returned the branch to execution."
+                },
+                latestTask = task,
+                latestRun = primaryRun
+            )
+            val nextState = state.copy(
+                issues = updatedIssues,
+                tasks = updatedTasks,
+                reviewQueue = updatedReviewQueue
+            ).recordCompanyActivity(
+                companyId = currentIssue.companyId,
+                projectContextId = currentIssue.projectContextId,
+                goalId = currentIssue.goalId,
+                issueId = currentIssue.id,
+                source = "ceo-approval",
+                title = if (approvalGranted) "CEO approved pull requests" else "CEO requested changes",
+                detail = verdict.feedback.ifBlank { currentIssue.title },
+                severity = if (approvalGranted) "info" else "warning"
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            val runtime = nextState.companyRuntimes.firstOrNull { it.companyId == currentIssue.companyId }
+            if (runtime?.status == CompanyRuntimeStatus.RUNNING) {
+                runtimeContinuationCompanyId = currentIssue.companyId
+            }
+        }
+        traceEvents.forEach(::appendCompanyAutomationTrace)
+        ceoReviews.forEach { (item, reviewVerdict) ->
+            val prNumber = item.pullRequestNumber ?: return@forEach
+            val worktreePath = item.worktreePath ?: return@forEach
+            runCatching {
+                gitWorkspaceService.submitPullRequestReview(
+                    worktreePath = Path.of(worktreePath),
+                    pullRequestNumber = prNumber,
+                    verdict = reviewVerdict,
+                    body = buildString {
+                        appendLine("CEO_VERDICT: ${item.ceoVerdict ?: verdict.value}")
+                        if (!item.ceoFeedback.isNullOrBlank()) {
+                            appendLine(item.ceoFeedback)
+                        }
+                    }.trim()
+                )
+            }
+        }
+        if (approvalGranted) {
+            mergeQueueIds.distinct().forEach { mergeQueueId ->
+                mergeReviewQueueItem(mergeQueueId)
+            }
+            completeApprovalIssueAfterMerge(issue.id)
+        } else {
+            rerunTaskIds.distinct().forEach { rerunTaskId ->
+                runTaskIfPresent(rerunTaskId)
+            }
+        }
+        mirrorIssueToLinear(
+            issue.id,
+            "CEO completed approval for \"${issue.title}\" with verdict ${verdict.value}."
+        )
+        runtimeContinuationCompanyId?.let { companyId ->
+            serviceScope.launch {
+                runCatching { runCompanyRuntimeTick(companyId) }
+            }
+        }
+    }
+
+    private fun buildCompanyAutomationTraceEvent(
+        issue: CompanyIssue,
+        goal: CompanyGoal?,
+        oldStatus: IssueStatus,
+        newStatus: IssueStatus,
+        source: String,
+        reason: String,
+        latestTask: AgentTask? = null,
+        latestRun: AgentRun? = null,
+        retryEligible: Boolean? = null
+    ): CompanyAutomationTraceEvent =
+        CompanyAutomationTraceEvent(
+            timestamp = System.currentTimeMillis(),
+            companyId = issue.companyId,
+            projectContextId = issue.projectContextId,
+            goalId = issue.goalId,
+            issueId = issue.id,
+            issueTitle = issue.title,
+            issueKind = issue.kind,
+            oldStatus = oldStatus,
+            newStatus = newStatus,
+            source = source,
+            reason = reason,
+            operatingPolicy = goal?.operatingPolicy,
+            latestTaskId = latestTask?.id,
+            latestTaskStatus = latestTask?.status?.name,
+            latestTaskUpdatedAt = latestTask?.updatedAt,
+            latestRunId = latestRun?.id,
+            latestRunStatus = latestRun?.status?.name,
+            latestRunUpdatedAt = latestRun?.updatedAt,
+            retryEligible = retryEligible,
+            runErrorSnippet = latestRun?.error?.take(300) ?: latestRun?.publish?.error?.take(300)
+        )
+
+    private fun appendCompanyAutomationTrace(event: CompanyAutomationTraceEvent) {
+        runCatching {
+            // This file is for state transitions, not steady-state re-affirmations. Repeated
+            // no-op entries made it difficult to see real workflow movement in live debugging.
+            if (event.oldStatus == event.newStatus) {
+                return@runCatching
+            }
+            val runtimeDir = stateStore.appHome().resolve("runtime").resolve("backend")
+            Files.createDirectories(runtimeDir)
+            val logFile = runtimeDir.resolve("company-automation-trace.log")
+            val dedupKey = buildString {
+                append(event.companyId)
+                append('|')
+                append(event.issueId)
+                append('|')
+                append(event.oldStatus)
+                append('|')
+                append(event.newStatus)
+                append('|')
+                append(event.source)
+                append('|')
+                append(event.reason)
+                append('|')
+                append(event.latestTaskId ?: "")
+                append('|')
+                append(event.latestTaskStatus ?: "")
+                append('|')
+                append(event.latestRunId ?: "")
+                append('|')
+                append(event.latestRunStatus ?: "")
+                append('|')
+                append(event.retryEligible?.toString().orEmpty())
+            }
+            val now = System.currentTimeMillis()
+            recentCompanyAutomationTraceKeys.entries.removeIf { now - it.value > COMPANY_TRACE_DEDUP_WINDOW_MS }
+            val previousTimestamp = recentCompanyAutomationTraceKeys.put(dedupKey, now)
+            if (previousTimestamp != null && now - previousTimestamp < COMPANY_TRACE_DEDUP_WINDOW_MS) {
+                return@runCatching
+            }
+            if (Files.exists(logFile) && Files.size(logFile) >= COMPANY_TRACE_ROTATE_BYTES) {
+                Files.move(
+                    logFile,
+                    logFile.resolveSibling("${logFile.fileName}.1"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+            val line = backendJson.encodeToString(CompanyAutomationTraceEvent.serializer(), event) + "\n"
+            Files.writeString(
+                logFile,
+                line,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND
+            )
         }
     }
 
@@ -4978,6 +6239,7 @@ class DesktopAppService(
     }
 
     private suspend fun markCompanyRuntimeError(companyId: String, cause: Throwable) {
+        appendCompanyRuntimeErrorLog(companyId, cause)
         stateMutex.withLock {
             val state = stateStore.load()
             val now = System.currentTimeMillis()
@@ -5007,6 +6269,41 @@ class DesktopAppService(
                 severity = "error"
             ).withDerivedMetrics()
             stateStore.save(nextState)
+        }
+    }
+
+    private fun appendCompanyRuntimeErrorLog(companyId: String, cause: Throwable) {
+        runCatching {
+            val runtimeDir = stateStore.appHome().resolve("runtime").resolve("backend")
+            Files.createDirectories(runtimeDir)
+            val logFile = runtimeDir.resolve("company-runtime-errors.log")
+            if (Files.exists(logFile) && Files.size(logFile) >= COMPANY_RUNTIME_ERROR_ROTATE_BYTES) {
+                Files.move(
+                    logFile,
+                    logFile.resolveSibling("${logFile.fileName}.1"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+            val stacktrace = StringWriter().also { writer ->
+                cause.printStackTrace(PrintWriter(writer))
+            }.toString()
+            val line = buildString {
+                append('[')
+                append(System.currentTimeMillis())
+                append("] companyId=")
+                append(companyId)
+                append(" error=")
+                append(cause.message ?: cause::class.simpleName ?: "unknown")
+                append('\n')
+                append(stacktrace)
+                if (!stacktrace.endsWith("\n")) append('\n')
+            }
+            Files.writeString(
+                logFile,
+                line,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND
+            )
         }
     }
 
@@ -5054,9 +6351,15 @@ class DesktopAppService(
     private fun DesktopAppState.computeOpsMetrics(): OpsMetricSnapshot =
         OpsMetricSnapshot(
             openGoals = goals.count { it.status != GoalStatus.COMPLETED },
-            activeIssues = issues.count { it.status == IssueStatus.PLANNED || it.status == IssueStatus.DELEGATED || it.status == IssueStatus.IN_PROGRESS || it.status == IssueStatus.IN_REVIEW },
+            activeIssues = issues.count {
+                it.status == IssueStatus.PLANNED ||
+                    it.status == IssueStatus.DELEGATED ||
+                    it.status == IssueStatus.IN_PROGRESS ||
+                    it.status == IssueStatus.IN_REVIEW ||
+                    it.status == IssueStatus.READY_FOR_CEO
+            },
             blockedIssues = issues.count { it.status == IssueStatus.BLOCKED },
-            readyToMergeCount = reviewQueue.count { it.status == ReviewQueueStatus.READY_TO_MERGE },
+            readyToMergeCount = reviewQueue.count { it.status == ReviewQueueStatus.READY_FOR_CEO || it.status == ReviewQueueStatus.READY_TO_MERGE },
             mergedCount = reviewQueue.count { it.status == ReviewQueueStatus.MERGED },
             lastUpdatedAt = System.currentTimeMillis()
         )
@@ -5077,7 +6380,8 @@ class DesktopAppService(
                 it.status == IssueStatus.PLANNED ||
                     it.status == IssueStatus.DELEGATED ||
                     it.status == IssueStatus.IN_PROGRESS ||
-                    it.status == IssueStatus.IN_REVIEW
+                    it.status == IssueStatus.IN_REVIEW ||
+                    it.status == IssueStatus.READY_FOR_CEO
             },
             autonomyEnabledGoalCount = goals.count { it.autonomyEnabled }
         )
@@ -5105,7 +6409,8 @@ class DesktopAppService(
                             it.status == IssueStatus.PLANNED ||
                                 it.status == IssueStatus.DELEGATED ||
                                 it.status == IssueStatus.IN_PROGRESS ||
-                                it.status == IssueStatus.IN_REVIEW
+                                it.status == IssueStatus.IN_REVIEW ||
+                                it.status == IssueStatus.READY_FOR_CEO
                             )
                 },
                 autonomyEnabledGoalCount = goals.count { it.companyId == companyId && it.autonomyEnabled }
@@ -5191,8 +6496,13 @@ class DesktopAppService(
     ): List<CompanyRuntimeSnapshot> =
         runtimes.filterNot { it.companyId == updated.companyId } + updated
 
-    private fun isNonFatalPublishError(error: String): Boolean {
-        return error == "No GitHub remote configured; kept local commit only"
+    private fun isNonFatalPublishError(error: String, state: DesktopAppState): Boolean {
+        if (state.backendSettings.codePublishMode != CodePublishMode.ALLOW_LOCAL_GIT) {
+            return false
+        }
+        return error == "No GitHub remote configured; kept local commit only" ||
+            error.contains("gh auth", ignoreCase = true) ||
+            error.contains("GitHub publishing requires an authenticated gh CLI session.", ignoreCase = true)
     }
 }
 
