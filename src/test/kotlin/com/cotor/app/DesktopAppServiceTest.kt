@@ -337,7 +337,24 @@ class DesktopAppServiceTest : FunSpec({
             description = "Do not explode issue execution prompts into dozens of synthetic subtasks.",
             autonomyEnabled = false
         )
-        val issue = service.decomposeGoal(goal.id).first()
+        val issue = CompanyIssue(
+            id = "issue-linked-prompt",
+            companyId = company.id,
+            projectContextId = stateStore.load().projectContexts.first { it.companyId == company.id }.id,
+            goalId = goal.id,
+            workspaceId = stateStore.load().workspaces.first { it.repositoryId == company.repositoryId }.id,
+            title = "Builder execution slice",
+            description = "Implement the smallest linked issue change.",
+            status = IssueStatus.PLANNED,
+            priority = 2,
+            kind = "execution",
+            assigneeProfileId = stateStore.load().orgProfiles.firstOrNull { it.companyId == company.id }?.id,
+            acceptanceCriteria = listOf("Primary issue", "Keep issue prompts stable"),
+            riskLevel = "medium",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        stateStore.save(stateStore.load().copy(issues = stateStore.load().issues + issue))
         val prompt = """
             Company execution context
             - company: Issue Plan Co
@@ -359,6 +376,42 @@ class DesktopAppServiceTest : FunSpec({
         plan.assignments shouldHaveSize 1
         plan.assignments.single().assignedPrompt.contains("Primary issue") shouldBe true
         plan.assignments.single().subtasks.size shouldBe issue.acceptanceCriteria.size
+    }
+
+    test("decomposeGoal creates a CEO planning issue before downstream execution issues") {
+        val appHome = Files.createTempDirectory("desktop-ceo-planning-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-ceo-planning-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val gitWorkspaceService = mockk<GitWorkspaceService>()
+        coEvery { gitWorkspaceService.resolveRepositoryRoot(any()) } returns repoRoot
+        coEvery { gitWorkspaceService.detectDefaultBranch(any()) } returns "master"
+        coEvery { gitWorkspaceService.detectRemoteUrl(any()) } returns null
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "CEO Planning Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val goal = service.createGoal(
+            companyId = company.id,
+            title = "Plan a PR-driven slice",
+            description = "CEO should author the initial execution graph.",
+            autonomyEnabled = false
+        )
+
+        val planningIssue = service.decomposeGoal(goal.id).single()
+
+        planningIssue.kind shouldBe "planning"
+        planningIssue.sourceSignal shouldBe "ceo-planning"
+        planningIssue.title shouldBe "CEO plan and delegate \"${goal.title}\""
+        stateStore.load().issues.count { it.goalId == goal.id && it.kind == "planning" } shouldBe 1
     }
 
     test("runTask uses assigned prompts when present and raw prompt when absent") {
@@ -500,7 +553,7 @@ class DesktopAppServiceTest : FunSpec({
         stateStore.load().runs.single().status shouldBe AgentRunStatus.COMPLETED
     }
 
-    test("startCompanyRuntime merges ready review queue items for autonomous goals") {
+    test("startCompanyRuntime does not auto-merge CEO-ready review queue items without approval") {
         val appHome = Files.createTempDirectory("desktop-runtime-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-test").resolve("repo"))
         val stateStore = DesktopStateStore { appHome }
@@ -515,7 +568,7 @@ class DesktopAppServiceTest : FunSpec({
 
         val goal = service.createGoal(
             title = "Autonomous merge loop",
-            description = "Keep merging ready review items without manual approval.",
+            description = "Keep CEO-ready review items pending until approval runs.",
             autonomyEnabled = false
         )
         val issue = stateStore.load().issues.first { it.goalId == goal.id }
@@ -532,7 +585,7 @@ class DesktopAppServiceTest : FunSpec({
                         runId = "run-1",
                         pullRequestNumber = 99,
                         pullRequestUrl = "https://github.com/heodongun/cotor/pull/99",
-                        status = ReviewQueueStatus.READY_TO_MERGE,
+                        status = ReviewQueueStatus.READY_FOR_CEO,
                         mergeability = "clean",
                         createdAt = now,
                         updatedAt = now
@@ -542,24 +595,13 @@ class DesktopAppServiceTest : FunSpec({
         )
 
         service.updateGoal(goal.id, autonomyEnabled = true)
-        var updatedState: DesktopAppState? = null
-        withTimeout(5_000) {
-            while (true) {
-                val current = stateStore.load()
-                val mergedItem = current.reviewQueue.firstOrNull { it.id == "rq-1" }
-                if (mergedItem?.status == ReviewQueueStatus.MERGED) {
-                    updatedState = current
-                    return@withTimeout
-                }
-                delay(25)
-            }
-        }
-        val settledState = updatedState.shouldNotBeNull()
+        delay(250)
+        val settledState = stateStore.load()
         val mergedItem = settledState.reviewQueue.first { it.id == "rq-1" }
 
         settledState.runtime.status shouldBe CompanyRuntimeStatus.RUNNING
-        mergedItem.status shouldBe ReviewQueueStatus.MERGED
-        settledState.issues.first { it.id == issue.id }.status shouldBe IssueStatus.DONE
+        mergedItem.status shouldBe ReviewQueueStatus.READY_FOR_CEO
+        settledState.issues.first { it.id == issue.id }.status shouldBe IssueStatus.IN_REVIEW
         settledState.runtime.lastAction shouldNotBe null
         service.stopCompanyRuntime().status shouldBe CompanyRuntimeStatus.STOPPED
     }
@@ -3911,6 +3953,176 @@ class DesktopAppServiceTest : FunSpec({
         refreshedQueue.ceoFeedback shouldBe null
         refreshedQueue.ceoReviewedAt shouldBe null
         refreshedQueue.qaVerdict shouldBe "PASS"
+    }
+
+    test("CEO approval merges the current PR and completes the execution lineage") {
+        val appHome = Files.createTempDirectory("desktop-app-service-ceo-merge")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-ceo-merge-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        coEvery {
+            gitWorkspaceService.submitPullRequestReview(any(), 22, PullRequestReviewVerdict.APPROVE, any())
+        } returns PublishMetadata(
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            reviewState = "APPROVED",
+            mergeability = "MERGEABLE"
+        )
+        coEvery {
+            gitWorkspaceService.mergePullRequest(any(), 22)
+        } returns PullRequestMergeResult(
+            number = 22,
+            url = "https://github.com/heodongun/cotor-test/pull/22",
+            state = "MERGED",
+            mergeCommitSha = "deadbeef"
+        )
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "CEO Merge Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-ceo-merge",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Merge the approved PR",
+            description = "Exercise the CEO approval merge lane.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = true,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-ceo-merge",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Ship the current PR",
+            description = "Execution branch work.",
+            status = IssueStatus.READY_FOR_CEO,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/ceo-merge",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/ceo-merge/codex").toString(),
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            createdAt = now,
+            updatedAt = now
+        )
+        val approvalIssue = CompanyIssue(
+            id = "issue-approval-ceo-merge",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "CEO approve Ship the current PR",
+            description = "CEO approval gate.",
+            status = IssueStatus.IN_PROGRESS,
+            priority = 1,
+            kind = "approval",
+            dependsOn = listOf(executionIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            sourceSignal = "ceo-approval:${executionIssue.id}",
+            createdAt = now,
+            updatedAt = now
+        )
+        val approvalTask = AgentTask(
+            id = "task-approval-ceo-merge",
+            workspaceId = workspace.id,
+            title = approvalIssue.title,
+            prompt = approvalIssue.description,
+            agents = listOf("codex"),
+            issueId = approvalIssue.id,
+            status = DesktopTaskStatus.COMPLETED,
+            createdAt = now,
+            updatedAt = now
+        )
+        val approvalRun = AgentRun(
+            id = "run-approval-ceo-merge",
+            taskId = approvalTask.id,
+            workspaceId = workspace.id,
+            repositoryId = company.repositoryId,
+            agentName = "codex",
+            repoRoot = repoRoot.toString(),
+            baseBranch = "master",
+            status = AgentRunStatus.COMPLETED,
+            output = "CEO_VERDICT: APPROVE\nReady to merge.",
+            branchName = executionIssue.branchName!!,
+            worktreePath = executionIssue.worktreePath!!,
+            durationMs = 150,
+            createdAt = now,
+            updatedAt = now
+        )
+        val reviewQueueItem = ReviewQueueItem(
+            id = "rq-ceo-merge",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            issueId = executionIssue.id,
+            runId = "run-execution-ceo-merge",
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            status = ReviewQueueStatus.READY_FOR_CEO,
+            mergeability = "clean",
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            qaReviewedAt = now - 1_000,
+            approvalIssueId = approvalIssue.id,
+            createdAt = now - 10_000,
+            updatedAt = now - 1_000
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + listOf(executionIssue, approvalIssue),
+                tasks = baseState.tasks + approvalTask,
+                runs = baseState.runs + approvalRun,
+                reviewQueue = baseState.reviewQueue + reviewQueueItem,
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = company.id,
+                        status = CompanyRuntimeStatus.RUNNING,
+                        backendKind = ExecutionBackendKind.LOCAL_COTOR,
+                        backendHealth = "healthy",
+                        lastStartedAt = now
+                    )
+                )
+            )
+        )
+
+        service.runCompanyRuntimeTick(company.id)
+
+        val refreshed = stateStore.load()
+        refreshed.issues.first { it.id == executionIssue.id }.status shouldBe IssueStatus.DONE
+        refreshed.issues.first { it.id == executionIssue.id }.mergeResult shouldBe "MERGED"
+        refreshed.issues.first { it.id == approvalIssue.id }.status shouldBe IssueStatus.DONE
+        refreshed.reviewQueue.first { it.id == reviewQueueItem.id }.status shouldBe ReviewQueueStatus.MERGED
+        refreshed.goals.first { it.id == goal.id }.status shouldBe GoalStatus.COMPLETED
     }
 
     test("approval prompt scopes evidence to CEO-ready pull requests and excludes stale review history") {

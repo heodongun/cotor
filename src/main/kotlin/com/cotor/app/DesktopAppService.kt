@@ -60,6 +60,27 @@ private data class CompanyAutomationTraceEvent(
     val runErrorSnippet: String? = null
 )
 
+@kotlinx.serialization.Serializable
+private data class CeoPlanningPayload(
+    val goalSummary: String,
+    val issues: List<CeoPlannedIssue> = emptyList()
+)
+
+@kotlinx.serialization.Serializable
+private data class CeoPlannedIssue(
+    val refId: String,
+    val title: String,
+    val description: String,
+    val kind: String = "execution",
+    val assigneeRole: String,
+    val priority: Int = 3,
+    val codeProducing: Boolean? = null,
+    val dependsOn: List<String> = emptyList(),
+    val acceptanceCriteria: List<String> = emptyList(),
+    val reviewRequired: Boolean = true,
+    val approvalRequired: Boolean = true
+)
+
 /**
  * High-level application service that owns the desktop-facing workflow.
  *
@@ -81,6 +102,9 @@ class DesktopAppService(
         private const val COMPANY_TRACE_DEDUP_WINDOW_MS = 30_000L
         private const val COMPANY_TRACE_ROTATE_BYTES = 8L * 1024L * 1024L
         private const val COMPANY_RUNTIME_ERROR_ROTATE_BYTES = 2L * 1024L * 1024L
+        private const val CEO_PLANNING_SOURCE = "ceo-planning"
+        private const val QA_REVIEW_SOURCE_PREFIX = "qa-review:"
+        private const val CEO_APPROVAL_SOURCE_PREFIX = "ceo-approval:"
     }
 
     // Reads are cheap and frequent, but writes must be serialized so the state file
@@ -1363,30 +1387,12 @@ class DesktopAppService(
                 createdAt = now,
                 updatedAt = now
             )
-            val decomposition = decomposeGoal(goal, workspace, profiles, companyDefinitions, now)
-            val decision = GoalOrchestrationDecision(
-                id = UUID.randomUUID().toString(),
-                companyId = company.id,
-                goalId = goal.id,
-                title = "Created execution graph",
-                summary = "CEO decomposed \"${goal.title}\" into ${decomposition.first.size} issues across ${companyDefinitions.count { it.companyId == company.id && it.enabled }} agents.",
-                createdIssues = decomposition.first.map { it.id },
-                assignments = decomposition.first.mapNotNull { issue ->
-                    val assignee = profiles.firstOrNull { it.id == issue.assigneeProfileId }?.roleName
-                    assignee?.let { "${issue.title} -> $it" }
-                },
-                escalations = emptyList(),
-                createdAt = now
-            )
             val nextState = workspaceState.copy(
                 companies = nextCompanies,
                 companyAgentDefinitions = companyDefinitions,
                 projectContexts = nextProjectContexts,
                 goals = workspaceState.goals + goal,
-                issues = workspaceState.issues + decomposition.first,
-                issueDependencies = workspaceState.issueDependencies + decomposition.second,
                 orgProfiles = profiles,
-                goalDecisions = workspaceState.goalDecisions + decision,
                 companyRuntimes = if (workspaceState.companyRuntimes.any { it.companyId == company.id }) {
                     workspaceState.companyRuntimes
                 } else {
@@ -1409,15 +1415,9 @@ class DesktopAppService(
                 detail = goal.title,
                 goalId = goal.id
             )
-            publishCompanyEvent(
-                companyId = company.id,
-                type = "goal.decomposed",
-                title = "Created execution graph",
-                detail = "${decomposition.first.size} issues planned",
-                goalId = goal.id
-            )
             goal
         }
+        runCatching { decomposeGoal(goal.id) }
         queueGoalPostCreateWork(goal, startRuntimeIfNeeded)
         return goal
     }
@@ -1635,7 +1635,21 @@ class DesktopAppService(
     suspend fun decomposeGoal(goalId: String): List<CompanyIssue> = stateMutex.withLock {
         val state = stateStore.load()
         val existing = state.issues.filter { it.goalId == goalId }
-        if (existing.isNotEmpty()) {
+        val existingNonPlanning = existing.filterNot { it.kind.equals("planning", ignoreCase = true) }
+        if (existingNonPlanning.isNotEmpty()) {
+            return@withLock existing.sortedByDescending { it.updatedAt }
+        }
+        val existingPlanningIssue = existing.firstOrNull { it.kind.equals("planning", ignoreCase = true) }
+        val existingPlanningTaskRunning = existingPlanningIssue?.let { planningIssue ->
+            state.tasks.any { task ->
+                task.issueId == planningIssue.id &&
+                    (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED)
+            }
+        } == true
+        if (existingPlanningIssue != null && existingPlanningTaskRunning) {
+            return@withLock existing.sortedByDescending { it.updatedAt }
+        }
+        if (existingPlanningIssue != null && existingPlanningIssue.status == IssueStatus.DONE) {
             return@withLock existing.sortedByDescending { it.updatedAt }
         }
         val goal = state.goals.firstOrNull { it.id == goalId }
@@ -1648,45 +1662,74 @@ class DesktopAppService(
         val workspace = workspaceResolution.second
         val projectContext = ensureProjectContext(workspaceState, company, now)
         val profiles = ensureOrgProfiles(workspaceState.orgProfiles, workspaceState.companyAgentDefinitions, workspaceState.companies)
-        val decomposition = decomposeGoal(goal, workspace, profiles, workspaceState.companyAgentDefinitions, now)
-        val decision = GoalOrchestrationDecision(
+        val chiefProfile = profiles.firstOrNull {
+            it.companyId == company.id && (it.mergeAuthority || it.roleName.equals("CEO", ignoreCase = true))
+        } ?: suggestProfileForCustomIssue(
+            title = "CEO planning",
+            description = goal.description,
+            kind = "planning",
+            profiles = profiles.filter { it.companyId == company.id }
+        )
+        val planningIssue = existingPlanningIssue?.copy(
+            assigneeProfileId = chiefProfile?.id ?: existingPlanningIssue.assigneeProfileId,
+            status = if (existingPlanningIssue.status == IssueStatus.DONE) IssueStatus.DONE else IssueStatus.PLANNED,
+            transitionReason = "CEO planning lane is preparing explicit issue assignments for this goal.",
+            updatedAt = now
+        ) ?: CompanyIssue(
             id = UUID.randomUUID().toString(),
-            companyId = company.id,
+            companyId = goal.companyId,
+            projectContextId = goal.projectContextId,
             goalId = goal.id,
-            title = "Decomposed goal",
-            summary = "CEO expanded \"${goal.title}\" into ${decomposition.first.size} issues.",
-            createdIssues = decomposition.first.map { it.id },
-            assignments = decomposition.first.mapNotNull { issue ->
-                val assignee = profiles.firstOrNull { it.id == issue.assigneeProfileId }?.roleName
-                assignee?.let { "${issue.title} -> $it" }
-            },
-            escalations = emptyList(),
-            createdAt = now
+            workspaceId = workspace.id,
+            title = "CEO plan and delegate \"${goal.title}\"",
+            description = buildPlanningIssueDescription(goal, company, workspaceState.companyAgentDefinitions, profiles),
+            status = IssueStatus.PLANNED,
+            priority = 1,
+            kind = "planning",
+            assigneeProfileId = chiefProfile?.id,
+            blockedBy = emptyList(),
+            dependsOn = emptyList(),
+            acceptanceCriteria = listOf(
+                "Produce a structured plan with explicit issues, assignees, dependencies, and PR expectations.",
+                "Use the current company roster and goal context when assigning work."
+            ),
+            riskLevel = "medium",
+            codeProducing = false,
+            transitionReason = "CEO planning lane is preparing explicit issue assignments for this goal.",
+            sourceSignal = CEO_PLANNING_SOURCE,
+            createdAt = now,
+            updatedAt = now
         )
         val nextState = workspaceState.copy(
-            issues = workspaceState.issues + decomposition.first,
-            issueDependencies = workspaceState.issueDependencies + decomposition.second,
+            issues = workspaceState.issues.filterNot { it.id == planningIssue.id } + planningIssue,
             orgProfiles = profiles,
-            goalDecisions = workspaceState.goalDecisions + decision
         ).recordCompanyActivity(
             companyId = company.id,
             projectContextId = projectContext.id,
             goalId = goal.id,
+            issueId = planningIssue.id,
             source = "goal-decomposition",
-            title = "Decomposed goal",
-            detail = goal.title
+            title = if (existingPlanningIssue == null) "Created CEO planning issue" else "Reopened CEO planning issue",
+            detail = planningIssue.title
         ).withDerivedMetrics()
         stateStore.save(nextState)
         writeCompanyContextSnapshot(nextState, company, projectContext)
         publishCompanyEvent(
             companyId = company.id,
-            type = "goal.decomposed",
-            title = "Decomposed goal",
-            detail = "${decomposition.first.size} issues planned",
-            goalId = goal.id
+            type = "goal.planning.started",
+            title = "Started CEO planning",
+            detail = planningIssue.title,
+            goalId = goal.id,
+            issueId = planningIssue.id
         )
-        mirrorGoalIssuesToLinear(goal.id)
-        decomposition.first
+        planningIssue
+            .takeIf { it.status != IssueStatus.DONE }
+            ?.let { createdPlanningIssue ->
+                serviceScope.launch {
+                    runCatching { runIssue(createdPlanningIssue.id) }
+                }
+            }
+        listOf(planningIssue)
     }
 
     suspend fun delegateIssue(issueId: String): CompanyIssue {
@@ -1763,9 +1806,16 @@ class DesktopAppService(
         val latestTask = state.tasks
             .filter { it.issueId == executableIssue.id }
             .maxByOrNull { it.updatedAt }
+        val needsReworkRun =
+            latestTask?.status == DesktopTaskStatus.COMPLETED &&
+                (
+                    executableIssue.qaVerdict == "CHANGES_REQUESTED" ||
+                        executableIssue.ceoVerdict == "CHANGES_REQUESTED"
+                    )
         val shouldCreateFreshTask = latestTask == null ||
             latestTask.status == DesktopTaskStatus.FAILED ||
-            latestTask.status == DesktopTaskStatus.PARTIAL
+            latestTask.status == DesktopTaskStatus.PARTIAL ||
+            needsReworkRun
         val task = if (shouldCreateFreshTask) {
             createTask(
                 workspaceId = executableIssue.workspaceId,
@@ -2101,7 +2151,17 @@ class DesktopAppService(
             )
             val nextIssues = state.issues.map { issue ->
                 if (issue.id == currentItem.issueId) {
-                    issue.copy(status = IssueStatus.DONE, updatedAt = mergedAt)
+                    issue.copy(
+                        status = IssueStatus.DONE,
+                        pullRequestNumber = nextMergedItem.pullRequestNumber ?: issue.pullRequestNumber,
+                        pullRequestUrl = nextMergedItem.pullRequestUrl ?: issue.pullRequestUrl,
+                        pullRequestState = nextMergedItem.pullRequestState ?: issue.pullRequestState,
+                        ceoVerdict = nextMergedItem.ceoVerdict ?: issue.ceoVerdict,
+                        ceoFeedback = nextMergedItem.ceoFeedback ?: issue.ceoFeedback,
+                        mergeResult = mergeResult.state ?: "MERGED",
+                        transitionReason = "CEO approved and merged PR ${nextMergedItem.pullRequestUrl ?: nextMergedItem.pullRequestNumber}.",
+                        updatedAt = mergedAt
+                    )
                 } else {
                     issue
                 }
@@ -2328,7 +2388,7 @@ class DesktopAppService(
             }
 
             autonomousGoals.forEach { goal ->
-                if (current.issues.none { it.goalId == goal.id }) {
+                if (current.issues.none { it.goalId == goal.id && !it.kind.equals("planning", ignoreCase = true) }) {
                     decomposeGoal(goal.id)
                     actions += "decomposed:${goal.id}"
                 }
@@ -4489,6 +4549,7 @@ class DesktopAppService(
 
     private fun requiresCodePublish(issue: CompanyIssue?): Boolean {
         if (issue == null) return true
+        issue.codeProducing?.let { return it }
         return when (issue.kind.lowercase()) {
             "review", "approval", "planning", "infra" -> false
             else -> true
@@ -4552,7 +4613,7 @@ class DesktopAppService(
         }
     }
 
-    private fun decomposeGoal(
+    private fun buildFallbackGoalIssues(
         goal: CompanyGoal,
         workspace: Workspace,
         profiles: List<OrgAgentProfile>,
@@ -4565,93 +4626,34 @@ class DesktopAppService(
             prompt = goal.description,
             participants = participants
         )
-        val chiefProfile = profiles.firstOrNull {
-            it.companyId == goal.companyId && (it.mergeAuthority || it.roleName.equals("CEO", ignoreCase = true))
-        }
-        val issueIds = plan.assignments.map { UUID.randomUUID().toString() }
-        val dependencyIdsByPhase = linkedMapOf<String, MutableList<String>>()
-        val issues = buildList {
-            if (chiefProfile != null) {
-                val planningIssueId = UUID.randomUUID().toString()
-                add(
-                    CompanyIssue(
-                        id = planningIssueId,
-                        companyId = goal.companyId,
-                        projectContextId = goal.projectContextId,
-                        goalId = goal.id,
-                        workspaceId = workspace.id,
-                        title = "CEO plan and delegate \"${goal.title}\"",
-                        description = buildString {
-                            appendLine("CEO planning issue for the company goal.")
-                            appendLine()
-                            appendLine("Goal: ${goal.title}")
-                            appendLine("Description:")
-                            appendLine(goal.description.ifBlank { goal.title })
-                            appendLine()
-                            appendLine("Responsibilities:")
-                            appendLine("- Break the goal into the next concrete work slices.")
-                            appendLine("- Assign downstream work to the right agents in the roster.")
-                            appendLine("- Keep the company moving by creating the next actions after each loop.")
-                        },
-                        status = IssueStatus.DONE,
-                        priority = 1,
-                        kind = "planning",
-                        assigneeProfileId = chiefProfile.id,
-                        blockedBy = emptyList(),
+        val fallbackPayload = CeoPlanningPayload(
+            goalSummary = plan.goalSummary,
+            issues = plan.assignments
+                .filter { it.phase.equals("execution", ignoreCase = true) }
+                .mapIndexed { index, assignment ->
+                    CeoPlannedIssue(
+                        refId = "exec-${index + 1}",
+                        title = assignment.subtasks.firstOrNull()?.title ?: "${assignment.role}: ${assignment.focus}",
+                        description = buildIssueDescription(goal, assignment, plan.sharedChecklist),
+                        kind = "execution",
+                        assigneeRole = assignment.role,
+                        priority = 2,
+                        codeProducing = true,
                         dependsOn = emptyList(),
-                        acceptanceCriteria = listOf(
-                            "Clarify the next concrete work slices for the goal.",
-                            "Delegate downstream execution work to the best-fit agents.",
-                            "Keep the company moving with explicit next actions."
-                        ),
-                        riskLevel = "medium",
-                        createdAt = now,
-                        updatedAt = now
+                        acceptanceCriteria = (plan.sharedChecklist + assignment.subtasks.map { it.title }).distinct(),
+                        reviewRequired = true,
+                        approvalRequired = true
                     )
-                )
-            }
-            addAll(plan.assignments.mapIndexed { index, assignment ->
-            val profile = profiles.firstOrNull {
-                it.id == assignment.participantId ||
-                    (assignment.participantId == null && it.executionAgentName.equals(assignment.agentName, ignoreCase = true))
-            }
-            val dependsOn = when (assignment.phase.lowercase()) {
-                "review" -> dependencyIdsByPhase["execution"].orEmpty()
-                "approval" -> dependencyIdsByPhase["review"].orEmpty().ifEmpty { dependencyIdsByPhase["execution"].orEmpty() }
-                else -> emptyList()
-            }
-            val issueId = issueIds[index]
-            dependencyIdsByPhase.getOrPut(assignment.phase.lowercase()) { mutableListOf() }.add(issueId)
-            CompanyIssue(
-                id = issueId,
-                companyId = goal.companyId,
-                projectContextId = goal.projectContextId,
-                goalId = goal.id,
-                workspaceId = workspace.id,
-                title = assignment.subtasks.firstOrNull()?.title ?: "${assignment.role}: ${assignment.focus}",
-                description = buildIssueDescription(goal, assignment, plan.sharedChecklist),
-                status = if (dependsOn.isEmpty()) IssueStatus.PLANNED else IssueStatus.BACKLOG,
-                priority = when (assignment.phase.lowercase()) {
-                    "execution" -> 2
-                    "review" -> 3
-                    "approval" -> 4
-                    else -> 3
-                },
-                kind = assignment.phase.lowercase(),
-                assigneeProfileId = profile?.id,
-                blockedBy = emptyList(),
-                dependsOn = dependsOn,
-                acceptanceCriteria = (plan.sharedChecklist + assignment.subtasks.map { it.title }).distinct(),
-                riskLevel = when (assignment.phase.lowercase()) {
-                    "review" -> "low"
-                    "approval" -> "medium"
-                    else -> "medium"
-                },
-                createdAt = now + index,
-                updatedAt = now + index
-            )
-            })
-        }
+                }
+        )
+        val issues = materializePlannedIssues(
+            goal = goal,
+            workspace = workspace,
+            profiles = profiles,
+            plan = fallbackPayload,
+            now = now,
+            planningSource = "fallback"
+        )
         val dependencies = issues.flatMap { issue ->
             issue.dependsOn.map { dependencyId ->
                 IssueDependency(
@@ -4663,6 +4665,279 @@ class DesktopAppService(
         }
         return issues to dependencies
     }
+
+    private fun buildPlanningIssueDescription(
+        goal: CompanyGoal,
+        company: Company,
+        definitions: List<CompanyAgentDefinition>,
+        profiles: List<OrgAgentProfile>
+    ): String = buildString {
+        appendLine("CEO planning issue for the company goal.")
+        appendLine()
+        appendLine("Company: ${company.name}")
+        appendLine("Goal: ${goal.title}")
+        appendLine("Description:")
+        appendLine(goal.description.ifBlank { goal.title })
+        appendLine()
+        appendLine("Roster:")
+        definitions
+            .filter { it.companyId == company.id && it.enabled }
+            .sortedWith(compareBy<CompanyAgentDefinition> { it.displayOrder }.thenBy { it.title.lowercase() })
+            .forEach { definition ->
+                val capabilities = profiles.firstOrNull { it.id == definition.id }?.capabilities.orEmpty()
+                appendLine("- ${definition.title}: ${definition.roleSummary}")
+                if (definition.specialties.isNotEmpty()) {
+                    appendLine("  specialties: ${definition.specialties.joinToString(", ")}")
+                }
+                if (capabilities.isNotEmpty()) {
+                    appendLine("  capabilities: ${capabilities.joinToString(", ")}")
+                }
+            }
+        appendLine()
+        appendLine("Responsibilities:")
+        appendLine("- Break the goal into explicit downstream issues.")
+        appendLine("- Assign each issue to the best-fit role in the roster.")
+        appendLine("- Decide dependency order and whether each issue should produce code and a PR.")
+        appendLine("- Keep review and final CEO approval as separate downstream gates.")
+    }.trim()
+
+    private fun buildCeoPlanningPrompt(
+        state: DesktopAppState,
+        issue: CompanyIssue,
+        profile: OrgAgentProfile
+    ): String {
+        val goal = state.goals.firstOrNull { it.id == issue.goalId }
+        val company = state.companies.firstOrNull { it.id == issue.companyId }
+        val definitions = state.companyAgentDefinitions
+            .filter { it.companyId == issue.companyId && it.enabled }
+            .sortedWith(compareBy<CompanyAgentDefinition> { it.displayOrder }.thenBy { it.title.lowercase() })
+        val recentDecisions = state.goalDecisions
+            .filter { it.companyId == issue.companyId }
+            .sortedByDescending { it.createdAt }
+            .take(5)
+        return buildString {
+            appendLine("You are the CEO planning the next work graph for the company.")
+            appendLine()
+            company?.let {
+                appendLine("Company: ${it.name}")
+                appendLine("Repository root: ${it.rootPath}")
+                appendLine("Base branch: ${it.defaultBaseBranch}")
+            }
+            goal?.let {
+                appendLine("Goal: ${it.title}")
+                appendLine("Goal description:")
+                appendLine(it.description.ifBlank { it.title })
+            }
+            appendLine()
+            appendLine("Available roster:")
+            definitions.forEach { definition ->
+                appendLine("- ${definition.title}: ${definition.roleSummary}")
+                if (definition.specialties.isNotEmpty()) {
+                    appendLine("  specialties: ${definition.specialties.joinToString(", ")}")
+                }
+            }
+            if (recentDecisions.isNotEmpty()) {
+                appendLine()
+                appendLine("Recent CEO decisions:")
+                recentDecisions.forEach { decision ->
+                    appendLine("- ${decision.summary}")
+                }
+            }
+            appendLine()
+            appendLine("Planning rules:")
+            appendLine("- Create only the concrete execution or research issues the company should do next.")
+            appendLine("- Do not create QA review or CEO approval issues; Cotor creates PR gates separately.")
+            appendLine("- Use one issue per branchable slice of work.")
+            appendLine("- Generic work should route to Builder-first unless the goal clearly needs a specialist.")
+            appendLine("- Set codeProducing=true when the issue should end with a branch and GitHub PR.")
+            appendLine("- Use dependsOn with refIds from earlier issues when ordering matters.")
+            appendLine()
+            appendLine("Return JSON only inside one ```json fenced block using this schema:")
+            appendLine("```json")
+            appendLine("""{"goalSummary":"...","issues":[{"refId":"exec-1","title":"...","description":"...","kind":"execution","assigneeRole":"Builder","priority":2,"codeProducing":true,"dependsOn":[],"acceptanceCriteria":["..."],"reviewRequired":true,"approvalRequired":true}]}""")
+            appendLine("```")
+            appendLine()
+            appendLine("Do not include prose outside the JSON block.")
+            appendLine("Current role: ${profile.roleName}")
+        }.trim()
+    }
+
+    private fun parseCeoPlanningPayload(output: String?): CeoPlanningPayload? {
+        val text = output?.trim().orEmpty()
+        if (text.isBlank()) {
+            return null
+        }
+        val fencedMatch = Regex("```json\\s*(\\{.*?})\\s*```", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            .find(text)
+            ?.groupValues
+            ?.getOrNull(1)
+        val candidate = fencedMatch ?: extractJsonObject(text) ?: return null
+        return runCatching {
+            backendJson.decodeFromString(CeoPlanningPayload.serializer(), candidate)
+        }.getOrNull()?.takeIf { payload ->
+            payload.issues.isNotEmpty() && payload.issues.all { issue ->
+                issue.refId.isNotBlank() && issue.title.isNotBlank() && issue.assigneeRole.isNotBlank()
+            }
+        }
+    }
+
+    private fun extractJsonObject(text: String): String? {
+        val start = text.indexOf('{')
+        if (start < 0) {
+            return null
+        }
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (index in start until text.length) {
+            val ch = text[index]
+            if (inString) {
+                if (escaped) {
+                    escaped = false
+                } else if (ch == '\\') {
+                    escaped = true
+                } else if (ch == '"') {
+                    inString = false
+                }
+                continue
+            }
+            when (ch) {
+                '"' -> inString = true
+                '{' -> depth += 1
+                '}' -> {
+                    depth -= 1
+                    if (depth == 0) {
+                        return text.substring(start, index + 1)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun materializePlannedIssues(
+        goal: CompanyGoal,
+        workspace: Workspace,
+        profiles: List<OrgAgentProfile>,
+        plan: CeoPlanningPayload,
+        now: Long,
+        planningSource: String
+    ): List<CompanyIssue> {
+        val companyProfiles = profiles.filter { it.companyId == goal.companyId && it.enabled }
+        val issueIdsByRef = linkedMapOf<String, String>()
+        val createdIssuePairs = plan.issues.mapIndexed { index, plannedIssue ->
+            val issueId = UUID.randomUUID().toString()
+            issueIdsByRef[plannedIssue.refId.trim()] = issueId
+            val assignee = companyProfiles.firstOrNull { it.roleName.equals(plannedIssue.assigneeRole.trim(), ignoreCase = true) }
+                ?: suggestProfileForCustomIssue(
+                    title = plannedIssue.title,
+                    description = plannedIssue.description,
+                    kind = plannedIssue.kind,
+                    profiles = companyProfiles
+                )
+            val normalizedKind = plannedIssue.kind.trim().ifBlank { "execution" }.lowercase()
+            val codeProducing = plannedIssue.codeProducing ?: when (normalizedKind) {
+                "planning", "review", "approval", "qa", "infra", "research" -> false
+                else -> true
+            }
+            plannedIssue to CompanyIssue(
+                id = issueId,
+                companyId = goal.companyId,
+                projectContextId = goal.projectContextId,
+                goalId = goal.id,
+                workspaceId = workspace.id,
+                title = plannedIssue.title.trim(),
+                description = plannedIssue.description.trim().ifBlank { plannedIssue.title.trim() },
+                status = IssueStatus.PLANNED,
+                priority = plannedIssue.priority.coerceIn(1, 4),
+                kind = normalizedKind,
+                assigneeProfileId = assignee?.id,
+                blockedBy = emptyList(),
+                dependsOn = emptyList(),
+                acceptanceCriteria = plannedIssue.acceptanceCriteria.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
+                riskLevel = if (codeProducing) "medium" else "low",
+                codeProducing = codeProducing,
+                transitionReason = if (planningSource == "ceo") {
+                    "CEO planning run assigned this issue to ${assignee?.roleName ?: plannedIssue.assigneeRole}."
+                } else {
+                    "Fallback planner assigned this issue to ${assignee?.roleName ?: plannedIssue.assigneeRole}."
+                },
+                sourceSignal = "$CEO_PLANNING_SOURCE:${goal.id}",
+                createdAt = now + index,
+                updatedAt = now + index
+            )
+        }
+        return createdIssuePairs.map { (plannedIssue, createdIssue) ->
+            val dependencyIds = plannedIssue.dependsOn.mapNotNull(issueIdsByRef::get).distinct()
+            createdIssue.copy(
+                status = if (dependencyIds.isEmpty()) IssueStatus.PLANNED else IssueStatus.BACKLOG,
+                dependsOn = dependencyIds
+            )
+        }
+    }
+
+    private fun findChiefProfile(companyId: String, profiles: List<OrgAgentProfile>): OrgAgentProfile? =
+        profiles.firstOrNull {
+            it.companyId == companyId && it.enabled && (it.mergeAuthority || it.roleName.equals("CEO", ignoreCase = true))
+        } ?: profiles.firstOrNull { it.companyId == companyId && it.enabled }
+
+    private fun findQaProfile(companyId: String, profiles: List<OrgAgentProfile>): OrgAgentProfile? =
+        profiles.firstOrNull {
+            it.companyId == companyId &&
+                it.enabled &&
+                (
+                    it.reviewerPolicy != null ||
+                        it.roleName.equals("QA", ignoreCase = true) ||
+                        it.capabilities.any { capability ->
+                            capability.equals("qa", ignoreCase = true) || capability.equals("review", ignoreCase = true)
+                        }
+                    )
+        } ?: findChiefProfile(companyId, profiles)
+
+    private fun qaReviewSource(issueId: String): String = "$QA_REVIEW_SOURCE_PREFIX$issueId"
+
+    private fun ceoApprovalSource(issueId: String): String = "$CEO_APPROVAL_SOURCE_PREFIX$issueId"
+
+    private fun relatedExecutionIssueId(issue: CompanyIssue): String? = when {
+        issue.sourceSignal.startsWith(QA_REVIEW_SOURCE_PREFIX) -> issue.sourceSignal.removePrefix(QA_REVIEW_SOURCE_PREFIX)
+        issue.sourceSignal.startsWith(CEO_APPROVAL_SOURCE_PREFIX) -> issue.sourceSignal.removePrefix(CEO_APPROVAL_SOURCE_PREFIX)
+        else -> null
+    }?.takeIf { it.isNotBlank() }
+
+    private fun buildQaReviewIssueDescription(executionIssue: CompanyIssue, queueItem: ReviewQueueItem): String = buildString {
+        appendLine("QA review issue for a concrete pull request.")
+        appendLine()
+        appendLine("Execution issue: ${executionIssue.title}")
+        queueItem.branchName?.let { appendLine("Branch: $it") }
+        queueItem.pullRequestUrl?.let { appendLine("Pull request: $it") }
+        queueItem.checksSummary?.takeIf { it.isNotBlank() }?.let {
+            appendLine("Checks summary:")
+            appendLine(it)
+        }
+        appendLine()
+        appendLine("Responsibilities:")
+        appendLine("- Review the current PR and branch evidence only.")
+        appendLine("- Validate the implementation against the stated acceptance criteria.")
+        appendLine("- Emit QA_VERDICT: PASS or QA_VERDICT: CHANGES_REQUESTED with concise feedback.")
+    }.trim()
+
+    private fun buildCeoApprovalIssueDescription(executionIssue: CompanyIssue, queueItem: ReviewQueueItem): String = buildString {
+        appendLine("CEO approval issue for a QA-reviewed pull request.")
+        appendLine()
+        appendLine("Execution issue: ${executionIssue.title}")
+        queueItem.branchName?.let { appendLine("Branch: $it") }
+        queueItem.pullRequestUrl?.let { appendLine("Pull request: $it") }
+        queueItem.qaVerdict?.let { appendLine("QA verdict: $it") }
+        queueItem.qaFeedback?.takeIf { it.isNotBlank() }?.let {
+            appendLine("QA feedback:")
+            appendLine(it)
+        }
+        appendLine()
+        appendLine("Responsibilities:")
+        appendLine("- Review the current PR and the latest QA verdict.")
+        appendLine("- Emit CEO_VERDICT: APPROVE or CEO_VERDICT: CHANGES_REQUESTED with concise feedback.")
+        appendLine("- Only approve if the PR is ready to merge into the base branch.")
+    }.trim()
 
     private suspend fun synthesizeAutonomousFollowUpGoal(companyId: String): CompanyGoal? {
         val state = stateStore.load()
@@ -4914,18 +5189,23 @@ class DesktopAppService(
                 profile = profile
             )
         }
+        val relatedExecutionIssue = relatedExecutionIssueId(issue)?.let { executionIssueId ->
+            state.issues.firstOrNull { it.id == executionIssueId }
+        }
         val goalReviewQueueItems = state.reviewQueue
             .filter { reviewItem ->
                 state.issues.firstOrNull { it.id == reviewItem.issueId }?.goalId == issue.goalId
             }
             .sortedByDescending { it.updatedAt }
-        val qaPendingQueueItems = goalReviewQueueItems
-            .filter { it.status == ReviewQueueStatus.AWAITING_QA }
-        val ceoReadyQueueItems = goalReviewQueueItems
+        val scopedQueueItems = relatedExecutionIssue?.let { executionIssue ->
+            goalReviewQueueItems.filter { it.issueId == executionIssue.id }
+        } ?: goalReviewQueueItems
+        val qaPendingQueueItems = scopedQueueItems
+            .filter { it.status == ReviewQueueStatus.AWAITING_QA || it.status == ReviewQueueStatus.FAILED_CHECKS }
+        val ceoReadyQueueItems = scopedQueueItems
             .filter { it.status == ReviewQueueStatus.READY_FOR_CEO }
         val scopedExecutionIssueIds = when (issue.kind.lowercase()) {
-            "review" -> qaPendingQueueItems.map { it.issueId }.toSet()
-            "approval" -> ceoReadyQueueItems.map { it.issueId }.toSet()
+            "review", "approval" -> relatedExecutionIssue?.id?.let(::setOf) ?: emptySet()
             else -> emptySet()
         }
         val scopedExecutionIssues = state.issues
@@ -5007,6 +5287,7 @@ class DesktopAppService(
                 .take(3)
         }
         val promptBody = when (issue.kind.lowercase()) {
+            "planning" -> buildCeoPlanningPrompt(state, issue, profile)
             "review" -> buildString {
                 appendLine("Company review context")
                 company?.let {
@@ -5147,6 +5428,16 @@ class DesktopAppService(
                 appendLine("- Do not create plans, spawn sub-agents, or do broad multi-step analysis.")
                 appendLine("- If the repository is tiny or has no obvious product surface, prefer editing README.md or adding one small text/script artifact.")
                 appendLine("- Run one targeted validation command that proves the change works, then stop.")
+                issue.qaFeedback?.takeIf { it.isNotBlank() }?.let { feedback ->
+                    appendLine()
+                    appendLine("Latest QA feedback:")
+                    appendLine(summarizeForPrompt(feedback, 240))
+                }
+                issue.ceoFeedback?.takeIf { it.isNotBlank() }?.let { feedback ->
+                    appendLine()
+                    appendLine("Latest CEO feedback:")
+                    appendLine(summarizeForPrompt(feedback, 240))
+                }
                 if (siblingIssues.isNotEmpty()) {
                     appendLine()
                     appendLine("Parallel issues in the same goal:")
@@ -5675,9 +5966,158 @@ class DesktopAppService(
         val primaryRun = latestRuns.firstOrNull { it.publish?.pullRequestUrl != null } ?: latestRuns.firstOrNull()
         val issue = snapshot.issues.firstOrNull { it.id == issueId } ?: return
         when (issue.kind.lowercase()) {
+            "planning" -> syncPlanningIssueFromTask(task, issue, primaryRun, finalStatus)
             "review" -> syncReviewIssueFromTask(task, issue, primaryRun, finalStatus)
             "approval" -> syncApprovalIssueFromTask(task, issue, primaryRun, finalStatus)
             else -> syncExecutionIssueFromTask(task, issue, primaryRun, finalStatus)
+        }
+    }
+
+    private suspend fun syncPlanningIssueFromTask(
+        task: AgentTask,
+        issue: CompanyIssue,
+        primaryRun: AgentRun?,
+        finalStatus: DesktopTaskStatus
+    ) {
+        var runtimeContinuationCompanyId: String? = null
+        val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        val now = System.currentTimeMillis()
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
+            val goal = state.goals.firstOrNull { it.id == currentIssue.goalId } ?: return@withLock
+            val company = state.companies.firstOrNull { it.id == currentIssue.companyId } ?: return@withLock
+            val workspace = state.workspaces.firstOrNull { it.id == currentIssue.workspaceId } ?: return@withLock
+            val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+            val existingNonPlanning = state.issues.filter {
+                it.goalId == goal.id && !it.kind.equals("planning", ignoreCase = true)
+            }
+            if (existingNonPlanning.isNotEmpty()) {
+                val updatedPlanningIssue = currentIssue.copy(
+                    status = IssueStatus.DONE,
+                    transitionReason = "CEO planning lane already produced downstream issues for this goal.",
+                    updatedAt = now
+                )
+                stateStore.save(
+                    state.copy(
+                        issues = state.issues.map { existing -> if (existing.id == currentIssue.id) updatedPlanningIssue else existing }
+                    ).withDerivedMetrics()
+                )
+                return@withLock
+            }
+
+            val parsedPlan = if (finalStatus == DesktopTaskStatus.COMPLETED) parseCeoPlanningPayload(primaryRun?.output) else null
+            val planningSource = if (parsedPlan != null) "ceo" else "fallback"
+            val fallback = buildFallbackGoalIssues(
+                goal = goal,
+                workspace = workspace,
+                profiles = profiles,
+                definitions = state.companyAgentDefinitions,
+                now = now
+            )
+            val decomposition = if (parsedPlan != null) {
+                val plannedIssues = materializePlannedIssues(
+                    goal = goal,
+                    workspace = workspace,
+                    profiles = profiles,
+                    plan = parsedPlan,
+                    now = now,
+                    planningSource = "ceo"
+                )
+                plannedIssues to plannedIssues.flatMap { createdIssue ->
+                    createdIssue.dependsOn.map { dependencyId ->
+                        IssueDependency(
+                            id = UUID.randomUUID().toString(),
+                            issueId = createdIssue.id,
+                            dependsOnIssueId = dependencyId
+                        )
+                    }
+                }
+            } else {
+                fallback
+            }
+            val planningReason = when {
+                parsedPlan != null -> "CEO planning run created ${decomposition.first.size} downstream issues."
+                finalStatus == DesktopTaskStatus.COMPLETED ->
+                    "CEO planning output was invalid, so Cotor used the deterministic fallback planner."
+                else ->
+                    "CEO planning run ended with ${finalStatus.name}; Cotor used the deterministic fallback planner."
+            }
+            val updatedPlanningIssue = currentIssue.copy(
+                status = IssueStatus.DONE,
+                transitionReason = planningReason,
+                updatedAt = now
+            )
+            traceEvents += buildCompanyAutomationTraceEvent(
+                issue = currentIssue,
+                goal = goal,
+                oldStatus = currentIssue.status,
+                newStatus = updatedPlanningIssue.status,
+                source = "syncPlanningIssueFromTask",
+                reason = planningReason,
+                latestTask = task,
+                latestRun = primaryRun
+            )
+            val decision = GoalOrchestrationDecision(
+                id = UUID.randomUUID().toString(),
+                companyId = company.id,
+                goalId = goal.id,
+                issueId = currentIssue.id,
+                title = if (planningSource == "ceo") "CEO planned execution graph" else "Fallback planned execution graph",
+                summary = if (planningSource == "ceo") {
+                    "CEO decomposed \"${goal.title}\" into ${decomposition.first.size} branchable issues."
+                } else {
+                    "Fallback planner decomposed \"${goal.title}\" into ${decomposition.first.size} branchable issues after CEO planning failed."
+                },
+                createdIssues = decomposition.first.map { it.id },
+                assignments = decomposition.first.mapNotNull { createdIssue ->
+                    val assignee = profiles.firstOrNull { it.id == createdIssue.assigneeProfileId }?.roleName
+                    assignee?.let { "${createdIssue.title} -> $it" }
+                },
+                escalations = if (planningSource == "fallback") listOf(planningReason) else emptyList(),
+                createdAt = now
+            )
+            val nextState = state.copy(
+                issues = state.issues.filterNot {
+                    it.id == currentIssue.id || (it.goalId == goal.id && !it.kind.equals("planning", ignoreCase = true))
+                } + updatedPlanningIssue + decomposition.first,
+                issueDependencies = state.issueDependencies.filterNot { dependency ->
+                    dependency.issueId == currentIssue.id || dependency.issueId in existingNonPlanning.map { it.id }.toSet()
+                } + decomposition.second,
+                goalDecisions = state.goalDecisions + decision
+            ).recordCompanyActivity(
+                companyId = company.id,
+                projectContextId = currentIssue.projectContextId,
+                goalId = goal.id,
+                issueId = currentIssue.id,
+                source = "ceo-planning",
+                title = if (planningSource == "ceo") "CEO planned goal" else "Fallback planned goal",
+                detail = planningReason,
+                severity = if (planningSource == "ceo") "info" else "warning"
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            val projectContext = nextState.projectContexts.firstOrNull { it.id == currentIssue.projectContextId }
+            if (projectContext != null) {
+                writeCompanyContextSnapshot(nextState, company, projectContext)
+            }
+            val runtime = nextState.companyRuntimes.firstOrNull { it.companyId == currentIssue.companyId }
+            if (runtime?.status == CompanyRuntimeStatus.RUNNING) {
+                runtimeContinuationCompanyId = currentIssue.companyId
+            }
+        }
+        traceEvents.forEach(::appendCompanyAutomationTrace)
+        publishCompanyEvent(
+            companyId = issue.companyId,
+            type = "goal.decomposed",
+            title = "Created execution graph",
+            detail = issue.title,
+            goalId = issue.goalId,
+            issueId = issue.id
+        )
+        runtimeContinuationCompanyId?.let { companyId ->
+            serviceScope.launch {
+                runCatching { runCompanyRuntimeTick(companyId) }
+            }
         }
     }
 
@@ -5723,7 +6163,30 @@ class DesktopAppService(
             if (nextIssueStatus == currentIssue.status && !hasPublishMetadata) {
                 return@withLock
             }
-            val updatedIssue = currentIssue.copy(status = nextIssueStatus, updatedAt = now)
+            val updatedIssue = currentIssue.copy(
+                status = nextIssueStatus,
+                branchName = primaryRun?.branchName ?: currentIssue.branchName,
+                worktreePath = primaryRun?.worktreePath ?: currentIssue.worktreePath,
+                pullRequestNumber = primaryRun?.publish?.pullRequestNumber ?: currentIssue.pullRequestNumber,
+                pullRequestUrl = primaryRun?.publish?.pullRequestUrl ?: currentIssue.pullRequestUrl,
+                pullRequestState = primaryRun?.publish?.pullRequestState ?: currentIssue.pullRequestState,
+                qaVerdict = if (hasPublishMetadata) null else currentIssue.qaVerdict,
+                qaFeedback = if (hasPublishMetadata) null else currentIssue.qaFeedback,
+                ceoVerdict = if (hasPublishMetadata) null else currentIssue.ceoVerdict,
+                ceoFeedback = if (hasPublishMetadata) null else currentIssue.ceoFeedback,
+                transitionReason = when {
+                    finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata ->
+                        "Execution completed on branch ${primaryRun?.branchName} and opened PR ${primaryRun?.publish?.pullRequestUrl ?: primaryRun?.publish?.pullRequestNumber}."
+                    finalStatus == DesktopTaskStatus.COMPLETED && !requiresCodePublish(currentIssue) ->
+                        "Execution completed for non-code work."
+                    finalStatus == DesktopTaskStatus.COMPLETED && !pullRequestRequired ->
+                        "Execution completed with local git allowed by settings."
+                    finalStatus == DesktopTaskStatus.COMPLETED ->
+                        "Execution completed but required PR publication did not succeed."
+                    else -> "Execution failed and requires a recoverable retry or remediation."
+                },
+                updatedAt = now
+            )
             if (updatedIssue.status != currentIssue.status) {
                 val reason = when {
                     finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata -> "Task completed and published a pull request."
@@ -5765,6 +6228,14 @@ class DesktopAppService(
                     checksSummary = primaryRun?.publish?.checksSummary ?: primaryRun?.error,
                     mergeability = primaryRun?.publish?.mergeability,
                     requestedReviewers = primaryRun?.publish?.requestedReviewers ?: emptyList(),
+                    qaVerdict = null,
+                    qaFeedback = null,
+                    qaReviewedAt = null,
+                    qaIssueId = existing?.qaIssueId,
+                    ceoVerdict = null,
+                    ceoFeedback = null,
+                    ceoReviewedAt = null,
+                    approvalIssueId = existing?.approvalIssueId,
                     createdAt = existing?.createdAt ?: now,
                     updatedAt = now
                 )
@@ -5772,19 +6243,89 @@ class DesktopAppService(
             } else {
                 state.reviewQueue
             }
+            val companyProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                .filter { it.companyId == currentIssue.companyId }
+            val qaProfile = findQaProfile(currentIssue.companyId, companyProfiles)
+            val existingQaIssue = state.issues.firstOrNull { relatedExecutionIssueId(it) == currentIssue.id && it.kind.equals("review", ignoreCase = true) }
+            val qaIssue = if (pullRequestRequired && hasPublishMetadata && qaProfile != null) {
+                existingQaIssue?.copy(
+                    title = "QA review ${currentIssue.title}",
+                    description = buildQaReviewIssueDescription(updatedIssue, nextReviewQueue.first { it.issueId == currentIssue.id }),
+                    status = IssueStatus.PLANNED,
+                    assigneeProfileId = qaProfile.id,
+                    dependsOn = listOf(currentIssue.id),
+                    branchName = updatedIssue.branchName,
+                    worktreePath = updatedIssue.worktreePath,
+                    pullRequestNumber = updatedIssue.pullRequestNumber,
+                    pullRequestUrl = updatedIssue.pullRequestUrl,
+                    pullRequestState = updatedIssue.pullRequestState,
+                    qaVerdict = null,
+                    qaFeedback = null,
+                    ceoVerdict = null,
+                    ceoFeedback = null,
+                    transitionReason = "Execution PR is ready for QA review.",
+                    updatedAt = now
+                ) ?: CompanyIssue(
+                    id = UUID.randomUUID().toString(),
+                    companyId = currentIssue.companyId,
+                    projectContextId = currentIssue.projectContextId,
+                    goalId = currentIssue.goalId,
+                    workspaceId = currentIssue.workspaceId,
+                    title = "QA review ${currentIssue.title}",
+                    description = buildQaReviewIssueDescription(updatedIssue, nextReviewQueue.first { it.issueId == currentIssue.id }),
+                    status = IssueStatus.PLANNED,
+                    priority = 2,
+                    kind = "review",
+                    assigneeProfileId = qaProfile.id,
+                    blockedBy = emptyList(),
+                    dependsOn = listOf(currentIssue.id),
+                    acceptanceCriteria = listOf(
+                        "Review the current PR and its changed files.",
+                        "Return QA_VERDICT with concrete acceptance or requested changes."
+                    ),
+                    riskLevel = "low",
+                    codeProducing = false,
+                    branchName = updatedIssue.branchName,
+                    worktreePath = updatedIssue.worktreePath,
+                    pullRequestNumber = updatedIssue.pullRequestNumber,
+                    pullRequestUrl = updatedIssue.pullRequestUrl,
+                    pullRequestState = updatedIssue.pullRequestState,
+                    transitionReason = "Execution PR is ready for QA review.",
+                    sourceSignal = qaReviewSource(currentIssue.id),
+                    createdAt = now,
+                    updatedAt = now
+                )
+            } else {
+                existingQaIssue
+            }
+            val queueForCurrentIssue = nextReviewQueue.firstOrNull { it.issueId == currentIssue.id }
+            val queueWithQaBinding = if (qaIssue != null && queueForCurrentIssue != null) {
+                nextReviewQueue.map { item ->
+                    if (item.id == queueForCurrentIssue.id) item.copy(qaIssueId = qaIssue.id, updatedAt = now) else item
+                }
+            } else {
+                nextReviewQueue
+            }
             val nextGoals = state.goals.map { goal ->
                 if (goal.id != currentIssue.goalId) {
                     goal
                 } else {
-                    val unresolved = state.issues
-                        .map { if (it.id == currentIssue.id) updatedIssue else it }
+                    val unresolved = (
+                        state.issues
+                            .filterNot { existing -> existing.id == currentIssue.id || existing.id == existingQaIssue?.id }
+                            + updatedIssue +
+                            listOfNotNull(qaIssue)
+                        )
                         .any { it.goalId == goal.id && it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
                     if (!unresolved) goal.copy(status = GoalStatus.COMPLETED, updatedAt = now) else goal
                 }
             }
             val nextState = state.copy(
-                issues = state.issues.map { if (it.id == currentIssue.id) updatedIssue else it },
-                reviewQueue = nextReviewQueue,
+                issues = state.issues
+                    .filterNot { existing -> existing.id == currentIssue.id || existing.id == existingQaIssue?.id }
+                    .plus(updatedIssue)
+                    .plus(listOfNotNull(qaIssue)),
+                reviewQueue = queueWithQaBinding,
                 goals = nextGoals
             ).recordCompanyActivity(
                 companyId = updatedIssue.companyId,
@@ -5797,6 +6338,15 @@ class DesktopAppService(
                     append("${updatedIssue.title} -> ${updatedIssue.status}")
                     traceEvents.firstOrNull()?.reason?.let { append(" ($it)") }
                 }
+            ).recordCompanyActivity(
+                companyId = updatedIssue.companyId,
+                projectContextId = updatedIssue.projectContextId,
+                goalId = updatedIssue.goalId,
+                issueId = qaIssue?.id ?: existingQaIssue?.id,
+                source = "qa-review",
+                title = if (qaIssue == null) "Waiting for QA" else if (existingQaIssue == null) "Created QA review issue" else "Reopened QA review issue",
+                detail = updatedIssue.pullRequestUrl ?: updatedIssue.title,
+                severity = "info"
             ).recordSignal(
                 source = "task-run",
                 message = "Issue ${updatedIssue.title} moved to ${updatedIssue.status}",
@@ -5835,7 +6385,6 @@ class DesktopAppService(
     ) {
         var runtimeContinuationCompanyId: String? = null
         val queueReviews = mutableListOf<Pair<ReviewQueueItem, PullRequestReviewVerdict>>()
-        val rerunTaskIds = mutableListOf<String>()
         val now = System.currentTimeMillis()
         val verdict = parseStructuredVerdict(primaryRun?.output, "QA_VERDICT", "PASS", "CHANGES_REQUESTED")
             ?: StructuredVerdict("PASS", summarizeForPrompt(primaryRun?.output.orEmpty(), 240))
@@ -5843,49 +6392,100 @@ class DesktopAppService(
         stateMutex.withLock {
             val state = stateStore.load()
             val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
-            val goalIssueIds = state.issues.filter { it.goalId == currentIssue.goalId }.map { it.id }.toSet()
-            val targetQueueItems = state.reviewQueue
-                .filter { it.issueId in goalIssueIds && it.status != ReviewQueueStatus.MERGED }
-                .filter { it.pullRequestUrl != null || it.pullRequestNumber != null }
-            val targetIssueIds = targetQueueItems.map { it.issueId }.toSet()
-            val targetExecutionTasks = state.tasks
-                .filter { it.issueId in targetIssueIds }
-                .groupBy { it.issueId!! }
-                .mapValues { (_, tasks) -> tasks.maxByOrNull { it.updatedAt } }
+            val executionIssueId = relatedExecutionIssueId(currentIssue) ?: return@withLock
+            val executionIssue = state.issues.firstOrNull { it.id == executionIssueId } ?: return@withLock
+            val targetQueueItem = state.reviewQueue
+                .firstOrNull { it.issueId == executionIssueId && it.status != ReviewQueueStatus.MERGED }
+                ?: return@withLock
             val reviewPassed = finalStatus == DesktopTaskStatus.COMPLETED && verdict.value == "PASS"
-            val approvalIssueId = state.issues.firstOrNull {
-                it.goalId == currentIssue.goalId && it.kind.equals("approval", ignoreCase = true)
-            }?.id
+            val companyProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                .filter { it.companyId == currentIssue.companyId }
+            val chiefProfile = findChiefProfile(currentIssue.companyId, companyProfiles)
+            val existingApprovalIssue = state.issues.firstOrNull {
+                relatedExecutionIssueId(it) == executionIssueId && it.kind.equals("approval", ignoreCase = true)
+            }
             val updatedReviewIssue = currentIssue.copy(
                 status = if (reviewPassed) IssueStatus.DONE else IssueStatus.BLOCKED,
+                qaVerdict = verdict.value,
+                qaFeedback = verdict.feedback,
+                transitionReason = if (reviewPassed) {
+                    "QA approved ${targetQueueItem.pullRequestUrl ?: executionIssue.title} and handed it to the CEO."
+                } else {
+                    "QA requested changes on ${targetQueueItem.pullRequestUrl ?: executionIssue.title}."
+                },
                 updatedAt = now
             )
-            val approvalIssue = approvalIssueId?.let { id -> state.issues.firstOrNull { it.id == id } }
-            val updatedIssues = state.issues.map { existing ->
-                when {
-                    existing.id == currentIssue.id -> updatedReviewIssue
-                    existing.id in targetIssueIds && reviewPassed -> existing.copy(status = IssueStatus.READY_FOR_CEO, updatedAt = now)
-                    existing.id in targetIssueIds && !reviewPassed -> existing.copy(status = IssueStatus.IN_PROGRESS, updatedAt = now)
-                    reviewPassed &&
-                        approvalIssueId != null &&
-                        existing.id == approvalIssueId &&
-                        existing.status != IssueStatus.DONE &&
-                        existing.status != IssueStatus.CANCELED ->
-                        existing.copy(status = IssueStatus.PLANNED, updatedAt = now)
-                    else -> existing
-                }
-            }
-            val updatedTasks = state.tasks.map { existing ->
-                val targetTask = targetExecutionTasks[existing.issueId]
-                if (!reviewPassed && targetTask?.id == existing.id && existing.status == DesktopTaskStatus.COMPLETED) {
-                    rerunTaskIds += existing.id
-                    existing.copy(status = DesktopTaskStatus.QUEUED, updatedAt = now)
+            val updatedExecutionIssue = executionIssue.copy(
+                status = if (reviewPassed) IssueStatus.READY_FOR_CEO else IssueStatus.PLANNED,
+                qaVerdict = verdict.value,
+                qaFeedback = verdict.feedback,
+                ceoVerdict = null,
+                ceoFeedback = null,
+                transitionReason = if (reviewPassed) {
+                    "QA approved PR ${targetQueueItem.pullRequestUrl ?: targetQueueItem.pullRequestNumber} and escalated it to the CEO."
                 } else {
-                    existing
-                }
+                    "QA requested changes on PR ${targetQueueItem.pullRequestUrl ?: targetQueueItem.pullRequestNumber}."
+                },
+                updatedAt = now
+            )
+            val approvalIssue = if (reviewPassed && chiefProfile != null) {
+                existingApprovalIssue?.copy(
+                    title = "CEO approve ${executionIssue.title}",
+                    description = buildCeoApprovalIssueDescription(updatedExecutionIssue, targetQueueItem),
+                    status = IssueStatus.PLANNED,
+                    assigneeProfileId = chiefProfile.id,
+                    dependsOn = listOf(currentIssue.id),
+                    branchName = updatedExecutionIssue.branchName,
+                    worktreePath = updatedExecutionIssue.worktreePath,
+                    pullRequestNumber = updatedExecutionIssue.pullRequestNumber,
+                    pullRequestUrl = updatedExecutionIssue.pullRequestUrl,
+                    pullRequestState = updatedExecutionIssue.pullRequestState,
+                    qaVerdict = verdict.value,
+                    qaFeedback = verdict.feedback,
+                    ceoVerdict = null,
+                    ceoFeedback = null,
+                    transitionReason = "QA approved the current PR and reopened CEO approval.",
+                    updatedAt = now
+                ) ?: CompanyIssue(
+                    id = UUID.randomUUID().toString(),
+                    companyId = currentIssue.companyId,
+                    projectContextId = currentIssue.projectContextId,
+                    goalId = currentIssue.goalId,
+                    workspaceId = currentIssue.workspaceId,
+                    title = "CEO approve ${executionIssue.title}",
+                    description = buildCeoApprovalIssueDescription(updatedExecutionIssue, targetQueueItem),
+                    status = IssueStatus.PLANNED,
+                    priority = 3,
+                    kind = "approval",
+                    assigneeProfileId = chiefProfile.id,
+                    blockedBy = emptyList(),
+                    dependsOn = listOf(currentIssue.id),
+                    acceptanceCriteria = listOf(
+                        "Review the current PR and QA verdict.",
+                        "Emit CEO_VERDICT and approve merge only when the branch is ready."
+                    ),
+                    riskLevel = "medium",
+                    codeProducing = false,
+                    branchName = updatedExecutionIssue.branchName,
+                    worktreePath = updatedExecutionIssue.worktreePath,
+                    pullRequestNumber = updatedExecutionIssue.pullRequestNumber,
+                    pullRequestUrl = updatedExecutionIssue.pullRequestUrl,
+                    pullRequestState = updatedExecutionIssue.pullRequestState,
+                    qaVerdict = verdict.value,
+                    qaFeedback = verdict.feedback,
+                    transitionReason = "QA approved the current PR and opened CEO approval.",
+                    sourceSignal = ceoApprovalSource(executionIssueId),
+                    createdAt = now,
+                    updatedAt = now
+                )
+            } else {
+                existingApprovalIssue?.copy(
+                    status = if (existingApprovalIssue.status == IssueStatus.DONE) IssueStatus.DONE else IssueStatus.BLOCKED,
+                    updatedAt = now
+                )
             }
             val updatedReviewQueue = state.reviewQueue.map { item ->
-                if (item.id !in targetQueueItems.map { it.id }.toSet()) {
+                if (item.id != targetQueueItem.id) {
                     item
                 } else {
                     val nextItem = item.copy(
@@ -5894,13 +6494,13 @@ class DesktopAppService(
                         qaFeedback = verdict.feedback,
                         qaReviewedAt = now,
                         qaIssueId = currentIssue.id,
-                        ceoVerdict = if (reviewPassed) null else item.ceoVerdict,
-                        ceoFeedback = if (reviewPassed) null else item.ceoFeedback,
-                        ceoReviewedAt = if (reviewPassed) null else item.ceoReviewedAt,
-                        approvalIssueId = approvalIssueId,
+                        ceoVerdict = null,
+                        ceoFeedback = null,
+                        ceoReviewedAt = null,
+                        approvalIssueId = approvalIssue?.id,
                         updatedAt = now
                     )
-                    queueReviews += nextItem to if (reviewPassed) PullRequestReviewVerdict.COMMENT else PullRequestReviewVerdict.REQUEST_CHANGES
+                    queueReviews += nextItem to if (reviewPassed) PullRequestReviewVerdict.APPROVE else PullRequestReviewVerdict.REQUEST_CHANGES
                     nextItem
                 }
             }
@@ -5920,15 +6520,15 @@ class DesktopAppService(
             )
             if (
                 reviewPassed &&
-                approvalIssue != null &&
-                approvalIssue.status != IssueStatus.DONE &&
-                approvalIssue.status != IssueStatus.CANCELED &&
-                approvalIssue.status != IssueStatus.PLANNED
+                existingApprovalIssue != null &&
+                existingApprovalIssue.status != IssueStatus.DONE &&
+                existingApprovalIssue.status != IssueStatus.CANCELED &&
+                existingApprovalIssue.status != IssueStatus.PLANNED
             ) {
                 traceEvents += buildCompanyAutomationTraceEvent(
-                    issue = approvalIssue,
-                    goal = state.goals.firstOrNull { it.id == approvalIssue.goalId },
-                    oldStatus = approvalIssue.status,
+                    issue = existingApprovalIssue,
+                    goal = state.goals.firstOrNull { it.id == existingApprovalIssue.goalId },
+                    oldStatus = existingApprovalIssue.status,
                     newStatus = IssueStatus.PLANNED,
                     source = "syncReviewIssueFromTask",
                     reason = "QA approval reopened the CEO approval issue after earlier changes were addressed.",
@@ -5937,8 +6537,15 @@ class DesktopAppService(
                 )
             }
             val nextState = state.copy(
-                issues = updatedIssues,
-                tasks = updatedTasks,
+                issues = state.issues
+                    .filterNot { existing ->
+                        existing.id == currentIssue.id ||
+                            existing.id == executionIssue.id ||
+                            existing.id == existingApprovalIssue?.id
+                    }
+                    .plus(updatedReviewIssue)
+                    .plus(updatedExecutionIssue)
+                    .plus(listOfNotNull(approvalIssue)),
                 reviewQueue = updatedReviewQueue
             ).recordCompanyActivity(
                 companyId = currentIssue.companyId,
@@ -5974,9 +6581,6 @@ class DesktopAppService(
                 )
             }
         }
-        rerunTaskIds.distinct().forEach { rerunTaskId ->
-            runTaskIfPresent(rerunTaskId)
-        }
         mirrorIssueToLinear(
             issue.id,
             "QA completed review for \"${issue.title}\" with verdict ${verdict.value}."
@@ -5995,7 +6599,6 @@ class DesktopAppService(
         finalStatus: DesktopTaskStatus
     ) {
         var runtimeContinuationCompanyId: String? = null
-        val rerunTaskIds = mutableListOf<String>()
         val mergeQueueIds = mutableListOf<String>()
         val ceoReviews = mutableListOf<Pair<ReviewQueueItem, PullRequestReviewVerdict>>()
         val now = System.currentTimeMillis()
@@ -6006,36 +6609,35 @@ class DesktopAppService(
         stateMutex.withLock {
             val state = stateStore.load()
             val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
-            val goalIssueIds = state.issues.filter { it.goalId == currentIssue.goalId }.map { it.id }.toSet()
-            val targetQueueItems = state.reviewQueue
-                .filter { it.issueId in goalIssueIds && it.status == ReviewQueueStatus.READY_FOR_CEO }
-            val targetIssueIds = targetQueueItems.map { it.issueId }.toSet()
-            val targetExecutionTasks = state.tasks
-                .filter { it.issueId in targetIssueIds }
-                .groupBy { it.issueId!! }
-                .mapValues { (_, tasks) -> tasks.maxByOrNull { it.updatedAt } }
+            val executionIssueId = relatedExecutionIssueId(currentIssue) ?: return@withLock
+            val executionIssue = state.issues.firstOrNull { it.id == executionIssueId } ?: return@withLock
+            val targetQueueItem = state.reviewQueue
+                .firstOrNull { it.issueId == executionIssueId && it.status == ReviewQueueStatus.READY_FOR_CEO }
+                ?: return@withLock
             val updatedApprovalIssue = currentIssue.copy(
                 status = if (approvalGranted) IssueStatus.IN_PROGRESS else IssueStatus.BLOCKED,
+                ceoVerdict = verdict.value,
+                ceoFeedback = verdict.feedback,
+                transitionReason = if (approvalGranted) {
+                    "CEO approved ${targetQueueItem.pullRequestUrl ?: executionIssue.title} and queued it for merge."
+                } else {
+                    "CEO requested changes on ${targetQueueItem.pullRequestUrl ?: executionIssue.title}."
+                },
                 updatedAt = now
             )
-            val updatedIssues = state.issues.map { existing ->
-                when {
-                    existing.id == currentIssue.id -> updatedApprovalIssue
-                    existing.id in targetIssueIds && !approvalGranted -> existing.copy(status = IssueStatus.IN_PROGRESS, updatedAt = now)
-                    else -> existing
-                }
-            }
-            val updatedTasks = state.tasks.map { existing ->
-                val targetTask = targetExecutionTasks[existing.issueId]
-                if (!approvalGranted && targetTask?.id == existing.id && existing.status == DesktopTaskStatus.COMPLETED) {
-                    rerunTaskIds += existing.id
-                    existing.copy(status = DesktopTaskStatus.QUEUED, updatedAt = now)
+            val updatedExecutionIssue = executionIssue.copy(
+                status = if (approvalGranted) IssueStatus.READY_FOR_CEO else IssueStatus.PLANNED,
+                ceoVerdict = verdict.value,
+                ceoFeedback = verdict.feedback,
+                transitionReason = if (approvalGranted) {
+                    "CEO approved PR ${targetQueueItem.pullRequestUrl ?: targetQueueItem.pullRequestNumber} and queued merge."
                 } else {
-                    existing
-                }
-            }
+                    "CEO requested changes on PR ${targetQueueItem.pullRequestUrl ?: targetQueueItem.pullRequestNumber}."
+                },
+                updatedAt = now
+            )
             val updatedReviewQueue = state.reviewQueue.map { item ->
-                if (item.id !in targetQueueItems.map { it.id }.toSet()) {
+                if (item.id != targetQueueItem.id) {
                     item
                 } else {
                     val nextStatus = if (approvalGranted) ReviewQueueStatus.READY_FOR_CEO else ReviewQueueStatus.CHANGES_REQUESTED
@@ -6070,8 +6672,13 @@ class DesktopAppService(
                 latestRun = primaryRun
             )
             val nextState = state.copy(
-                issues = updatedIssues,
-                tasks = updatedTasks,
+                issues = state.issues.map { existing ->
+                    when (existing.id) {
+                        currentIssue.id -> updatedApprovalIssue
+                        executionIssue.id -> updatedExecutionIssue
+                        else -> existing
+                    }
+                },
                 reviewQueue = updatedReviewQueue
             ).recordCompanyActivity(
                 companyId = currentIssue.companyId,
@@ -6112,10 +6719,6 @@ class DesktopAppService(
                 mergeReviewQueueItem(mergeQueueId)
             }
             completeApprovalIssueAfterMerge(issue.id)
-        } else {
-            rerunTaskIds.distinct().forEach { rerunTaskId ->
-                runTaskIfPresent(rerunTaskId)
-            }
         }
         mirrorIssueToLinear(
             issue.id,

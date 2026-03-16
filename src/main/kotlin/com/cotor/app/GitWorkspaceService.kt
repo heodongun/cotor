@@ -16,6 +16,35 @@ import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.isDirectory
 import kotlin.io.path.name
 
+enum class PullRequestReviewVerdict {
+    COMMENT,
+    APPROVE,
+    REQUEST_CHANGES
+}
+
+data class GitHubPublishReadiness(
+    val ready: Boolean,
+    val originUrl: String? = null,
+    val error: String? = null
+)
+
+data class GitHubPublishEnvironment(
+    val ghInstalled: Boolean,
+    val ghAuthenticated: Boolean,
+    val originConfigured: Boolean,
+    val originUrl: String? = null,
+    val repositoryPath: String? = null,
+    val bootstrapAvailable: Boolean,
+    val message: String? = null
+)
+
+data class PullRequestMergeResult(
+    val number: Int? = null,
+    val url: String? = null,
+    val state: String? = null,
+    val mergeCommitSha: String? = null
+)
+
 /**
  * Encapsulates every git-aware filesystem operation used by the desktop app.
  *
@@ -277,7 +306,8 @@ class GitWorkspaceService(
                 commitSha = commitSha,
                 pushedBranch = pushedBranch,
                 pullRequestNumber = pullRequest?.number,
-                pullRequestUrl = pullRequest?.url
+                pullRequestUrl = pullRequest?.url,
+                pullRequestState = pullRequest?.state
             )
         } catch (t: Throwable) {
             PublishMetadata(
@@ -285,24 +315,155 @@ class GitWorkspaceService(
                 pushedBranch = pushedBranch,
                 pullRequestNumber = pullRequest?.number,
                 pullRequestUrl = pullRequest?.url,
+                pullRequestState = pullRequest?.state,
                 error = buildPublishError(t)
             )
         }
     }
 
+    suspend fun ensureGitHubPublishReady(worktreePath: Path, baseBranch: String): GitHubPublishReadiness {
+        if (hasOriginRemote(worktreePath)) {
+            return GitHubPublishReadiness(
+                ready = true,
+                originUrl = originRemoteUrl(worktreePath)
+            )
+        }
+
+        val authReady = runCommand(
+            worktreePath,
+            listOf("gh", "auth", "status"),
+            failOnError = false
+        ).isSuccess
+        if (!authReady) {
+            return GitHubPublishReadiness(
+                ready = false,
+                error = "GitHub publishing requires an authenticated gh CLI session."
+            )
+        }
+
+        val hasRemote = ensureGitHubOrigin(worktreePath, baseBranch)
+        return if (hasRemote) {
+            GitHubPublishReadiness(
+                ready = true,
+                originUrl = originRemoteUrl(worktreePath)
+            )
+        } else {
+            GitHubPublishReadiness(
+                ready = false,
+                error = "GitHub publishing requires an origin remote or repo bootstrap."
+            )
+        }
+    }
+
+    suspend fun inspectGitHubPublishEnvironment(
+        repositoryRoot: Path?,
+        baseBranch: String?
+    ): GitHubPublishEnvironment {
+        val normalizedRoot = repositoryRoot?.toAbsolutePath()?.normalize()
+        val ghInstalled = runCommand(
+            normalizedRoot,
+            listOf("gh", "--version"),
+            failOnError = false
+        ).isSuccess
+        val ghAuthenticated = ghInstalled && runCommand(
+            normalizedRoot,
+            listOf("gh", "auth", "status"),
+            failOnError = false
+        ).isSuccess
+        val originConfigured = normalizedRoot?.let { hasOriginRemote(it) } ?: false
+        val originUrl = normalizedRoot?.let { originRemoteUrl(it) }
+        val bootstrapAvailable = normalizedRoot != null && baseBranch != null && ghInstalled && ghAuthenticated
+        val message = when {
+            normalizedRoot == null -> "Open a repository or select a company to inspect GitHub publishing readiness."
+            originConfigured -> "Origin remote is configured for this repository."
+            !ghInstalled -> "GitHub PR mode requires the gh CLI."
+            !ghAuthenticated -> "GitHub PR mode requires an authenticated gh CLI session."
+            bootstrapAvailable -> "Cotor can bootstrap an origin remote for this repository."
+            else -> "GitHub publishing is not ready for this repository."
+        }
+        return GitHubPublishEnvironment(
+            ghInstalled = ghInstalled,
+            ghAuthenticated = ghAuthenticated,
+            originConfigured = originConfigured,
+            originUrl = originUrl,
+            repositoryPath = normalizedRoot?.toString(),
+            bootstrapAvailable = bootstrapAvailable,
+            message = message
+        )
+    }
+
+    suspend fun submitPullRequestReview(
+        worktreePath: Path,
+        pullRequestNumber: Int,
+        verdict: PullRequestReviewVerdict,
+        body: String
+    ): PublishMetadata {
+        val command = mutableListOf("gh", "pr", "review", pullRequestNumber.toString())
+        when (verdict) {
+            PullRequestReviewVerdict.COMMENT -> command += "--comment"
+            PullRequestReviewVerdict.APPROVE -> command += "--approve"
+            PullRequestReviewVerdict.REQUEST_CHANGES -> command += "--request-changes"
+        }
+        command += listOf("--body", body)
+        runCommand(worktreePath, command)
+
+        val refreshed = viewPullRequest(worktreePath, pullRequestNumber)
+        return PublishMetadata(
+            pullRequestNumber = refreshed.number,
+            pullRequestUrl = refreshed.url,
+            pullRequestState = refreshed.state,
+            reviewState = refreshed.reviewDecision,
+            mergeability = refreshed.mergeStateStatus
+        )
+    }
+
+    suspend fun mergePullRequest(worktreePath: Path, pullRequestNumber: Int): PullRequestMergeResult {
+        runCommand(
+            worktreePath,
+            listOf("gh", "pr", "merge", pullRequestNumber.toString(), "--merge", "--delete-branch")
+        )
+        val refreshed = viewPullRequest(worktreePath, pullRequestNumber)
+        return PullRequestMergeResult(
+            number = refreshed.number,
+            url = refreshed.url,
+            state = refreshed.state,
+            mergeCommitSha = refreshed.mergeCommit?.oid
+        )
+    }
+
     private suspend fun hasOriginRemote(repositoryRoot: Path): Boolean {
-        val result = runGit(repositoryRoot, "config", "--get", "remote.origin.url", failOnError = false)
+        val result = runGit(
+            repositoryRoot,
+            "config",
+            "--get",
+            "remote.origin.url",
+            failOnError = false,
+            timeoutMs = 10_000
+        )
         if (!result.isSuccess) {
             return false
         }
         return result.stdout.trim().isNotBlank()
     }
 
+    private suspend fun originRemoteUrl(repositoryRoot: Path): String? {
+        val result = runGit(
+            repositoryRoot,
+            "config",
+            "--get",
+            "remote.origin.url",
+            failOnError = false,
+            timeoutMs = 10_000
+        )
+        return result.stdout.trim().takeIf { result.isSuccess && it.isNotBlank() }
+    }
+
     private suspend fun ensureGitHubOrigin(worktreePath: Path, baseBranch: String): Boolean {
         val authReady = runCommand(
             worktreePath,
             listOf("gh", "auth", "status"),
-            failOnError = false
+            failOnError = false,
+            timeoutMs = 10_000
         ).isSuccess
         if (!authReady) {
             return false
@@ -313,7 +474,8 @@ class GitWorkspaceService(
         val createResult = runCommand(
             worktreePath,
             listOf("gh", "repo", "create", repoName, "--private", "--source", ".", "--remote", "origin"),
-            failOnError = false
+            failOnError = false,
+            timeoutMs = 30_000
         )
         if (!createResult.isSuccess && !hasOriginRemote(worktreePath)) {
             return false
@@ -325,7 +487,8 @@ class GitWorkspaceService(
             "--set-upstream",
             "origin",
             "refs/heads/$baseBranch:refs/heads/$baseBranch",
-            failOnError = false
+            failOnError = false,
+            timeoutMs = 30_000
         )
         return hasOriginRemote(worktreePath)
     }
@@ -351,7 +514,8 @@ class GitWorkspaceService(
             val probe = runCommand(
                 worktreePath,
                 listOf("gh", "repo", "view", candidate, "--json", "name"),
-                failOnError = false
+                failOnError = false,
+                timeoutMs = 10_000
             )
             if (!probe.isSuccess) {
                 return candidate
@@ -454,21 +618,23 @@ class GitWorkspaceService(
     private suspend fun runGit(
         workingDirectory: Path?,
         vararg args: String,
-        failOnError: Boolean = true
+        failOnError: Boolean = true,
+        timeoutMs: Long = 120_000
     ): ProcessResult {
-        return runCommand(workingDirectory, listOf("git") + args, failOnError)
+        return runCommand(workingDirectory, listOf("git") + args, failOnError, timeoutMs)
     }
 
     private suspend fun runCommand(
         workingDirectory: Path?,
         command: List<String>,
-        failOnError: Boolean = true
+        failOnError: Boolean = true,
+        timeoutMs: Long = 120_000
     ): ProcessResult {
         val result = processManager.executeProcess(
             command = command,
             input = null,
             environment = emptyMap(),
-            timeout = 120_000,
+            timeout = timeoutMs,
             workingDirectory = workingDirectory
         )
 
@@ -495,7 +661,7 @@ class GitWorkspaceService(
             "--state",
             "open",
             "--json",
-            "number,url,state"
+            "number,url,state,reviewDecision,mergeStateStatus"
         )
         val pullRequests = json.decodeFromString<List<PullRequestRef>>(raw.ifBlank { "[]" })
         return pullRequests.firstOrNull()
@@ -527,9 +693,21 @@ class GitWorkspaceService(
             "view",
             branchName,
             "--json",
-            "number,url,state"
+            "number,url,state,reviewDecision,mergeStateStatus"
         )
         return json.decodeFromString<PullRequestRef>(created)
+    }
+
+    private suspend fun viewPullRequest(worktreePath: Path, pullRequestNumber: Int): PullRequestRef {
+        val raw = ghOutput(
+            worktreePath,
+            "pr",
+            "view",
+            pullRequestNumber.toString(),
+            "--json",
+            "number,url,state,reviewDecision,mergeStateStatus,mergeCommit"
+        )
+        return json.decodeFromString<PullRequestRef>(raw)
     }
 
     private fun buildCommitMessage(taskTitle: String, agentName: String): String {
@@ -632,6 +810,14 @@ class GitWorkspaceService(
     private data class PullRequestRef(
         val number: Int? = null,
         val url: String,
-        val state: String? = null
+        val state: String? = null,
+        val reviewDecision: String? = null,
+        val mergeStateStatus: String? = null,
+        val mergeCommit: MergeCommitRef? = null
+    )
+
+    @Serializable
+    private data class MergeCommitRef(
+        val oid: String? = null
     )
 }
