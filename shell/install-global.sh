@@ -5,6 +5,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/resolve-gradle-java.sh"
 
 echo "🚀 Installing Cotor globally..."
 echo ""
@@ -18,6 +19,7 @@ fi
 
 # Build the project
 echo "📦 Building Cotor..."
+configure_gradle_java
 (cd "$PROJECT_ROOT" && ./gradlew shadowJar --no-daemon)
 
 # Make cotor script executable
