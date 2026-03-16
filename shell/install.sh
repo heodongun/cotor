@@ -5,6 +5,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/resolve-gradle-java.sh"
 
 echo "🚀 Installing Cotor..."
 echo ""
@@ -31,6 +32,7 @@ echo ""
 # Build the project
 echo "📦 Building Cotor..."
 if [ -f "$PROJECT_ROOT/gradlew" ]; then
+    configure_gradle_java
     (cd "$PROJECT_ROOT" && ./gradlew shadowJar --no-daemon)
 else
     echo "❌ Error: gradlew not found. Are you in the Cotor directory?"

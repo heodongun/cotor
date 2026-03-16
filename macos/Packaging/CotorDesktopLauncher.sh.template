@@ -12,9 +12,13 @@ RUNTIME_DIR="$HOME/Library/Application Support/CotorDesktop/runtime"
 PID_FILE="$RUNTIME_DIR/app-server.pid"
 PORT_FILE="$RUNTIME_DIR/app-server.port"
 TOKEN_FILE="$RUNTIME_DIR/app-server.token"
+APP_HOME="$HOME/Library/Application Support/CotorDesktop"
 SERVER_URL="${COTOR_APP_SERVER_URL:-}"
 SERVER_PORT=""
 SERVER_TOKEN="${COTOR_APP_TOKEN:-}"
+MANAGED_BACKEND_PID=""
+MANAGED_BACKEND_STARTED=0
+LAUNCHER_CLEANUP_DONE=0
 
 build_desktop_path() {
     local combined=""
@@ -107,6 +111,56 @@ wait_for_backend() {
     return 1
 }
 
+log_launcher() {
+    printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" >>"$LOG_FILE"
+}
+
+clear_backend_runtime_files() {
+    rm -f "$PID_FILE" "$PORT_FILE" "$TOKEN_FILE"
+}
+
+list_bundled_backend_pids() {
+    ps -axo pid=,args= | while read -r pid args; do
+        [[ -n "$pid" ]] || continue
+        [[ "$args" == *"$BACKEND_JAR"* ]] || continue
+        [[ "$args" == *" app-server "* || "$args" == *" app-server" ]] || continue
+        printf '%s\n' "$pid"
+    done
+}
+
+terminate_stale_bundled_backends() {
+    local stale_pids=()
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        stale_pids+=("$pid")
+    done < <(list_bundled_backend_pids)
+
+    if (( ${#stale_pids[@]} == 0 )); then
+        return 0
+    fi
+
+    log_launcher "Terminating stale bundled backends: ${stale_pids[*]}"
+    for pid in "${stale_pids[@]}"; do
+        kill "$pid" >/dev/null 2>&1 || true
+    done
+    sleep 0.8
+
+    local survivors=()
+    for pid in "${stale_pids[@]}"; do
+        if is_pid_alive "$pid"; then
+            survivors+=("$pid")
+        fi
+    done
+
+    if (( ${#survivors[@]} > 0 )); then
+        log_launcher "Escalating bundled backend termination to SIGKILL: ${survivors[*]}"
+        for pid in "${survivors[@]}"; do
+            kill -9 "$pid" >/dev/null 2>&1 || true
+        done
+        sleep 0.3
+    fi
+}
+
 start_managed_backend() {
     local java_bin
     java_bin="$(find_java)"
@@ -125,17 +179,75 @@ start_managed_backend() {
     SERVER_TOKEN="$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]')"
     SERVER_URL="http://127.0.0.1:$SERVER_PORT"
 
-    nohup "$java_bin" -jar "$BACKEND_JAR" app-server --port "$SERVER_PORT" --token "$SERVER_TOKEN" >>"$LOG_FILE" 2>&1 &
+    log_launcher "Launching bundled backend on port $SERVER_PORT."
+    env \
+        COTOR_DESKTOP_APP_HOME="$APP_HOME" \
+        COTOR_APP_HOME="$APP_HOME" \
+        "$java_bin" -jar "$BACKEND_JAR" app-server --port "$SERVER_PORT" --token "$SERVER_TOKEN" >>"$LOG_FILE" 2>&1 &
     local backend_pid=$!
+    MANAGED_BACKEND_PID="$backend_pid"
+    MANAGED_BACKEND_STARTED=1
 
     echo "$backend_pid" > "$PID_FILE"
     echo "$SERVER_PORT" > "$PORT_FILE"
     echo "$SERVER_TOKEN" > "$TOKEN_FILE"
 
     if ! wait_for_backend "$SERVER_URL"; then
+        stop_managed_backend || true
         show_alert "Cotor Desktop could not start its bundled app server."
         return 1
     fi
+}
+
+stop_managed_backend() {
+    if (( MANAGED_BACKEND_STARTED == 0 )); then
+        return 0
+    fi
+
+    local backend_pid="$MANAGED_BACKEND_PID"
+    if [[ -z "$backend_pid" && -f "$PID_FILE" ]]; then
+        backend_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$backend_pid" ]]; then
+        clear_backend_runtime_files
+        return 0
+    fi
+
+    if ! is_pid_alive "$backend_pid"; then
+        clear_backend_runtime_files
+        return 0
+    fi
+
+    log_launcher "Stopping managed backend $backend_pid."
+    kill "$backend_pid" >/dev/null 2>&1 || true
+
+    local attempts=0
+    while (( attempts < 20 )); do
+        if ! is_pid_alive "$backend_pid"; then
+            clear_backend_runtime_files
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 0.2
+    done
+
+    kill -INT "$backend_pid" >/dev/null 2>&1 || true
+    sleep 0.5
+    if is_pid_alive "$backend_pid"; then
+        log_launcher "Escalating managed backend $backend_pid to SIGKILL."
+        kill -9 "$backend_pid" >/dev/null 2>&1 || true
+    fi
+
+    clear_backend_runtime_files
+}
+
+launcher_cleanup() {
+    if (( LAUNCHER_CLEANUP_DONE != 0 )); then
+        return 0
+    fi
+    LAUNCHER_CLEANUP_DONE=1
+    stop_managed_backend || true
 }
 
 ensure_backend() {
@@ -158,20 +270,24 @@ ensure_backend() {
         managed_token="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
     fi
 
-    # Always replace the previously managed backend on app launch so an updated
+    # Always replace any previously managed backend on app launch so an updated
     # desktop bundle never talks to an older app-server process left behind by a
-    # past version of the app.
-    if is_pid_alive "$managed_pid"; then
-        kill "$managed_pid" >/dev/null 2>&1 || true
-        sleep 0.3
-    fi
+    # past version of the app or a second app instance.
+    terminate_stale_bundled_backends
 
     start_managed_backend
 }
 
 ensure_backend
+trap launcher_cleanup EXIT INT TERM HUP
 
 export COTOR_APP_SERVER_URL="$SERVER_URL"
 export COTOR_APP_TOKEN="$SERVER_TOKEN"
 
-exec "$BINARY_PATH"
+"$BINARY_PATH" "$@" &
+APP_BINARY_PID=$!
+set +e
+wait "$APP_BINARY_PID"
+APP_EXIT_CODE=$?
+set -e
+exit "$APP_EXIT_CODE"

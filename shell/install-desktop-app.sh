@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/resolve-gradle-java.sh"
 PACKAGE_ROOT="$PROJECT_ROOT/macos"
 PACKAGING_ROOT="$PACKAGE_ROOT/Packaging"
 TOOLS_ROOT="$PACKAGE_ROOT/Tools"
@@ -27,13 +28,28 @@ mkdir -p "$DOWNLOADS_DIR"
 rm -rf "$STAGING_ROOT"
 mkdir -p "$STAGING_ROOT"
 
+find_built_app_binary() {
+    find "$PACKAGE_ROOT/.build" -path '*/release/CotorDesktopApp' -type f | head -n 1
+}
+
 echo "📦 Building bundled Cotor backend..."
+configure_gradle_java
 (cd "$PROJECT_ROOT" && ./gradlew shadowJar --no-daemon)
 
 echo "🖥️  Building native macOS shell..."
-swift build --package-path "$PACKAGE_ROOT" -c release
+if ! swift build --package-path "$PACKAGE_ROOT" -c release; then
+    APP_BINARY="$(find_built_app_binary)"
+    if [[ -n "$APP_BINARY" && -f "$APP_BINARY" ]]; then
+        echo "⚠️  Native macOS shell rebuild failed. Reusing the most recent cached release binary:"
+        echo "   $APP_BINARY"
+        echo "   This machine's Command Line Tools installation is broken (swift-package/llbuild mismatch)."
+    else
+        echo "❌ Native macOS shell build failed and no cached release binary is available."
+        exit 1
+    fi
+fi
 
-APP_BINARY="$(find "$PACKAGE_ROOT/.build" -path '*/release/CotorDesktopApp' -type f | head -n 1)"
+APP_BINARY="${APP_BINARY:-$(find_built_app_binary)}"
 BACKEND_JAR="$(find "$PROJECT_ROOT/build/libs" -name 'cotor-*-all.jar' -type f | head -n 1)"
 RESOURCE_BUNDLES="$(find "$PACKAGE_ROOT/.build" -path '*/release/*.bundle' -type d)"
 
@@ -64,9 +80,8 @@ mkdir -p "$APP_MACOS" "$APP_BACKEND" "$APP_RESOURCES" "$ICONSET_DIR"
 echo "🎨 Generating app icon..."
 if [[ -f "$ICON_SVG" ]]; then
     # The SVG under `macos/Branding` is the checked-in source of truth for the
-    # desktop app mark. We rasterize it here so the Swift compositor can place
-    # the official brand symbol on a Dock-friendly background without depending
-    # on the user's Desktop or the original checkout path.
+    # desktop app mark. Rasterize it directly so desktop installs do not depend
+    # on the local Swift toolchain for icon generation.
     qlmanage -t -s 1024 -o "$STAGING_ROOT" "$ICON_SVG" >/dev/null 2>&1
 
     if [[ ! -f "$SVG_RENDER_PNG" ]]; then
@@ -74,11 +89,10 @@ if [[ -f "$ICON_SVG" ]]; then
         exit 1
     fi
 
-    swift "$TOOLS_ROOT/generate-desktop-icon.swift" "$SVG_RENDER_PNG" "$ICON_PNG"
+    cp "$SVG_RENDER_PNG" "$ICON_PNG"
 else
-    # Keep the synthetic fallback so local builds still succeed if the branding
-    # asset is removed from a future branch or partial checkout.
-    swift "$TOOLS_ROOT/generate-desktop-icon.swift" "$ICON_PNG"
+    echo "❌ Could not locate $ICON_SVG."
+    exit 1
 fi
 
 resize_icon() {
