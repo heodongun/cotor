@@ -129,9 +129,9 @@ class GitWorkspaceServiceTest : FunSpec({
                 FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "HEAD:codex/cotor/ship-flow/codex"), ProcessResult(0, "", "", true)),
-                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/ship-flow/codex", "--state", "open", "--json", "number,url,state"), ProcessResult(0, "[]", "", true)),
+                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/ship-flow/codex", "--state", "open", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, "[]", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "create", "--base", "master", "--head", "codex/cotor/ship-flow/codex", "--title", "[codex] Ship desktop publish flow", "--body", expectedPullRequestBody()), ProcessResult(0, "https://github.com/heodongun/cotor/pull/123\n", "", true)),
-                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/ship-flow/codex", "--json", "number,url,state"), ProcessResult(0, """{"number":123,"url":"https://github.com/heodongun/cotor/pull/123","state":"OPEN"}""", "", true))
+                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/ship-flow/codex", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, """{"number":123,"url":"https://github.com/heodongun/cotor/pull/123","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN"}""", "", true))
             )
         )
         val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
@@ -254,9 +254,9 @@ class GitWorkspaceServiceTest : FunSpec({
                 FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "refs/heads/master:refs/heads/master"), ProcessResult(0, "", "", true)),
                 FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/$repoName.git\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "HEAD:codex/cotor/auto-publish/codex"), ProcessResult(0, "", "", true)),
-                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/auto-publish/codex", "--state", "open", "--json", "number,url,state"), ProcessResult(0, "[]", "", true)),
+                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/auto-publish/codex", "--state", "open", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, "[]", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "create", "--base", "master", "--head", "codex/cotor/auto-publish/codex", "--title", "[codex] Auto publish to GitHub", "--body", expectedPullRequestBody("Auto publish to GitHub", "Ship this change to GitHub.", "codex/cotor/auto-publish/codex")), ProcessResult(0, "https://github.com/heodongun/cotor/pull/124\n", "", true)),
-                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/auto-publish/codex", "--json", "number,url,state"), ProcessResult(0, """{"number":124,"url":"https://github.com/heodongun/cotor/pull/124","state":"OPEN"}""", "", true))
+                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/auto-publish/codex", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, """{"number":124,"url":"https://github.com/heodongun/cotor/pull/124","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN"}""", "", true))
             )
         )
         val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
