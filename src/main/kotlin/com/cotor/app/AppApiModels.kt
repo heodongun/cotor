@@ -128,6 +128,7 @@ data class UpdateCompanyAgentDefinitionRequest(
 @Serializable
 data class UpdateBackendSettingsRequest(
     val defaultBackendKind: ExecutionBackendKind,
+    val codePublishMode: CodePublishMode? = null,
     val codexLaunchMode: BackendLaunchMode? = null,
     val codexCommand: String? = null,
     val codexArgs: List<String>? = null,

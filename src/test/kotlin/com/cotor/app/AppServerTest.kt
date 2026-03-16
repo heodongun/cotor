@@ -210,6 +210,18 @@ class AppServerTest : FunSpec({
                     title = "Issue",
                     description = "Issue desc",
                     status = IssueStatus.PLANNED,
+                    codeProducing = true,
+                    branchName = "codex/cotor/issue-1",
+                    worktreePath = "/tmp/cotor/.cotor/worktrees/issue-1/codex",
+                    pullRequestNumber = 99,
+                    pullRequestUrl = "https://github.com/heodongun/cotor/pull/99",
+                    pullRequestState = "OPEN",
+                    qaVerdict = "PASS",
+                    qaFeedback = "Looks good.",
+                    ceoVerdict = "APPROVE",
+                    ceoFeedback = "Ship it.",
+                    mergeResult = "MERGED",
+                    transitionReason = "CEO approved and merged the PR.",
                     createdAt = 1L,
                     updatedAt = 1L
                 )
@@ -219,6 +231,9 @@ class AppServerTest : FunSpec({
             }
             issueDetailResponse.status shouldBe HttpStatusCode.OK
             issueDetailResponse.bodyAsText() shouldContain "\"id\":\"issue-1\""
+            issueDetailResponse.bodyAsText() shouldContain "\"pullRequestNumber\":99"
+            issueDetailResponse.bodyAsText() shouldContain "\"qaVerdict\":\"PASS\""
+            issueDetailResponse.bodyAsText() shouldContain "\"ceoVerdict\":\"APPROVE\""
         }
     }
 
@@ -308,30 +323,28 @@ class AppServerTest : FunSpec({
             createdAt = 1L,
             updatedAt = 1L
         )
-        coEvery { desktopService.companyDashboard("company-1") } returns CompanyDashboardResponse(
-            workflowTopologies = listOf(
-                WorkflowTopologySnapshot(
-                    companyId = "company-1",
-                    agents = listOf("CEO", "Builder"),
-                    edges = listOf(
-                        AgentCollaborationEdge(
-                            companyId = "company-1",
-                            fromAgentId = "agent-ceo",
-                            toAgentId = "agent-builder",
-                            reason = "CEO routes implementation",
-                            handoffType = "coordination"
-                        )
+        coEvery { desktopService.listWorkflowTopologies("company-1") } returns listOf(
+            WorkflowTopologySnapshot(
+                companyId = "company-1",
+                agents = listOf("CEO", "Builder"),
+                edges = listOf(
+                    AgentCollaborationEdge(
+                        companyId = "company-1",
+                        fromAgentId = "agent-ceo",
+                        toAgentId = "agent-builder",
+                        reason = "CEO routes implementation",
+                        handoffType = "coordination"
                     )
                 )
-            ),
-            goalDecisions = listOf(
-                GoalOrchestrationDecision(
-                    id = "decision-1",
-                    companyId = "company-1",
-                    title = "Created execution graph",
-                    summary = "Planned two issues.",
-                    createdAt = 1L
-                )
+            )
+        )
+        coEvery { desktopService.listGoalDecisions("company-1") } returns listOf(
+            GoalOrchestrationDecision(
+                id = "decision-1",
+                companyId = "company-1",
+                title = "Created execution graph",
+                summary = "Planned two issues.",
+                createdAt = 1L
             )
         )
 

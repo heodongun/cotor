@@ -5,6 +5,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
@@ -24,9 +25,18 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.flow.collect
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption
+import kotlin.io.path.createDirectories
+import kotlin.io.path.writeText
 
 /**
  * Lightweight localhost-only API used by the native macOS shell.
@@ -44,11 +54,105 @@ class AppServer : KoinComponent {
         wait: Boolean = true,
         token: String? = null
     ) {
-        embeddedServer(Netty, port = port, host = host) {
+        val lockRecord = desktopAppServerInstanceGuard.acquire(host = host, port = port)
+        println(
+            "[cotor-app-server] acquired desktop app-server instance lock at " +
+                "${lockRecord.lockPath} for app home ${lockRecord.appHome}"
+        )
+        val server = embeddedServer(Netty, port = port, host = host) {
             cotorAppModule(token, desktopService, tuiSessionService)
-        }.start(wait = wait)
+        }
+        server.environment.monitor.subscribe(ApplicationStopped) {
+            desktopAppServerInstanceGuard.release()
+        }
+        try {
+            server.start(wait = wait)
+        } catch (error: Throwable) {
+            desktopAppServerInstanceGuard.release()
+            throw error
+        }
     }
 }
+
+@Serializable
+internal data class DesktopAppServerInstanceMetadata(
+    val pid: Long,
+    val host: String,
+    val port: Int,
+    val appHome: String,
+    val startedAt: Long
+)
+
+internal data class DesktopAppServerLockRecord(
+    val appHome: Path,
+    val lockPath: Path,
+    val metadataPath: Path
+)
+
+internal class DesktopAppServerInstanceGuard(
+    private val appHomeProvider: () -> Path = { defaultDesktopAppHome() }
+) {
+    private var channel: FileChannel? = null
+    private var lock: FileLock? = null
+    private var record: DesktopAppServerLockRecord? = null
+    private val json = Json { prettyPrint = true }
+
+    fun acquire(host: String, port: Int): DesktopAppServerLockRecord {
+        if (lock != null) {
+            return requireNotNull(record)
+        }
+        val appHome = appHomeProvider()
+        val runtimeDir = appHome.resolve("runtime").resolve("backend")
+        runtimeDir.createDirectories()
+        val lockPath = runtimeDir.resolve("app-server.instance.lock")
+        val metadataPath = runtimeDir.resolve("app-server.instance.json")
+        val openedChannel = FileChannel.open(
+            lockPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE
+        )
+        val openedLock = try {
+            openedChannel.tryLock()
+        } catch (_: OverlappingFileLockException) {
+            null
+        }
+        if (openedLock == null) {
+            val existing = runCatching { Files.readString(metadataPath) }.getOrDefault("unavailable")
+            openedChannel.close()
+            throw IllegalStateException(
+                "Another desktop app-server is already active for $appHome. " +
+                    "Lock=$lockPath metadata=$existing"
+            )
+        }
+        val currentRecord = DesktopAppServerLockRecord(
+            appHome = appHome,
+            lockPath = lockPath,
+            metadataPath = metadataPath
+        )
+        val metadata = DesktopAppServerInstanceMetadata(
+            pid = ProcessHandle.current().pid(),
+            host = host,
+            port = port,
+            appHome = appHome.toString(),
+            startedAt = System.currentTimeMillis()
+        )
+        metadataPath.writeText(json.encodeToString(DesktopAppServerInstanceMetadata.serializer(), metadata))
+        channel = openedChannel
+        lock = openedLock
+        record = currentRecord
+        return currentRecord
+    }
+
+    fun release() {
+        runCatching { lock?.release() }
+        runCatching { channel?.close() }
+        lock = null
+        channel = null
+        record = null
+    }
+}
+
+internal val desktopAppServerInstanceGuard = DesktopAppServerInstanceGuard()
 
 /**
  * Keep the routing tree flat and explicit for the first desktop iteration.
@@ -106,6 +210,7 @@ internal fun Application.cotorAppModule(
                     respondDesktopRequest {
                         desktopService.updateBackendSettings(
                             defaultBackendKind = request.defaultBackendKind,
+                            codePublishMode = request.codePublishMode,
                             codexLaunchMode = request.codexLaunchMode,
                             codexCommand = request.codexCommand,
                             codexArgs = request.codexArgs,
@@ -873,7 +978,7 @@ internal fun Application.cotorAppModule(
                         if (!requireToken(token)) return@get
                         val companyId = call.parameters["companyId"]
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
-                        call.respond(desktopService.companyDashboard(companyId).workflowTopologies)
+                        call.respond(desktopService.listWorkflowTopologies(companyId))
                     }
                 }
 
@@ -882,7 +987,7 @@ internal fun Application.cotorAppModule(
                         if (!requireToken(token)) return@get
                         val companyId = call.parameters["companyId"]
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
-                        call.respond(desktopService.companyDashboard(companyId).goalDecisions)
+                        call.respond(desktopService.listGoalDecisions(companyId))
                     }
                 }
 

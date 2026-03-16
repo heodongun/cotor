@@ -4,7 +4,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import java.nio.channels.FileChannel
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
@@ -25,6 +28,24 @@ import kotlin.io.path.writeText
 class DesktopStateStore(
     private val appHomeProvider: () -> Path = { defaultDesktopAppHome() },
 ) {
+    companion object {
+        private const val MAX_PERSISTED_RESOLVED_ISSUES = 20
+        private const val MAX_PERSISTED_TASK_PROMPT_CHARS = 512
+        private const val MAX_PERSISTED_RUN_OUTPUT_CHARS = 4000
+        private const val MAX_STATE_LOAD_LOG_BYTES = 1L * 1024L * 1024L
+        private const val STATE_LOAD_LOG_DEDUP_WINDOW_MS = 30_000L
+        @Volatile
+        private var lastStateLoadLogMessage: String? = null
+        @Volatile
+        private var lastStateLoadLogAt: Long = 0L
+    }
+
+    private data class CachedState(
+        val state: DesktopAppState,
+        val lastModifiedAtMillis: Long,
+        val sizeInBytes: Long
+    )
+
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
@@ -35,6 +56,8 @@ class DesktopStateStore(
     // A single process can finish multiple background runs nearly at once, so writes
     // need to be serialized even though the backing file is small.
     private val mutex = Mutex()
+    @Volatile
+    private var cachedState: CachedState? = null
 
     fun appHome(): Path = appHomeProvider()
 
@@ -45,15 +68,44 @@ class DesktopStateStore(
         if (!stateFile.exists()) {
             return@withContext DesktopAppState()
         }
+        val backupFile = backupStateFile()
+        currentFingerprint(stateFile)?.let { fingerprint ->
+            cachedState
+                ?.takeIf {
+                    it.lastModifiedAtMillis == fingerprint.first &&
+                        it.sizeInBytes == fingerprint.second
+                }
+                ?.let { return@withContext it.state }
+        }
 
         withStateFileLock {
+            currentFingerprint(stateFile)?.let { fingerprint ->
+                cachedState
+                    ?.takeIf {
+                        it.lastModifiedAtMillis == fingerprint.first &&
+                            it.sizeInBytes == fingerprint.second
+                    }
+                    ?.let { return@withStateFileLock it.state }
+            }
             val raw = runCatching { stateFile.readText() }.getOrElse { return@withStateFileLock DesktopAppState() }
             decodeState(raw)?.also { decoded ->
-                if (raw != json.encodeToString(DesktopAppState.serializer(), decoded)) {
-                    saveLocked(decoded)
+                val compacted = compactStateForPersistence(decoded)
+                if (raw != json.encodeToString(DesktopAppState.serializer(), compacted)) {
+                    saveLocked(compacted)
+                } else {
+                    updateCache(stateFile, compacted)
                 }
-                return@withStateFileLock decoded
+                return@withStateFileLock compacted
             } ?: DesktopAppState()
+            if (backupFile.exists()) {
+                val backupRaw = runCatching { backupFile.readText() }.getOrNull()
+                decodeState(backupRaw.orEmpty())?.also { recovered ->
+                    val compacted = compactStateForPersistence(recovered)
+                    saveLocked(compacted)
+                    return@withStateFileLock compacted
+                }
+            }
+            DesktopAppState()
         }
     }
 
@@ -69,16 +121,20 @@ class DesktopStateStore(
 
     private fun stateFile(): Path = appHome().resolve("state.json")
 
+    private fun backupStateFile(): Path = appHome().resolve("state.json.bak")
+
     private fun lockFile(): Path = appHome().resolve("state.lock")
 
     private fun saveLocked(state: DesktopAppState) {
         val file = stateFile()
+        val backupFile = backupStateFile()
         // Always create the parent directories before the first write so the
         // app can start from a completely clean machine state.
         file.parent?.createDirectories()
         managedReposRoot().createDirectories()
-        val payload = json.encodeToString(DesktopAppState.serializer(), state)
-        val tempFile = file.resolveSibling("${file.fileName}.tmp")
+        val compactedState = compactStateForPersistence(state)
+        val payload = json.encodeToString(DesktopAppState.serializer(), compactedState)
+        val tempFile = Files.createTempFile(file.parent, "${file.fileName}.", ".tmp")
         tempFile.writeText(payload)
         Files.move(
             tempFile,
@@ -86,19 +142,136 @@ class DesktopStateStore(
             StandardCopyOption.REPLACE_EXISTING,
             StandardCopyOption.ATOMIC_MOVE
         )
+        val backupTempFile = Files.createTempFile(backupFile.parent, "${backupFile.fileName}.", ".tmp")
+        backupTempFile.writeText(payload)
+        Files.move(
+            backupTempFile,
+            backupFile,
+            StandardCopyOption.REPLACE_EXISTING,
+            StandardCopyOption.ATOMIC_MOVE
+        )
+        updateCache(file, compactedState)
     }
 
-    private fun decodeStateOrNull(raw: String): DesktopAppState? =
-        runCatching { json.decodeFromString<DesktopAppState>(raw) }.getOrNull()
+    private fun decodeStateOrNull(raw: String): DesktopAppState? {
+        val strictDecode = runCatching { json.decodeFromString<DesktopAppState>(raw) }
+        strictDecode.getOrNull()?.let { return it }
+        return decodeStateLenient(raw, strictDecode.exceptionOrNull())
+    }
 
     private fun decodeState(raw: String): DesktopAppState? {
         decodeStateOrNull(raw)?.let { return it }
         var candidate = raw.trimEnd()
-        while (candidate.isNotEmpty()) {
+        var trimsRemaining = 4096
+        while (candidate.isNotEmpty() && trimsRemaining > 0) {
             candidate = candidate.dropLast(1).trimEnd()
+            trimsRemaining -= 1
             decodeStateOrNull(candidate)?.let { return it }
         }
         return null
+    }
+
+    private fun decodeStateLenient(raw: String, strictError: Throwable?): DesktopAppState? = runCatching {
+        val root = json.parseToJsonElement(raw).jsonObject
+        val skippedEntries = mutableListOf<String>()
+        fun <T> decodeList(name: String, serializer: KSerializer<T>): List<T> =
+            root[name]
+                ?.jsonArray
+                ?.mapIndexedNotNull { index, element ->
+                    runCatching { json.decodeFromJsonElement(serializer, element) }
+                        .onFailure { error ->
+                            skippedEntries += "$name[$index]: ${error.message ?: error::class.simpleName.orEmpty()}"
+                        }
+                        .getOrNull()
+                }
+                ?: emptyList()
+        fun <T> decodeObject(name: String, serializer: KSerializer<T>, defaultValue: T): T =
+            root[name]
+                ?.let { element ->
+                    runCatching { json.decodeFromJsonElement(serializer, element) }
+                        .onFailure { error ->
+                            skippedEntries += "$name: ${error.message ?: error::class.simpleName.orEmpty()}"
+                        }
+                        .getOrNull()
+                }
+                ?: defaultValue
+
+        val recovered = DesktopAppState(
+            companies = decodeList("companies", Company.serializer()),
+            companyAgentDefinitions = decodeList("companyAgentDefinitions", CompanyAgentDefinition.serializer()),
+            projectContexts = decodeList("projectContexts", CompanyProjectContext.serializer()),
+            repositories = decodeList("repositories", ManagedRepository.serializer()),
+            workspaces = decodeList("workspaces", Workspace.serializer()),
+            tasks = decodeList("tasks", AgentTask.serializer()),
+            runs = decodeList("runs", AgentRun.serializer()),
+            goals = decodeList("goals", CompanyGoal.serializer()),
+            issues = decodeList("issues", CompanyIssue.serializer()),
+            issueDependencies = decodeList("issueDependencies", IssueDependency.serializer()),
+            orgProfiles = decodeList("orgProfiles", OrgAgentProfile.serializer()),
+            workflowTopologies = decodeList("workflowTopologies", WorkflowTopologySnapshot.serializer()),
+            goalDecisions = decodeList("goalDecisions", GoalOrchestrationDecision.serializer()),
+            reviewQueue = decodeList("reviewQueue", ReviewQueueItem.serializer()),
+            companyActivity = decodeList("companyActivity", CompanyActivityItem.serializer()),
+            opsMetrics = decodeObject("opsMetrics", OpsMetricSnapshot.serializer(), OpsMetricSnapshot()),
+            signals = decodeList("signals", OpsSignal.serializer()),
+            backendSettings = decodeObject("backendSettings", DesktopBackendSettings.serializer(), DesktopBackendSettings()),
+            linearSettings = decodeObject("linearSettings", DesktopLinearSettings.serializer(), DesktopLinearSettings()),
+            runtime = decodeObject("runtime", CompanyRuntimeSnapshot.serializer(), CompanyRuntimeSnapshot()),
+            companyRuntimes = decodeList("companyRuntimes", CompanyRuntimeSnapshot.serializer())
+        )
+        val summary = buildString {
+            append("Recovered state with lenient decode")
+            strictError?.message?.takeIf { it.isNotBlank() }?.let {
+                append(" | strict=")
+                append(it)
+            }
+            if (skippedEntries.isNotEmpty()) {
+                append(" | skipped=")
+                append(skippedEntries.take(20).joinToString("; "))
+                if (skippedEntries.size > 20) {
+                    append(" (+")
+                    append(skippedEntries.size - 20)
+                    append(" more)")
+                }
+            }
+        }
+        appendStateLoadLog(summary)
+        recovered
+    }.onFailure { error ->
+        appendStateLoadLog(
+            "Failed lenient state decode" +
+                (strictError?.message?.let { " | strict=$it" } ?: "") +
+                " | lenient=${error.message ?: error::class.simpleName.orEmpty()}"
+        )
+    }.getOrNull()
+
+    private fun appendStateLoadLog(message: String) {
+        runCatching {
+            val now = System.currentTimeMillis()
+            synchronized(DesktopStateStore::class.java) {
+                if (message == lastStateLoadLogMessage && now - lastStateLoadLogAt < STATE_LOAD_LOG_DEDUP_WINDOW_MS) {
+                    return@runCatching
+                }
+                lastStateLoadLogMessage = message
+                lastStateLoadLogAt = now
+            }
+            val runtimeDir = appHome().resolve("runtime").resolve("backend")
+            runtimeDir.createDirectories()
+            val logFile = runtimeDir.resolve("state-load.log")
+            if (logFile.exists() && Files.size(logFile) >= MAX_STATE_LOAD_LOG_BYTES) {
+                Files.move(
+                    logFile,
+                    logFile.resolveSibling("${logFile.fileName}.1"),
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+            }
+            Files.writeString(
+                logFile,
+                "[$now] $message\n",
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND
+            )
+        }
     }
 
     private fun <T> withStateFileLock(block: () -> T): T {
@@ -122,6 +295,108 @@ class DesktopStateStore(
             block()
         }
     }
+
+    private fun currentFingerprint(file: Path): Pair<Long, Long>? =
+        if (!file.exists()) {
+            null
+        } else {
+            Files.getLastModifiedTime(file).toMillis() to Files.size(file)
+        }
+
+    private fun updateCache(file: Path, state: DesktopAppState) {
+        currentFingerprint(file)?.let { fingerprint ->
+            cachedState = CachedState(
+                state = state,
+                lastModifiedAtMillis = fingerprint.first,
+                sizeInBytes = fingerprint.second
+            )
+        }
+    }
+
+    private fun compactStateForPersistence(state: DesktopAppState): DesktopAppState =
+        state.run {
+            val unresolvedIssueIds = issues
+                .filter { it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
+                .mapTo(linkedSetOf()) { it.id }
+            val recentResolvedIssueIds = issues
+                .filter { it.status == IssueStatus.DONE || it.status == IssueStatus.CANCELED }
+                .sortedByDescending { it.updatedAt }
+                .take(MAX_PERSISTED_RESOLVED_ISSUES)
+                .mapTo(linkedSetOf()) { it.id }
+            val latestRetainedTaskIds = tasks
+                .filter { task -> task.issueId != null && task.issueId in recentResolvedIssueIds }
+                .groupBy { it.issueId!! }
+                .values
+                .mapNotNull { issueTasks -> issueTasks.maxByOrNull { it.updatedAt }?.id }
+                .toSet()
+            val retainedTasks = tasks.filter { task ->
+                task.issueId == null ||
+                    task.status == DesktopTaskStatus.RUNNING ||
+                    task.status == DesktopTaskStatus.QUEUED ||
+                    task.issueId in unresolvedIssueIds ||
+                    task.id in latestRetainedTaskIds
+            }
+            val retainedTaskIds = retainedTasks.mapTo(linkedSetOf()) { it.id }
+            val retainedRuns = runs
+                .groupBy { it.taskId }
+                .flatMap { (taskId, taskRuns) ->
+                    if (taskId !in retainedTaskIds) {
+                        emptyList()
+                    } else {
+                        val task = retainedTasks.firstOrNull { it.id == taskId }
+                        if (task?.issueId in unresolvedIssueIds || task?.status == DesktopTaskStatus.RUNNING || task?.status == DesktopTaskStatus.QUEUED) {
+                            taskRuns
+                        } else {
+                            listOfNotNull(taskRuns.maxByOrNull { it.updatedAt })
+                        }
+                    }
+                }
+            val retainedReviewQueueIssueIds = issues
+                .filter { it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
+                .mapTo(linkedSetOf()) { it.id }
+            copy(
+                tasks = retainedTasks.map(::compactTaskForPersistence),
+                runs = retainedRuns.map(::compactRunForPersistence),
+                reviewQueue = reviewQueue.filter { it.issueId in retainedReviewQueueIssueIds },
+                companyActivity = companyActivity.sortedByDescending { it.createdAt }.take(200),
+                signals = signals.sortedByDescending { it.createdAt }.take(150),
+                goalDecisions = goalDecisions.sortedByDescending { it.createdAt }.take(150)
+            )
+        }
+
+    private fun compactTaskForPersistence(task: AgentTask): AgentTask {
+        if (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED) {
+            return task
+        }
+        return task.copy(
+            prompt = compactRequiredText(task.prompt, MAX_PERSISTED_TASK_PROMPT_CHARS),
+            plan = null
+        )
+    }
+
+    private fun compactRunForPersistence(run: AgentRun): AgentRun =
+        if (run.status == AgentRunStatus.RUNNING || run.status == AgentRunStatus.QUEUED) {
+            run
+        } else {
+            run.copy(output = compactText(run.output, MAX_PERSISTED_RUN_OUTPUT_CHARS))
+        }
+
+    private fun compactText(value: String?, maxChars: Int): String? {
+        val text = value ?: return null
+        if (text.length <= maxChars) {
+            return text
+        }
+        val omittedChars = text.length - maxChars
+        return buildString {
+            append(text.take(maxChars))
+            append("\n\n[compacted ")
+            append(omittedChars)
+            append(" chars]")
+        }
+    }
+
+    private fun compactRequiredText(value: String, maxChars: Int): String =
+        compactText(value, maxChars) ?: value
 }
 
 /**

@@ -1,9 +1,11 @@
 package com.cotor.data.process
 
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.TimeoutCancellationException
 import io.mockk.mockk
 import org.slf4j.Logger
 import java.nio.file.Files
@@ -77,5 +79,18 @@ class ProcessManagerTest : FunSpec({
 
         result.isSuccess shouldBe true
         result.stdout.trim() shouldBe "fake-node:$tool"
+    }
+
+    test("executeProcess times out even when the child keeps pipes open") {
+        val processManager = CoroutineProcessManager(mockk<Logger>(relaxed = true))
+
+        shouldThrow<TimeoutCancellationException> {
+            processManager.executeProcess(
+                command = listOf("/bin/sh", "-c", "sleep 30"),
+                input = null,
+                environment = emptyMap(),
+                timeout = 200
+            )
+        }
     }
 })

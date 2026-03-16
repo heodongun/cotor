@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 actor EmbeddedBackendLauncher {
@@ -5,10 +6,11 @@ actor EmbeddedBackendLauncher {
 
     private let port = 8787
     private var process: Process?
+    private let shutdownPollIntervalMs = 200
 
     func ensureRunning() async {
+        terminateStaleBundledBackendProcesses()
         if await healthCheck() {
-            AppLogger.info("Embedded backend already healthy on port \(port).")
             return
         }
         if let process, process.isRunning {
@@ -18,7 +20,7 @@ actor EmbeddedBackendLauncher {
                 return
             }
             AppLogger.error("Embedded backend process unhealthy. Restarting.")
-            await terminateCurrentProcess()
+            _ = await terminateCurrentProcess(timeoutSeconds: 2)
         }
         guard let javaPath = resolveJavaExecutablePath(),
               let jarPath = resolveBundledBackendJarPath() else {
@@ -57,7 +59,7 @@ actor EmbeddedBackendLauncher {
             let started = await waitForHealth(timeoutSeconds: 10)
             if !started {
                 AppLogger.error("Embedded backend failed health check after launch.")
-                await terminateCurrentProcess()
+                _ = await terminateCurrentProcess(timeoutSeconds: 2)
             } else {
                 AppLogger.info("Embedded backend became healthy on port \(port).")
             }
@@ -69,15 +71,87 @@ actor EmbeddedBackendLauncher {
 
     func restart() async {
         AppLogger.info("Restarting embedded backend.")
-        await terminateCurrentProcess()
+        _ = await terminateCurrentProcess(timeoutSeconds: 2)
         terminateExternalBundledBackendProcesses()
         await ensureRunning()
     }
 
-    func stop() async {
-        AppLogger.info("Stopping embedded backend.")
-        await terminateCurrentProcess()
+    func stop(timeoutSeconds: TimeInterval = 5) async -> Bool {
+        AppLogger.info("Embedded backend stop started.")
+        let trackedStopped = await terminateCurrentProcess(timeoutSeconds: min(timeoutSeconds, 2))
         terminateExternalBundledBackendProcesses()
+        let shutdownConfirmed = await waitForShutdown(timeoutSeconds: max(timeoutSeconds - 2, 1))
+        if shutdownConfirmed {
+            AppLogger.info("Embedded backend stop completed.")
+        } else if trackedStopped {
+            AppLogger.error("Embedded backend stop timed out while waiting for shutdown confirmation.")
+        } else {
+            AppLogger.error("Embedded backend stop failed before shutdown confirmation completed.")
+        }
+        return shutdownConfirmed
+    }
+
+    private func terminateStaleBundledBackendProcesses() {
+        guard let jarPath = resolveBundledBackendJarPath() else {
+            return
+        }
+        do {
+            let stalePids = try staleBundledBackendPids(for: jarPath)
+            if stalePids.isEmpty {
+                return
+            }
+            stalePids.forEach { pid in
+                _ = kill(pid, SIGTERM)
+            }
+            Thread.sleep(forTimeInterval: 0.8)
+            let survivors = try staleBundledBackendPids(for: jarPath).filter { stalePids.contains($0) }
+            survivors.forEach { pid in
+                _ = kill(pid, SIGKILL)
+            }
+            let pidList = stalePids.map(String.init).joined(separator: ", ")
+            if survivors.isEmpty {
+                AppLogger.info("Terminated stale bundled backends: \(pidList).")
+            } else {
+                let survivorList = survivors.map(String.init).joined(separator: ", ")
+                AppLogger.info(
+                    "Escalated stale bundled backend termination to SIGKILL. terminated=\(pidList) killed=\(survivorList)."
+                )
+            }
+        } catch {
+            AppLogger.error("Failed to inspect stale bundled backends: \(error.localizedDescription)")
+        }
+    }
+
+    private func staleBundledBackendPids(for jarPath: String) throws -> [Int32] {
+        let inspector = Process()
+        inspector.executableURL = URL(fileURLWithPath: "/bin/ps")
+        inspector.arguments = ["-axo", "pid=,args="]
+        let pipe = Pipe()
+        inspector.standardOutput = pipe
+        inspector.standardError = Pipe()
+        do {
+            try inspector.run()
+            inspector.waitUntilExit()
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            return output
+                .split(separator: "\n")
+                .compactMap { line -> Int32? in
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty, trimmed.contains(jarPath), trimmed.contains("app-server") else {
+                        return nil
+                    }
+                    guard !trimmed.contains("--port \(port)") else {
+                        return nil
+                    }
+                    let parts = trimmed.split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" })
+                    guard let first = parts.first, let pid = Int32(first) else {
+                        return nil
+                    }
+                    return pid
+                }
+        } catch {
+            throw error
+        }
     }
 
     private func waitForHealth(timeoutSeconds: Int) async -> Bool {
@@ -85,9 +159,20 @@ actor EmbeddedBackendLauncher {
             if await healthCheck() {
                 return true
             }
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(shutdownPollIntervalMs))
         }
         return false
+    }
+
+    private func waitForShutdown(timeoutSeconds: TimeInterval) async -> Bool {
+        let checks = max(1, Int((timeoutSeconds * 1000) / Double(shutdownPollIntervalMs)))
+        for _ in 0 ..< checks {
+            if await healthCheck() == false {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(shutdownPollIntervalMs))
+        }
+        return await healthCheck() == false
     }
 
     private func healthCheck() async -> Bool {
@@ -111,7 +196,10 @@ actor EmbeddedBackendLauncher {
     private func mergedEnvironment(javaPath: String) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let javaHome = URL(fileURLWithPath: javaPath).deletingLastPathComponent().deletingLastPathComponent().path
+        let appHome = defaultDesktopAppHome().path
         env["JAVA_HOME"] = env["JAVA_HOME"] ?? javaHome
+        env["COTOR_DESKTOP_APP_HOME"] = env["COTOR_DESKTOP_APP_HOME"] ?? appHome
+        env["COTOR_APP_HOME"] = env["COTOR_APP_HOME"] ?? appHome
         let defaultPath = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
         env["PATH"] = [env["PATH"], defaultPath].compactMap { $0 }.joined(separator: ":")
         return env
@@ -179,7 +267,7 @@ actor EmbeddedBackendLauncher {
             try killer.run()
             killer.waitUntilExit()
         } catch {
-            // Best-effort cleanup only.
+            AppLogger.error("Embedded backend external cleanup failed: \(error.localizedDescription)")
         }
     }
 
@@ -191,20 +279,41 @@ actor EmbeddedBackendLauncher {
             .appendingPathComponent("CotorDesktop", isDirectory: true)
     }
 
-    private func terminateCurrentProcess() async {
-        guard let process else { return }
+    private func terminateCurrentProcess(timeoutSeconds: TimeInterval) async -> Bool {
+        guard let process else { return true }
         if process.isRunning {
             process.terminate()
-            for _ in 0 ..< 10 {
+            let checks = max(1, Int((timeoutSeconds * 1000) / Double(shutdownPollIntervalMs)))
+            for _ in 0 ..< checks {
                 if !process.isRunning {
                     break
                 }
-                try? await Task.sleep(for: .milliseconds(200))
+                try? await Task.sleep(for: .milliseconds(shutdownPollIntervalMs))
             }
             if process.isRunning {
                 process.interrupt()
+                for _ in 0 ..< max(1, checks / 2) {
+                    if !process.isRunning {
+                        break
+                    }
+                    try? await Task.sleep(for: .milliseconds(shutdownPollIntervalMs))
+                }
+            }
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                for _ in 0 ..< 5 {
+                    if !process.isRunning {
+                        break
+                    }
+                    try? await Task.sleep(for: .milliseconds(shutdownPollIntervalMs))
+                }
             }
         }
+        let terminated = !process.isRunning
+        if !terminated {
+            AppLogger.error("Embedded backend child process \(process.processIdentifier) did not exit after termination attempts.")
+        }
         self.process = nil
+        return terminated
     }
 }

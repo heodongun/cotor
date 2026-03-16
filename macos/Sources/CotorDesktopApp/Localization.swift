@@ -305,6 +305,8 @@ struct DesktopStrings {
             return "In Progress"
         case (.english, "IN_REVIEW"):
             return "In Review"
+        case (.english, "READY_FOR_CEO"):
+            return "Ready for CEO"
         case (.english, "BLOCKED"):
             return "Blocked"
         case (.english, "DONE"):
@@ -353,6 +355,8 @@ struct DesktopStrings {
             return "진행 중"
         case (.korean, "IN_REVIEW"):
             return "검토 중"
+        case (.korean, "READY_FOR_CEO"):
+            return "CEO 승인 대기"
         case (.korean, "BLOCKED"):
             return "차단됨"
         case (.korean, "DONE"):

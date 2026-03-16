@@ -75,6 +75,7 @@ final class DesktopStore: ObservableObject {
     @Published var newIssueTitle = ""
     @Published var newIssueDescription = ""
     @Published var defaultBackendKind = "LOCAL_COTOR"
+    @Published var codePublishMode = "REQUIRE_GITHUB_PR"
     @Published var codexLaunchMode = "MANAGED"
     @Published var codexCommand = "codex"
     @Published var codexArgs = "app-server --host 127.0.0.1 --port {port}"
@@ -578,6 +579,7 @@ final class DesktopStore: ObservableObject {
 
     private func syncBackendFormState() {
         defaultBackendKind = dashboard.settings.backendSettings.defaultBackendKind
+        codePublishMode = dashboard.settings.backendSettings.codePublishMode
         if let config = dashboard.settings.backendSettings.backends.first(where: { $0.kind == "CODEX_APP_SERVER" }) {
             codexLaunchMode = config.launchMode
             codexCommand = config.command
@@ -1413,6 +1415,7 @@ final class DesktopStore: ObservableObject {
             backendStatusMessage = nil
             let settings = try await api.updateBackendSettings(
                 defaultBackendKind: defaultBackendKind,
+                codePublishMode: codePublishMode,
                 codexLaunchMode: codexLaunchMode,
                 codexCommand: trimmedOptional(codexCommand),
                 codexArgs: codexArgs

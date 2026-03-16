@@ -106,6 +106,8 @@ struct CotorDesktopApp: App {
 }
 
 final class DesktopAppLifecycleDelegate: NSObject, NSApplicationDelegate {
+    private var terminationInFlight = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task {
             await EmbeddedBackendLauncher.shared.ensureRunning()
@@ -116,6 +118,22 @@ final class DesktopAppLifecycleDelegate: NSObject, NSApplicationDelegate {
         Task {
             await EmbeddedBackendLauncher.shared.ensureRunning()
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if terminationInFlight {
+            return .terminateLater
+        }
+        terminationInFlight = true
+        AppLogger.info("App termination requested.")
+        Task {
+            _ = await EmbeddedBackendLauncher.shared.stop(timeoutSeconds: 5)
+            await MainActor.run {
+                sender.reply(toApplicationShouldTerminate: true)
+                self.terminationInFlight = false
+            }
+        }
+        return .terminateLater
     }
 }
 
@@ -3917,8 +3935,17 @@ private struct InspectorPaneView: View {
 
             if let reviewItem = store.selectedReviewQueueItem {
                 metadataRow(label: l("Review Queue", "리뷰 큐"), value: l.status(reviewItem.status))
+                if let branchName = reviewItem.branchName, !branchName.isEmpty {
+                    metadataRow(label: l.text(.branch), value: branchName)
+                }
+                if let worktreePath = reviewItem.worktreePath, !worktreePath.isEmpty {
+                    metadataRow(label: l.text(.worktree), value: worktreePath)
+                }
                 if let pullRequestUrl = reviewItem.pullRequestUrl, !pullRequestUrl.isEmpty {
                     metadataRow(label: l.text(.pullRequest), value: pullRequestUrl)
+                }
+                if let pullRequestState = reviewItem.pullRequestState, !pullRequestState.isEmpty {
+                    metadataRow(label: l("PR State", "PR 상태"), value: l.status(pullRequestState))
                 }
                 if let mergeability = reviewItem.mergeability, !mergeability.isEmpty {
                     metadataRow(label: l("Mergeability", "머지 가능성"), value: mergeability)
@@ -3928,6 +3955,21 @@ private struct InspectorPaneView: View {
                 }
                 if !reviewItem.requestedReviewers.isEmpty {
                     metadataRow(label: l("Reviewers", "리뷰어"), value: reviewItem.requestedReviewers.joined(separator: ", "))
+                }
+                if let qaVerdict = reviewItem.qaVerdict, !qaVerdict.isEmpty {
+                    metadataRow(label: l("QA Verdict", "QA 판정"), value: l.status(qaVerdict))
+                }
+                if let qaFeedback = reviewItem.qaFeedback, !qaFeedback.isEmpty {
+                    metadataRow(label: l("QA Feedback", "QA 피드백"), value: qaFeedback)
+                }
+                if let ceoVerdict = reviewItem.ceoVerdict, !ceoVerdict.isEmpty {
+                    metadataRow(label: l("CEO Verdict", "CEO 판정"), value: l.status(ceoVerdict))
+                }
+                if let ceoFeedback = reviewItem.ceoFeedback, !ceoFeedback.isEmpty {
+                    metadataRow(label: l("CEO Feedback", "CEO 피드백"), value: ceoFeedback)
+                }
+                if let mergeCommitSha = reviewItem.mergeCommitSha, !mergeCommitSha.isEmpty {
+                    metadataRow(label: l("Merge Commit", "머지 커밋"), value: mergeCommitSha)
                 }
             }
 
@@ -3944,6 +3986,9 @@ private struct InspectorPaneView: View {
                     }
                     if let pullRequestUrl = publish.pullRequestUrl, !pullRequestUrl.isEmpty {
                         metadataRow(label: l.text(.pullRequest), value: pullRequestUrl)
+                    }
+                    if let pullRequestState = publish.pullRequestState, !pullRequestState.isEmpty {
+                        metadataRow(label: l("PR State", "PR 상태"), value: l.status(pullRequestState))
                     }
                     if let reviewState = publish.reviewState, !reviewState.isEmpty {
                         metadataRow(label: l("Publish Review", "퍼블리시 리뷰"), value: reviewState)

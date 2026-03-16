@@ -6,6 +6,8 @@ import org.slf4j.Logger
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.io.path.exists
 import kotlin.io.path.isExecutable
 
@@ -72,71 +74,97 @@ class CoroutineProcessManager(
         logger.debug("Starting process: ${resolvedCommand.joinToString(" ")}")
         val process = processBuilder.start()
         onStart?.invoke(process.pid())
+        logger.debug("Started process pid=${process.pid()} cwd=${workingDirectory ?: Path.of("").toAbsolutePath().normalize()} command=${resolvedCommand.joinToString(" ")}")
 
-        try {
-            withTimeout(timeout) {
-                coroutineScope {
-                    // stdin/stdout/stderr are handled concurrently so we do not deadlock
-                    // when a child process produces a lot of output while also waiting for input.
-                    val stdinJob = launch {
-                        if (input != null) {
-                            process.outputStream.bufferedWriter().use { writer ->
-                                writer.write(input)
-                                writer.flush()
-                            }
-                        }
-                        process.outputStream.close()
+        val stdoutBuffer = StringBuffer()
+        val stderrBuffer = StringBuffer()
+
+        val stdoutThread = thread(
+            start = true,
+            isDaemon = true,
+            name = "cotor-process-stdout-${process.pid()}"
+        ) {
+            process.inputStream.bufferedReader().use { reader ->
+                val chunk = CharArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = reader.read(chunk)
+                    if (read < 0) break
+                    synchronized(stdoutBuffer) {
+                        stdoutBuffer.append(chunk, 0, read)
                     }
-
-                    // Read from stdout
-                    val stdoutDeferred = async {
-                        process.inputStream.bufferedReader().use { reader ->
-                            reader.readText()
-                        }
-                    }
-
-                    // Read from stderr
-                    val stderrDeferred = async {
-                        process.errorStream.bufferedReader().use { reader ->
-                            reader.readText()
-                        }
-                    }
-
-                    // Wait for process to complete
-                    val exitCodeDeferred = async {
-                        process.waitFor()
-                    }
-
-                    // Ensure stdin is fully written before awaiting process completion so
-                    // CLIs that block on EOF can actually start processing.
-                    stdinJob.join()
-                    val stdout = stdoutDeferred.await()
-                    val stderr = stderrDeferred.await()
-                    val exitCode = exitCodeDeferred.await()
-
-                    logger.debug("Process completed with exit code: $exitCode")
-
-                    ProcessResult(
-                        exitCode = exitCode,
-                        stdout = stdout,
-                        stderr = stderr,
-                        isSuccess = exitCode == 0,
-                        processId = process.pid()
-                    )
                 }
             }
+        }
+        val stderrThread = thread(
+            start = true,
+            isDaemon = true,
+            name = "cotor-process-stderr-${process.pid()}"
+        ) {
+            process.errorStream.bufferedReader().use { reader ->
+                val chunk = CharArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = reader.read(chunk)
+                    if (read < 0) break
+                    synchronized(stderrBuffer) {
+                        stderrBuffer.append(chunk, 0, read)
+                    }
+                }
+            }
+        }
+
+        try {
+            if (input != null) {
+                process.outputStream.bufferedWriter().use { writer ->
+                    writer.write(input)
+                    writer.flush()
+                }
+            } else {
+                process.outputStream.close()
+            }
+
+            withTimeout(timeout) {
+                while (true) {
+                    if (process.waitFor(50, TimeUnit.MILLISECONDS)) {
+                        return@withTimeout
+                    }
+                    yield()
+                }
+            }
+            joinReader(stdoutThread)
+            joinReader(stderrThread)
+            val exitCode = process.exitValue()
+            val stdout = synchronized(stdoutBuffer) { stdoutBuffer.toString() }
+            val stderr = synchronized(stderrBuffer) { stderrBuffer.toString() }
+
+            logger.debug("Process completed with exit code: $exitCode")
+
+            ProcessResult(
+                exitCode = exitCode,
+                stdout = stdout,
+                stderr = stderr,
+                isSuccess = exitCode == 0,
+                processId = process.pid()
+            )
         } catch (e: TimeoutCancellationException) {
             logger.warn("Process timeout, destroying process")
             // Force-kill on timeout because some developer tools spawn interactive shells
             // that ignore polite termination and would otherwise leak in the background.
             process.destroyForcibly()
+            joinReader(stdoutThread)
+            joinReader(stderrThread)
             throw e
         } catch (e: Exception) {
             logger.error("Process execution failed", e)
             process.destroyForcibly()
+            joinReader(stdoutThread)
+            joinReader(stderrThread)
             throw e
         }
     }
+}
+
+private fun joinReader(thread: Thread) {
+    thread.join(5_000)
 }
 
 private fun buildEffectivePath(
