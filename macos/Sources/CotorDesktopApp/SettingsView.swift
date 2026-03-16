@@ -131,6 +131,55 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(store.language("Code publish policy", "코드 배포 정책").uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(ShellPalette.muted)
+                    Picker(store.language("Code publish policy", "코드 배포 정책"), selection: $store.codePublishMode) {
+                        Text(store.language("Require GitHub PR", "GitHub PR 필수")).tag("REQUIRE_GITHUB_PR")
+                        Text(store.language("Allow local git", "로컬 git 허용")).tag("ALLOW_LOCAL_GIT")
+                    }
+                    .pickerStyle(.segmented)
+                    Text(
+                        store.codePublishMode == "REQUIRE_GITHUB_PR"
+                        ? store.language(
+                            "Code issues block when origin or gh auth is missing.",
+                            "origin 또는 gh auth가 없으면 코드 이슈를 막습니다."
+                        )
+                        : store.language(
+                            "If GitHub publish is unavailable, Cotor may complete code work with local git only.",
+                            "GitHub 배포가 안 되면 로컬 git만으로 코드 작업을 완료할 수 있습니다."
+                        )
+                    )
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(store.language("GitHub readiness", "GitHub 준비 상태").uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(ShellPalette.muted)
+                    valueRow(store.language("Policy", "정책"), store.codePublishMode == "REQUIRE_GITHUB_PR" ? store.language("Require GitHub PR", "GitHub PR 필수") : store.language("Allow local git fallback", "로컬 git fallback 허용"))
+                    valueRow(store.language("gh CLI", "gh CLI"), store.dashboard.settings.githubPublishStatus.ghInstalled ? store.language("Installed", "설치됨") : store.language("Missing", "없음"))
+                    valueRow(store.language("gh auth", "gh 인증"), store.dashboard.settings.githubPublishStatus.ghAuthenticated ? store.language("Authenticated", "인증됨") : store.language("Not authenticated", "인증 안 됨"))
+                    valueRow(store.language("Origin remote", "origin remote"), store.dashboard.settings.githubPublishStatus.originConfigured ? (store.dashboard.settings.githubPublishStatus.originUrl ?? store.language("Configured", "설정됨")) : store.language("Not configured", "설정 안 됨"))
+                    if let companyName = store.dashboard.settings.githubPublishStatus.companyName, !companyName.isEmpty {
+                        valueRow(store.language("Checked company", "확인한 회사"), companyName)
+                    }
+                    if let repositoryPath = store.dashboard.settings.githubPublishStatus.repositoryPath, !repositoryPath.isEmpty {
+                        valueRow(store.language("Checked repo", "확인한 저장소"), repositoryPath)
+                    }
+                    if let message = store.dashboard.settings.githubPublishStatus.message, !message.isEmpty {
+                        Text(message)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(
+                                store.dashboard.settings.githubPublishStatus.originConfigured || store.codePublishMode == "ALLOW_LOCAL_GIT"
+                                ? ShellPalette.muted
+                                : ShellPalette.warning
+                            )
+                    }
+                }
+
                 VStack(alignment: .leading, spacing: 6) {
                     Text(store.language("Codex runtime", "Codex 실행기").uppercased())
                         .font(.system(size: 10, weight: .bold, design: .rounded))

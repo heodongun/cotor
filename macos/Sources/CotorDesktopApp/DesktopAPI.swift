@@ -168,6 +168,7 @@ struct DesktopAPI {
 
     func updateBackendSettings(
         defaultBackendKind: String,
+        codePublishMode: String,
         codexLaunchMode: String?,
         codexCommand: String?,
         codexArgs: [String],
@@ -183,6 +184,7 @@ struct DesktopAPI {
             path: "api/app/settings/backends/default",
             body: UpdateBackendSettingsPayload(
                 defaultBackendKind: defaultBackendKind,
+                codePublishMode: codePublishMode,
                 codexLaunchMode: codexLaunchMode,
                 codexCommand: codexCommand,
                 codexArgs: codexArgs,
@@ -531,6 +533,7 @@ private struct EmptyPayload: Codable {}
 
 private struct UpdateBackendSettingsPayload: Codable {
     let defaultBackendKind: String
+    let codePublishMode: String
     let codexLaunchMode: String?
     let codexCommand: String?
     let codexArgs: [String]

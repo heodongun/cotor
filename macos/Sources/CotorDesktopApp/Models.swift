@@ -90,7 +90,21 @@ struct ExecutionBackendStatusPayload: Codable, Hashable, Identifiable {
 
 struct DesktopBackendSettingsPayload: Codable, Hashable {
     let defaultBackendKind: String
+    let codePublishMode: String
     let backends: [BackendConnectionConfigPayload]
+}
+
+struct GitHubPublishStatusPayload: Codable, Hashable {
+    let policy: String
+    let ghInstalled: Bool
+    let ghAuthenticated: Bool
+    let originConfigured: Bool
+    let originUrl: String?
+    let bootstrapAvailable: Bool
+    let repositoryPath: String?
+    let companyId: String?
+    let companyName: String?
+    let message: String?
 }
 
 struct CompanyAgentDefinitionRecord: Codable, Identifiable, Hashable {
@@ -173,6 +187,7 @@ struct PublishMetadataRecord: Codable, Hashable {
     let pushedBranch: String?
     let pullRequestNumber: Int?
     let pullRequestUrl: String?
+    let pullRequestState: String?
     let reviewState: String?
     let requestedReviewers: [String]
     let checksSummary: String?
@@ -216,6 +231,18 @@ struct IssueRecord: Codable, Identifiable, Hashable {
     let dependsOn: [String]
     let acceptanceCriteria: [String]
     let riskLevel: String
+    let codeProducing: Bool?
+    let branchName: String?
+    let worktreePath: String?
+    let pullRequestNumber: Int?
+    let pullRequestUrl: String?
+    let pullRequestState: String?
+    let qaVerdict: String?
+    let qaFeedback: String?
+    let ceoVerdict: String?
+    let ceoFeedback: String?
+    let mergeResult: String?
+    let transitionReason: String?
     let sourceSignal: String
     let createdAt: Int64
     let updatedAt: Int64
@@ -239,12 +266,25 @@ struct ReviewQueueItemRecord: Codable, Identifiable, Hashable {
     let projectContextId: String?
     let issueId: String
     let runId: String
+    let branchName: String?
+    let worktreePath: String?
     let pullRequestNumber: Int?
     let pullRequestUrl: String?
+    let pullRequestState: String?
     let status: String
     let checksSummary: String?
     let mergeability: String?
     let requestedReviewers: [String]
+    let qaVerdict: String?
+    let qaFeedback: String?
+    let qaReviewedAt: Int64?
+    let qaIssueId: String?
+    let ceoVerdict: String?
+    let ceoFeedback: String?
+    let ceoReviewedAt: Int64?
+    let approvalIssueId: String?
+    let mergeCommitSha: String?
+    let mergedAt: Int64?
     let createdAt: Int64
     let updatedAt: Int64
 }
@@ -416,6 +456,7 @@ struct DesktopSettingsPayload: Codable, Hashable {
     let recentCompanies: [String]
     let defaultLaunchMode: String
     let backendSettings: DesktopBackendSettingsPayload
+    let githubPublishStatus: GitHubPublishStatusPayload
     let linearSettings: DesktopLinearSettingsPayload?
     let backendStatuses: [ExecutionBackendStatusPayload]
     let shortcuts: ShortcutConfigPayload
@@ -471,7 +512,19 @@ extension DashboardPayload {
             availableCliAgents: [],
             recentCompanies: [],
             defaultLaunchMode: "company",
-            backendSettings: DesktopBackendSettingsPayload(defaultBackendKind: "LOCAL_COTOR", backends: []),
+            backendSettings: DesktopBackendSettingsPayload(defaultBackendKind: "LOCAL_COTOR", codePublishMode: "REQUIRE_GITHUB_PR", backends: []),
+            githubPublishStatus: GitHubPublishStatusPayload(
+                policy: "REQUIRE_GITHUB_PR",
+                ghInstalled: false,
+                ghAuthenticated: false,
+                originConfigured: false,
+                originUrl: nil,
+                bootstrapAvailable: false,
+                repositoryPath: nil,
+                companyId: nil,
+                companyName: nil,
+                message: nil
+            ),
             linearSettings: nil,
             backendStatuses: [],
             shortcuts: ShortcutConfigPayload(bindings: [])
@@ -683,7 +736,20 @@ struct MockSeed {
             defaultLaunchMode: "company",
             backendSettings: DesktopBackendSettingsPayload(
                 defaultBackendKind: "LOCAL_COTOR",
+                codePublishMode: "REQUIRE_GITHUB_PR",
                 backends: []
+            ),
+            githubPublishStatus: GitHubPublishStatusPayload(
+                policy: "REQUIRE_GITHUB_PR",
+                ghInstalled: true,
+                ghAuthenticated: true,
+                originConfigured: true,
+                originUrl: "https://github.com/heodongun/cotor.git",
+                bootstrapAvailable: true,
+                repositoryPath: "/Users/demo/cotor",
+                companyId: "company-demo",
+                companyName: "Cotor",
+                message: "Origin remote is configured for this repository."
             ),
             linearSettings: nil,
             backendStatuses: [],
@@ -810,6 +876,18 @@ struct MockSeed {
                 dependsOn: [],
                 acceptanceCriteria: ["Goal decomposes into issues", "Roles are explicit"],
                 riskLevel: "medium",
+                codeProducing: false,
+                branchName: nil,
+                worktreePath: nil,
+                pullRequestNumber: nil,
+                pullRequestUrl: nil,
+                pullRequestState: nil,
+                qaVerdict: nil,
+                qaFeedback: nil,
+                ceoVerdict: nil,
+                ceoFeedback: nil,
+                mergeResult: nil,
+                transitionReason: nil,
                 sourceSignal: "goal-decomposition",
                 createdAt: 0,
                 updatedAt: 0
@@ -834,6 +912,18 @@ struct MockSeed {
                 dependsOn: ["issue-demo-plan"],
                 acceptanceCriteria: ["Goal sidebar exists", "Issue board is visible"],
                 riskLevel: "medium",
+                codeProducing: true,
+                branchName: "codex/cotor/demo-build",
+                worktreePath: "/Users/demo/cotor/.cotor/worktrees/issue-demo-build/codex",
+                pullRequestNumber: 77,
+                pullRequestUrl: "https://github.com/example/cotor/pull/77",
+                pullRequestState: "OPEN",
+                qaVerdict: nil,
+                qaFeedback: nil,
+                ceoVerdict: nil,
+                ceoFeedback: nil,
+                mergeResult: nil,
+                transitionReason: "Execution branch is active.",
                 sourceSignal: "goal-decomposition",
                 createdAt: 0,
                 updatedAt: 0
@@ -858,6 +948,18 @@ struct MockSeed {
                 dependsOn: ["issue-demo-build"],
                 acceptanceCriteria: ["Review queue item appears", "Merge action is visible"],
                 riskLevel: "low",
+                codeProducing: false,
+                branchName: "codex/cotor/demo-build",
+                worktreePath: "/Users/demo/cotor/.cotor/worktrees/issue-demo-build/codex",
+                pullRequestNumber: 77,
+                pullRequestUrl: "https://github.com/example/cotor/pull/77",
+                pullRequestState: "OPEN",
+                qaVerdict: "PASS",
+                qaFeedback: "Checks and UX review passed.",
+                ceoVerdict: nil,
+                ceoFeedback: nil,
+                mergeResult: nil,
+                transitionReason: "QA is reviewing the execution PR.",
                 sourceSignal: "goal-decomposition",
                 createdAt: 0,
                 updatedAt: 0
@@ -870,12 +972,25 @@ struct MockSeed {
                 projectContextId: "project-demo",
                 issueId: "issue-demo-plan",
                 runId: "run-codex",
+                branchName: "codex/cotor/superset-shell/codex",
+                worktreePath: "/Users/demo/cotor/.cotor/worktrees/task-demo/codex",
                 pullRequestNumber: 42,
                 pullRequestUrl: "https://github.com/heodongun/cotor/pull/42",
+                pullRequestState: "OPEN",
                 status: "READY_TO_MERGE",
                 checksSummary: "desktop smoke checks passed",
                 mergeability: "clean",
                 requestedReviewers: ["qa"],
+                qaVerdict: nil,
+                qaFeedback: nil,
+                qaReviewedAt: nil,
+                qaIssueId: nil,
+                ceoVerdict: nil,
+                ceoFeedback: nil,
+                ceoReviewedAt: nil,
+                approvalIssueId: nil,
+                mergeCommitSha: nil,
+                mergedAt: nil,
                 createdAt: 0,
                 updatedAt: 0
             )
@@ -1017,6 +1132,7 @@ struct MockSeed {
                 pushedBranch: "codex/cotor/superset-shell/codex",
                 pullRequestNumber: 42,
                 pullRequestUrl: "https://github.com/heodongun/cotor/pull/42",
+                pullRequestState: "OPEN",
                 reviewState: "awaiting-review",
                 requestedReviewers: ["qa"],
                 checksSummary: "desktop smoke checks passed",

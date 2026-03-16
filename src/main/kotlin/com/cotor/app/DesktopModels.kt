@@ -69,6 +69,26 @@ enum class BackendLifecycleState {
 }
 
 @Serializable
+enum class CodePublishMode {
+    REQUIRE_GITHUB_PR,
+    ALLOW_LOCAL_GIT
+}
+
+@Serializable
+data class GitHubPublishStatus(
+    val policy: CodePublishMode = CodePublishMode.REQUIRE_GITHUB_PR,
+    val ghInstalled: Boolean = false,
+    val ghAuthenticated: Boolean = false,
+    val originConfigured: Boolean = false,
+    val originUrl: String? = null,
+    val bootstrapAvailable: Boolean = false,
+    val repositoryPath: String? = null,
+    val companyId: String? = null,
+    val companyName: String? = null,
+    val message: String? = null
+)
+
+@Serializable
 data class BackendConnectionConfig(
     val kind: ExecutionBackendKind,
     val launchMode: BackendLaunchMode = BackendLaunchMode.ATTACHED,
@@ -111,6 +131,7 @@ data class ExecutionBackendStatus(
 @Serializable
 data class DesktopBackendSettings(
     val defaultBackendKind: ExecutionBackendKind = ExecutionBackendKind.LOCAL_COTOR,
+    val codePublishMode: CodePublishMode = CodePublishMode.REQUIRE_GITHUB_PR,
     val backends: List<BackendConnectionConfig> = defaultBackendConfigs()
 )
 
@@ -300,6 +321,7 @@ enum class IssueStatus {
     DELEGATED,
     IN_PROGRESS,
     IN_REVIEW,
+    READY_FOR_CEO,
     BLOCKED,
     DONE,
     CANCELED
@@ -313,6 +335,7 @@ enum class ReviewQueueStatus {
     AWAITING_QA,
     AWAITING_REVIEW,
     CHANGES_REQUESTED,
+    READY_FOR_CEO,
     READY_TO_MERGE,
     MERGED,
     FAILED_CHECKS
@@ -338,6 +361,7 @@ data class PublishMetadata(
     val pushedBranch: String? = null,
     val pullRequestNumber: Int? = null,
     val pullRequestUrl: String? = null,
+    val pullRequestState: String? = null,
     val reviewState: String? = null,
     val requestedReviewers: List<String> = emptyList(),
     val checksSummary: String? = null,
@@ -472,6 +496,18 @@ data class CompanyIssue(
     val dependsOn: List<String> = emptyList(),
     val acceptanceCriteria: List<String> = emptyList(),
     val riskLevel: String = "medium",
+    val codeProducing: Boolean? = null,
+    val branchName: String? = null,
+    val worktreePath: String? = null,
+    val pullRequestNumber: Int? = null,
+    val pullRequestUrl: String? = null,
+    val pullRequestState: String? = null,
+    val qaVerdict: String? = null,
+    val qaFeedback: String? = null,
+    val ceoVerdict: String? = null,
+    val ceoFeedback: String? = null,
+    val mergeResult: String? = null,
+    val transitionReason: String? = null,
     val sourceSignal: String = "goal-decomposition",
     val createdAt: Long,
     val updatedAt: Long
@@ -514,12 +550,25 @@ data class ReviewQueueItem(
     val projectContextId: String? = null,
     val issueId: String,
     val runId: String,
+    val branchName: String? = null,
+    val worktreePath: String? = null,
     val pullRequestNumber: Int? = null,
     val pullRequestUrl: String? = null,
+    val pullRequestState: String? = null,
     val status: ReviewQueueStatus,
     val checksSummary: String? = null,
     val mergeability: String? = null,
     val requestedReviewers: List<String> = emptyList(),
+    val qaVerdict: String? = null,
+    val qaFeedback: String? = null,
+    val qaReviewedAt: Long? = null,
+    val qaIssueId: String? = null,
+    val ceoVerdict: String? = null,
+    val ceoFeedback: String? = null,
+    val ceoReviewedAt: Long? = null,
+    val approvalIssueId: String? = null,
+    val mergeCommitSha: String? = null,
+    val mergedAt: Long? = null,
     val createdAt: Long,
     val updatedAt: Long
 )
@@ -702,6 +751,7 @@ data class DesktopSettings(
     val recentCompanies: List<String> = emptyList(),
     val defaultLaunchMode: String = "company",
     val backendSettings: DesktopBackendSettings = DesktopBackendSettings(),
+    val githubPublishStatus: GitHubPublishStatus = GitHubPublishStatus(),
     val linearSettings: DesktopLinearSettings = DesktopLinearSettings(),
     val backendStatuses: List<ExecutionBackendStatus> = emptyList(),
     val shortcuts: ShortcutConfig = ShortcutConfig()
