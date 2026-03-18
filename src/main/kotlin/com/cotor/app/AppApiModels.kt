@@ -287,6 +287,15 @@ data class CreateContextEntryRequest(
 // ── Agent Message API Models ────────────────────────────────────────
 
 @Serializable
+data class BudgetResponse(
+    val dailyBudgetCents: Int? = null,
+    val monthlyBudgetCents: Int? = null,
+    val todaySpentCents: Int = 0,
+    val monthSpentCents: Int = 0,
+    val budgetPaused: Boolean = false
+)
+
+@Serializable
 data class SendMessageRequest(
     val fromAgentName: String,
     val toAgentName: String? = null,

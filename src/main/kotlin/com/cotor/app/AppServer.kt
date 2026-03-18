@@ -1161,12 +1161,12 @@ internal fun Application.cotorAppModule(
                             ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Company not found"))
                         val runtime = state.companyRuntimes.firstOrNull { it.companyId == companyId }
                         call.respond(
-                            mapOf(
-                                "dailyBudgetCents" to company.dailyBudgetCents,
-                                "monthlyBudgetCents" to company.monthlyBudgetCents,
-                                "todaySpentCents" to (runtime?.todaySpentCents ?: 0),
-                                "monthSpentCents" to (runtime?.monthSpentCents ?: 0),
-                                "budgetPaused" to (runtime?.budgetPausedAt != null)
+                            BudgetResponse(
+                                dailyBudgetCents = company.dailyBudgetCents,
+                                monthlyBudgetCents = company.monthlyBudgetCents,
+                                todaySpentCents = runtime?.todaySpentCents ?: 0,
+                                monthSpentCents = runtime?.monthSpentCents ?: 0,
+                                budgetPaused = runtime?.budgetPausedAt != null
                             )
                         )
                     }
