@@ -1006,6 +1006,151 @@ internal fun Application.cotorAppModule(
                     }
                 }
 
+                route("/{companyId}/pipelines") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.listPipelines(companyId))
+                    }
+
+                    post {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val request = call.receive<CreatePipelineRequest>()
+                        respondDesktopRequest {
+                            desktopService.createPipeline(
+                                companyId = companyId,
+                                name = request.name,
+                                stages = request.stages.mapIndexed { idx, s ->
+                                    WorkflowStageDefinition(
+                                        id = s.id ?: "stage-$idx",
+                                        kind = s.kind,
+                                        title = s.title,
+                                        assigneeRoleName = s.assigneeRoleName,
+                                        verdictKey = s.verdictKey,
+                                        verdictPassValue = s.verdictPassValue ?: "PASS",
+                                        verdictFailValue = s.verdictFailValue ?: "CHANGES_REQUESTED",
+                                        skipWhen = s.skipWhen,
+                                        order = idx
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    patch("/{pipelineId}") {
+                        if (!requireToken(token)) return@patch
+                        val pipelineId = call.parameters["pipelineId"]
+                            ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "pipelineId is required"))
+                        val request = call.receive<UpdatePipelineRequest>()
+                        respondDesktopRequest {
+                            desktopService.updatePipeline(
+                                pipelineId = pipelineId,
+                                name = request.name,
+                                stages = request.stages?.mapIndexed { idx, s ->
+                                    WorkflowStageDefinition(
+                                        id = s.id ?: "stage-$idx",
+                                        kind = s.kind,
+                                        title = s.title,
+                                        assigneeRoleName = s.assigneeRoleName,
+                                        verdictKey = s.verdictKey,
+                                        verdictPassValue = s.verdictPassValue ?: "PASS",
+                                        verdictFailValue = s.verdictFailValue ?: "CHANGES_REQUESTED",
+                                        skipWhen = s.skipWhen,
+                                        order = idx
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    delete("/{pipelineId}") {
+                        if (!requireToken(token)) return@delete
+                        val pipelineId = call.parameters["pipelineId"]
+                            ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "pipelineId is required"))
+                        respondDesktopRequest { desktopService.deletePipeline(pipelineId) }
+                    }
+
+                    post("/{pipelineId}/set-default") {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val pipelineId = call.parameters["pipelineId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "pipelineId is required"))
+                        respondDesktopRequest { desktopService.setDefaultPipeline(companyId, pipelineId) }
+                    }
+                }
+
+                route("/{companyId}/context-entries") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val goalId = call.request.queryParameters["goalId"]
+                        val issueId = call.request.queryParameters["issueId"]
+                        call.respond(desktopService.listContextEntries(companyId, goalId, issueId))
+                    }
+
+                    post {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val request = call.receive<CreateContextEntryRequest>()
+                        respondDesktopRequest {
+                            desktopService.addContextEntry(
+                                companyId = companyId,
+                                agentName = request.agentName,
+                                kind = request.kind,
+                                title = request.title,
+                                content = request.content,
+                                issueId = request.issueId,
+                                goalId = request.goalId,
+                                visibility = request.visibility ?: "company"
+                            )
+                        }
+                    }
+
+                    delete("/{entryId}") {
+                        if (!requireToken(token)) return@delete
+                        val entryId = call.parameters["entryId"]
+                            ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "entryId is required"))
+                        desktopService.deleteContextEntry(entryId)
+                        call.respond(HttpStatusCode.OK, mapOf("deleted" to entryId))
+                    }
+                }
+
+                route("/{companyId}/messages") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val goalId = call.request.queryParameters["goalId"]
+                        val issueId = call.request.queryParameters["issueId"]
+                        call.respond(desktopService.listMessages(companyId, goalId, issueId))
+                    }
+
+                    post {
+                        if (!requireToken(token)) return@post
+                        val companyId = call.parameters["companyId"]
+                            ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val request = call.receive<SendMessageRequest>()
+                        respondDesktopRequest {
+                            desktopService.sendMessage(
+                                companyId = companyId,
+                                fromAgentName = request.fromAgentName,
+                                toAgentName = request.toAgentName,
+                                kind = request.kind,
+                                subject = request.subject,
+                                body = request.body,
+                                issueId = request.issueId,
+                                goalId = request.goalId
+                            )
+                        }
+                    }
+                }
+
                 route("/{companyId}/runtime") {
                     get {
                         if (!requireToken(token)) return@get
