@@ -713,7 +713,6 @@ performance:
   maxConcurrentAgents: 3
     """.trimIndent()
 
-
     private fun generateReleaseTemplate() = """
 version: "1.0"
 

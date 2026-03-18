@@ -448,7 +448,6 @@ class GoalDrivenTaskPlanner {
         }
         return participants
             .sortedBy(::participantRank)
-            .take(1)
     }
 
     private fun executionRelevanceScore(participant: PlanningParticipant, routingText: String): Int {
@@ -505,15 +504,17 @@ class GoalDrivenTaskPlanner {
     private fun isReviewer(participant: PlanningParticipant): Boolean {
         val tags = participant.capabilities.map { it.lowercase() }
         val summary = participantRoutingDescriptor(participant)
+        val summaryTokens = summary.split(Regex("[^a-z0-9]+")).filter { it.isNotBlank() }.toSet()
         return tags.any { it in REVIEW_TAGS } ||
-            REVIEW_TAGS.any { summary.contains(it) }
+            REVIEW_TAGS.any { it in summaryTokens }
     }
 
     private fun isExecutionParticipant(participant: PlanningParticipant): Boolean {
         val tags = participant.capabilities.map { it.lowercase() }
         val summary = participantRoutingDescriptor(participant)
+        val summaryTokens = summary.split(Regex("[^a-z0-9]+")).filter { it.isNotBlank() }.toSet()
         return tags.any { it in EXECUTION_TAGS } ||
-            EXECUTION_TAGS.any { summary.contains(it) } ||
+            EXECUTION_TAGS.any { it in summaryTokens } ||
             (!isReviewer(participant) && !isChief(participant))
     }
 

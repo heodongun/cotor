@@ -202,29 +202,29 @@ class AppServerTest : FunSpec({
             issueResponse.bodyAsText() shouldContain "\"id\":\"issue-1\""
 
             coEvery { desktopService.getIssue("issue-1") } returns CompanyIssue(
-                    id = "issue-1",
-                    companyId = "company-1",
-                    projectContextId = "project-1",
-                    goalId = "goal-1",
-                    workspaceId = "workspace-1",
-                    title = "Issue",
-                    description = "Issue desc",
-                    status = IssueStatus.PLANNED,
-                    codeProducing = true,
-                    branchName = "codex/cotor/issue-1",
-                    worktreePath = "/tmp/cotor/.cotor/worktrees/issue-1/codex",
-                    pullRequestNumber = 99,
-                    pullRequestUrl = "https://github.com/heodongun/cotor/pull/99",
-                    pullRequestState = "OPEN",
-                    qaVerdict = "PASS",
-                    qaFeedback = "Looks good.",
-                    ceoVerdict = "APPROVE",
-                    ceoFeedback = "Ship it.",
-                    mergeResult = "MERGED",
-                    transitionReason = "CEO approved and merged the PR.",
-                    createdAt = 1L,
-                    updatedAt = 1L
-                )
+                id = "issue-1",
+                companyId = "company-1",
+                projectContextId = "project-1",
+                goalId = "goal-1",
+                workspaceId = "workspace-1",
+                title = "Issue",
+                description = "Issue desc",
+                status = IssueStatus.PLANNED,
+                codeProducing = true,
+                branchName = "codex/cotor/issue-1",
+                worktreePath = "/tmp/cotor/.cotor/worktrees/issue-1/codex",
+                pullRequestNumber = 99,
+                pullRequestUrl = "https://github.com/heodongun/cotor/pull/99",
+                pullRequestState = "OPEN",
+                qaVerdict = "PASS",
+                qaFeedback = "Looks good.",
+                ceoVerdict = "APPROVE",
+                ceoFeedback = "Ship it.",
+                mergeResult = "MERGED",
+                transitionReason = "CEO approved and merged the PR.",
+                createdAt = 1L,
+                updatedAt = 1L
+            )
 
             val issueDetailResponse = client.get("/api/app/companies/company-1/issues/issue-1") {
                 header("Authorization", "Bearer secret-token")

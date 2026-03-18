@@ -778,10 +778,1812 @@
                     "retries": 0
                 }
             ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T08:31:15.498661Z",
+            "totalDuration": 8,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T08:31:38.602091Z",
+            "totalDuration": 9,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T09:46:39.227804Z",
+            "totalDuration": 7,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T09:47:30.622418Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T09:48:40.402553Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T09:49:32.365111Z",
+            "totalDuration": 8,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:05:53.506908Z",
+            "totalDuration": 11,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:06:46.781236Z",
+            "totalDuration": 12,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:09:12.392027Z",
+            "totalDuration": 12,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:10:07.494027Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:10:54.884568Z",
+            "totalDuration": 16,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:11:42.022097Z",
+            "totalDuration": 15,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:12:30.328519Z",
+            "totalDuration": 12,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:13:24.186854Z",
+            "totalDuration": 8,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:20:32.434319Z",
+            "totalDuration": 12,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:21:15.807707Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:21:58.924992Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:22:47.687600Z",
+            "totalDuration": 12,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:23:36.798486Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:28:02.934986Z",
+            "totalDuration": 16,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:28:35.884436Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:31:19.442678Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:31:51.976817Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:34:26.959475Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:35:00.075327Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:37:39.434347Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:38:18.272172Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:39:48.563454Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:40:11.979267Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:40:35.433932Z",
+            "totalDuration": 7,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:41:15.251261Z",
+            "totalDuration": 8,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:41:38.016677Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:42:15.549289Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:43:07.346173Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:43:30.708969Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:44:08.253130Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:44:31.345023Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:45:28.053428Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:45:51.157462Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:46:35.462560Z",
+            "totalDuration": 7,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:46:59.081625Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:47:47.831257Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:48:06.913712Z",
+            "totalDuration": 8,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:48:26.022941Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:49:22.122857Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:49:59.558754Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:50:32.806532Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:51:02.960850Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:51:34.693036Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:52:04.967623Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T10:52:45.574252Z",
+            "totalDuration": 5,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T13:31:26.538346Z",
+            "totalDuration": 4,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "conditional",
+            "timestamp": "2026-03-18T13:31:57.517553Z",
+            "totalDuration": 6,
+            "successCount": 4,
+            "failureCount": 0,
+            "totalAgents": 4,
+            "stages": [
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "decision:quality-check",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
         }
     ],
-    "totalExecutions": 29,
-    "totalSuccesses": 116,
-    "totalDuration": 966,
-    "lastExecuted": "2026-03-11T02:35:09.653588Z"
+    "totalExecutions": 82,
+    "totalSuccesses": 328,
+    "totalDuration": 1347,
+    "lastExecuted": "2026-03-18T13:31:57.517553Z"
 }

@@ -1,12 +1,12 @@
 package com.cotor.data.process
 
-import io.kotest.core.spec.style.FunSpec
 import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.TimeoutCancellationException
 import io.mockk.mockk
+import kotlinx.coroutines.TimeoutCancellationException
 import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.attribute.PosixFilePermission

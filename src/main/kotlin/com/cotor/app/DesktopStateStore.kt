@@ -11,9 +11,9 @@ import kotlinx.serialization.json.jsonObject
 import java.nio.channels.FileChannel
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
-import java.nio.file.StandardOpenOption
-import java.nio.file.StandardCopyOption
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -34,8 +34,10 @@ class DesktopStateStore(
         private const val MAX_PERSISTED_RUN_OUTPUT_CHARS = 4000
         private const val MAX_STATE_LOAD_LOG_BYTES = 1L * 1024L * 1024L
         private const val STATE_LOAD_LOG_DEDUP_WINDOW_MS = 30_000L
+
         @Volatile
         private var lastStateLoadLogMessage: String? = null
+
         @Volatile
         private var lastStateLoadLogAt: Long = 0L
     }
@@ -56,6 +58,7 @@ class DesktopStateStore(
     // A single process can finish multiple background runs nearly at once, so writes
     // need to be serialized even though the backing file is small.
     private val mutex = Mutex()
+
     @Volatile
     private var cachedState: CachedState? = null
 
