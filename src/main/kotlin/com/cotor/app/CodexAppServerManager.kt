@@ -152,6 +152,13 @@ class CodexAppServerManager {
         }
     }
 
+    fun stopAll() {
+        synchronized(this) {
+            val ids = processes.keys.toList()
+            ids.forEach { stop(it) }
+        }
+    }
+
     private fun waitForHealth(
         companyId: String,
         managed: ManagedProcess,

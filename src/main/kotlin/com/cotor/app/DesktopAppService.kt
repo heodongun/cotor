@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -128,6 +129,15 @@ class DesktopAppService(
         // Runtime state is persisted across app-server restarts. Reattach loops eagerly
         // on service startup so companies keep progressing even before the UI polls.
         queueAutomationRefresh()
+    }
+
+    fun shutdown() {
+        companyRuntimeJobs.values.forEach { it.cancel() }
+        companyRuntimeJobs.clear()
+        automationRefreshJobs.values.forEach { it.cancel() }
+        automationRefreshJobs.clear()
+        codexAppServerManager.stopAll()
+        serviceScope.cancel()
     }
 
     suspend fun dashboard(): DashboardResponse {
