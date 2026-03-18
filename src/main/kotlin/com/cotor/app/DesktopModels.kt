@@ -168,6 +168,8 @@ data class Company(
     val linearConfigOverride: LinearConnectionConfig? = null,
     val autonomyEnabled: Boolean = true,
     val defaultPipelineId: String? = null,
+    val dailyBudgetCents: Int? = null,
+    val monthlyBudgetCents: Int? = null,
     val createdAt: Long,
     val updatedAt: Long
 )
@@ -517,6 +519,7 @@ data class AgentRun(
     val error: String? = null,
     val publish: PublishMetadata? = null,
     val durationMs: Long? = null,
+    val estimatedCostCents: Int? = null,
     val createdAt: Long,
     val updatedAt: Long
 )
@@ -695,7 +698,11 @@ data class CompanyRuntimeSnapshot(
     val backendPid: Long? = null,
     val backendPort: Int? = null,
     val consecutiveFailures: Int = 0,
-    val adaptiveTickMs: Long = 60_000L
+    val adaptiveTickMs: Long = 60_000L,
+    val todaySpentCents: Int = 0,
+    val monthSpentCents: Int = 0,
+    val budgetPausedAt: Long? = null,
+    val budgetResetDate: String? = null
 )
 
 @Serializable
