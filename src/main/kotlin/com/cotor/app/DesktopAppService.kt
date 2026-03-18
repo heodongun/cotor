@@ -6245,6 +6245,84 @@ class DesktopAppService(
             "approval" -> syncApprovalIssueFromTask(task, issue, primaryRun, finalStatus)
             else -> syncExecutionIssueFromTask(task, issue, primaryRun, finalStatus)
         }
+        runCatching { extractAgentContextAndMessages(issue, primaryRun) }
+    }
+
+    private suspend fun extractAgentContextAndMessages(issue: CompanyIssue, run: AgentRun?) {
+        val output = run?.output ?: return
+        val agentName = run.agentName
+        val now = System.currentTimeMillis()
+        val contextEntries = mutableListOf<AgentContextEntry>()
+        val messages = mutableListOf<AgentMessage>()
+        for (line in output.lines()) {
+            val trimmed = line.trim()
+            when {
+                trimmed.startsWith("CONTEXT_NOTE:") -> contextEntries += AgentContextEntry(
+                    id = UUID.randomUUID().toString(), companyId = issue.companyId,
+                    issueId = issue.id, goalId = issue.goalId, agentName = agentName,
+                    kind = "note", title = trimmed.substringAfter("CONTEXT_NOTE:").trim().take(100),
+                    content = trimmed.substringAfter("CONTEXT_NOTE:").trim(), visibility = "goal", createdAt = now
+                )
+                trimmed.startsWith("CONTEXT_HANDOFF:") -> contextEntries += AgentContextEntry(
+                    id = UUID.randomUUID().toString(), companyId = issue.companyId,
+                    issueId = issue.id, goalId = issue.goalId, agentName = agentName,
+                    kind = "handoff", title = trimmed.substringAfter("CONTEXT_HANDOFF:").trim().take(100),
+                    content = trimmed.substringAfter("CONTEXT_HANDOFF:").trim(), visibility = "goal", createdAt = now
+                )
+                trimmed.startsWith("CONTEXT_WARNING:") -> contextEntries += AgentContextEntry(
+                    id = UUID.randomUUID().toString(), companyId = issue.companyId,
+                    issueId = issue.id, goalId = issue.goalId, agentName = agentName,
+                    kind = "warning", title = trimmed.substringAfter("CONTEXT_WARNING:").trim().take(100),
+                    content = trimmed.substringAfter("CONTEXT_WARNING:").trim(), visibility = "company", createdAt = now
+                )
+                trimmed.startsWith("MESSAGE_TO ") -> {
+                    val rest = trimmed.removePrefix("MESSAGE_TO ").trim()
+                    val colonIdx = rest.indexOf(':')
+                    if (colonIdx > 0) {
+                        val toAgent = rest.substring(0, colonIdx).trim()
+                        val body = rest.substring(colonIdx + 1).trim()
+                        messages += AgentMessage(
+                            id = UUID.randomUUID().toString(), companyId = issue.companyId,
+                            fromAgentName = agentName, toAgentName = toAgent,
+                            issueId = issue.id, goalId = issue.goalId,
+                            kind = "feedback", subject = body.take(80), body = body, createdAt = now
+                        )
+                    }
+                }
+                trimmed.startsWith("ESCALATION ") -> {
+                    val rest = trimmed.removePrefix("ESCALATION ").trim()
+                    val colonIdx = rest.indexOf(':')
+                    if (colonIdx > 0) {
+                        val toAgent = rest.substring(0, colonIdx).trim()
+                        val body = rest.substring(colonIdx + 1).trim()
+                        messages += AgentMessage(
+                            id = UUID.randomUUID().toString(), companyId = issue.companyId,
+                            fromAgentName = agentName, toAgentName = toAgent,
+                            issueId = issue.id, goalId = issue.goalId,
+                            kind = "escalation", subject = body.take(80), body = body, createdAt = now
+                        )
+                    }
+                }
+            }
+        }
+        if (contextEntries.isNotEmpty() || messages.isNotEmpty()) {
+            stateMutex.withLock {
+                val state = stateStore.load()
+                stateStore.save(
+                    state.copy(
+                        agentContextEntries = state.agentContextEntries + contextEntries,
+                        agentMessages = state.agentMessages + messages
+                    )
+                )
+            }
+            messages.forEach { msg ->
+                publishCompanyEvent(
+                    companyId = msg.companyId, type = "agent.message",
+                    title = "${msg.fromAgentName} -> ${msg.toAgentName ?: "all"}: ${msg.subject}",
+                    detail = msg.body.take(200), goalId = msg.goalId, issueId = msg.issueId
+                )
+            }
+        }
     }
 
     private suspend fun syncPlanningIssueFromTask(
@@ -7106,17 +7184,46 @@ class DesktopAppService(
             return
         }
         companyRuntimeJobs[companyId] = serviceScope.launch {
+            var consecutiveFailures = 0
+            val maxConsecutiveFailures = 5
             while (isActive) {
-                delay(companyRuntimeTickIntervalMs)
+                val runtime = runtimeStatus(companyId)
+                val tickDelay = runtime.adaptiveTickMs.coerceIn(15_000L, 120_000L)
+                delay(tickDelay)
                 try {
                     if (runtimeStatus(companyId).status != CompanyRuntimeStatus.RUNNING) {
                         break
                     }
-                    runCompanyRuntimeTick(companyId)
+                    val snapshot = runCompanyRuntimeTick(companyId)
+                    consecutiveFailures = 0
+                    // Adaptive tick: speed up when there's work, slow down when idle
+                    val wasProductive = snapshot.lastAction?.let {
+                        it != "idle" && !it.startsWith("idle-")
+                    } == true
+                    val nextTickMs = if (wasProductive) 15_000L else (tickDelay + 10_000L).coerceAtMost(120_000L)
+                    updateAdaptiveTickMs(companyId, nextTickMs)
                 } catch (cause: Throwable) {
+                    consecutiveFailures++
                     markCompanyRuntimeError(companyId, cause)
-                    break
+                    if (consecutiveFailures >= maxConsecutiveFailures) {
+                        break
+                    }
+                    val backoffMs = (30_000L * (1L shl (consecutiveFailures - 1).coerceAtMost(3))).coerceAtMost(300_000L)
+                    updateAdaptiveTickMs(companyId, backoffMs)
+                    delay(backoffMs)
                 }
+            }
+        }
+    }
+
+    private suspend fun updateAdaptiveTickMs(companyId: String, tickMs: Long) {
+        runCatching {
+            stateMutex.withLock {
+                val state = stateStore.load()
+                val nextRuntimes = state.companyRuntimes.map {
+                    if (it.companyId == companyId) it.copy(adaptiveTickMs = tickMs) else it
+                }
+                stateStore.save(state.copy(companyRuntimes = nextRuntimes))
             }
         }
     }
