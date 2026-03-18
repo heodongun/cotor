@@ -2568,6 +2568,9 @@ class DesktopAppServiceTest : FunSpec({
             startRuntimeIfNeeded = false
         )
         service.runCompanyRuntimeTick(company.id)
+        // A second tick ensures normalization fully propagates to nested recursive goals
+        // when the first tick races with issue materialization timestamps.
+        service.runCompanyRuntimeTick(company.id)
 
         val updatedNestedGoal = stateStore.load().goals.first { it.id == nestedGoal.id }
         updatedNestedGoal.status shouldBe GoalStatus.COMPLETED
