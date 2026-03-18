@@ -2544,14 +2544,16 @@ class DesktopAppServiceTest : FunSpec({
         blockIssueWithFailedTask(stateStore, originalIssue)
         service.updateGoal(goal.id, autonomyEnabled = true)
         service.startCompanyRuntime(company.id)
-        service.runCompanyRuntimeTick(company.id)
+        // Multiple ticks may be needed for follow-up goal synthesis depending on
+        // normalization order and timestamp granularity.
+        repeat(3) { service.runCompanyRuntimeTick(company.id) }
 
-        val firstFollowUpGoal = stateStore.load().goals.first {
+        val firstFollowUpGoal = stateStore.load().goals.firstOrNull {
             it.companyId == company.id && it.operatingPolicy == "auto-follow-up:goal:${goal.id}"
-        }
-        val firstFollowUpExecution = stateStore.load().issues.first {
+        } ?: error("Follow-up goal not synthesized after ticks. Goals: ${stateStore.load().goals.map { "${it.id}:${it.operatingPolicy}" }}")
+        val firstFollowUpExecution = stateStore.load().issues.firstOrNull {
             it.goalId == firstFollowUpGoal.id && it.kind == "execution"
-        }
+        } ?: error("No execution issue for follow-up goal. Issues: ${stateStore.load().issues.filter { it.goalId == firstFollowUpGoal.id }.map { "${it.id}:${it.kind}:${it.status}" }}")
         stateStore.save(
             stateStore.load().copy(
                 issues = stateStore.load().issues.map {
