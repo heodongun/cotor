@@ -167,8 +167,76 @@ data class Company(
     val linearSyncEnabled: Boolean = false,
     val linearConfigOverride: LinearConnectionConfig? = null,
     val autonomyEnabled: Boolean = true,
+    val defaultPipelineId: String? = null,
     val createdAt: Long,
     val updatedAt: Long
+)
+
+/**
+ * Company-specific workflow pipeline definition. Each company can have multiple
+ * pipelines (e.g. "Default", "Strict Security") and set one as default.
+ */
+@Serializable
+data class WorkflowPipelineDefinition(
+    val id: String,
+    val companyId: String,
+    val name: String,
+    val stages: List<WorkflowStageDefinition>,
+    val isDefault: Boolean = false,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+/**
+ * A single stage in a workflow pipeline. Stages execute in [order] sequence.
+ */
+@Serializable
+data class WorkflowStageDefinition(
+    val id: String,
+    val kind: String,
+    val title: String,
+    val assigneeRoleName: String? = null,
+    val verdictKey: String? = null,
+    val verdictPassValue: String = "PASS",
+    val verdictFailValue: String = "CHANGES_REQUESTED",
+    val skipWhen: String? = null,
+    val order: Int
+)
+
+/**
+ * Context entry left by one agent for downstream agents in the same company.
+ */
+@Serializable
+data class AgentContextEntry(
+    val id: String,
+    val companyId: String,
+    val issueId: String? = null,
+    val goalId: String? = null,
+    val agentName: String,
+    val kind: String,
+    val title: String,
+    val content: String,
+    val visibility: String = "company",
+    val createdAt: Long
+)
+
+/**
+ * Direct message between agents within a company.
+ */
+@Serializable
+data class AgentMessage(
+    val id: String,
+    val companyId: String,
+    val fromAgentName: String,
+    val toAgentName: String? = null,
+    val issueId: String? = null,
+    val goalId: String? = null,
+    val kind: String,
+    val subject: String,
+    val body: String,
+    val status: String = "unread",
+    val parentMessageId: String? = null,
+    val createdAt: Long
 )
 
 /**
@@ -509,6 +577,8 @@ data class CompanyIssue(
     val mergeResult: String? = null,
     val transitionReason: String? = null,
     val sourceSignal: String = "goal-decomposition",
+    val pipelineId: String? = null,
+    val currentStageId: String? = null,
     val createdAt: Long,
     val updatedAt: Long
 )
@@ -623,7 +693,9 @@ data class CompanyRuntimeSnapshot(
     val backendMessage: String? = null,
     val backendLifecycleState: BackendLifecycleState = BackendLifecycleState.STOPPED,
     val backendPid: Long? = null,
-    val backendPort: Int? = null
+    val backendPort: Int? = null,
+    val consecutiveFailures: Int = 0,
+    val adaptiveTickMs: Long = 60_000L
 )
 
 @Serializable
@@ -800,7 +872,10 @@ data class DesktopAppState(
     val backendSettings: DesktopBackendSettings = DesktopBackendSettings(),
     val linearSettings: DesktopLinearSettings = DesktopLinearSettings(),
     val runtime: CompanyRuntimeSnapshot = CompanyRuntimeSnapshot(),
-    val companyRuntimes: List<CompanyRuntimeSnapshot> = emptyList()
+    val companyRuntimes: List<CompanyRuntimeSnapshot> = emptyList(),
+    val workflowPipelines: List<WorkflowPipelineDefinition> = emptyList(),
+    val agentContextEntries: List<AgentContextEntry> = emptyList(),
+    val agentMessages: List<AgentMessage> = emptyList()
 )
 
 private fun defaultBackendConfigs(): List<BackendConnectionConfig> = listOf(

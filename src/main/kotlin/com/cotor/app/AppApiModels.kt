@@ -244,3 +244,55 @@ data class HealthResponse(
     val ok: Boolean,
     val service: String
 )
+
+// ── Pipeline API Models ─────────────────────────────────────────────
+
+@Serializable
+data class CreatePipelineRequest(
+    val name: String,
+    val stages: List<PipelineStageRequest>
+)
+
+@Serializable
+data class UpdatePipelineRequest(
+    val name: String? = null,
+    val stages: List<PipelineStageRequest>? = null
+)
+
+@Serializable
+data class PipelineStageRequest(
+    val id: String? = null,
+    val kind: String,
+    val title: String,
+    val assigneeRoleName: String? = null,
+    val verdictKey: String? = null,
+    val verdictPassValue: String? = null,
+    val verdictFailValue: String? = null,
+    val skipWhen: String? = null
+)
+
+// ── Context Entry API Models ────────────────────────────────────────
+
+@Serializable
+data class CreateContextEntryRequest(
+    val agentName: String,
+    val kind: String,
+    val title: String,
+    val content: String,
+    val issueId: String? = null,
+    val goalId: String? = null,
+    val visibility: String? = null
+)
+
+// ── Agent Message API Models ────────────────────────────────────────
+
+@Serializable
+data class SendMessageRequest(
+    val fromAgentName: String,
+    val toAgentName: String? = null,
+    val kind: String,
+    val subject: String,
+    val body: String,
+    val issueId: String? = null,
+    val goalId: String? = null
+)

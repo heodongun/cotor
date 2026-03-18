@@ -1203,11 +1203,210 @@ class DesktopAppService(
                 it.companyId == companyId || it.goalId in deletedGoalIds || it.issueId in deletedIssueIds
             },
             companyRuntimes = state.companyRuntimes.filterNot { it.companyId == companyId },
-            runtime = if (state.runtime.companyId == companyId) CompanyRuntimeSnapshot() else state.runtime
+            runtime = if (state.runtime.companyId == companyId) CompanyRuntimeSnapshot() else state.runtime,
+            workflowPipelines = state.workflowPipelines.filterNot { it.companyId == companyId },
+            agentContextEntries = state.agentContextEntries.filterNot { it.companyId == companyId },
+            agentMessages = state.agentMessages.filterNot { it.companyId == companyId }
         ).withDerivedMetrics()
         stateStore.save(nextState)
         deleteDirectoryRecursively(companyContextRoot(company))
         company
+    }
+
+    // ── Workflow Pipeline CRUD ──────────────────────────────────────────
+
+    fun seedDefaultPipeline(companyId: String, now: Long = System.currentTimeMillis()): WorkflowPipelineDefinition {
+        val pipelineId = UUID.randomUUID().toString()
+        return WorkflowPipelineDefinition(
+            id = pipelineId,
+            companyId = companyId,
+            name = "Default",
+            stages = listOf(
+                WorkflowStageDefinition(id = "execution", kind = "execution", title = "Execution", order = 0),
+                WorkflowStageDefinition(
+                    id = "qa-review", kind = "review", title = "QA Review",
+                    assigneeRoleName = "QA", verdictKey = "QA_VERDICT",
+                    skipWhen = "!codeProducing", order = 1
+                ),
+                WorkflowStageDefinition(
+                    id = "ceo-approval", kind = "approval", title = "CEO Approval",
+                    assigneeRoleName = "CEO", verdictKey = "CEO_VERDICT",
+                    skipWhen = "!codeProducing", order = 2
+                )
+            ),
+            isDefault = true,
+            createdAt = now,
+            updatedAt = now
+        )
+    }
+
+    suspend fun listPipelines(companyId: String): List<WorkflowPipelineDefinition> =
+        stateStore.load().workflowPipelines.filter { it.companyId == companyId }
+
+    suspend fun createPipeline(
+        companyId: String,
+        name: String,
+        stages: List<WorkflowStageDefinition>
+    ): WorkflowPipelineDefinition = stateMutex.withLock {
+        val state = stateStore.load()
+        require(state.companies.any { it.id == companyId }) { "Company not found: $companyId" }
+        val now = System.currentTimeMillis()
+        val pipeline = WorkflowPipelineDefinition(
+            id = UUID.randomUUID().toString(),
+            companyId = companyId,
+            name = name.trim().ifEmpty { "Custom Pipeline" },
+            stages = stages.mapIndexed { idx, s -> s.copy(order = idx) },
+            isDefault = false,
+            createdAt = now,
+            updatedAt = now
+        )
+        stateStore.save(
+            state.copy(workflowPipelines = state.workflowPipelines + pipeline).withDerivedMetrics()
+        )
+        pipeline
+    }
+
+    suspend fun updatePipeline(
+        pipelineId: String,
+        name: String? = null,
+        stages: List<WorkflowStageDefinition>? = null
+    ): WorkflowPipelineDefinition = stateMutex.withLock {
+        val state = stateStore.load()
+        val current = state.workflowPipelines.firstOrNull { it.id == pipelineId }
+            ?: throw IllegalArgumentException("Pipeline not found: $pipelineId")
+        val now = System.currentTimeMillis()
+        val updated = current.copy(
+            name = name?.trim()?.takeIf { it.isNotBlank() } ?: current.name,
+            stages = stages?.mapIndexed { idx, s -> s.copy(order = idx) } ?: current.stages,
+            updatedAt = now
+        )
+        stateStore.save(
+            state.copy(workflowPipelines = state.workflowPipelines.map { if (it.id == pipelineId) updated else it }).withDerivedMetrics()
+        )
+        updated
+    }
+
+    suspend fun deletePipeline(pipelineId: String): WorkflowPipelineDefinition = stateMutex.withLock {
+        val state = stateStore.load()
+        val pipeline = state.workflowPipelines.firstOrNull { it.id == pipelineId }
+            ?: throw IllegalArgumentException("Pipeline not found: $pipelineId")
+        require(!pipeline.isDefault) { "Cannot delete the default pipeline" }
+        stateStore.save(
+            state.copy(workflowPipelines = state.workflowPipelines.filterNot { it.id == pipelineId }).withDerivedMetrics()
+        )
+        pipeline
+    }
+
+    suspend fun setDefaultPipeline(companyId: String, pipelineId: String): WorkflowPipelineDefinition = stateMutex.withLock {
+        val state = stateStore.load()
+        val target = state.workflowPipelines.firstOrNull { it.id == pipelineId && it.companyId == companyId }
+            ?: throw IllegalArgumentException("Pipeline not found: $pipelineId")
+        val now = System.currentTimeMillis()
+        val nextPipelines = state.workflowPipelines.map {
+            if (it.companyId != companyId) it
+            else it.copy(isDefault = it.id == pipelineId, updatedAt = now)
+        }
+        val nextCompanies = state.companies.map {
+            if (it.id == companyId) it.copy(defaultPipelineId = pipelineId, updatedAt = now) else it
+        }
+        stateStore.save(
+            state.copy(workflowPipelines = nextPipelines, companies = nextCompanies).withDerivedMetrics()
+        )
+        target.copy(isDefault = true, updatedAt = now)
+    }
+
+    fun resolveCompanyPipeline(state: DesktopAppState, companyId: String): WorkflowPipelineDefinition? =
+        state.workflowPipelines.firstOrNull { it.companyId == companyId && it.isDefault }
+            ?: state.workflowPipelines.firstOrNull { it.companyId == companyId }
+
+    // ── Agent Context Entries ───────────────────────────────────────────
+
+    suspend fun listContextEntries(companyId: String, goalId: String? = null, issueId: String? = null): List<AgentContextEntry> {
+        val entries = stateStore.load().agentContextEntries.filter { it.companyId == companyId }
+        return when {
+            issueId != null -> entries.filter { it.issueId == issueId || it.visibility == "company" }
+            goalId != null -> entries.filter { it.goalId == goalId || it.visibility == "company" }
+            else -> entries
+        }
+    }
+
+    suspend fun addContextEntry(
+        companyId: String,
+        agentName: String,
+        kind: String,
+        title: String,
+        content: String,
+        issueId: String? = null,
+        goalId: String? = null,
+        visibility: String = "company"
+    ): AgentContextEntry = stateMutex.withLock {
+        val state = stateStore.load()
+        val entry = AgentContextEntry(
+            id = UUID.randomUUID().toString(),
+            companyId = companyId,
+            issueId = issueId,
+            goalId = goalId,
+            agentName = agentName.trim(),
+            kind = kind.trim(),
+            title = title.trim(),
+            content = content.trim(),
+            visibility = visibility,
+            createdAt = System.currentTimeMillis()
+        )
+        stateStore.save(state.copy(agentContextEntries = state.agentContextEntries + entry).withDerivedMetrics())
+        entry
+    }
+
+    suspend fun deleteContextEntry(entryId: String) = stateMutex.withLock {
+        val state = stateStore.load()
+        stateStore.save(state.copy(agentContextEntries = state.agentContextEntries.filterNot { it.id == entryId }).withDerivedMetrics())
+    }
+
+    // ── Agent Messages ──────────────────────────────────────────────────
+
+    suspend fun listMessages(companyId: String, goalId: String? = null, issueId: String? = null): List<AgentMessage> {
+        val msgs = stateStore.load().agentMessages.filter { it.companyId == companyId }
+        return when {
+            issueId != null -> msgs.filter { it.issueId == issueId }
+            goalId != null -> msgs.filter { it.goalId == goalId }
+            else -> msgs
+        }.sortedByDescending { it.createdAt }
+    }
+
+    suspend fun sendMessage(
+        companyId: String,
+        fromAgentName: String,
+        toAgentName: String?,
+        kind: String,
+        subject: String,
+        body: String,
+        issueId: String? = null,
+        goalId: String? = null
+    ): AgentMessage = stateMutex.withLock {
+        val state = stateStore.load()
+        val now = System.currentTimeMillis()
+        val message = AgentMessage(
+            id = UUID.randomUUID().toString(),
+            companyId = companyId,
+            fromAgentName = fromAgentName.trim(),
+            toAgentName = toAgentName?.trim(),
+            issueId = issueId,
+            goalId = goalId,
+            kind = kind.trim(),
+            subject = subject.trim(),
+            body = body.trim(),
+            createdAt = now
+        )
+        stateStore.save(state.copy(agentMessages = state.agentMessages + message).withDerivedMetrics())
+        publishCompanyEvent(
+            companyId = companyId,
+            type = "agent.message",
+            title = "${message.fromAgentName} -> ${message.toAgentName ?: "all"}: ${message.subject}",
+            detail = message.body.take(200),
+            goalId = goalId,
+            issueId = issueId
+        )
+        message
     }
 
     suspend fun createCompanyAgentDefinition(
