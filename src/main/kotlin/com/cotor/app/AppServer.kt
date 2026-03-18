@@ -1151,6 +1151,27 @@ internal fun Application.cotorAppModule(
                     }
                 }
 
+                route("/{companyId}/budget") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val state = desktopService.dashboard()
+                        val company = state.companies.firstOrNull { it.id == companyId }
+                            ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Company not found"))
+                        val runtime = state.companyRuntimes.firstOrNull { it.companyId == companyId }
+                        call.respond(
+                            mapOf(
+                                "dailyBudgetCents" to company.dailyBudgetCents,
+                                "monthlyBudgetCents" to company.monthlyBudgetCents,
+                                "todaySpentCents" to (runtime?.todaySpentCents ?: 0),
+                                "monthSpentCents" to (runtime?.monthSpentCents ?: 0),
+                                "budgetPaused" to (runtime?.budgetPausedAt != null)
+                            )
+                        )
+                    }
+                }
+
                 route("/{companyId}/runtime") {
                     get {
                         if (!requireToken(token)) return@get

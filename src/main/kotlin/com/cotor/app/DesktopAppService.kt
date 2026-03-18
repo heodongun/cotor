@@ -2613,6 +2613,9 @@ class DesktopAppService(
             if (runtime.status != CompanyRuntimeStatus.RUNNING) {
                 return@withLock runtimeStatus(companyId)
             }
+            if (isBudgetExhausted(initial, companyId, runtime)) {
+                return@withLock updateRuntimeAfterTick(companyId, lastAction = "budget-paused")
+            }
             runCatching { startCompanyBackend(companyId) }
 
             val actions = mutableListOf<String>()
@@ -7226,6 +7229,136 @@ class DesktopAppService(
                 stateStore.save(state.copy(companyRuntimes = nextRuntimes))
             }
         }
+    }
+
+    private fun isBudgetExhausted(state: DesktopAppState, companyId: String, runtime: CompanyRuntimeSnapshot): Boolean {
+        val company = state.companies.firstOrNull { it.id == companyId } ?: return false
+        val dailyLimit = company.dailyBudgetCents ?: return false
+        return runtime.todaySpentCents >= dailyLimit
+    }
+
+    suspend fun recordRunCost(companyId: String, costCents: Int) {
+        if (costCents <= 0) return
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val now = System.currentTimeMillis()
+            val today = java.time.LocalDate.now().toString()
+            val nextRuntimes = state.companyRuntimes.map {
+                if (it.companyId != companyId) return@map it
+                val resetToday = it.budgetResetDate != today
+                it.copy(
+                    todaySpentCents = if (resetToday) costCents else it.todaySpentCents + costCents,
+                    monthSpentCents = it.monthSpentCents + costCents,
+                    budgetResetDate = today
+                )
+            }
+            stateStore.save(state.copy(companyRuntimes = nextRuntimes))
+        }
+    }
+
+    // ── Generic Pipeline Stage Engine ───────────────────────────────────
+
+    private fun findProfileForPipelineStage(
+        stage: WorkflowStageDefinition,
+        companyId: String,
+        profiles: List<OrgAgentProfile>
+    ): OrgAgentProfile? {
+        val roleName = stage.assigneeRoleName ?: return when (stage.kind) {
+            "review" -> findQaProfile(companyId, profiles)
+            "approval" -> findChiefProfile(companyId, profiles)
+            else -> null
+        }
+        return profiles.firstOrNull {
+            it.companyId == companyId && it.enabled && it.roleName.equals(roleName, ignoreCase = true)
+        } ?: when (stage.kind) {
+            "review" -> findQaProfile(companyId, profiles)
+            "approval" -> findChiefProfile(companyId, profiles)
+            else -> profiles.firstOrNull { it.companyId == companyId && it.enabled }
+        }
+    }
+
+    private fun resolveNextPipelineStage(
+        state: DesktopAppState,
+        issue: CompanyIssue
+    ): Pair<WorkflowPipelineDefinition, WorkflowStageDefinition?>? {
+        val pipeline = issue.pipelineId?.let { pid -> state.workflowPipelines.firstOrNull { it.id == pid } }
+            ?: resolveCompanyPipeline(state, issue.companyId)
+            ?: return null
+        val currentStageId = issue.currentStageId ?: issue.kind
+        val sortedStages = pipeline.stages.sortedBy { it.order }
+        val currentIdx = sortedStages.indexOfFirst { it.id == currentStageId }
+        if (currentIdx < 0) return pipeline to null
+        val nextStage = sortedStages.getOrNull(currentIdx + 1)
+        return pipeline to nextStage
+    }
+
+    private suspend fun createNextPipelineStageIssue(
+        executionIssue: CompanyIssue,
+        currentStageIssue: CompanyIssue,
+        nextStage: WorkflowStageDefinition,
+        pipeline: WorkflowPipelineDefinition,
+        profiles: List<OrgAgentProfile>,
+        queueItem: ReviewQueueItem?,
+        verdict: StructuredVerdict?,
+        now: Long
+    ): CompanyIssue? {
+        val shouldSkip = nextStage.skipWhen?.let { condition ->
+            when (condition) {
+                "!codeProducing" -> executionIssue.codeProducing != true
+                else -> false
+            }
+        } == true
+        if (shouldSkip) return null
+
+        val assignee = findProfileForPipelineStage(nextStage, executionIssue.companyId, profiles)
+        val description = buildString {
+            appendLine("${nextStage.title} for \"${executionIssue.title}\".")
+            appendLine()
+            queueItem?.branchName?.let { appendLine("Branch: $it") }
+            queueItem?.pullRequestUrl?.let { appendLine("Pull request: $it") }
+            verdict?.let {
+                appendLine("Previous verdict: ${it.value}")
+                if (it.feedback.isNotBlank()) appendLine("Feedback: ${it.feedback}")
+            }
+            appendLine()
+            appendLine("Responsibilities:")
+            nextStage.verdictKey?.let { key ->
+                appendLine("- Emit $key: ${nextStage.verdictPassValue} or $key: ${nextStage.verdictFailValue} with concise feedback.")
+            }
+        }.trim()
+
+        return CompanyIssue(
+            id = UUID.randomUUID().toString(),
+            companyId = executionIssue.companyId,
+            projectContextId = executionIssue.projectContextId,
+            goalId = executionIssue.goalId,
+            workspaceId = executionIssue.workspaceId,
+            title = "${nextStage.title}: ${executionIssue.title}",
+            description = description,
+            status = IssueStatus.PLANNED,
+            priority = if (nextStage.kind == "approval") 3 else 2,
+            kind = nextStage.kind,
+            assigneeProfileId = assignee?.id,
+            dependsOn = listOf(currentStageIssue.id),
+            acceptanceCriteria = listOfNotNull(
+                nextStage.verdictKey?.let { "Emit $it with concrete acceptance or requested changes." }
+            ),
+            riskLevel = if (nextStage.kind == "approval") "medium" else "low",
+            codeProducing = false,
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = verdict?.value,
+            qaFeedback = verdict?.feedback,
+            transitionReason = "${nextStage.title} stage opened by pipeline ${pipeline.name}.",
+            sourceSignal = "pipeline-stage:${nextStage.id}:${executionIssue.id}",
+            pipelineId = pipeline.id,
+            currentStageId = nextStage.id,
+            createdAt = now,
+            updatedAt = now
+        )
     }
 
     private suspend fun markCompanyRuntimeError(companyId: String, cause: Throwable) {
