@@ -1,8 +1,8 @@
 package com.cotor.app
 
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
@@ -17,10 +17,10 @@ import io.ktor.server.request.path
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondTextWriter
-import io.ktor.server.routing.delete
-import io.ktor.server.routing.patch
 import io.ktor.server.routing.RoutingContext
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing

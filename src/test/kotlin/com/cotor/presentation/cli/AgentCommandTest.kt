@@ -96,7 +96,6 @@ class AgentCommandTest : FunSpec({
         added.readText() shouldContain "argvJson:"
     }
 
-
     test("agent add qa writes QA verification plugin without model parameters") {
         val root = Path("build/tmp/agent-qa-${System.currentTimeMillis()}")
         createdRoots.add(root)

@@ -221,7 +221,7 @@ class GitWorkspaceService(
         ensureBootstrapCommit(repositoryRoot)
         val agentSlug = slugify(agentName).ifBlank { "agent" }
         val taskSlug = slugify(taskTitle).ifBlank { "task" }
-        val branchName = "codex/cotor/${taskSlug}-${taskId.take(8)}/$agentSlug"
+        val branchName = "codex/cotor/$taskSlug-${taskId.take(8)}/$agentSlug"
         val worktreePath = repositoryRoot
             .resolve(".cotor")
             .resolve("worktrees")

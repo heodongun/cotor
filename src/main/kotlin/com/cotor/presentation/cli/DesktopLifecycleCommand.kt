@@ -35,7 +35,7 @@ abstract class DesktopLifecycleCommand(
             ?: run {
                 echo("Could not determine the Cotor project root. Run via shell/cotor or from a Cotor checkout.")
                 throw ProgramResult(1)
-        }
+            }
 
         val result = scriptRunner(projectRoot, scriptName)
         if (result.output.isNotBlank()) {
@@ -66,7 +66,7 @@ class InstallCommand(
     scriptRunner = scriptRunner,
     projectRootProvider = projectRootProvider,
     osNameProvider = osNameProvider
-) 
+)
 
 class UpdateCommand(
     scriptRunner: DesktopScriptRunner = ::runDesktopScript,
@@ -80,7 +80,7 @@ class UpdateCommand(
     scriptRunner = scriptRunner,
     projectRootProvider = projectRootProvider,
     osNameProvider = osNameProvider
-) 
+)
 
 class DeleteCommand(
     scriptRunner: DesktopScriptRunner = ::runDesktopScript,
@@ -94,7 +94,7 @@ class DeleteCommand(
     scriptRunner = scriptRunner,
     projectRootProvider = projectRootProvider,
     osNameProvider = osNameProvider
-) 
+)
 
 internal fun runDesktopScript(projectRoot: Path, scriptName: String): DesktopScriptResult {
     val scriptPath = projectRoot.resolve("shell").resolve(scriptName)

@@ -1632,104 +1632,156 @@ class DesktopAppService(
         issue
     }
 
-    suspend fun decomposeGoal(goalId: String): List<CompanyIssue> = stateMutex.withLock {
-        val state = stateStore.load()
-        val existing = state.issues.filter { it.goalId == goalId }
-        val existingNonPlanning = existing.filterNot { it.kind.equals("planning", ignoreCase = true) }
-        if (existingNonPlanning.isNotEmpty()) {
-            return@withLock existing.sortedByDescending { it.updatedAt }
-        }
-        val existingPlanningIssue = existing.firstOrNull { it.kind.equals("planning", ignoreCase = true) }
-        val existingPlanningTaskRunning = existingPlanningIssue?.let { planningIssue ->
-            state.tasks.any { task ->
-                task.issueId == planningIssue.id &&
-                    (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED)
+    suspend fun decomposeGoal(goalId: String): List<CompanyIssue> {
+        val planningIssueId = stateMutex.withLock {
+            val state = stateStore.load()
+            val existing = state.issues.filter { it.goalId == goalId }
+            val existingNonPlanning = existing.filterNot { it.kind.equals("planning", ignoreCase = true) }
+            if (existingNonPlanning.isNotEmpty()) {
+                return existing.sortedByDescending { it.updatedAt }
             }
-        } == true
-        if (existingPlanningIssue != null && existingPlanningTaskRunning) {
-            return@withLock existing.sortedByDescending { it.updatedAt }
+            val existingPlanningIssue = existing.firstOrNull { it.kind.equals("planning", ignoreCase = true) }
+            val existingPlanningTaskRunning = existingPlanningIssue?.let { planningIssue ->
+                state.tasks.any { task ->
+                    task.issueId == planningIssue.id &&
+                        (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED)
+                }
+            } == true
+            if (existingPlanningIssue != null && existingPlanningTaskRunning) {
+                return existing.sortedByDescending { it.updatedAt }
+            }
+            if (existingPlanningIssue != null && existingPlanningIssue.status == IssueStatus.DONE) {
+                return existing.sortedByDescending { it.updatedAt }
+            }
+            val goal = state.goals.firstOrNull { it.id == goalId }
+                ?: throw IllegalArgumentException("Goal not found: $goalId")
+            val now = System.currentTimeMillis()
+            val company = state.companies.firstOrNull { it.id == goal.companyId }
+                ?: throw IllegalArgumentException("Company not found for goal: ${goal.companyId}")
+            val workspaceResolution = ensureCompanyWorkspace(state, company, now)
+            val workspaceState = workspaceResolution.first
+            val workspace = workspaceResolution.second
+            val projectContext = ensureProjectContext(workspaceState, company, now)
+            val profiles = ensureOrgProfiles(workspaceState.orgProfiles, workspaceState.companyAgentDefinitions, workspaceState.companies)
+            val chiefProfile = profiles.firstOrNull {
+                it.companyId == company.id && (it.mergeAuthority || it.roleName.equals("CEO", ignoreCase = true))
+            } ?: suggestProfileForCustomIssue(
+                title = "CEO planning",
+                description = goal.description,
+                kind = "planning",
+                profiles = profiles.filter { it.companyId == company.id }
+            )
+            val planningIssue = existingPlanningIssue?.copy(
+                assigneeProfileId = chiefProfile?.id ?: existingPlanningIssue.assigneeProfileId,
+                status = if (existingPlanningIssue.status == IssueStatus.DONE) IssueStatus.DONE else IssueStatus.PLANNED,
+                transitionReason = "CEO planning lane is preparing explicit issue assignments for this goal.",
+                updatedAt = now
+            ) ?: CompanyIssue(
+                id = UUID.randomUUID().toString(),
+                companyId = goal.companyId,
+                projectContextId = goal.projectContextId,
+                goalId = goal.id,
+                workspaceId = workspace.id,
+                title = "CEO plan and delegate \"${goal.title}\"",
+                description = buildPlanningIssueDescription(goal, company, workspaceState.companyAgentDefinitions, profiles),
+                status = IssueStatus.PLANNED,
+                priority = 1,
+                kind = "planning",
+                assigneeProfileId = chiefProfile?.id,
+                blockedBy = emptyList(),
+                dependsOn = emptyList(),
+                acceptanceCriteria = listOf(
+                    "Produce a structured plan with explicit issues, assignees, dependencies, and PR expectations.",
+                    "Use the current company roster and goal context when assigning work."
+                ),
+                riskLevel = "medium",
+                codeProducing = false,
+                transitionReason = "CEO planning lane is preparing explicit issue assignments for this goal.",
+                sourceSignal = CEO_PLANNING_SOURCE,
+                createdAt = now,
+                updatedAt = now
+            )
+            val nextState = workspaceState.copy(
+                issues = workspaceState.issues.filterNot { it.id == planningIssue.id } + planningIssue,
+                orgProfiles = profiles,
+            ).recordCompanyActivity(
+                companyId = company.id,
+                projectContextId = projectContext.id,
+                goalId = goal.id,
+                issueId = planningIssue.id,
+                source = "goal-decomposition",
+                title = if (existingPlanningIssue == null) "Created CEO planning issue" else "Reopened CEO planning issue",
+                detail = planningIssue.title
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            writeCompanyContextSnapshot(nextState, company, projectContext)
+            publishCompanyEvent(
+                companyId = company.id,
+                type = "goal.planning.started",
+                title = "Started CEO planning",
+                detail = planningIssue.title,
+                goalId = goal.id,
+                issueId = planningIssue.id
+            )
+            if (planningIssue.status == IssueStatus.DONE) null else planningIssue.id
         }
-        if (existingPlanningIssue != null && existingPlanningIssue.status == IssueStatus.DONE) {
-            return@withLock existing.sortedByDescending { it.updatedAt }
-        }
-        val goal = state.goals.firstOrNull { it.id == goalId }
-            ?: throw IllegalArgumentException("Goal not found: $goalId")
-        val now = System.currentTimeMillis()
-        val company = state.companies.firstOrNull { it.id == goal.companyId }
-            ?: throw IllegalArgumentException("Company not found for goal: ${goal.companyId}")
-        val workspaceResolution = ensureCompanyWorkspace(state, company, now)
-        val workspaceState = workspaceResolution.first
-        val workspace = workspaceResolution.second
-        val projectContext = ensureProjectContext(workspaceState, company, now)
-        val profiles = ensureOrgProfiles(workspaceState.orgProfiles, workspaceState.companyAgentDefinitions, workspaceState.companies)
-        val chiefProfile = profiles.firstOrNull {
-            it.companyId == company.id && (it.mergeAuthority || it.roleName.equals("CEO", ignoreCase = true))
-        } ?: suggestProfileForCustomIssue(
-            title = "CEO planning",
-            description = goal.description,
-            kind = "planning",
-            profiles = profiles.filter { it.companyId == company.id }
-        )
-        val planningIssue = existingPlanningIssue?.copy(
-            assigneeProfileId = chiefProfile?.id ?: existingPlanningIssue.assigneeProfileId,
-            status = if (existingPlanningIssue.status == IssueStatus.DONE) IssueStatus.DONE else IssueStatus.PLANNED,
-            transitionReason = "CEO planning lane is preparing explicit issue assignments for this goal.",
-            updatedAt = now
-        ) ?: CompanyIssue(
-            id = UUID.randomUUID().toString(),
-            companyId = goal.companyId,
-            projectContextId = goal.projectContextId,
-            goalId = goal.id,
-            workspaceId = workspace.id,
-            title = "CEO plan and delegate \"${goal.title}\"",
-            description = buildPlanningIssueDescription(goal, company, workspaceState.companyAgentDefinitions, profiles),
-            status = IssueStatus.PLANNED,
-            priority = 1,
-            kind = "planning",
-            assigneeProfileId = chiefProfile?.id,
-            blockedBy = emptyList(),
-            dependsOn = emptyList(),
-            acceptanceCriteria = listOf(
-                "Produce a structured plan with explicit issues, assignees, dependencies, and PR expectations.",
-                "Use the current company roster and goal context when assigning work."
-            ),
-            riskLevel = "medium",
-            codeProducing = false,
-            transitionReason = "CEO planning lane is preparing explicit issue assignments for this goal.",
-            sourceSignal = CEO_PLANNING_SOURCE,
-            createdAt = now,
-            updatedAt = now
-        )
-        val nextState = workspaceState.copy(
-            issues = workspaceState.issues.filterNot { it.id == planningIssue.id } + planningIssue,
-            orgProfiles = profiles,
-        ).recordCompanyActivity(
-            companyId = company.id,
-            projectContextId = projectContext.id,
-            goalId = goal.id,
-            issueId = planningIssue.id,
-            source = "goal-decomposition",
-            title = if (existingPlanningIssue == null) "Created CEO planning issue" else "Reopened CEO planning issue",
-            detail = planningIssue.title
-        ).withDerivedMetrics()
-        stateStore.save(nextState)
-        writeCompanyContextSnapshot(nextState, company, projectContext)
-        publishCompanyEvent(
-            companyId = company.id,
-            type = "goal.planning.started",
-            title = "Started CEO planning",
-            detail = planningIssue.title,
-            goalId = goal.id,
-            issueId = planningIssue.id
-        )
-        planningIssue
-            .takeIf { it.status != IssueStatus.DONE }
-            ?.let { createdPlanningIssue ->
-                serviceScope.launch {
-                    runCatching { runIssue(createdPlanningIssue.id) }
+        // Run the fallback planner synchronously so that downstream execution,
+        // review, and approval issues exist by the time decomposeGoal returns.
+        // This avoids going through the async task execution pipeline which creates
+        // race conditions with background runtime ticks.
+        if (planningIssueId != null) {
+            runCatching {
+                stateMutex.withLock {
+                    val state = stateStore.load()
+                    val planningIssue = state.issues.firstOrNull { it.id == planningIssueId } ?: return@withLock
+                    val existingNonPlanning = state.issues.filter {
+                        it.goalId == planningIssue.goalId && !it.kind.equals("planning", ignoreCase = true)
+                    }
+                    if (existingNonPlanning.isNotEmpty()) {
+                        // Already decomposed – just mark planning done.
+                        stateStore.save(
+                            state.copy(
+                                issues = state.issues.map {
+                                    if (it.id == planningIssueId) it.copy(status = IssueStatus.DONE, updatedAt = System.currentTimeMillis()) else it
+                                }
+                            ).withDerivedMetrics()
+                        )
+                        return@withLock
+                    }
+                    val goal = state.goals.firstOrNull { it.id == planningIssue.goalId } ?: return@withLock
+                    val workspace = state.workspaces.firstOrNull { it.id == planningIssue.workspaceId } ?: return@withLock
+                    val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                    val now = System.currentTimeMillis()
+                    val fallback = buildFallbackGoalIssues(
+                        goal = goal,
+                        workspace = workspace,
+                        profiles = profiles,
+                        definitions = state.companyAgentDefinitions,
+                        now = now
+                    )
+                    val updatedPlanningIssue = planningIssue.copy(
+                        status = IssueStatus.DONE,
+                        transitionReason = "CEO planning lane used the deterministic fallback planner.",
+                        updatedAt = now
+                    )
+                    val company = state.companies.firstOrNull { it.id == goal.companyId } ?: return@withLock
+                    val projectContext = state.projectContexts.firstOrNull { it.companyId == company.id } ?: return@withLock
+                    val nextState = state.copy(
+                        issues = state.issues.filterNot {
+                            it.id == planningIssueId || (it.goalId == goal.id && !it.kind.equals("planning", ignoreCase = true))
+                        } + updatedPlanningIssue + fallback.first,
+                        issueDependencies = state.issueDependencies.filterNot { dep ->
+                            dep.issueId == planningIssueId
+                        } + fallback.second
+                    ).withDerivedMetrics()
+                    stateStore.save(nextState)
+                    writeCompanyContextSnapshot(nextState, company, projectContext)
                 }
             }
-        listOf(planningIssue)
+        }
+        return stateStore.load().issues
+            .filter { it.goalId == goalId }
+            .sortedByDescending { it.updatedAt }
     }
 
     suspend fun delegateIssue(issueId: String): CompanyIssue {
@@ -2007,9 +2059,10 @@ class DesktopAppService(
             return true
         }
         return when (issue.kind.lowercase()) {
-            "review" -> dependency.status == IssueStatus.IN_REVIEW ||
-                dependency.status == IssueStatus.READY_FOR_CEO ||
-                dependency.status == IssueStatus.DONE
+            "review" ->
+                dependency.status == IssueStatus.IN_REVIEW ||
+                    dependency.status == IssueStatus.READY_FOR_CEO ||
+                    dependency.status == IssueStatus.DONE
             else -> dependency.status == IssueStatus.DONE
         }
     }
@@ -2745,7 +2798,7 @@ class DesktopAppService(
                         (
                             doneIssueSignatureLatestUpdatedAt[issue.kind.lowercase() to issue.title.trim().lowercase()]
                                 ?.let { latestDoneUpdatedAt -> latestDoneUpdatedAt > issue.updatedAt }
-                        ) == true
+                            ) == true
                 val nextStatus = when {
                     supersededBySuccessfulRetry -> IssueStatus.CANCELED
                     issue.goalId in recursiveGoalIds && issue.status != IssueStatus.DONE && issue.status != IssueStatus.CANCELED -> IssueStatus.CANCELED
@@ -3411,10 +3464,20 @@ class DesktopAppService(
         val repository = company?.let { linked ->
             state.repositories.firstOrNull { it.id == linked.repositoryId }
         } ?: state.repositories.maxByOrNull { it.updatedAt }
-        val environment = gitWorkspaceService.inspectGitHubPublishEnvironment(
-            repositoryRoot = repository?.localPath?.let(Path::of),
-            baseBranch = company?.defaultBaseBranch ?: repository?.defaultBranch
-        )
+        val environment = runCatching {
+            gitWorkspaceService.inspectGitHubPublishEnvironment(
+                repositoryRoot = repository?.localPath?.let(Path::of),
+                baseBranch = company?.defaultBaseBranch ?: repository?.defaultBranch
+            )
+        }.getOrElse {
+            GitHubPublishEnvironment(
+                ghInstalled = false,
+                ghAuthenticated = false,
+                originConfigured = false,
+                bootstrapAvailable = false,
+                message = "Unable to inspect GitHub publish environment."
+            )
+        }
         return GitHubPublishStatus(
             policy = state.backendSettings.codePublishMode,
             ghInstalled = environment.ghInstalled,
@@ -5264,27 +5327,28 @@ class DesktopAppService(
                     }
                 }.trimEnd()
             }
-            .take(3)
-            else -> state.issues
-                .filter { it.goalId == issue.goalId && it.kind.equals("review", ignoreCase = true) && it.status == IssueStatus.DONE }
-                .sortedByDescending { it.updatedAt }
-                .mapNotNull { reviewIssue ->
-                    val reviewTask = state.tasks
-                        .filter { it.issueId == reviewIssue.id }
-                        .maxByOrNull { it.updatedAt }
-                        ?: return@mapNotNull null
-                    val reviewRun = state.runs
-                        .filter { it.taskId == reviewTask.id && it.status == AgentRunStatus.COMPLETED }
-                        .maxByOrNull { it.updatedAt }
-                        ?: return@mapNotNull null
-                    buildString {
-                        appendLine("- ${reviewIssue.title}")
-                        reviewRun.output?.takeIf { it.isNotBlank() }?.let { output ->
-                            appendLine("  review summary: ${summarizeForPrompt(output, 280)}")
-                        }
-                    }.trimEnd()
-                }
                 .take(3)
+            else ->
+                state.issues
+                    .filter { it.goalId == issue.goalId && it.kind.equals("review", ignoreCase = true) && it.status == IssueStatus.DONE }
+                    .sortedByDescending { it.updatedAt }
+                    .mapNotNull { reviewIssue ->
+                        val reviewTask = state.tasks
+                            .filter { it.issueId == reviewIssue.id }
+                            .maxByOrNull { it.updatedAt }
+                            ?: return@mapNotNull null
+                        val reviewRun = state.runs
+                            .filter { it.taskId == reviewTask.id && it.status == AgentRunStatus.COMPLETED }
+                            .maxByOrNull { it.updatedAt }
+                            ?: return@mapNotNull null
+                        buildString {
+                            appendLine("- ${reviewIssue.title}")
+                            reviewRun.output?.takeIf { it.isNotBlank() }?.let { output ->
+                                appendLine("  review summary: ${summarizeForPrompt(output, 280)}")
+                            }
+                        }.trimEnd()
+                    }
+                    .take(3)
         }
         val promptBody = when (issue.kind.lowercase()) {
             "planning" -> buildCeoPlanningPrompt(state, issue, profile)
@@ -5624,7 +5688,8 @@ class DesktopAppService(
                             descriptorTokens.any { candidate ->
                                 candidate == token || candidate.startsWith(token)
                             }
-                        }) {
+                        }
+                    ) {
                         capabilities += capability
                     }
                 }
@@ -6312,8 +6377,8 @@ class DesktopAppService(
                 } else {
                     val unresolved = (
                         state.issues
-                            .filterNot { existing -> existing.id == currentIssue.id || existing.id == existingQaIssue?.id }
-                            + updatedIssue +
+                            .filterNot { existing -> existing.id == currentIssue.id || existing.id == existingQaIssue?.id } +
+                            updatedIssue +
                             listOfNotNull(qaIssue)
                         )
                         .any { it.goalId == goal.id && it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
@@ -6344,7 +6409,13 @@ class DesktopAppService(
                 goalId = updatedIssue.goalId,
                 issueId = qaIssue?.id ?: existingQaIssue?.id,
                 source = "qa-review",
-                title = if (qaIssue == null) "Waiting for QA" else if (existingQaIssue == null) "Created QA review issue" else "Reopened QA review issue",
+                title = if (qaIssue == null) {
+                    "Waiting for QA"
+                } else if (existingQaIssue == null) {
+                    "Created QA review issue"
+                } else {
+                    "Reopened QA review issue"
+                },
                 detail = updatedIssue.pullRequestUrl ?: updatedIssue.title,
                 severity = "info"
             ).recordSignal(
