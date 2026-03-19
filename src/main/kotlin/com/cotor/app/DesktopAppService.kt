@@ -1364,6 +1364,88 @@ class DesktopAppService(
 
     // ── Agent Messages ──────────────────────────────────────────────────
 
+    // ── Execution Log & Issue Graph ────────────────────────────────────
+
+    suspend fun executionLog(companyId: String): List<Map<String, Any?>> {
+        val state = stateStore.load()
+        val issues = state.issues.filter { it.companyId == companyId }
+        val issueIds = issues.map { it.id }.toSet()
+        val tasks = state.tasks.filter { it.issueId in issueIds }
+        val taskIds = tasks.map { it.id }.toSet()
+        val runs = state.runs.filter { it.taskId in taskIds }
+        val profiles = state.orgProfiles.associateBy { it.id }
+        return issues.sortedByDescending { it.updatedAt }.map { issue ->
+            val issueTasks = tasks.filter { it.issueId == issue.id }.sortedByDescending { it.updatedAt }
+            val issueRuns = runs.filter { it.taskId in issueTasks.map { t -> t.id }.toSet() }.sortedByDescending { it.updatedAt }
+            val assignee = issue.assigneeProfileId?.let { profiles[it] }
+            mapOf(
+                "issueId" to issue.id,
+                "issueTitle" to issue.title,
+                "issueStatus" to issue.status.name,
+                "issueKind" to issue.kind,
+                "assignee" to (assignee?.roleName ?: "unassigned"),
+                "dependsOn" to issue.dependsOn,
+                "pullRequestUrl" to issue.pullRequestUrl,
+                "qaVerdict" to issue.qaVerdict,
+                "ceoVerdict" to issue.ceoVerdict,
+                "tasks" to issueTasks.map { task ->
+                    val taskRuns = issueRuns.filter { it.taskId == task.id }
+                    mapOf(
+                        "taskId" to task.id,
+                        "status" to task.status.name,
+                        "createdAt" to task.createdAt,
+                        "updatedAt" to task.updatedAt,
+                        "runs" to taskRuns.map { run ->
+                            mapOf(
+                                "runId" to run.id,
+                                "agent" to run.agentName,
+                                "status" to run.status.name,
+                                "branch" to run.branchName,
+                                "error" to run.error?.take(300),
+                                "outputSummary" to run.output?.takeLast(200),
+                                "durationMs" to run.durationMs,
+                                "pullRequestUrl" to run.publish?.pullRequestUrl,
+                                "publishError" to run.publish?.error?.take(200),
+                                "createdAt" to run.createdAt,
+                                "updatedAt" to run.updatedAt
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    suspend fun issueGraph(companyId: String): Map<String, Any> {
+        val state = stateStore.load()
+        val issues = state.issues.filter { it.companyId == companyId }
+        val profiles = state.orgProfiles.associateBy { it.id }
+        val deps = state.issueDependencies.filter { dep ->
+            issues.any { it.id == dep.issueId } || issues.any { it.id == dep.dependsOnIssueId }
+        }
+        val nodes = issues.map { issue ->
+            val assignee = issue.assigneeProfileId?.let { profiles[it] }
+            mapOf(
+                "id" to issue.id,
+                "title" to issue.title,
+                "status" to issue.status.name,
+                "kind" to issue.kind,
+                "assignee" to (assignee?.roleName ?: "unassigned"),
+                "goalId" to issue.goalId,
+                "dependsOn" to issue.dependsOn,
+                "pullRequestUrl" to issue.pullRequestUrl,
+                "qaVerdict" to issue.qaVerdict,
+                "ceoVerdict" to issue.ceoVerdict
+            )
+        }
+        val edges = deps.map { dep ->
+            mapOf("from" to dep.dependsOnIssueId, "to" to dep.issueId, "relation" to dep.relation)
+        } + issues.flatMap { issue ->
+            issue.dependsOn.map { depId -> mapOf("from" to depId, "to" to issue.id, "relation" to "depends") }
+        }
+        return mapOf("nodes" to nodes, "edges" to edges.distinctBy { "${it["from"]}-${it["to"]}" })
+    }
+
     suspend fun listMessages(companyId: String, goalId: String? = null, issueId: String? = null): List<AgentMessage> {
         val msgs = stateStore.load().agentMessages.filter { it.companyId == companyId }
         return when {
