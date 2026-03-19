@@ -2,6 +2,27 @@
 
 The desktop app is a native macOS shell on top of the existing Kotlin runtime and localhost `cotor app-server`.
 
+## Install via Homebrew (Recommended)
+
+```bash
+brew tap bssm-oss/cotor https://github.com/bssm-oss/cotor.git
+brew install cotor    # Installs CLI + Desktop App + JDK 17
+```
+
+Or one-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bssm-oss/cotor/master/shell/brew-install.sh | bash
+```
+
+## Install from Source
+
+```bash
+cotor install    # Build + install to /Applications
+cotor update     # Rebuild + reinstall
+cotor delete     # Remove app
+```
+
 ## Components
 
 - `cotor app-server`
@@ -14,14 +35,14 @@ The desktop app is a native macOS shell on top of the existing Kotlin runtime an
 ## Run The Backend
 
 ```bash
-./gradlew run --args='app-server --port 8787'
+cotor app-server --port 8787
 ```
 
 Optional local auth:
 
 ```bash
 export COTOR_APP_TOKEN='your-local-token'
-./gradlew run --args='app-server --port 8787 --token your-local-token'
+cotor app-server --port 8787 --token your-local-token
 ```
 
 ## Run The macOS App

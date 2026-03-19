@@ -2,37 +2,45 @@
 
 이 문서는 현재 코드 기준으로 가장 빠른 시작 경로만 정리합니다.
 
-## 10-Step Fast Path
-
-1. `git clone https://github.com/yourusername/cotor.git`
-2. `cd cotor`
-3. `./gradlew shadowJar`
-4. `chmod +x shell/cotor`
-5. `./shell/cotor version`
-6. `cotor init --starter-template`
-7. `cotor template --list`
-8. `cotor validate <pipeline> -c <config>`
-9. `cotor run <pipeline> -c <config> --output-format text`
-10. `cotor doctor`
-
-## macOS Desktop Fast Path
+## Homebrew 설치 (추천)
 
 ```bash
-cotor install
-open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
+# 원라이너 설치 (JDK 17 + CLI + Desktop App 전부 설치)
+curl -fsSL https://raw.githubusercontent.com/bssm-oss/cotor/master/shell/brew-install.sh | bash
 ```
 
-이 경로는:
-
-- `.app` 번들을 빌드하고
-- `/Applications` 또는 `~/Applications`에 설치하고
-- `Downloads`용 zip도 함께 갱신합니다
-
-업데이트/삭제:
+또는 수동으로:
 
 ```bash
-cotor update
-cotor delete
+brew tap bssm-oss/cotor https://github.com/bssm-oss/cotor.git
+brew install cotor
+```
+
+설치 확인:
+
+```bash
+cotor version
+open "/Applications/Cotor Desktop.app"
+```
+
+업데이트:
+
+```bash
+brew upgrade cotor
+```
+
+## 소스에서 설치
+
+1. `git clone https://github.com/bssm-oss/cotor.git`
+2. `cd cotor`
+3. `./shell/cotor version`  (JDK 17 자동 감지, shadowJar 자동 빌드)
+
+## macOS Desktop App
+
+```bash
+cotor install    # 빌드 + /Applications에 설치
+cotor update     # 리빌드 + 재설치
+cotor delete     # 삭제
 ```
 
 ## app-server Fast Path
