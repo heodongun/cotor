@@ -1151,6 +1151,24 @@ internal fun Application.cotorAppModule(
                     }
                 }
 
+                route("/{companyId}/execution-log") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.executionLog(companyId))
+                    }
+                }
+
+                route("/{companyId}/issue-graph") {
+                    get {
+                        if (!requireToken(token)) return@get
+                        val companyId = call.parameters["companyId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        call.respond(desktopService.issueGraph(companyId))
+                    }
+                }
+
                 route("/{companyId}/budget") {
                     get {
                         if (!requireToken(token)) return@get
