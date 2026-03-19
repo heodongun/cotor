@@ -1,5 +1,14 @@
 package com.cotor.data.process
 
+/**
+ * File overview for ProcessManagerTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around process manager test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.longs.shouldBeGreaterThan

@@ -1,5 +1,11 @@
 import Foundation
 
+
+// MARK: - File Overview
+// AppLogger belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on app logger so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 enum AppLogger {
     private static let formatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()

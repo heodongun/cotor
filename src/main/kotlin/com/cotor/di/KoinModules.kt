@@ -1,5 +1,14 @@
 package com.cotor.di
 
+/**
+ * File overview for KoinModules.
+ *
+ * This file belongs to the dependency wiring layer that assembles runtime services and integrations.
+ * It groups declarations around koin modules so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.analysis.DefaultResultAnalyzer
 import com.cotor.analysis.ResultAnalyzer
 import com.cotor.app.DesktopAppService

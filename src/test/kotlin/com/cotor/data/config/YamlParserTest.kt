@@ -1,5 +1,14 @@
 package com.cotor.data.config
 
+/**
+ * File overview for YamlParserTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around yaml parser test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.YamlParsingException
 import io.kotest.assertions.throwables.shouldThrowUnit
 import io.kotest.core.spec.style.StringSpec

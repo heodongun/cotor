@@ -1,5 +1,14 @@
 package com.cotor.presentation.web
 
+/**
+ * File overview for EditorStagePayload.
+ *
+ * This file belongs to the web presentation layer for the browser-based editor and runtime surface.
+ * It groups declarations around web server so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator

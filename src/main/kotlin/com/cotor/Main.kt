@@ -1,5 +1,14 @@
 package com.cotor
 
+/**
+ * File overview for Main.
+ *
+ * This file belongs to the shared implementation area for the product runtime.
+ * It groups declarations around main so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.di.initializeCotor
 import com.cotor.error.UserFriendlyError
 import com.cotor.presentation.cli.*

@@ -1,5 +1,14 @@
 package com.cotor.analysis
 
+/**
+ * File overview for DefaultResultAnalyzer.
+ *
+ * This file belongs to the analysis layer that summarizes and compares agent results.
+ * It groups declarations around default result analyzer so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentResult
 import com.cotor.model.ResultAnalysis
 import kotlin.math.min

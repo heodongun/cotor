@@ -1,5 +1,14 @@
 package com.cotor.reliability
 
+/**
+ * File overview for ProductionReliabilityBaselineTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around production reliability baseline test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Files

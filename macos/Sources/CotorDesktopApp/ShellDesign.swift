@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+
+// MARK: - File Overview
+// ShellCanvas belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on shell design so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 /// Shared visual tokens for the desktop shell.
 ///
 /// The direction is a dense neutral admin shell: restrained contrast, compact

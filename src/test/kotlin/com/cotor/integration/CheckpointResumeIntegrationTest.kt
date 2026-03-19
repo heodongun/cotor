@@ -1,5 +1,14 @@
 package com.cotor.integration
 
+/**
+ * File overview for CheckpointResumeIntegrationTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around checkpoint resume integration test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.domain.aggregator.ResultAggregator
 import com.cotor.domain.executor.AgentExecutor

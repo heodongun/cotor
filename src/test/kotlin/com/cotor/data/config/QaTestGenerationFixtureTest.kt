@@ -1,5 +1,14 @@
 package com.cotor.data.config
 
+/**
+ * File overview for QaTestGenerationFixtureTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around qa test generation fixture test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.ExecutionMode
 import com.cotor.model.StageType
 import io.kotest.core.spec.style.FunSpec

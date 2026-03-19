@@ -1,5 +1,11 @@
 import Foundation
 
+
+// MARK: - File Overview
+// RepositoryRecord belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on models so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 /// Mirrors the repository DTO returned by `/api/app/dashboard`.
 struct RepositoryRecord: Codable, Identifiable, Hashable {
     let id: String

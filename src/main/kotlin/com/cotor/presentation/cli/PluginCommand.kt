@@ -1,5 +1,14 @@
 package com.cotor.presentation.cli
 
+/**
+ * File overview for PluginCommand.
+ *
+ * This file belongs to the CLI presentation layer for interactive and command-driven flows.
+ * It groups declarations around plugin command so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.CliktError
 import com.github.ajalt.clikt.core.subcommands

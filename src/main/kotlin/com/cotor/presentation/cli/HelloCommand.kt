@@ -1,5 +1,14 @@
 package com.cotor.presentation.cli
 
+/**
+ * File overview for HelloCommand.
+ *
+ * This file belongs to the CLI presentation layer for interactive and command-driven flows.
+ * It groups declarations around hello command so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option

@@ -1,5 +1,14 @@
 package com.cotor.presentation.cli
 
+/**
+ * File overview for DesktopScriptResult.
+ *
+ * This file belongs to the CLI presentation layer for interactive and command-driven flows.
+ * It groups declarations around desktop lifecycle command so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.ProgramResult
 import java.nio.file.Files

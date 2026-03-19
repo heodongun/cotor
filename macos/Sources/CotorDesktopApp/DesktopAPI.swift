@@ -1,5 +1,11 @@
 import Foundation
 
+
+// MARK: - File Overview
+// DesktopAPI belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on desktop a p i so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 /// Thin HTTP client for the localhost `cotor app-server`.
 ///
 /// Keeping transport concerns here lets the view model stay focused on user intent

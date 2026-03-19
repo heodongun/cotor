@@ -1,5 +1,14 @@
 package com.cotor.domain.orchestrator
 
+/**
+ * File overview for PipelineOrchestratorPropertyTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around pipeline orchestrator property test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.analysis.ResultAnalyzer
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.aggregator.DefaultResultAggregator

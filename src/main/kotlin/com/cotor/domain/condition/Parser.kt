@@ -1,5 +1,14 @@
 package com.cotor.domain.condition
 
+/**
+ * File overview for Parser.
+ *
+ * This file belongs to the domain layer for orchestration, planning, aggregation, and runtime policies.
+ * It groups declarations around parser so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 class Parser(private val tokens: List<Token>) {
     private var current = 0
 

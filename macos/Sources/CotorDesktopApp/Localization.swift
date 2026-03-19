@@ -1,6 +1,12 @@
 import Foundation
 import SwiftUI
 
+
+// MARK: - File Overview
+// AppLanguage belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on localization so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 /// Supported shell languages for the desktop client.
 ///
 /// The app only needs a small curated language set right now, so a handwritten

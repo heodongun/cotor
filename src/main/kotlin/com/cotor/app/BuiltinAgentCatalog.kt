@@ -1,5 +1,14 @@
 package com.cotor.app
 
+/**
+ * File overview for BuiltinAgentSpec.
+ *
+ * This file belongs to the app layer for the desktop shell and localhost app-server surface.
+ * It groups declarations around builtin agent catalog so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentConfig
 
 /**

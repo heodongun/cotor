@@ -1,5 +1,14 @@
 package com.cotor.presentation
 
+/**
+ * File overview for DiagramGenerator.
+ *
+ * This file belongs to the shared implementation area for the product runtime.
+ * It groups declarations around diagram generator so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.ExecutionMode
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineStage

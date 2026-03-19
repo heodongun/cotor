@@ -1,5 +1,14 @@
 package com.cotor.security
 
+/**
+ * File overview for SecurityValidator.
+ *
+ * This file belongs to the security layer that validates commands, inputs, and allowed filesystem access.
+ * It groups declarations around security validator so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentConfig
 import com.cotor.model.SecurityConfig
 import com.cotor.model.SecurityException

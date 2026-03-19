@@ -1,5 +1,14 @@
 package com.cotor.data.registry
 
+/**
+ * File overview for AgentRegistry.
+ *
+ * This file belongs to the registry layer that resolves configured agents and plugins.
+ * It groups declarations around agent registry so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentConfig
 import java.util.concurrent.ConcurrentHashMap
 

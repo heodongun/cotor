@@ -1,5 +1,14 @@
 package com.cotor.presentation.cli
 
+/**
+ * File overview for AgentCommand.
+ *
+ * This file belongs to the CLI presentation layer for interactive and command-driven flows.
+ * It groups declarations around agent command so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.config.FileConfigRepository
 import com.cotor.data.config.JsonParser
 import com.cotor.data.config.YamlParser

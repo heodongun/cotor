@@ -1,5 +1,14 @@
 package com.cotor.monitoring
 
+/**
+ * File overview for PipelineRunTrackerTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around pipeline run tracker test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.event.CotorEvent
 import com.cotor.event.EventBus
 import com.cotor.event.EventSubscription

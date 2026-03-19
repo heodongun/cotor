@@ -1,5 +1,14 @@
 package com.cotor.event
 
+/**
+ * File overview for CotorEvent.
+ *
+ * This file belongs to the eventing layer used to publish runtime activity across the product.
+ * It groups declarations around events so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentResult
 import com.cotor.model.AggregatedResult
 import java.time.Instant

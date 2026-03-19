@@ -1,5 +1,14 @@
 package com.cotor.integration
 
+/**
+ * File overview for CheckpointFixtureProcess.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around checkpoint fixture process so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.checkpoint.StageCheckpoint
 import java.time.Instant

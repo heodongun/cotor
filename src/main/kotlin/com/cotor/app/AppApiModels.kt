@@ -1,5 +1,14 @@
 package com.cotor.app
 
+/**
+ * File overview for OpenRepositoryRequest.
+ *
+ * This file belongs to the app layer for the desktop shell and localhost app-server surface.
+ * It groups declarations around app api models so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import kotlinx.serialization.Serializable
 
 /**

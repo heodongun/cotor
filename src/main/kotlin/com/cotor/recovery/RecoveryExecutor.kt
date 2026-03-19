@@ -1,5 +1,14 @@
 package com.cotor.recovery
 
+/**
+ * File overview for RecoveryExecutor.
+ *
+ * This file belongs to the recovery layer that retries, falls back, and repairs failed stages.
+ * It groups declarations around recovery executor so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.model.*

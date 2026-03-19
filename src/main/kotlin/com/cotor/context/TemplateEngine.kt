@@ -1,5 +1,14 @@
 package com.cotor.context
 
+/**
+ * File overview for TemplateEngine.
+ *
+ * This file belongs to the context and templating layer used while rendering pipeline inputs.
+ * It groups declarations around template engine so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.PipelineContext
 
 /**

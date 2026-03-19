@@ -1,6 +1,15 @@
 package com.cotor.chat
 
 /**
+ * File overview for ChatSession.
+ *
+ * This file belongs to the interactive chat layer used by the terminal-based assistant experience.
+ * It groups declarations around chat session so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
+/**
  * Chat session state with simple long-context controls:
  * - Head/Tail preservation with middle summarization
  * - Prompt budget limiting

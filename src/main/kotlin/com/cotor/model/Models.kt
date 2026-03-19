@@ -1,5 +1,14 @@
 package com.cotor.model
 
+/**
+ * File overview for CotorConfig.
+ *
+ * This file belongs to the shared model layer that defines configuration and execution contracts.
+ * It groups declarations around models so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import kotlinx.serialization.Serializable
 import java.nio.file.Path
 import java.time.Instant

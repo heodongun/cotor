@@ -1,5 +1,14 @@
 package com.cotor.context
 
+/**
+ * File overview for TemplateEngineTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around template engine test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentResult
 import com.cotor.model.PipelineContext
 import org.junit.jupiter.api.Assertions.assertEquals

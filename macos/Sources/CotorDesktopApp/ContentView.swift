@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+
+// MARK: - File Overview
+// CotorDesktopApp belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on content view so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 private enum DesktopLayoutMode {
     case wide
     case stacked

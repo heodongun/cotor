@@ -1,5 +1,14 @@
 package com.cotor.domain.condition
 
+/**
+ * File overview for Scanner.
+ *
+ * This file belongs to the domain layer for orchestration, planning, aggregation, and runtime policies.
+ * It groups declarations around scanner so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 class Scanner(private val source: String) {
     private val tokens = mutableListOf<Token>()
     private var start = 0

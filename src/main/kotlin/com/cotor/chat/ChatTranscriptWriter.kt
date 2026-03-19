@@ -1,5 +1,14 @@
 package com.cotor.chat
 
+/**
+ * File overview for ChatTranscriptWriter.
+ *
+ * This file belongs to the interactive chat layer used by the terminal-based assistant experience.
+ * It groups declarations around chat transcript writer so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.time.Instant

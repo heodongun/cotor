@@ -2,6 +2,12 @@ import AppKit
 import Foundation
 import SwiftUI
 
+
+// MARK: - File Overview
+// DesktopStore belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on desktop store so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 /// Tracks the high-level backend/runtime state shown in the shell header.
 ///
 /// The visible text is derived later through the active app language so the same
@@ -396,6 +402,9 @@ final class DesktopStore: ObservableObject {
 
     /// Entry point invoked by the app scene once the window becomes active.
     func bootstrap() async {
+        // Bootstrap intentionally starts local background observers before the first network call.
+        // That way a just-launched app can recover embedded backend state, begin polling, and only
+        // then decide whether the shell should present live data or an offline fallback.
         startCompanyStatePolling()
         startEmbeddedBackendWatchdog()
         await EmbeddedBackendLauncher.shared.ensureRunning()
@@ -417,6 +426,9 @@ final class DesktopStore: ObservableObject {
 
     /// Reload the top-level dashboard payload and preserve/repair selection state.
     func refreshDashboard(restartEventStream: Bool = true) async {
+        // The dashboard payload is the SwiftUI store's source of truth. Most per-pane selections
+        // are repaired immediately after loading so the shell can survive backend restarts, data
+        // deletions, and stream reconnects without stranding the user on stale identifiers.
         isBusy = true
         defer { isBusy = false }
 
@@ -1502,6 +1514,9 @@ final class DesktopStore: ObservableObject {
     }
 
     private func restartCompanyEventStream() async {
+        // Company events are treated as an eventually consistent acceleration path. If the stream
+        // includes an embedded dashboard snapshot we can patch state immediately; otherwise we fall
+        // back to a full refresh to keep the native store aligned with the backend contract.
         companyEventTask?.cancel()
         guard !isOffline, shellMode == .company, let companyID = selectedCompanyID else { return }
         companyEventTask = Task { [weak self] in

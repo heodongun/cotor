@@ -1,5 +1,14 @@
 package com.cotor.validation
 
+/**
+ * File overview for LintResult.
+ *
+ * This file belongs to the validation layer that rejects invalid pipelines before execution.
+ * It groups declarations around linter so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.CotorConfig
 
 /**

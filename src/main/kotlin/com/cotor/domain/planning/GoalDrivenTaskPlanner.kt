@@ -1,5 +1,14 @@
 package com.cotor.domain.planning
 
+/**
+ * File overview for GoalDrivenTaskPlanner.
+ *
+ * This file belongs to the domain layer for orchestration, planning, aggregation, and runtime policies.
+ * It groups declarations around goal driven task planner so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.app.AgentAssignmentPlan
 import com.cotor.app.TaskExecutionPlan
 import com.cotor.app.TaskSubtask

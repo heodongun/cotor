@@ -1,5 +1,14 @@
 package com.cotor.data.plugin
 
+/**
+ * File overview for CommandPlugin.
+ *
+ * This file belongs to the plugin integration layer that adapts external agent CLIs into Cotor.
+ * It groups declarations around command plugin so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
 import kotlinx.serialization.json.Json
