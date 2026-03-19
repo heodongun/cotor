@@ -1,5 +1,14 @@
 package com.cotor.presentation.cli
 
+/**
+ * File overview for StatsCommandTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around stats command test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.stats.PerformanceTrend
 import com.cotor.stats.StatsManager
 import com.cotor.stats.StatsSummary

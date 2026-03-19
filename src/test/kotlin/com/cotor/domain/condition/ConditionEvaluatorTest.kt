@@ -1,5 +1,14 @@
 package com.cotor.domain.condition
 
+/**
+ * File overview for ConditionEvaluatorTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around condition evaluator test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentResult
 import com.cotor.model.PipelineContext
 import io.kotest.core.spec.style.FunSpec

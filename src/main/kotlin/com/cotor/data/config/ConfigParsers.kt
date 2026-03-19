@@ -1,5 +1,14 @@
 package com.cotor.data.config
 
+/**
+ * File overview for YamlParser.
+ *
+ * This file belongs to the configuration loading layer that resolves YAML, imports, and overrides.
+ * It groups declarations around config parsers so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlConfiguration
 import com.charleskorn.kaml.YamlException

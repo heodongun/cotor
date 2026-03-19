@@ -1,5 +1,14 @@
 package com.cotor.data.plugin
 
+/**
+ * File overview for CodexPluginTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around codex plugin test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.AgentExecutionException
 import com.cotor.model.ExecutionContext

@@ -1,5 +1,14 @@
 package com.cotor.data.plugin
 
+/**
+ * File overview for NaturalLanguageProcessorPlugin.
+ *
+ * This file belongs to the plugin integration layer that adapts external agent CLIs into Cotor.
+ * It groups declarations around example plugins so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
 

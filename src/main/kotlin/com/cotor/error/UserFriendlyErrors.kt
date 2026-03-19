@@ -1,6 +1,15 @@
 package com.cotor.error
 
 /**
+ * File overview for UserFriendlyError.
+ *
+ * This file belongs to the shared implementation area for the product runtime.
+ * It groups declarations around user friendly errors so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
+/**
  * User-friendly error with solutions and documentation links
  */
 class UserFriendlyError(

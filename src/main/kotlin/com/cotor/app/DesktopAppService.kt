@@ -1,5 +1,16 @@
 package com.cotor.app
 
+/**
+ * File overview for DesktopAppService.
+ *
+ * This file belongs to the app layer for the desktop shell and localhost app-server surface.
+ * It groups the service entrypoints, helper payloads, and runtime coordination logic that back the
+ * desktop product's company, task, review, and automation workflows.
+ * Read here first when tracing how desktop-facing state moves from repository/workspace setup into
+ * goals, issues, tasks, runs, and long-lived company runtime loops.
+ */
+
+
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.process.resolveExecutablePath
 import com.cotor.domain.executor.AgentExecutor
@@ -141,6 +152,9 @@ class DesktopAppService(
     }
 
     suspend fun dashboard(): DashboardResponse {
+        // Every dashboard read is also a chance to heal background loops after an app-server
+        // restart. The read path stays cheap, but it nudges the automation layer back into the
+        // expected steady state before serializing the full desktop snapshot.
         queueAutomationRefresh()
         val state = stateStore.load().withDerivedMetrics()
         val orgProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
@@ -729,6 +743,10 @@ class DesktopAppService(
         defaultBaseBranch: String? = null,
         autonomyEnabled: Boolean = true
     ): Company = stateMutex.withLock {
+        // Company creation is the bridge from an arbitrary checkout on disk to the product's
+        // higher-level operating model. The method normalizes the repo root, ensures a managed
+        // repository/workspace exists, seeds default org roles, and records the first persisted
+        // company snapshot in one serialized transaction.
         val now = System.currentTimeMillis()
         val loadedState = stateStore.load()
         val initialBackendKind = initialCompanyBackendKind(loadedState)
@@ -1640,6 +1658,10 @@ class DesktopAppService(
         operatingPolicy: String? = null,
         startRuntimeIfNeeded: Boolean = true
     ): CompanyGoal {
+        // Goals are the top-level planning primitive for the company layer. Creation intentionally
+        // does more than append a row: it ensures a workspace/project context exists, materializes
+        // any missing agent roster state, persists the goal, then queues decomposition/runtime work
+        // so the organization can immediately turn the goal into executable issues.
         val goal = stateMutex.withLock {
             val state = stateStore.load()
             val now = System.currentTimeMillis()
@@ -2685,6 +2707,10 @@ class DesktopAppService(
             companyRuntimeTickMutexes.getOrPut(companyId) { Mutex() }
         }
         return tickMutex.withLock {
+            // A runtime tick is the autonomous "housekeeping plus scheduling" pass for one
+            // company. The order matters: first reconcile stale terminal states from prior runs,
+            // then revive recoverable work, then synthesize any follow-up goals, and only after the
+            // state is coherent decide which new issues are allowed to start.
             markRuntimeTickHeartbeat(companyId, "tick-started")
             reconcileStaleAgentRuns(companyId)
             reconcileNonPublishingReviewRuns(companyId)
@@ -3674,6 +3700,9 @@ class DesktopAppService(
     }
 
     suspend fun runTask(taskId: String): AgentTask {
+        // Public callers use this thin wrapper so the implementation can return null internally
+        // when reconciliation races with deletion. API consumers, however, should see a clear
+        // not-found error instead of a silent no-op.
         return runTaskIfPresent(taskId) ?: throw IllegalArgumentException("Task not found: $taskId")
     }
 

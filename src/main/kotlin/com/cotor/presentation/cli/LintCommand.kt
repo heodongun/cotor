@@ -1,5 +1,14 @@
 package com.cotor.presentation.cli
 
+/**
+ * File overview for LintCommand.
+ *
+ * This file belongs to the CLI presentation layer for interactive and command-driven flows.
+ * It groups declarations around lint command so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.config.ConfigRepository
 import com.cotor.error.ErrorMessages
 import com.cotor.error.UserFriendlyError

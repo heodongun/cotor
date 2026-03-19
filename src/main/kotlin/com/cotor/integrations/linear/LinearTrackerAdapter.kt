@@ -1,5 +1,14 @@
 package com.cotor.integrations.linear
 
+/**
+ * File overview for LinearIssueMirror.
+ *
+ * This file belongs to the integration layer for external systems such as Linear.
+ * It groups declarations around linear tracker adapter so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.app.CompanyIssue
 import com.cotor.app.LinearConnectionConfig
 import io.ktor.http.HttpHeaders

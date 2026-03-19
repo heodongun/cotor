@@ -1,5 +1,14 @@
 package com.cotor.data.config
 
+/**
+ * File overview for ConfigRepository.
+ *
+ * This file belongs to the configuration loading layer that resolves YAML, imports, and overrides.
+ * It groups declarations around config repository so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.ConfigurationException
 import com.cotor.model.CotorConfig
 import kotlinx.coroutines.Dispatchers

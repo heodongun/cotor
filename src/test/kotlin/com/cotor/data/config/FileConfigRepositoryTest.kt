@@ -1,5 +1,14 @@
 package com.cotor.data.config
 
+/**
+ * File overview for FileConfigRepositoryTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around file config repository test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentConfig
 import com.cotor.model.ConfigurationException
 import com.cotor.model.CotorConfig

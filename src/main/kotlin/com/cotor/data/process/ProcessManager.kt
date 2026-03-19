@@ -1,5 +1,14 @@
 package com.cotor.data.process
 
+/**
+ * File overview for ProcessManager.
+ *
+ * This file belongs to the process execution layer that launches and supervises external commands.
+ * It groups declarations around process manager so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.ProcessResult
 import kotlinx.coroutines.*
 import org.slf4j.Logger

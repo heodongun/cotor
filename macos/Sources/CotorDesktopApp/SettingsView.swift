@@ -1,5 +1,11 @@
 import SwiftUI
 
+
+// MARK: - File Overview
+// SettingsView belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on settings view so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 /// Read-only settings surface for the current desktop milestone plus the small
 /// amount of app-local preference state that does not belong in the backend.
 ///

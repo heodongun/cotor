@@ -1,5 +1,14 @@
 package com.cotor.stats
 
+/**
+ * File overview for StatsManager.
+ *
+ * This file belongs to the shared implementation area for the product runtime.
+ * It groups declarations around stats manager so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AggregatedResult
 import com.cotor.model.FailureCategory
 import kotlinx.serialization.Serializable

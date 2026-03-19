@@ -1,5 +1,14 @@
 package com.cotor.domain.executor
 
+/**
+ * File overview for AgentExecutorTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around agent executor test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.plugin.AgentPlugin
 import com.cotor.data.plugin.PluginLoader
 import com.cotor.data.process.ProcessManager

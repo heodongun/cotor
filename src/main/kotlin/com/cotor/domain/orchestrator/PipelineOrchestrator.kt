@@ -1,5 +1,14 @@
 package com.cotor.domain.orchestrator
 
+/**
+ * File overview for PipelineOrchestrator.
+ *
+ * This file belongs to the pipeline orchestration layer that coordinates stage execution and recovery.
+ * It groups declarations around pipeline orchestrator so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.checkpoint.toCheckpoint
 import com.cotor.context.TemplateEngine
@@ -92,6 +101,9 @@ class DefaultPipelineOrchestrator(
         fromStageId: String?,
         context: PipelineContext?
     ): AggregatedResult = coroutineScope {
+        // This method is the single entry point for every execution mode. It validates mode/stage
+        // compatibility up front, creates the shared pipeline context, wires observability, and
+        // then hands off to the mode-specific executor that owns the actual traversal logic.
         if (pipeline.executionMode != ExecutionMode.SEQUENTIAL) {
             val conditionalStages = pipeline.stages.filter { it.type != StageType.EXECUTION }
             if (conditionalStages.isNotEmpty()) {
@@ -201,6 +213,9 @@ class DefaultPipelineOrchestrator(
         pipelineContext: PipelineContext,
         fromStageId: String? = null
     ): AggregatedResult {
+        // Sequential mode is also the only mode that supports decision and loop stages. The index
+        // is therefore mutable and may jump forward, backward, or terminate early depending on the
+        // outcome of guard expressions and loop bookkeeping.
         val results = pipelineContext.stageResults.values.toMutableList()
         val stageIndexMap = pipeline.stages.mapIndexed { index, stage -> stage.id to index }.toMap()
         var previousOutput: String? = results.lastOrNull()?.output
@@ -276,6 +291,8 @@ class DefaultPipelineOrchestrator(
         pipelineId: String,
         pipelineContext: PipelineContext
     ): AggregatedResult = coroutineScope {
+        // Parallel mode keeps the contract deliberately narrow: execution stages only, all launched
+        // independently, with aggregation deferred until every branch finishes.
         pipeline.stages.firstOrNull { it.type != StageType.EXECUTION }?.let {
             throw PipelineException("Stage ${it.id} uses ${it.type} which is not supported in PARALLEL mode")
         }
@@ -294,6 +311,8 @@ class DefaultPipelineOrchestrator(
         pipelineId: String,
         pipelineContext: PipelineContext
     ): AggregatedResult {
+        // DAG mode still executes one stage at a time, but it changes stage ordering from author
+        // order to dependency order and derives the input from upstream stage outputs when needed.
         pipeline.stages.firstOrNull { it.type != StageType.EXECUTION }?.let {
             throw PipelineException("Stage ${it.id} uses ${it.type} which is not supported in DAG mode")
         }
@@ -345,6 +364,8 @@ class DefaultPipelineOrchestrator(
         pipelineId: String,
         pipelineContext: PipelineContext
     ): AggregatedResult = coroutineScope {
+        // MAP mode is fanout over shared-state data. Exactly one stage declares the fanout source,
+        // and that stage is executed once per source item with the item rendered as stage input.
         val fanoutStages = pipeline.stages.filter { it.fanout != null }
         if (fanoutStages.size != 1) {
             throw PipelineException("MAP execution mode requires exactly one stage with a fanout configuration")

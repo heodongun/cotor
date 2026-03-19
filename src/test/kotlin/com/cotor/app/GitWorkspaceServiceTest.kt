@@ -1,5 +1,14 @@
 package com.cotor.app
 
+/**
+ * File overview for GitWorkspaceServiceTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around git workspace service test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.ProcessResult
 import io.kotest.core.spec.style.FunSpec

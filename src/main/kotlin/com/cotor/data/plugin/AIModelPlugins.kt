@@ -1,5 +1,14 @@
 package com.cotor.data.plugin
 
+/**
+ * File overview for ClaudePlugin.
+ *
+ * This file belongs to the plugin integration layer that adapts external agent CLIs into Cotor.
+ * It groups declarations around a i model plugins so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
 

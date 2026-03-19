@@ -1,5 +1,14 @@
 package com.cotor.app
 
+/**
+ * File overview for AppServer.
+ *
+ * This file belongs to the app layer for the desktop shell and localhost app-server surface.
+ * It groups declarations around app server so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -194,6 +203,9 @@ internal fun Application.cotorAppModule(
         }
 
         route("/api/app") {
+            // `/api/app` is the contract consumed by the desktop shell. The routes under this
+            // prefix intentionally stay business-oriented so the Swift client can think in terms
+            // of dashboards, companies, issues, and sessions rather than raw persistence details.
             get("/health") {
                 if (!requireToken(token)) return@get
                 call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
@@ -635,6 +647,9 @@ internal fun Application.cotorAppModule(
             }
 
             route("/companies") {
+                // Company routes expose the highest-level operating surface in the product. Most of
+                // the desktop experience hangs off this subtree because companies own goals,
+                // issues, runtime state, workflow topology, and organization rosters.
                 get {
                     if (!requireToken(token)) return@get
                     call.respond(desktopService.listCompanies())
@@ -1280,6 +1295,9 @@ internal fun Application.cotorAppModule(
             }
 
             route("/tui/sessions") {
+                // TUI sessions are long-lived interactive processes. The API separates opening,
+                // transcript snapshots, incremental deltas, and input forwarding so the desktop UI
+                // can rebuild a terminal view without holding a websocket or a native PTY itself.
                 post {
                     if (!requireToken(token)) return@post
                     val request = call.receive<OpenTuiSessionRequest>()

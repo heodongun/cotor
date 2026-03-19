@@ -1,5 +1,14 @@
 package com.cotor.event
 
+/**
+ * File overview for EventSubscription.
+ *
+ * This file belongs to the eventing layer used to publish runtime activity across the product.
+ * It groups declarations around event bus so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel

@@ -1,5 +1,14 @@
 package com.cotor.app
 
+/**
+ * File overview for DesktopAppServiceTest.
+ *
+ * This file belongs to the test suite that documents expected behavior and protects against regressions.
+ * It groups declarations around desktop app service test so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.process.CoroutineProcessManager
 import com.cotor.data.process.ProcessManager

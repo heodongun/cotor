@@ -1,6 +1,15 @@
 package com.cotor.model
 
 /**
+ * File overview for CotorException.
+ *
+ * This file belongs to the shared model layer that defines configuration and execution contracts.
+ * It groups declarations around exceptions so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
+/**
  * Base exception for all Cotor-related errors
  */
 sealed class CotorException(message: String, cause: Throwable? = null) : Exception(message, cause)

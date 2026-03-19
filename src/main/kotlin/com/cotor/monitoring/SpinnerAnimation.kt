@@ -1,5 +1,14 @@
 package com.cotor.monitoring
 
+/**
+ * File overview for SpinnerAnimation.
+ *
+ * This file belongs to the observability layer for metrics, traces, and pipeline monitoring.
+ * It groups declarations around spinner animation so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
 import com.github.ajalt.mordant.terminal.Terminal

@@ -1,5 +1,14 @@
 package com.cotor.validation.output
 
+/**
+ * File overview for SyntaxValidationResult.
+ *
+ * This file belongs to the validation layer that rejects invalid pipelines before execution.
+ * It groups declarations around syntax validator so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import org.slf4j.LoggerFactory
 
 data class SyntaxValidationResult(

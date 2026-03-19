@@ -1,5 +1,14 @@
 package com.cotor.chat
 
+/**
+ * File overview for ChatRole.
+ *
+ * This file belongs to the interactive chat layer used by the terminal-based assistant experience.
+ * It groups declarations around chat models so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import kotlinx.serialization.Serializable
 import java.time.Instant
 

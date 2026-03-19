@@ -1,6 +1,12 @@
 import Darwin
 import Foundation
 
+
+// MARK: - File Overview
+// EmbeddedBackendLauncher belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on embedded backend launcher so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 actor EmbeddedBackendLauncher {
     static let shared = EmbeddedBackendLauncher()
 

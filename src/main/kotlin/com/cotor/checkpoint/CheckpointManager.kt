@@ -1,5 +1,14 @@
 package com.cotor.checkpoint
 
+/**
+ * File overview for CheckpointManager.
+ *
+ * This file belongs to the checkpointing layer that persists intermediate execution state.
+ * It groups declarations around checkpoint manager so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentResult
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString

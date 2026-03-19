@@ -2,6 +2,12 @@ import Foundation
 import SwiftUI
 import WebKit
 
+
+// MARK: - File Overview
+// WebView belongs to the native macOS client layer for the Cotor desktop application.
+// It collects declarations centered on web view so the native shell code stays easier to navigate.
+// Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
+
 /// Minimal WebKit wrapper for local preview ports exposed by agent runs.
 struct WebView: NSViewRepresentable {
     let url: URL

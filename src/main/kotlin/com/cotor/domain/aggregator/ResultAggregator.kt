@@ -1,5 +1,14 @@
 package com.cotor.domain.aggregator
 
+/**
+ * File overview for ResultAggregator.
+ *
+ * This file belongs to the domain layer for orchestration, planning, aggregation, and runtime policies.
+ * It groups declarations around result aggregator so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.analysis.ResultAnalyzer
 import com.cotor.model.AgentResult
 import com.cotor.model.AggregatedResult

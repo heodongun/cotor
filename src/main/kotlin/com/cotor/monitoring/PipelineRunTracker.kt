@@ -1,5 +1,14 @@
 package com.cotor.monitoring
 
+/**
+ * File overview for PipelineRunStatus.
+ *
+ * This file belongs to the observability layer for metrics, traces, and pipeline monitoring.
+ * It groups declarations around pipeline run tracker so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.event.EventBus
 import com.cotor.event.EventSubscription
 import com.cotor.event.PipelineCompletedEvent

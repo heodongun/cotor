@@ -1,5 +1,14 @@
 package com.cotor.error
 
+/**
+ * File overview for ErrorHelper.
+ *
+ * This file belongs to the shared implementation area for the product runtime.
+ * It groups declarations around error helper so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.*
 
 /**

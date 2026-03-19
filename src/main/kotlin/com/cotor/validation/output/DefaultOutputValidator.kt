@@ -1,5 +1,14 @@
 package com.cotor.validation.output
 
+/**
+ * File overview for DefaultOutputValidator.
+ *
+ * This file belongs to the validation layer that rejects invalid pipelines before execution.
+ * It groups declarations around default output validator so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.model.AgentResult
 import com.cotor.model.StageValidationConfig
 import java.nio.file.Files

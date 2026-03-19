@@ -1,5 +1,14 @@
 package com.cotor.domain.executor
 
+/**
+ * File overview for AgentExecutor.
+ *
+ * This file belongs to the execution layer that validates and invokes individual agents.
+ * It groups declarations around agent executor so readers can find the owning runtime area quickly.
+ * Read here first when tracing behavior that flows through this part of the codebase.
+ */
+
+
 import com.cotor.data.plugin.PluginLoader
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
