@@ -1,9 +1,7 @@
 # Cotor
 
 Cotor is a local-first AI workflow runner that grew into a company-style AI operating system: a CEO AI delegates work to subordinate AIs, CLI agents keep costs down, workflows stay visible in macOS, and a goal can drive an always-on issue loop. The same Kotlin core powers pipeline execution, the localhost `app-server`, and the native desktop shell.
-Smoke test note: this README line was added through the direct worker flow.
-
-The quickest post-build smoke test is `./shell/cotor version`.
+Smoke test: `cotor version`
 
 ## What Is Current In This Build
 
@@ -44,54 +42,55 @@ Current template types:
 - `blocked-escalation`
 - `custom`
 
+## Install
+
+### Homebrew (Recommended)
+
+```bash
+brew tap bssm-oss/cotor https://github.com/bssm-oss/cotor.git
+brew install cotor
+```
+
+This installs JDK 17 + CLI + Desktop App automatically.
+
+Or use the one-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bssm-oss/cotor/master/shell/brew-install.sh | bash
+```
+
+Update:
+
+```bash
+brew upgrade cotor
+```
+
+### From Source
+
+```bash
+git clone https://github.com/bssm-oss/cotor.git
+cd cotor
+./shell/cotor version   # JDK 17 auto-detected, shadowJar auto-built
+```
+
 ## Quick Start
 
 ```bash
-git clone https://github.com/yourusername/cotor.git
-cd cotor
-./gradlew shadowJar
-./gradlew test
-chmod +x shell/cotor
-./shell/cotor version
-# Smoke test the local install with `./shell/cotor status`.
-```
-
-Minimal smoke check: run `./shell/cotor version` after the build completes to verify the local CLI wrapper starts correctly.
-
-Common first commands:
-
-The final `./shell/cotor version` call is the quickest smoke test for the local CLI wrapper.
-
-```bash
+cotor version
 cotor --help
-cotor
-cotor --short
-cotor status
 cotor init --starter-template
-cotor template --list
-cotor status
-cotor validate <pipeline> -c <config>
-cotor run <pipeline> -c <config> --output-format text
 cotor app-server --port 8787
+open "/Applications/Cotor Desktop.app"
 ```
-
-Tiny smoke test: `cotor version` should print the current CLI version after setup.
 
 ## macOS Desktop
 
-Build and install the local app bundle:
+The desktop app is included in `brew install cotor`. To manage separately:
 
 ```bash
-cotor install
-open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop.app"
-```
-
-Manage the installed app bundle directly from the CLI:
-
-```bash
-cotor install
-cotor update
-cotor delete
+cotor install    # Build + install to /Applications
+cotor update     # Rebuild + reinstall
+cotor delete     # Remove app
 ```
 
 Current desktop model:
@@ -145,15 +144,7 @@ Historical reports, release notes, and architecture drafts are linked from [docs
 
 ## Validation
 
-Current baseline checks:
-For a tiny smoke check, run `test -x shell/cotor` to confirm the CLI launcher is present.
-
-Fast CLI smoke check after a local build: `./shell/cotor version`
-
 ```bash
-./shell/cotor version
-./gradlew --no-build-cache test -x jacocoTestCoverageVerification
-cd macos && swift build
+cotor version
+./gradlew test
 ```
-
-Tiny smoke test: `./shell/cotor version`
