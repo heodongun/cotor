@@ -294,6 +294,18 @@ class GitWorkspaceService(
             runGit(worktreePath, "push", "--set-upstream", "origin", "HEAD:$branchName")
             pushedBranch = branchName
 
+            // Ensure the base branch exists on the remote before creating a PR.
+            // Without this, GitHub rejects the PR with "no history in common".
+            val remoteBaseBranchExists = runGit(
+                worktreePath, "ls-remote", "--heads", "origin", baseBranch,
+                failOnError = false, timeoutMs = 15_000
+            ).stdout.trim().isNotBlank()
+            if (!remoteBaseBranchExists) {
+                val repoRoot = repositoryCommonRoot(worktreePath)
+                runGit(repoRoot, "push", "origin", "refs/heads/$baseBranch:refs/heads/$baseBranch",
+                    failOnError = false, timeoutMs = 30_000)
+            }
+
             pullRequest = findOpenPullRequest(worktreePath, branchName) ?: createPullRequest(
                 worktreePath = worktreePath,
                 branchName = branchName,
