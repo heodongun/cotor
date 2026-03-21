@@ -72,16 +72,19 @@ class AppServer : KoinComponent {
             cotorAppModule(token, desktopService, tuiSessionService)
         }
         server.environment.monitor.subscribe(ApplicationStopped) {
+            tuiSessionService.shutdown()
             desktopService.shutdown()
             desktopAppServerInstanceGuard.release()
         }
         Runtime.getRuntime().addShutdownHook(Thread {
+            tuiSessionService.shutdown()
             desktopService.shutdown()
             desktopAppServerInstanceGuard.release()
         })
         try {
             server.start(wait = wait)
         } catch (error: Throwable) {
+            tuiSessionService.shutdown()
             desktopService.shutdown()
             desktopAppServerInstanceGuard.release()
             throw error

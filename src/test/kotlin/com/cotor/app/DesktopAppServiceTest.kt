@@ -2158,7 +2158,7 @@ class DesktopAppServiceTest : FunSpec({
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
-        val preNow = System.currentTimeMillis()
+        val preNow = System.currentTimeMillis() - 120_000
         val preSnapshot = stateStore.load()
         stateStore.save(
             preSnapshot.copy(
@@ -2183,15 +2183,14 @@ class DesktopAppServiceTest : FunSpec({
         service.stopCompanyRuntime(company.id)
         delay(500)
 
-        // The tick detects the recoverable failure, requeues the issue to PLANNED,
-        // and restarts it – which may re-block it when the relaxed mock executor fails.
-        // Verify the retry was attempted by checking that more tasks exist.
+        // Recoverable failures should reopen the issue after the cooldown window and
+        // allow the runtime to retry the remediation path.
         val postTickTasks = stateStore.load().tasks.filter { it.issueId == remediationIssue.id }
         postTickTasks.size shouldBeGreaterThan 1
         stateStore.load().goals.first { it.id == followUpGoal.id }.status shouldBe GoalStatus.ACTIVE
     }
 
-    test("runtime keeps retrying recoverable remediation issues after multiple failed attempts") {
+    test("runtime stops auto-retrying recoverable remediation issues after repeated failures") {
         val appHome = Files.createTempDirectory("desktop-runtime-followup-retry-many-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-followup-retry-many-test").resolve("repo"))
         val stateStore = DesktopStateStore { appHome }
@@ -2238,8 +2237,9 @@ class DesktopAppServiceTest : FunSpec({
                 issueId = remediationIssue.id
             )
         }
-        val now = System.currentTimeMillis()
+        val now = System.currentTimeMillis() - 120_000
         val retrySnapshot = stateStore.load()
+        val initialRemediationTaskCount = retrySnapshot.tasks.count { it.issueId == remediationIssue.id }
         stateStore.save(
             retrySnapshot.copy(
                 issues = retrySnapshot.issues.map {
@@ -2273,10 +2273,82 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        // The tick requeues the issue and restarts it – which may re-block it when the
-        // relaxed mock executor fails.  Verify the retry was attempted via task count.
+        // After several consecutive recoverable failures, the runtime should stop
+        // automatically retrying and leave the remediation issue blocked.
         val totalRemediationTasks = stateStore.load().tasks.count { it.issueId == remediationIssue.id }
-        totalRemediationTasks shouldBeGreaterThan seededTasks.size
+        totalRemediationTasks shouldBe initialRemediationTaskCount
+        stateStore.load().issues.first { it.id == remediationIssue.id }.status shouldBe IssueStatus.BLOCKED
+    }
+
+    test("runtime waits for cooldown before retrying a recoverable blocked workflow issue") {
+        val appHome = Files.createTempDirectory("desktop-runtime-workflow-retry-cooldown-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-workflow-retry-cooldown-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = testService(
+            processManager = FakeGitProcessManager(
+                repoRoot = repoRoot,
+                remoteUrl = "https://github.com/heodongun/cotor.git",
+                defaultBranch = "master"
+            ),
+            stateStore = stateStore
+        )
+
+        val company = service.createCompany(
+            name = "Workflow Retry Cooldown Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val goal = service.createGoal(
+            companyId = company.id,
+            title = "Drive the next company cycle",
+            description = "Create and complete the next improvement slice.",
+            autonomyEnabled = true
+        )
+        val executionIssue = service.listIssues(goal.id).first { it.kind == "execution" }
+        awaitIssueTasksSettled(stateStore, executionIssue.id)
+        val existingTask = service.createTask(
+            workspaceId = executionIssue.workspaceId,
+            title = executionIssue.title,
+            prompt = executionIssue.description,
+            agents = listOf("codex"),
+            issueId = executionIssue.id
+        )
+        val now = System.currentTimeMillis()
+        val failedRun = AgentRun(
+            id = "workflow-recoverable-cooldown-run",
+            taskId = existingTask.id,
+            workspaceId = executionIssue.workspaceId,
+            repositoryId = stateStore.load().repositories.first().id,
+            agentName = "codex",
+            branchName = "codex/cotor/workflow-retry-cooldown/codex",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/workflow-retry-cooldown/codex").toString(),
+            status = AgentRunStatus.FAILED,
+            output = "Agent process exited before Cotor recorded a final result",
+            error = "Agent process exited before Cotor recorded a final result",
+            createdAt = now,
+            updatedAt = now
+        )
+        val workflowRetrySnapshot = stateStore.load()
+        val preTickTaskCount = workflowRetrySnapshot.tasks.count { it.issueId == executionIssue.id }
+        stateStore.save(
+            workflowRetrySnapshot.copy(
+                issues = workflowRetrySnapshot.issues.map {
+                    if (it.id == executionIssue.id) it.copy(status = IssueStatus.BLOCKED, updatedAt = now) else it
+                },
+                tasks = workflowRetrySnapshot.tasks.map {
+                    if (it.issueId == executionIssue.id) it.copy(status = DesktopTaskStatus.FAILED, updatedAt = now) else it
+                },
+                runs = workflowRetrySnapshot.runs + failedRun
+            )
+        )
+
+        service.startCompanyRuntime(company.id)
+        service.runCompanyRuntimeTick(company.id)
+
+        stateStore.load().tasks.count { it.issueId == executionIssue.id } shouldBe preTickTaskCount
+        stateStore.load().issues.first { it.id == executionIssue.id }.status shouldBe IssueStatus.BLOCKED
+        stateStore.load().goals.first { it.id == goal.id }.status shouldBe GoalStatus.ACTIVE
     }
 
     test("runtime reopens recoverable blocked workflow issues inside an active autonomous goal") {
@@ -2313,6 +2385,7 @@ class DesktopAppServiceTest : FunSpec({
             agents = listOf("codex"),
             issueId = executionIssue.id
         )
+        val retryAt = System.currentTimeMillis() - 120_000
         val failedRun = AgentRun(
             id = "workflow-recoverable-run",
             taskId = existingTask.id,
@@ -2324,17 +2397,17 @@ class DesktopAppServiceTest : FunSpec({
             status = AgentRunStatus.FAILED,
             output = "Agent process exited before Cotor recorded a final result",
             error = "Agent process exited before Cotor recorded a final result",
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis()
+            createdAt = retryAt,
+            updatedAt = retryAt
         )
         val workflowRetrySnapshot = stateStore.load()
         stateStore.save(
             workflowRetrySnapshot.copy(
                 issues = workflowRetrySnapshot.issues.map {
-                    if (it.id == executionIssue.id) it.copy(status = IssueStatus.BLOCKED, updatedAt = System.currentTimeMillis()) else it
+                    if (it.id == executionIssue.id) it.copy(status = IssueStatus.BLOCKED, updatedAt = retryAt) else it
                 },
                 tasks = workflowRetrySnapshot.tasks.map {
-                    if (it.issueId == executionIssue.id) it.copy(status = DesktopTaskStatus.FAILED, updatedAt = System.currentTimeMillis()) else it
+                    if (it.issueId == executionIssue.id) it.copy(status = DesktopTaskStatus.FAILED, updatedAt = retryAt) else it
                 },
                 runs = workflowRetrySnapshot.runs + failedRun
             )
@@ -2482,6 +2555,7 @@ class DesktopAppServiceTest : FunSpec({
             agents = listOf("codex"),
             issueId = remediationIssue.id
         )
+        val retryAt = System.currentTimeMillis() - 120_000
         val failedRun = AgentRun(
             id = "prpublish-remediation-run",
             taskId = existingRemediationTask.id,
@@ -2493,8 +2567,8 @@ class DesktopAppServiceTest : FunSpec({
             status = AgentRunStatus.FAILED,
             output = "Publish failed: pull request create failed: GraphQL: was submitted too quickly (createPullRequest)",
             error = "Publish failed: pull request create failed: GraphQL: was submitted too quickly (createPullRequest)",
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis(),
+            createdAt = retryAt,
+            updatedAt = retryAt,
             publish = PublishMetadata(
                 error = "pull request create failed: GraphQL: was submitted too quickly (createPullRequest)"
             )
@@ -2503,11 +2577,11 @@ class DesktopAppServiceTest : FunSpec({
         stateStore.save(
             prPublishSnapshot.copy(
                 issues = prPublishSnapshot.issues.map {
-                    if (it.id == remediationIssue.id) it.copy(status = IssueStatus.BLOCKED, updatedAt = System.currentTimeMillis()) else it
+                    if (it.id == remediationIssue.id) it.copy(status = IssueStatus.BLOCKED, updatedAt = retryAt) else it
                 },
                 tasks = prPublishSnapshot.tasks.map {
                     if (it.issueId == remediationIssue.id) {
-                        it.copy(status = DesktopTaskStatus.FAILED, updatedAt = System.currentTimeMillis())
+                        it.copy(status = DesktopTaskStatus.FAILED, updatedAt = retryAt)
                     } else {
                         it
                     }

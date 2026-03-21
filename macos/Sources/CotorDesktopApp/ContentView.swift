@@ -274,12 +274,18 @@ private struct DesktopTopBar: View {
     @EnvironmentObject private var store: DesktopStore
     @Binding var searchText: String
     private var l: AppLanguage { store.language }
+    private var shellModeBinding: Binding<AppShellMode> {
+        Binding(
+            get: { store.shellMode },
+            set: { store.setShellMode($0) }
+        )
+    }
 
     var body: some View {
         HStack(spacing: 12) {
             HStack(spacing: 10) {
                 Menu {
-                    Picker(l("Shell Mode", "셸 모드"), selection: $store.shellMode) {
+                    Picker(l("Shell Mode", "셸 모드"), selection: shellModeBinding) {
                         Text(l("Company", "회사")).tag(AppShellMode.company)
                         Text(l("TUI", "TUI")).tag(AppShellMode.tui)
                     }
