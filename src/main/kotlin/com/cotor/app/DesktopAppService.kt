@@ -6739,6 +6739,16 @@ class DesktopAppService(
                 return@withLock
             }
             val hasPublishMetadata = primaryRun?.publish?.pullRequestUrl != null || primaryRun?.publish?.pullRequestNumber != null
+            val publishAlreadyAdvanced =
+                hasPublishMetadata &&
+                    finalStatus == DesktopTaskStatus.COMPLETED &&
+                    currentIssue.status in setOf(IssueStatus.IN_REVIEW, IssueStatus.READY_FOR_CEO, IssueStatus.DONE) &&
+                    currentIssue.branchName == primaryRun?.branchName &&
+                    currentIssue.pullRequestNumber == primaryRun?.publish?.pullRequestNumber &&
+                    currentIssue.pullRequestUrl == primaryRun?.publish?.pullRequestUrl
+            if (publishAlreadyAdvanced) {
+                return@withLock
+            }
             val pullRequestRequired = requiresGitHubPullRequest(currentIssue, state)
             val nextIssueStatus = when {
                 finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata -> IssueStatus.IN_REVIEW
