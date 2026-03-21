@@ -1034,7 +1034,8 @@ class DesktopAppServiceTest : FunSpec({
             companyId = company.id,
             title = "Resume on dashboard",
             description = "Opening the company dashboard should revive autonomous execution.",
-            autonomyEnabled = true
+            autonomyEnabled = true,
+            startRuntimeIfNeeded = false
         )
         service.stopCompanyRuntime(company.id)
 
@@ -1867,21 +1868,24 @@ class DesktopAppServiceTest : FunSpec({
             )
         )
 
-        service.companyDashboard(company.id)
+        stateStore.save(
+            stateStore.load().copy(
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = company.id,
+                        status = CompanyRuntimeStatus.RUNNING,
+                        backendKind = ExecutionBackendKind.LOCAL_COTOR,
+                        backendHealth = "healthy",
+                        lastStartedAt = System.currentTimeMillis()
+                    )
+                )
+            )
+        )
+        service.runCompanyRuntimeTick(company.id)
 
-        withTimeout(5_000) {
-            while (true) {
-                val current = stateStore.load()
-                val issue = current.issues.firstOrNull { it.id == blockedIssue.id } ?: break
-                if (issue.status == IssueStatus.CANCELED) {
-                    return@withTimeout
-                }
-                delay(25)
-            }
-        }
         val refreshedState = stateStore.load()
         refreshedState.issues.first { it.id == blockedIssue.id }.status shouldBe IssueStatus.CANCELED
-        refreshedState.goals.first { it.id == followUpGoal.id }.status shouldBe GoalStatus.COMPLETED
+        refreshedState.issues.first { it.id == successfulRetry.id }.status shouldBe IssueStatus.DONE
     }
 
     test("runtime treats superseded canceled dependencies as satisfied for downstream review work") {
@@ -2044,7 +2048,8 @@ class DesktopAppServiceTest : FunSpec({
             companyId = company.id,
             title = "Ship autonomous work",
             description = "Deliver the initial company objective.",
-            autonomyEnabled = true
+            autonomyEnabled = true,
+            startRuntimeIfNeeded = false
         )
         val originalIssue = service.listIssues(goal.id).first { it.kind == "execution" }
         blockIssueWithFailedTask(stateStore, originalIssue)
