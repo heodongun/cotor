@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# Finder-launched app bundles may start with a nearly empty PATH. Establish a
+# safe baseline before the launcher reaches for core utilities like `dirname`.
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin${PATH:+:$PATH}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESOURCES_DIR="$APP_ROOT/Resources"
@@ -13,6 +17,8 @@ PID_FILE="$RUNTIME_DIR/app-server.pid"
 PORT_FILE="$RUNTIME_DIR/app-server.port"
 TOKEN_FILE="$RUNTIME_DIR/app-server.token"
 APP_HOME="$HOME/Library/Application Support/CotorDesktop"
+BACKEND_RUNTIME_DIR="$APP_HOME/runtime/backend"
+INSTANCE_METADATA_FILE="$BACKEND_RUNTIME_DIR/app-server.instance.json"
 SERVER_URL="${COTOR_APP_SERVER_URL:-}"
 SERVER_PORT=""
 SERVER_TOKEN="${COTOR_APP_TOKEN:-}"
@@ -117,6 +123,49 @@ log_launcher() {
 
 clear_backend_runtime_files() {
     rm -f "$PID_FILE" "$PORT_FILE" "$TOKEN_FILE"
+}
+
+read_existing_instance_pid() {
+    if [[ ! -f "$INSTANCE_METADATA_FILE" ]]; then
+        return 0
+    fi
+
+    /usr/bin/python3 - "$INSTANCE_METADATA_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+metadata_path = pathlib.Path(sys.argv[1])
+try:
+    data = json.loads(metadata_path.read_text())
+except Exception:
+    sys.exit(0)
+
+pid = data.get("pid")
+if pid:
+    print(pid)
+PY
+}
+
+terminate_conflicting_app_home_backend() {
+    local existing_pid
+    existing_pid="$(read_existing_instance_pid)"
+    [[ -n "$existing_pid" ]] || return 0
+    is_pid_alive "$existing_pid" || return 0
+
+    local existing_args
+    existing_args="$(ps -p "$existing_pid" -o args= 2>/dev/null || true)"
+    [[ -n "$existing_args" ]] || return 0
+    [[ "$existing_args" == *" app-server "* || "$existing_args" == *" app-server" ]] || return 0
+
+    log_launcher "Terminating conflicting app-home backend $existing_pid: $existing_args"
+    kill "$existing_pid" >/dev/null 2>&1 || true
+    sleep 0.8
+    if is_pid_alive "$existing_pid"; then
+        log_launcher "Escalating conflicting app-home backend $existing_pid to SIGKILL."
+        kill -9 "$existing_pid" >/dev/null 2>&1 || true
+        sleep 0.3
+    fi
 }
 
 list_bundled_backend_pids() {
@@ -274,6 +323,7 @@ ensure_backend() {
     # desktop bundle never talks to an older app-server process left behind by a
     # past version of the app or a second app instance.
     terminate_stale_bundled_backends
+    terminate_conflicting_app_home_backend
 
     start_managed_backend
 }

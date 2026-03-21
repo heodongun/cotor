@@ -12,9 +12,13 @@ actor EmbeddedBackendLauncher {
 
     private let port = 8787
     private var process: Process?
+    private var shutdownRequested = false
     private let shutdownPollIntervalMs = 200
 
     func ensureRunning() async {
+        if shutdownRequested {
+            return
+        }
         terminateStaleBundledBackendProcesses()
         if await healthCheck() {
             return
@@ -59,6 +63,10 @@ actor EmbeddedBackendLauncher {
         process.standardError = FileHandle(forWritingAtPath: stderrPath)
 
         do {
+            if shutdownRequested {
+                AppLogger.info("Skipping embedded backend launch because shutdown is in progress.")
+                return
+            }
             AppLogger.info("Launching embedded backend on port \(port) with jar \(jarPath).")
             try process.run()
             self.process = process
@@ -76,6 +84,7 @@ actor EmbeddedBackendLauncher {
     }
 
     func restart() async {
+        shutdownRequested = false
         AppLogger.info("Restarting embedded backend.")
         _ = await terminateCurrentProcess(timeoutSeconds: 2)
         terminateExternalBundledBackendProcesses()
@@ -83,6 +92,7 @@ actor EmbeddedBackendLauncher {
     }
 
     func stop(timeoutSeconds: TimeInterval = 5) async -> Bool {
+        shutdownRequested = true
         AppLogger.info("Embedded backend stop started.")
         let trackedStopped = await terminateCurrentProcess(timeoutSeconds: min(timeoutSeconds, 2))
         terminateExternalBundledBackendProcesses()

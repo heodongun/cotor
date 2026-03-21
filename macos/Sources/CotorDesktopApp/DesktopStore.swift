@@ -352,6 +352,12 @@ final class DesktopStore: ObservableObject {
         objectWillChange.send()
     }
 
+    func setShellMode(_ mode: AppShellMode) {
+        guard shellMode != mode else { return }
+        shellMode = mode
+        Task { await handleShellModeChange(mode) }
+    }
+
     func openSettings() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -1603,6 +1609,35 @@ final class DesktopStore: ObservableObject {
             }
         }
         return false
+    }
+
+    private func handleShellModeChange(_ mode: AppShellMode) async {
+        switch mode {
+        case .company:
+            stopTuiPolling()
+            await restartCompanyEventStream()
+        case .tui:
+            companyEventTask?.cancel()
+            selectWorkspaceForTuiIfNeeded()
+            await ensureTuiSession()
+        }
+    }
+
+    private func selectWorkspaceForTuiIfNeeded() {
+        if let company = selectedCompany {
+            let currentWorkspace = selectedWorkspace
+            let isCurrentWorkspaceAligned = currentWorkspace?.repositoryId == company.repositoryId
+            if !isCurrentWorkspaceAligned {
+                selectedWorkspaceID =
+                    dashboard.workspaces.first(where: { $0.repositoryId == company.repositoryId && $0.baseBranch == company.defaultBaseBranch })?.id
+                    ?? dashboard.workspaces.first(where: { $0.repositoryId == company.repositoryId })?.id
+            }
+            selectedRepositoryID = company.repositoryId
+        }
+
+        if selectedWorkspaceID == nil {
+            selectedWorkspaceID = dashboard.workspaces.first?.id
+        }
     }
 
     /// The center pane should always show the real interactive TUI for the

@@ -16,6 +16,7 @@ import com.cotor.model.CotorConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -26,6 +27,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.TimeUnit
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.createDirectories
@@ -160,8 +162,16 @@ class DesktopTuiSessionService(
 
     suspend fun terminateSession(sessionId: String): TuiSession {
         val session = sessions[sessionId] ?: throw IllegalArgumentException("TUI session not found: $sessionId")
-        session.process.destroy()
+        terminateRuntimeSession(session)
         return session.snapshot()
+    }
+
+    fun shutdown() {
+        val activeSessions = sessions.values.toList()
+        sessions.clear()
+        workspaceSessions.clear()
+        activeSessions.forEach(::terminateRuntimeSession)
+        scope.cancel()
     }
 
     private fun startReader(session: RuntimeSession, stream: InputStream) {
@@ -192,6 +202,33 @@ class DesktopTuiSessionService(
 
             val nextStatus = if (exitCode == 0) TuiSessionStatus.EXITED else TuiSessionStatus.FAILED
             session.updateStatus(nextStatus, exitCode)
+            sessions.remove(session.session.id, session)
+            workspaceSessions.remove(session.session.workspaceId, session.session.id)
+        }
+    }
+
+    private fun terminateRuntimeSession(session: RuntimeSession) {
+        runCatching {
+            session.mutex.tryLock().let { locked ->
+                if (locked) {
+                    try {
+                        session.stdin.close()
+                    } finally {
+                        session.mutex.unlock()
+                    }
+                } else {
+                    session.stdin.close()
+                }
+            }
+        }
+
+        val process = session.process
+        if (process.isAlive) {
+            process.destroy()
+            if (!runCatching { process.waitFor(1500, TimeUnit.MILLISECONDS) }.getOrDefault(false)) {
+                process.destroyForcibly()
+                runCatching { process.waitFor(1500, TimeUnit.MILLISECONDS) }
+            }
         }
     }
 
