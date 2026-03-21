@@ -114,6 +114,9 @@ class DesktopAppService(
         private const val COMPANY_TRACE_DEDUP_WINDOW_MS = 30_000L
         private const val COMPANY_TRACE_ROTATE_BYTES = 8L * 1024L * 1024L
         private const val COMPANY_RUNTIME_ERROR_ROTATE_BYTES = 2L * 1024L * 1024L
+        private const val RECOVERABLE_RETRY_BASE_DELAY_MS = 30_000L
+        private const val RECOVERABLE_RETRY_MAX_DELAY_MS = 5L * 60_000L
+        private const val RECOVERABLE_RETRY_MAX_ATTEMPTS = 3
         private const val CEO_PLANNING_SOURCE = "ceo-planning"
         private const val QA_REVIEW_SOURCE_PREFIX = "qa-review:"
         private const val CEO_APPROVAL_SOURCE_PREFIX = "ceo-approval:"
@@ -135,6 +138,22 @@ class DesktopAppService(
     private val backendJson = Json { ignoreUnknownKeys = true }
     private val localExecutionBackend = LocalCotorBackend(agentExecutor)
     private val codexAppServerBackend = CodexAppServerBackend(backendJson)
+
+    private enum class RecoverableRetryMode {
+        NONE,
+        WAITING,
+        READY,
+        EXHAUSTED
+    }
+
+    private data class RecoverableRetryDecision(
+        val mode: RecoverableRetryMode,
+        val consecutiveFailures: Int = 0,
+        val retryAt: Long? = null
+    ) {
+        val canAutoRetry: Boolean
+            get() = mode == RecoverableRetryMode.WAITING || mode == RecoverableRetryMode.READY
+    }
 
     init {
         // Runtime state is persisted across app-server restarts. Reattach loops eagerly
@@ -2781,6 +2800,13 @@ class DesktopAppService(
                     issue.assigneeProfileId
                 }
                 .toMutableSet()
+            val tasksByIssueId = executionSnapshot.tasks
+                .filter { it.issueId != null }
+                .groupBy { it.issueId!! }
+            val latestRunsByTaskId = executionSnapshot.runs
+                .groupBy { it.taskId }
+                .mapValues { (_, runs) -> runs.maxByOrNull { it.updatedAt }!! }
+            val now = System.currentTimeMillis()
             val runnableIssues = executionSnapshot.issues
                 .filter { issue ->
                     executionSnapshot.goals.firstOrNull { it.id == issue.goalId }?.let { goal ->
@@ -2800,7 +2826,15 @@ class DesktopAppService(
                         task.issueId == issue.id &&
                             (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED)
                     }
-                    dependenciesSatisfied && !alreadyStarted
+                    val retryDecision = resolveRecoverableRetryDecision(
+                        tasksByIssueId[issue.id].orEmpty(),
+                        latestRunsByTaskId,
+                        now
+                    )
+                    val waitingForRetryCooldown =
+                        issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
+                            retryDecision.mode == RecoverableRetryMode.WAITING
+                    dependenciesSatisfied && !alreadyStarted && !waitingForRetryCooldown
                 }
             val startableIssues = mutableListOf<CompanyIssue>()
             runnableIssues.forEach { candidate ->
@@ -2863,11 +2897,15 @@ class DesktopAppService(
     private suspend fun requeueRecoverableBlockedIssues(companyId: String): Int {
         var retried = 0
         val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        val informationalTraceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         stateMutex.withLock {
             val state = stateStore.load()
             val now = System.currentTimeMillis()
             val goalsById = state.goals.associateBy { it.id }
             val issuesById = state.issues.associateBy { it.id }
+            val latestRunsByTaskId = state.runs
+                .groupBy { it.taskId }
+                .mapValues { (_, runs) -> runs.maxByOrNull { it.updatedAt }!! }
             val activeTaskIssueIds = state.tasks
                 .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
                 .mapNotNull { it.issueId }
@@ -2912,10 +2950,36 @@ class DesktopAppService(
                     return@map updatedIssue
                 }
                 val latestTask = issueTasks.first()
-                val latestRun = state.runs
-                    .filter { it.taskId == latestTask.id }
-                    .maxByOrNull { it.updatedAt }
-                if (!isRecoverableInfrastructureFailure(latestTask, latestRun)) {
+                val latestRun = latestRunsByTaskId[latestTask.id]
+                val retryDecision = resolveRecoverableRetryDecision(issueTasks, latestRunsByTaskId, now)
+                if (retryDecision.mode == RecoverableRetryMode.NONE || retryDecision.mode == RecoverableRetryMode.EXHAUSTED) {
+                    if (retryDecision.mode == RecoverableRetryMode.EXHAUSTED) {
+                        informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                            issue = issue,
+                            goal = goal,
+                            oldStatus = issue.status,
+                            newStatus = issue.status,
+                            source = "requeueRecoverableBlockedIssues",
+                            reason = "Stopped automatic retry after ${retryDecision.consecutiveFailures} consecutive recoverable failures.",
+                            latestTask = latestTask,
+                            latestRun = latestRun,
+                            retryEligible = false
+                        )
+                    }
+                    return@map issue
+                }
+                if (retryDecision.mode == RecoverableRetryMode.WAITING) {
+                    informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                        issue = issue,
+                        goal = goal,
+                        oldStatus = issue.status,
+                        newStatus = issue.status,
+                        source = "requeueRecoverableBlockedIssues",
+                        reason = "Waiting for retry cooldown before rerunning the issue.",
+                        latestTask = latestTask,
+                        latestRun = latestRun,
+                        retryEligible = true
+                    )
                     return@map issue
                 }
                 changed = true
@@ -2956,6 +3020,7 @@ class DesktopAppService(
             stateStore.save(nextState.withDerivedMetrics())
         }
         traceEvents.forEach(::appendCompanyAutomationTrace)
+        informationalTraceEvents.forEach(::appendCompanyAutomationTrace)
         return retried
     }
 
@@ -2980,11 +3045,58 @@ class DesktopAppService(
         }
     }
 
+    private fun computeRecoverableRetryDelayMs(consecutiveFailures: Int): Long {
+        val exponent = (consecutiveFailures - 1).coerceAtLeast(0).coerceAtMost(4)
+        val multiplier = 1L shl exponent
+        return (RECOVERABLE_RETRY_BASE_DELAY_MS * multiplier).coerceAtMost(RECOVERABLE_RETRY_MAX_DELAY_MS)
+    }
+
+    private fun resolveRecoverableRetryDecision(
+        issueTasks: List<AgentTask>,
+        latestRunsByTaskId: Map<String, AgentRun>,
+        now: Long
+    ): RecoverableRetryDecision {
+        val orderedTasks = issueTasks.sortedByDescending { it.updatedAt }
+        val latestTask = orderedTasks.firstOrNull() ?: return RecoverableRetryDecision(RecoverableRetryMode.NONE)
+        val latestRun = latestRunsByTaskId[latestTask.id]
+        if (!isRecoverableInfrastructureFailure(latestTask, latestRun)) {
+            return RecoverableRetryDecision(RecoverableRetryMode.NONE)
+        }
+
+        var consecutiveFailures = 0
+        for (candidate in orderedTasks) {
+            val candidateRun = latestRunsByTaskId[candidate.id]
+            if (!isRecoverableInfrastructureFailure(candidate, candidateRun)) {
+                break
+            }
+            consecutiveFailures += 1
+        }
+
+        if (consecutiveFailures >= RECOVERABLE_RETRY_MAX_ATTEMPTS) {
+            return RecoverableRetryDecision(
+                mode = RecoverableRetryMode.EXHAUSTED,
+                consecutiveFailures = consecutiveFailures,
+                retryAt = latestTask.updatedAt + computeRecoverableRetryDelayMs(consecutiveFailures)
+            )
+        }
+
+        val retryAt = latestTask.updatedAt + computeRecoverableRetryDelayMs(consecutiveFailures)
+        return RecoverableRetryDecision(
+            mode = if (now >= retryAt) RecoverableRetryMode.READY else RecoverableRetryMode.WAITING,
+            consecutiveFailures = consecutiveFailures,
+            retryAt = retryAt
+        )
+    }
+
     private suspend fun reconcileTerminalIssueStates(companyId: String): Int {
         val taskIdsToSync = mutableListOf<String>()
         val informationalTraceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         stateMutex.withLock {
             val state = stateStore.load()
+            val now = System.currentTimeMillis()
+            val latestRunsByTaskId = state.runs
+                .groupBy { it.taskId }
+                .mapValues { (_, runs) -> runs.maxByOrNull { it.updatedAt }!! }
             val activeTaskIssueIds = state.tasks
                 .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
                 .mapNotNull { it.issueId }
@@ -2997,19 +3109,18 @@ class DesktopAppService(
                         issue.id !in activeTaskIssueIds
                 }
                 .forEach { issue ->
-                    val latestTask = state.tasks
+                    val issueTasks = state.tasks
                         .filter { it.issueId == issue.id }
-                        .maxByOrNull { it.updatedAt }
-                        ?: return@forEach
-                    val latestRun = state.runs
-                        .filter { it.taskId == latestTask.id }
-                        .maxByOrNull { it.updatedAt }
+                        .sortedByDescending { it.updatedAt }
+                    val latestTask = issueTasks.firstOrNull() ?: return@forEach
+                    val retryDecision = resolveRecoverableRetryDecision(issueTasks, latestRunsByTaskId, now)
+                    val latestRun = latestRunsByTaskId[latestTask.id]
                     if (latestTask.status == DesktopTaskStatus.RUNNING || latestTask.status == DesktopTaskStatus.QUEUED) {
                         return@forEach
                     }
                     val recoverableRetryPending =
                         issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
-                            isRecoverableInfrastructureFailure(latestTask, latestRun)
+                            retryDecision.canAutoRetry
                     if (recoverableRetryPending) {
                         informationalTraceEvents += buildCompanyAutomationTraceEvent(
                             issue = issue,
@@ -3053,6 +3164,9 @@ class DesktopAppService(
             val tasksByIssueId = state.tasks
                 .filter { it.issueId != null }
                 .groupBy { it.issueId!! }
+            val latestRunsByTaskId = state.runs
+                .groupBy { it.taskId }
+                .mapValues { (_, runs) -> runs.maxByOrNull { it.updatedAt }!! }
             val recursiveGoalIds = state.goals
                 .filter { goal ->
                     goal.companyId == companyId &&
@@ -3090,18 +3204,16 @@ class DesktopAppService(
                 val latestTask = tasksByIssueId[issue.id].orEmpty().maxByOrNull { it.updatedAt }
                 val goal = goalsById[issue.goalId]
                 val workflowDrivenIssue = issue.kind.lowercase() in setOf("execution", "review", "approval")
-                val latestRun = latestTask?.let { task ->
-                    state.runs
-                        .filter { it.taskId == task.id }
-                        .maxByOrNull { it.updatedAt }
-                }
+                val issueTasks = tasksByIssueId[issue.id].orEmpty().sortedByDescending { it.updatedAt }
+                val latestRun = latestTask?.let { latestRunsByTaskId[it.id] }
+                val retryDecision = resolveRecoverableRetryDecision(issueTasks, latestRunsByTaskId, now)
                 val recoverableRetryPending =
                     latestTask != null &&
                         latestTask.status != DesktopTaskStatus.RUNNING &&
                         latestTask.status != DesktopTaskStatus.QUEUED &&
                         issue.id !in activeTaskIssueIds &&
                         issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
-                        isRecoverableInfrastructureFailure(latestTask, latestRun)
+                        retryDecision.canAutoRetry
                 val recoverableBlockedIssueReadyForRetry =
                     latestTask != null &&
                         latestTask.status != DesktopTaskStatus.RUNNING &&
@@ -3110,7 +3222,7 @@ class DesktopAppService(
                         issue.status == IssueStatus.BLOCKED &&
                         goal?.autonomyEnabled == true &&
                         goal.status != GoalStatus.COMPLETED &&
-                        isRecoverableInfrastructureFailure(latestTask, latestRun)
+                        retryDecision.canAutoRetry
                 val supersededBySuccessfulRetry =
                     goal?.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
                         issue.status != IssueStatus.DONE &&
@@ -3158,13 +3270,17 @@ class DesktopAppService(
                             newStatus = issue.status,
                             source = "normalizeCompanyAutomationState",
                             reason = if (isRecoverableInfrastructureFailure(latestTask, latestRun)) {
-                                "Blocked workflow issue is recoverable but could not be reopened because its goal is not autonomous."
+                                if (retryDecision.mode == RecoverableRetryMode.EXHAUSTED) {
+                                    "Blocked workflow issue hit the automatic retry limit after repeated recoverable failures."
+                                } else {
+                                    "Blocked workflow issue is recoverable but could not be reopened because its goal is not autonomous."
+                                }
                             } else {
                                 "Blocked workflow issue remains blocked because its latest failure is not recoverable."
                             },
                             latestTask = latestTask,
                             latestRun = latestRun,
-                            retryEligible = latestTask.let { isRecoverableInfrastructureFailure(it, latestRun) }
+                            retryEligible = retryDecision.canAutoRetry
                         )
                     } else if (workflowDrivenIssue && latestTask != null && latestTask.status != DesktopTaskStatus.RUNNING && latestTask.status != DesktopTaskStatus.QUEUED) {
                         informationalTraceEvents += buildCompanyAutomationTraceEvent(
@@ -3176,7 +3292,7 @@ class DesktopAppService(
                             reason = "Skipped overriding a workflow-driven issue because task reconciliation owns its final status.",
                             latestTask = latestTask,
                             latestRun = latestRun,
-                            retryEligible = latestTask.let { isRecoverableInfrastructureFailure(it, latestRun) }
+                            retryEligible = retryDecision.canAutoRetry
                         )
                     }
                     issue
@@ -3204,7 +3320,7 @@ class DesktopAppService(
                         reason = reason,
                         latestTask = latestTask,
                         latestRun = latestRun,
-                        retryEligible = latestTask?.let { isRecoverableInfrastructureFailure(it, latestRun) }
+                        retryEligible = retryDecision.canAutoRetry
                     )
                     updatedIssue
                 }
@@ -6600,9 +6716,14 @@ class DesktopAppService(
         stateMutex.withLock {
             val state = stateStore.load()
             val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
+            val retryDecision = resolveRecoverableRetryDecision(
+                state.tasks.filter { it.issueId == currentIssue.id },
+                state.runs.groupBy { it.taskId }.mapValues { (_, runs) -> runs.maxByOrNull { it.updatedAt }!! },
+                now
+            )
             val recoverableRetryPending =
                 currentIssue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
-                    isRecoverableInfrastructureFailure(task, primaryRun)
+                    retryDecision.canAutoRetry
             if (recoverableRetryPending) {
                 informationalTraceEvents += buildCompanyAutomationTraceEvent(
                     issue = currentIssue,
