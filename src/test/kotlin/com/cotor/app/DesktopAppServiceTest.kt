@@ -1034,7 +1034,8 @@ class DesktopAppServiceTest : FunSpec({
             companyId = company.id,
             title = "Resume on dashboard",
             description = "Opening the company dashboard should revive autonomous execution.",
-            autonomyEnabled = true
+            autonomyEnabled = true,
+            startRuntimeIfNeeded = false
         )
         service.stopCompanyRuntime(company.id)
 
@@ -1867,21 +1868,24 @@ class DesktopAppServiceTest : FunSpec({
             )
         )
 
-        service.companyDashboard(company.id)
+        stateStore.save(
+            stateStore.load().copy(
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = company.id,
+                        status = CompanyRuntimeStatus.RUNNING,
+                        backendKind = ExecutionBackendKind.LOCAL_COTOR,
+                        backendHealth = "healthy",
+                        lastStartedAt = System.currentTimeMillis()
+                    )
+                )
+            )
+        )
+        service.runCompanyRuntimeTick(company.id)
 
-        withTimeout(5_000) {
-            while (true) {
-                val current = stateStore.load()
-                val issue = current.issues.firstOrNull { it.id == blockedIssue.id } ?: break
-                if (issue.status == IssueStatus.CANCELED) {
-                    return@withTimeout
-                }
-                delay(25)
-            }
-        }
         val refreshedState = stateStore.load()
         refreshedState.issues.first { it.id == blockedIssue.id }.status shouldBe IssueStatus.CANCELED
-        refreshedState.goals.first { it.id == followUpGoal.id }.status shouldBe GoalStatus.COMPLETED
+        refreshedState.issues.first { it.id == successfulRetry.id }.status shouldBe IssueStatus.DONE
     }
 
     test("runtime treats superseded canceled dependencies as satisfied for downstream review work") {
@@ -2044,7 +2048,8 @@ class DesktopAppServiceTest : FunSpec({
             companyId = company.id,
             title = "Ship autonomous work",
             description = "Deliver the initial company objective.",
-            autonomyEnabled = true
+            autonomyEnabled = true,
+            startRuntimeIfNeeded = false
         )
         val originalIssue = service.listIssues(goal.id).first { it.kind == "execution" }
         blockIssueWithFailedTask(stateStore, originalIssue)
@@ -4102,6 +4107,187 @@ class DesktopAppServiceTest : FunSpec({
         refreshedQueue.ceoFeedback shouldBe null
         refreshedQueue.ceoReviewedAt shouldBe null
         refreshedQueue.qaVerdict shouldBe "PASS"
+    }
+
+    test("runtime does not reopen QA review after the same PR already advanced to CEO review") {
+        val appHome = Files.createTempDirectory("desktop-app-service-execution-resync-guard")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-execution-resync-guard-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "Execution Resync Guard Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-execution-resync-guard",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Do not reopen QA for the same PR",
+            description = "Protect READY_FOR_CEO work from stale execution reconciliation.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = true,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-resync-guard",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Ship the already reviewed PR",
+            description = "Execution branch work.",
+            status = IssueStatus.READY_FOR_CEO,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/execution-resync-guard",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/execution-resync-guard/codex").toString(),
+            pullRequestNumber = 77,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/77",
+            pullRequestState = "OPEN",
+            qaVerdict = "PASS",
+            qaFeedback = "QA already approved this PR.",
+            createdAt = now,
+            updatedAt = now
+        )
+        val reviewIssue = CompanyIssue(
+            id = "issue-review-resync-guard",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "QA review Ship the already reviewed PR",
+            description = "QA checks the branch.",
+            status = IssueStatus.DONE,
+            priority = 2,
+            kind = "review",
+            dependsOn = listOf(executionIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = "PASS",
+            qaFeedback = "QA already approved this PR.",
+            sourceSignal = "qa-review:${executionIssue.id}",
+            createdAt = now,
+            updatedAt = now
+        )
+        val approvalIssue = CompanyIssue(
+            id = "issue-approval-resync-guard",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "CEO approve Ship the already reviewed PR",
+            description = "CEO approval gate.",
+            status = IssueStatus.PLANNED,
+            priority = 1,
+            kind = "approval",
+            dependsOn = listOf(reviewIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = "PASS",
+            qaFeedback = "QA already approved this PR.",
+            sourceSignal = "ceo-approval:${executionIssue.id}",
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionTask = AgentTask(
+            id = "task-execution-resync-guard",
+            workspaceId = workspace.id,
+            title = executionIssue.title,
+            prompt = executionIssue.description,
+            agents = listOf("codex"),
+            issueId = executionIssue.id,
+            status = DesktopTaskStatus.COMPLETED,
+            createdAt = now - 5_000,
+            updatedAt = now - 4_000
+        )
+        val executionRun = AgentRun(
+            id = "run-execution-resync-guard",
+            taskId = executionTask.id,
+            workspaceId = workspace.id,
+            repositoryId = company.repositoryId,
+            agentName = "codex",
+            repoRoot = repoRoot.toString(),
+            baseBranch = "master",
+            status = AgentRunStatus.COMPLETED,
+            output = "Already published.",
+            branchName = executionIssue.branchName!!,
+            worktreePath = executionIssue.worktreePath!!,
+            publish = PublishMetadata(
+                commitSha = "resyncguard",
+                pullRequestNumber = executionIssue.pullRequestNumber,
+                pullRequestUrl = executionIssue.pullRequestUrl,
+                pullRequestState = executionIssue.pullRequestState
+            ),
+            durationMs = 150,
+            createdAt = now - 5_000,
+            updatedAt = now - 4_000
+        )
+        val reviewQueueItem = ReviewQueueItem(
+            id = "rq-execution-resync-guard",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            issueId = executionIssue.id,
+            runId = executionRun.id,
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            status = ReviewQueueStatus.READY_FOR_CEO,
+            qaVerdict = "PASS",
+            qaFeedback = "QA already approved this PR.",
+            qaReviewedAt = now - 2_000,
+            qaIssueId = reviewIssue.id,
+            approvalIssueId = approvalIssue.id,
+            createdAt = now - 10_000,
+            updatedAt = now - 2_000
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + listOf(executionIssue, reviewIssue, approvalIssue),
+                tasks = baseState.tasks + executionTask,
+                runs = baseState.runs + executionRun,
+                reviewQueue = baseState.reviewQueue + reviewQueueItem,
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = company.id,
+                        status = CompanyRuntimeStatus.RUNNING,
+                        backendKind = ExecutionBackendKind.LOCAL_COTOR,
+                        backendHealth = "healthy",
+                        lastStartedAt = now
+                    )
+                )
+            )
+        )
+
+        service.runCompanyRuntimeTick(company.id)
+
+        val refreshed = stateStore.load()
+        refreshed.issues.first { it.id == executionIssue.id }.status shouldBe IssueStatus.READY_FOR_CEO
+        refreshed.issues.first { it.id == reviewIssue.id }.status shouldBe IssueStatus.DONE
+        refreshed.issues.first { it.id == approvalIssue.id }.status shouldBe IssueStatus.IN_PROGRESS
+        refreshed.companyActivity.none { it.title == "Reopened QA review issue" } shouldBe true
     }
 
     test("CEO approval merges the current PR and completes the execution lineage") {
