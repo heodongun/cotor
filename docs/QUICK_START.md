@@ -5,7 +5,7 @@
 ## Homebrew 설치 (추천)
 
 ```bash
-# 원라이너 설치 (JDK 17 + CLI + Desktop App 전부 설치)
+# 원라이너 설치 (JDK 17 + CLI 설치, 데스크톱 앱 번들 포함)
 curl -fsSL https://raw.githubusercontent.com/bssm-oss/cotor/master/shell/brew-install.sh | bash
 ```
 
@@ -20,8 +20,14 @@ brew install cotor
 
 ```bash
 cotor version
+cotor install
 open "/Applications/Cotor Desktop.app"
 ```
+
+참고:
+- Homebrew formula는 packaged desktop bundle을 함께 설치하지만, Applications 복사는 `cotor install`을 사용자 셸에서 명시적으로 실행할 때 수행됩니다.
+- `brew install cotor` 뒤 첫 `cotor` 실행에서 로컬 `cotor.yaml`이 없으면 starter config는 `~/.cotor/interactive/default/cotor.yaml` 아래에 생성됩니다.
+- 이 starter config는 실제로 바로 응답 가능한 AI CLI 또는 API 키만 자동 채택하고, 준비되지 않은 CLI는 starter 후보에서 제외합니다.
 
 업데이트:
 
@@ -38,8 +44,8 @@ brew upgrade cotor
 ## macOS Desktop App
 
 ```bash
-cotor install    # 빌드 + /Applications에 설치
-cotor update     # 리빌드 + 재설치
+cotor install    # Homebrew면 번들 앱 설치, 소스 체크아웃이면 로컬 빌드 후 설치
+cotor update     # Homebrew면 번들 재설치, 소스 체크아웃이면 리빌드 후 재설치
 cotor delete     # 삭제
 ```
 
@@ -70,6 +76,8 @@ swift run --package-path macos CotorDesktopApp
 
 ```bash
 cotor
+cotor help
+cotor help --lang en
 cotor --short
 cotor list -c cotor.yaml
 cotor status

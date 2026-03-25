@@ -31,8 +31,8 @@ import com.github.ajalt.mordant.terminal.Terminal
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import java.io.File
 import java.nio.file.Files
+import java.util.Locale
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -79,13 +79,35 @@ class CotorCli : CliktCommand(
     override fun run() {
         val terminal = Terminal()
         if (short) {
-            CheatSheetPrinter.print(terminal)
+            CheatSheetPrinter.printShort(terminal)
             return
         }
         if (currentContext.invokedSubcommand == null) {
-            CheatSheetPrinter.print(terminal)
-            terminal.println("ℹ️  상세 도움말: cotor --help")
+            CheatSheetPrinter.printShort(terminal)
+            terminal.println(
+                when (CliHelpLanguage.resolve()) {
+                    CliHelpLanguage.KOREAN -> "ℹ️  상세 도움말: cotor help"
+                    CliHelpLanguage.ENGLISH -> "ℹ️  Detailed help: cotor help"
+                }
+            )
         }
+    }
+}
+
+class HelpCommand(
+    private val terminal: Terminal = Terminal()
+) : CliktCommand(
+    name = "help",
+    help = "Show how to use Cotor in English or Korean"
+) {
+    private val languageCode by option("--lang", help = "Help output language")
+        .choice("en", "ko")
+
+    override fun run() {
+        CheatSheetPrinter.printDetailed(
+            terminal = terminal,
+            language = CliHelpLanguage.resolve(languageCode)
+        )
     }
 }
 
@@ -98,13 +120,6 @@ class InitCommand :
         help = "Initialize Cotor with default configuration"
     ),
     KoinComponent {
-    private data class StarterAgent(
-        val name: String,
-        val pluginClass: String,
-        val executable: String,
-        val parameterBlock: String = ""
-    )
-
     val configPath by option("--config", "-c", help = "Path to configuration file")
         .path(mustExist = false)
         .default(Path("cotor.yaml"))
@@ -157,7 +172,7 @@ security:
     - python3
     - node
   allowedDirectories:
-    - /usr/local/bin
+${starterAllowedDirectoriesYaml()}
 
 # Logging settings
 logging:
@@ -206,7 +221,7 @@ performance:
         terminal.println(dim("  3. Execute: cotor run $pipelineName -c $configPath --output-format text"))
     }
 
-    private fun buildStarterConfig(starter: StarterAgent): String {
+    private fun buildStarterConfig(starter: StarterAgentSpec): String {
         val parameterSection = if (starter.parameterBlock.isBlank()) {
             ""
         } else {
@@ -236,8 +251,7 @@ security:
   allowedExecutables:
     - ${starter.executable}
   allowedDirectories:
-    - /usr/local/bin
-    - /opt/homebrew/bin
+${starterAllowedDirectoriesYaml()}
 
 logging:
   level: INFO
@@ -250,7 +264,7 @@ performance:
         """.trimIndent()
     }
 
-    private fun buildStarterPipeline(projectName: String, pipelineName: String, starter: StarterAgent): String {
+    private fun buildStarterPipeline(projectName: String, pipelineName: String, starter: StarterAgentSpec): String {
         return """
 pipelines:
   - name: $pipelineName
@@ -268,7 +282,7 @@ pipelines:
         """.trimIndent()
     }
 
-    private fun buildStarterReadme(projectName: String, pipelineName: String, starter: StarterAgent): String {
+    private fun buildStarterReadme(projectName: String, pipelineName: String, starter: StarterAgentSpec): String {
         return """
 # $projectName
 
@@ -303,7 +317,7 @@ cotor template --list
         """.trimIndent()
     }
 
-    private fun buildStarterPipelineDoc(projectName: String, pipelineName: String, starter: StarterAgent): String {
+    private fun buildStarterPipelineDoc(projectName: String, pipelineName: String, starter: StarterAgentSpec): String {
         return """
 # Pipeline Notes
 
@@ -443,50 +457,7 @@ pipelines:
         }
     }
 
-    private fun resolveStarterAgent(): StarterAgent {
-        return when {
-            hasCommand("codex") -> StarterAgent(
-                name = "codex",
-                pluginClass = "com.cotor.data.plugin.CodexPlugin",
-                executable = "codex"
-            )
-            hasCommand("gemini") -> StarterAgent(
-                name = "gemini",
-                pluginClass = "com.cotor.data.plugin.GeminiPlugin",
-                executable = "gemini"
-            )
-            hasCommand("claude") -> StarterAgent(
-                name = "claude",
-                pluginClass = "com.cotor.data.plugin.ClaudePlugin",
-                executable = "claude",
-                parameterBlock = """
-model: claude-sonnet-4-20250514
-                """.trimIndent()
-            )
-            !System.getenv("OPENAI_API_KEY").isNullOrBlank() -> StarterAgent(
-                name = "openai",
-                pluginClass = "com.cotor.data.plugin.OpenAIPlugin",
-                executable = "java",
-                parameterBlock = """
-model: gpt-4o-mini
-apiKeyEnv: OPENAI_API_KEY
-                """.trimIndent()
-            )
-            else -> StarterAgent(
-                name = "example-agent",
-                pluginClass = "com.cotor.data.plugin.EchoPlugin",
-                executable = "echo"
-            )
-        }
-    }
-
-    private fun hasCommand(command: String): Boolean {
-        val path = System.getenv("PATH") ?: return false
-        return path.split(File.pathSeparator).any { dir ->
-            val file = File(dir, command)
-            file.exists() && file.canExecute()
-        }
-    }
+    private fun resolveStarterAgent(): StarterAgentSpec = resolveStarterAgentSpec()
 }
 
 /**
@@ -730,20 +701,143 @@ complete -c cotor -n "__fish_is_first_arg" -f -a "${commonSubcommands.joinToStri
 /**
  * Simple cheat sheet printer used by --short flag
  */
+enum class CliHelpLanguage {
+    ENGLISH,
+    KOREAN;
+
+    companion object {
+        fun resolve(
+            requested: String? = null,
+            environment: Map<String, String> = System.getenv(),
+            locale: Locale = Locale.getDefault()
+        ): CliHelpLanguage {
+            val candidate = sequenceOf(
+                requested,
+                environment["COTOR_HELP_LANG"],
+                environment["LANG"],
+                environment["LC_ALL"],
+                locale.toLanguageTag()
+            )
+                .mapNotNull { raw ->
+                    raw
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.takeUnless { it.equals("C", ignoreCase = true) || it.equals("C.UTF-8", ignoreCase = true) || it.equals("POSIX", ignoreCase = true) }
+                }
+                .firstOrNull()
+                ?: locale.toLanguageTag()
+            val normalized = candidate.trim().lowercase()
+            return if (normalized.startsWith("ko") || normalized.startsWith("kr")) {
+                KOREAN
+            } else {
+                ENGLISH
+            }
+        }
+    }
+}
+
 object CheatSheetPrinter {
-    fun print(terminal: Terminal) {
-        terminal.println("🧭 Cotor 10줄 요약")
-        terminal.println("--------------------")
-        terminal.println("1) ./shell/install-global.sh  또는  ./gradlew shadowJar && ./shell/cotor version")
-        terminal.println("2) cotor install  |  cotor update  |  cotor delete")
-        terminal.println("3) cotor list  |  cotor template")
-        terminal.println("4) cotor validate <pipeline> -c <yaml>")
-        terminal.println("5) cotor run <pipeline> -c <yaml> --output-format text")
-        terminal.println("6) cotor interactive  |  cotor dash -c <yaml>  |  cotor web")
-        terminal.println("7) 예제 실행: examples/run-examples.sh")
-        terminal.println("8) Claude 연동: ./shell/install-claude-integration.sh")
-        terminal.println("9) 문제 발생 시 cotor doctor, --debug, docs/QUICK_START.md")
-        terminal.println("10) 자동완성/alias: cotor completion zsh|bash|fish")
+    fun printShort(
+        terminal: Terminal,
+        language: CliHelpLanguage = CliHelpLanguage.resolve()
+    ) {
+        when (language) {
+            CliHelpLanguage.KOREAN -> {
+                terminal.println("🧭 Cotor 10줄 요약")
+                terminal.println("--------------------")
+                terminal.println("1) ./shell/install-global.sh  또는  ./gradlew shadowJar && ./shell/cotor version")
+                terminal.println("2) cotor help  |  cotor help --lang en")
+                terminal.println("3) cotor install  |  cotor update  |  cotor delete")
+                terminal.println("4) cotor list  |  cotor template")
+                terminal.println("5) cotor validate <pipeline> -c <yaml>")
+                terminal.println("6) cotor run <pipeline> -c <yaml> --output-format text")
+                terminal.println("7) cotor interactive  |  cotor dash -c <yaml>  |  cotor web")
+                terminal.println("8) 예제 실행: examples/run-examples.sh")
+                terminal.println("9) 문제 발생 시 cotor doctor, --debug, docs/QUICK_START.md")
+                terminal.println("10) 자동완성/alias: cotor completion zsh|bash|fish")
+            }
+
+            CliHelpLanguage.ENGLISH -> {
+                terminal.println("🧭 Cotor 10-line summary")
+                terminal.println("------------------------")
+                terminal.println("1) ./shell/install-global.sh  or  ./gradlew shadowJar && ./shell/cotor version")
+                terminal.println("2) cotor help  |  cotor help --lang ko")
+                terminal.println("3) cotor install  |  cotor update  |  cotor delete")
+                terminal.println("4) cotor list  |  cotor template")
+                terminal.println("5) cotor validate <pipeline> -c <yaml>")
+                terminal.println("6) cotor run <pipeline> -c <yaml> --output-format text")
+                terminal.println("7) cotor interactive  |  cotor dash -c <yaml>  |  cotor web")
+                terminal.println("8) Example runs: examples/run-examples.sh")
+                terminal.println("9) Troubleshooting: cotor doctor, --debug, docs/QUICK_START.md")
+                terminal.println("10) Completion/alias: cotor completion zsh|bash|fish")
+            }
+        }
+        terminal.println()
+    }
+
+    fun printDetailed(
+        terminal: Terminal,
+        language: CliHelpLanguage = CliHelpLanguage.resolve()
+    ) {
+        when (language) {
+            CliHelpLanguage.KOREAN -> {
+                terminal.println("🧭 Cotor 사용법")
+                terminal.println("----------------")
+                terminal.println("시작")
+                terminal.println("  cotor                     대화형 TUI 채팅 시작")
+                terminal.println("  cotor tui                 interactive의 별칭")
+                terminal.println("  cotor help --lang en      영어 도움말 보기")
+                terminal.println()
+                terminal.println("프로젝트 준비")
+                terminal.println("  cotor init --starter-template")
+                terminal.println("  cotor list")
+                terminal.println("  cotor template --list")
+                terminal.println()
+                terminal.println("파이프라인 실행")
+                terminal.println("  cotor validate <pipeline> -c cotor.yaml")
+                terminal.println("  cotor run <pipeline> -c cotor.yaml --output-format text")
+                terminal.println("  cotor explain cotor.yaml <pipeline>")
+                terminal.println()
+                terminal.println("데스크톱 / 서버")
+                terminal.println("  cotor install | update | delete")
+                terminal.println("  cotor app-server --port 8787")
+                terminal.println("  cotor web --open")
+                terminal.println()
+                terminal.println("문제 해결")
+                terminal.println("  cotor doctor")
+                terminal.println("  cotor <command> --debug")
+                terminal.println("  docs/QUICK_START.md")
+            }
+
+            CliHelpLanguage.ENGLISH -> {
+                terminal.println("🧭 Cotor Help")
+                terminal.println("--------------")
+                terminal.println("Start")
+                terminal.println("  cotor                     Start the interactive TUI chat")
+                terminal.println("  cotor tui                 Alias for interactive mode")
+                terminal.println("  cotor help --lang ko      Show this guide in Korean")
+                terminal.println()
+                terminal.println("Project setup")
+                terminal.println("  cotor init --starter-template")
+                terminal.println("  cotor list")
+                terminal.println("  cotor template --list")
+                terminal.println()
+                terminal.println("Run pipelines")
+                terminal.println("  cotor validate <pipeline> -c cotor.yaml")
+                terminal.println("  cotor run <pipeline> -c cotor.yaml --output-format text")
+                terminal.println("  cotor explain cotor.yaml <pipeline>")
+                terminal.println()
+                terminal.println("Desktop / server")
+                terminal.println("  cotor install | update | delete")
+                terminal.println("  cotor app-server --port 8787")
+                terminal.println("  cotor web --open")
+                terminal.println()
+                terminal.println("Troubleshooting")
+                terminal.println("  cotor doctor")
+                terminal.println("  cotor <command> --debug")
+                terminal.println("  docs/QUICK_START.md")
+            }
+        }
         terminal.println()
     }
 }

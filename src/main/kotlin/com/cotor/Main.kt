@@ -38,7 +38,7 @@ fun main(args: Array<String>) {
         // Simple mode - just run pipeline directly
         if (!args[0].startsWith("-")) {
             when (args[0]) {
-                "hello", "init", "list", "status", "version", "run", "validate", "test", "dash", "interactive", "template", "resume", "checkpoint", "stats", "doctor", "web", "lint", "explain", "plugin", "agent", "app-server", "install", "update", "delete" -> {
+                "hello", "help", "init", "list", "status", "version", "run", "validate", "test", "dash", "interactive", "template", "resume", "checkpoint", "stats", "doctor", "web", "lint", "explain", "plugin", "agent", "app-server", "install", "update", "delete" -> {
                     // Use full CLI for these commands
                 }
                 else -> {
@@ -53,6 +53,7 @@ fun main(args: Array<String>) {
         CotorCli()
             .subcommands(
                 HelloCommand(),
+                HelpCommand(),
                 InitCommand(),
                 EnhancedRunCommand(),
                 CodexDashboardCommand(),
@@ -95,7 +96,7 @@ fun main(args: Array<String>) {
         errorInfo.suggestions.forEachIndexed { index, suggestion ->
             System.err.println("  ${index + 1}. $suggestion")
         }
-        System.err.println("\n🧭 Quick help: run 'cotor --short' or see docs/QUICK_START.md")
+        System.err.println("\n🧭 Quick help: run 'cotor help' or 'cotor --short', or see docs/QUICK_START.md")
         System.err.println("📦 Examples: examples/run-examples.sh")
         System.err.println("━".repeat(50))
 

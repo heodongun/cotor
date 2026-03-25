@@ -22,6 +22,10 @@ Important entry behavior:
 
 - `cotor` with no args launches `interactive`
 - `cotor tui` is an alias to `interactive`
+- `interactive` defaults to a single preferred agent chat; use `--mode auto|compare` or `:mode ...` to fan out to multiple agents
+- interactive transcripts live under `.cotor/interactive/...`, and each session now writes `interactive.log` beside the transcript files
+- packaged first-run interactive writes its auto-generated starter config under `~/.cotor/interactive/default/cotor.yaml` when no local config exists
+- packaged first-run interactive only auto-selects AI starters that are actually ready to answer immediately; otherwise it falls back to the safe `example-agent` echo starter instead of failing on an unauthenticated CLI
 - unknown first args fall back to direct pipeline execution
 
 Current subcommand support:
@@ -51,7 +55,9 @@ brew tap bssm-oss/cotor https://github.com/bssm-oss/cotor.git
 brew install cotor
 ```
 
-This installs JDK 17 + CLI + Desktop App automatically.
+This installs JDK 17 + the CLI and packages a bundled desktop app asset.
+Run `cotor install` after `brew install` to copy `Cotor Desktop.app` into Applications.
+`cotor install` / `cotor update` reuse the packaged app instead of rebuilding from the Homebrew prefix.
 
 Or use the one-liner:
 
@@ -77,21 +83,25 @@ cd cotor
 
 ```bash
 cotor version
-cotor --help
+cotor help
+cotor help --lang ko
 cotor init --starter-template
+cotor install
 cotor app-server --port 8787
 open "/Applications/Cotor Desktop.app"
 ```
 
 ## macOS Desktop
 
-The desktop app is included in `brew install cotor`. To manage separately:
+After `brew install cotor`, install the packaged desktop app with:
 
 ```bash
-cotor install    # Build + install to /Applications
-cotor update     # Rebuild + reinstall
+cotor install    # Install bundled app from Homebrew package
+cotor update     # Reinstall bundled app from Homebrew package
 cotor delete     # Remove app
 ```
+
+From a source checkout, the same commands still rebuild the desktop app locally before installing it.
 
 Current desktop model:
 
@@ -106,6 +116,7 @@ Current desktop model:
 The current build includes a working local operations layer:
 
 - create multiple companies, each bound to one working folder
+- surface a GitHub readiness warning during company creation when GitHub PR mode is enabled but `gh` auth/origin setup is missing
 - define company agents with only title, CLI, and role summary
 - create company goals
 - decompose goals into issues
