@@ -137,6 +137,11 @@ class DesktopTuiSessionService(
         return session.snapshot()
     }
 
+    suspend fun listSessions(): List<TuiSession> =
+        sessions.values
+            .map { it.snapshot() }
+            .sortedByDescending { it.updatedAt }
+
     suspend fun getDelta(sessionId: String, offset: Long): TuiSessionDelta {
         val session = sessions[sessionId] ?: throw IllegalArgumentException("TUI session not found: $sessionId")
         return session.delta(offset)
@@ -163,6 +168,10 @@ class DesktopTuiSessionService(
     suspend fun terminateSession(sessionId: String): TuiSession {
         val session = sessions[sessionId] ?: throw IllegalArgumentException("TUI session not found: $sessionId")
         terminateRuntimeSession(session)
+        val exitCode = runCatching { session.process.exitValue() }.getOrDefault(0)
+        session.updateStatus(TuiSessionStatus.EXITED, exitCode)
+        sessions.remove(sessionId, session)
+        workspaceSessions.remove(session.session.workspaceId, sessionId)
         return session.snapshot()
     }
 
@@ -200,7 +209,7 @@ class DesktopTuiSessionService(
                 runCatching { session.stdin.close() }
             }
 
-            val nextStatus = if (exitCode == 0) TuiSessionStatus.EXITED else TuiSessionStatus.FAILED
+            val nextStatus = if (isExpectedTuiExit(exitCode)) TuiSessionStatus.EXITED else TuiSessionStatus.FAILED
             session.updateStatus(nextStatus, exitCode)
             sessions.remove(session.session.id, session)
             workspaceSessions.remove(session.session.workspaceId, session.session.id)
@@ -499,5 +508,8 @@ class DesktopTuiSessionService(
             "opencode",
             "echo"
         )
+
+        private fun isExpectedTuiExit(exitCode: Int): Boolean =
+            exitCode == 0 || exitCode == 130 || exitCode == 143
     }
 }

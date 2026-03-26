@@ -91,6 +91,12 @@ data class CreateCompanyRequest(
 )
 
 @Serializable
+data class CreateCompanyResponse(
+    val company: Company,
+    val githubPublishStatus: GitHubPublishStatus
+)
+
+@Serializable
 data class UpdateCompanyRequest(
     val name: String? = null,
     val defaultBaseBranch: String? = null,

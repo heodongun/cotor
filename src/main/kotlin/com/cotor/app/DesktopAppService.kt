@@ -20,6 +20,7 @@ import com.cotor.integrations.linear.LinearTrackerAdapter
 import com.cotor.model.AgentConfig
 import com.cotor.model.AgentExecutionMetadata
 import com.cotor.model.AgentResult
+import com.cotor.model.ProcessExecutionException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -108,7 +109,9 @@ class DesktopAppService(
     private val companyRuntimeTickIntervalMs: Long = 60_000L,
     private val commandAvailability: (String) -> Boolean = ::defaultCommandAvailability,
     private val linearTracker: LinearTrackerAdapter = DefaultLinearTrackerAdapter(),
-    private val codexAppServerManager: CodexAppServerManager = CodexAppServerManager()
+    private val codexAppServerManager: CodexAppServerManager = CodexAppServerManager(),
+    private val staleRunStartupGraceMs: Long = 15_000L,
+    private val runHeartbeatIntervalMs: Long = 5_000L
 ) {
     companion object {
         private const val COMPANY_TRACE_DEDUP_WINDOW_MS = 30_000L
@@ -133,7 +136,6 @@ class DesktopAppService(
     private val companyRuntimeJobs: MutableMap<String, Job> = linkedMapOf()
     private val automationRefreshJobs: MutableMap<String, Job> = linkedMapOf()
     private val recentCompanyAutomationTraceKeys = ConcurrentHashMap<String, Long>()
-    private val staleRunStartupGraceMs = 15_000L
     private val companyEventStream = MutableSharedFlow<CompanyEventEnvelope>(replay = 0, extraBufferCapacity = 64)
     private val backendJson = Json { ignoreUnknownKeys = true }
     private val localExecutionBackend = LocalCotorBackend(agentExecutor)
@@ -2298,6 +2300,7 @@ class DesktopAppService(
             }
             val infraIssue = existingInfraIssue?.copy(
                 status = IssueStatus.PLANNED,
+                description = "GitHub publishing is required before this code issue can continue.\n\n$reason",
                 updatedAt = now
             ) ?: CompanyIssue(
                 id = UUID.randomUUID().toString(),
@@ -2317,6 +2320,7 @@ class DesktopAppService(
             val blockedIssue = currentIssue.copy(
                 status = IssueStatus.BLOCKED,
                 blockedBy = (currentIssue.blockedBy + infraIssue.id).distinct(),
+                transitionReason = reason,
                 updatedAt = now
             )
             val nextIssues = state.issues
@@ -2459,6 +2463,71 @@ class DesktopAppService(
         )
     }
 
+    private fun normalizedReviewFeedback(text: String?): String =
+        text.orEmpty()
+            .trim()
+            .replace(Regex("\\s+"), " ")
+
+    private fun reviewTaskAlreadyApplied(
+        reviewIssue: CompanyIssue,
+        executionIssue: CompanyIssue,
+        approvalIssue: CompanyIssue?,
+        queueItem: ReviewQueueItem,
+        verdict: StructuredVerdict,
+        reviewPassed: Boolean
+    ): Boolean {
+        val expectedReviewStatus = if (reviewPassed) IssueStatus.DONE else IssueStatus.BLOCKED
+        val expectedExecutionStatus = if (reviewPassed) IssueStatus.READY_FOR_CEO else IssueStatus.PLANNED
+        val expectedQueueStatus = if (reviewPassed) ReviewQueueStatus.READY_FOR_CEO else ReviewQueueStatus.CHANGES_REQUESTED
+        val normalizedFeedback = normalizedReviewFeedback(verdict.feedback)
+        val reviewMatches =
+            reviewIssue.status == expectedReviewStatus &&
+                reviewIssue.qaVerdict == verdict.value &&
+                normalizedReviewFeedback(reviewIssue.qaFeedback) == normalizedFeedback
+        val executionMatches =
+            executionIssue.status == expectedExecutionStatus &&
+                executionIssue.qaVerdict == verdict.value &&
+                normalizedReviewFeedback(executionIssue.qaFeedback) == normalizedFeedback
+        val queueMatches =
+            queueItem.status == expectedQueueStatus &&
+                queueItem.qaVerdict == verdict.value &&
+                normalizedReviewFeedback(queueItem.qaFeedback) == normalizedFeedback
+        val approvalMatches = when {
+            !reviewPassed -> true
+            approvalIssue == null -> queueItem.approvalIssueId == null
+            else -> approvalIssue.status in setOf(IssueStatus.PLANNED, IssueStatus.IN_PROGRESS, IssueStatus.DONE) &&
+                approvalIssue.qaVerdict == verdict.value &&
+                normalizedReviewFeedback(approvalIssue.qaFeedback) == normalizedFeedback
+        }
+        return reviewMatches && executionMatches && queueMatches && approvalMatches
+    }
+
+    private fun approvalTaskAlreadyApplied(
+        approvalIssue: CompanyIssue,
+        executionIssue: CompanyIssue,
+        queueItem: ReviewQueueItem,
+        verdict: StructuredVerdict,
+        approvalGranted: Boolean
+    ): Boolean {
+        val expectedApprovalStatus = if (approvalGranted) IssueStatus.IN_PROGRESS else IssueStatus.BLOCKED
+        val expectedExecutionStatus = if (approvalGranted) IssueStatus.READY_FOR_CEO else IssueStatus.PLANNED
+        val expectedQueueStatus = if (approvalGranted) ReviewQueueStatus.READY_FOR_CEO else ReviewQueueStatus.CHANGES_REQUESTED
+        val normalizedFeedback = normalizedReviewFeedback(verdict.feedback)
+        val approvalMatches =
+            approvalIssue.status == expectedApprovalStatus &&
+                approvalIssue.ceoVerdict == verdict.value &&
+                normalizedReviewFeedback(approvalIssue.ceoFeedback) == normalizedFeedback
+        val executionMatches =
+            executionIssue.status == expectedExecutionStatus &&
+                executionIssue.ceoVerdict == verdict.value &&
+                normalizedReviewFeedback(executionIssue.ceoFeedback) == normalizedFeedback
+        val queueMatches =
+            queueItem.status == expectedQueueStatus &&
+                queueItem.ceoVerdict == verdict.value &&
+                normalizedReviewFeedback(queueItem.ceoFeedback) == normalizedFeedback
+        return approvalMatches && executionMatches && queueMatches
+    }
+
     private suspend fun completeApprovalIssueAfterMerge(issueId: String) {
         stateMutex.withLock {
             val state = stateStore.load()
@@ -2497,24 +2566,64 @@ class DesktopAppService(
         val item = before.reviewQueue.firstOrNull { it.id == itemId }
             ?: throw IllegalArgumentException("Review queue item not found: $itemId")
         val run = before.runs.firstOrNull { it.id == item.runId }
+        val executionIssueBeforeMerge = before.issues.firstOrNull { it.id == item.issueId }
         val worktreePath = item.worktreePath?.takeIf { it.isNotBlank() } ?: run?.worktreePath
         val pullRequestNumber = item.pullRequestNumber ?: run?.publish?.pullRequestNumber
         if (worktreePath.isNullOrBlank() || pullRequestNumber == null) {
             throw IllegalStateException("Review queue item $itemId is missing branch or pull request metadata")
         }
+        val baseBranch = run?.baseBranch?.takeIf { it.isNotBlank() }
+            ?: executionIssueBeforeMerge?.workspaceId
+                ?.let { workspaceId -> before.workspaces.firstOrNull { it.id == workspaceId }?.baseBranch }
+            ?: before.companies.firstOrNull { it.id == item.companyId }?.defaultBaseBranch
+            ?: "master"
 
         val reviewBody = item.ceoFeedback?.takeIf { it.isNotBlank() }
             ?: "CEO approved this pull request after QA review."
+        val commentBody = buildPullRequestFeedbackBody(
+            actorLabel = "CEO",
+            verdictKey = "CEO_VERDICT",
+            verdict = item.ceoVerdict ?: "APPROVE",
+            feedback = reviewBody
+        )
+        runCatching {
+            gitWorkspaceService.commentOnPullRequest(
+                worktreePath = Path.of(worktreePath),
+                pullRequestNumber = pullRequestNumber,
+                body = commentBody
+            )
+        }
         val approvedMetadata = gitWorkspaceService.submitPullRequestReview(
             worktreePath = Path.of(worktreePath),
             pullRequestNumber = pullRequestNumber,
             verdict = PullRequestReviewVerdict.APPROVE,
             body = reviewBody
         )
-        val mergeResult = gitWorkspaceService.mergePullRequest(
-            worktreePath = Path.of(worktreePath),
-            pullRequestNumber = pullRequestNumber
-        )
+        val mergeResult = try {
+            gitWorkspaceService.mergePullRequest(
+                worktreePath = Path.of(worktreePath),
+                pullRequestNumber = pullRequestNumber
+            )
+        } catch (error: ProcessExecutionException) {
+            if (isMergeConflictFailure(error)) {
+                return markReviewQueueMergeConflict(
+                    itemId = itemId,
+                    approvedMetadata = approvedMetadata,
+                    mergeError = error
+                )
+            }
+            throw error
+        }
+        val baseBranchSync = runCatching {
+            gitWorkspaceService.syncBaseBranchAfterMerge(
+                worktreePath = Path.of(worktreePath),
+                baseBranch = baseBranch
+            )
+        }.getOrElse { error ->
+            BaseBranchSyncResult(
+                skippedReason = "Merged PR successfully, but local $baseBranch sync failed: ${error.message ?: error::class.simpleName.orEmpty()}"
+            )
+        }
 
         val mergedItem = stateMutex.withLock {
             val state = stateStore.load()
@@ -2574,7 +2683,21 @@ class DesktopAppService(
                 detail = mergedIssue?.title ?: currentItem.id
             ).recordSignal(
                 source = "review-queue",
-                message = "Merged review queue item ${currentItem.id}",
+                message = buildString {
+                    append("Merged review queue item ${currentItem.id}")
+                    if (baseBranchSync.synced) {
+                        append(" and synced local ")
+                        append(baseBranch)
+                        append(" from origin/")
+                        append(baseBranch)
+                    } else {
+                        baseBranchSync.skippedReason?.takeIf { it.isNotBlank() }?.let {
+                            append(" (")
+                            append(it)
+                            append(')')
+                        }
+                    }
+                },
                 companyId = mergedIssue?.companyId ?: currentItem.companyId,
                 projectContextId = mergedIssue?.projectContextId ?: currentItem.projectContextId,
                 goalId = nextIssues.firstOrNull { it.id == currentItem.issueId }?.goalId,
@@ -2598,6 +2721,91 @@ class DesktopAppService(
             )
         }
         return mergedItem
+    }
+
+    private suspend fun markReviewQueueMergeConflict(
+        itemId: String,
+        approvedMetadata: PublishMetadata,
+        mergeError: ProcessExecutionException
+    ): ReviewQueueItem {
+        val conflictMessage = mergeConflictFeedback(mergeError)
+        val updatedItem = stateMutex.withLock {
+            val state = stateStore.load()
+            val currentItem = state.reviewQueue.firstOrNull { it.id == itemId }
+                ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+            val executionIssue = state.issues.firstOrNull { it.id == currentItem.issueId }
+            val approvalIssue = currentItem.approvalIssueId?.let { approvalIssueId ->
+                state.issues.firstOrNull { it.id == approvalIssueId }
+            }
+            val baseBranchLabel = executionIssue?.companyId?.let { companyId ->
+                state.companies.firstOrNull { it.id == companyId }?.defaultBaseBranch
+            } ?: "the base branch"
+            val now = System.currentTimeMillis()
+            val nextItem = currentItem.copy(
+                status = ReviewQueueStatus.CHANGES_REQUESTED,
+                pullRequestNumber = approvedMetadata.pullRequestNumber ?: currentItem.pullRequestNumber,
+                pullRequestUrl = approvedMetadata.pullRequestUrl ?: currentItem.pullRequestUrl,
+                pullRequestState = approvedMetadata.pullRequestState ?: currentItem.pullRequestState,
+                mergeability = approvedMetadata.mergeability ?: currentItem.mergeability ?: "DIRTY",
+                ceoVerdict = "CHANGES_REQUESTED",
+                ceoFeedback = conflictMessage,
+                ceoReviewedAt = now,
+                updatedAt = now
+            )
+            val nextIssues = state.issues.map { issue ->
+                when (issue.id) {
+                    executionIssue?.id -> issue.copy(
+                        status = IssueStatus.PLANNED,
+                        pullRequestNumber = nextItem.pullRequestNumber ?: issue.pullRequestNumber,
+                        pullRequestUrl = nextItem.pullRequestUrl ?: issue.pullRequestUrl,
+                        pullRequestState = nextItem.pullRequestState ?: issue.pullRequestState,
+                        ceoVerdict = "CHANGES_REQUESTED",
+                        ceoFeedback = conflictMessage,
+                        transitionReason = "CEO merge could not complete because PR ${nextItem.pullRequestUrl ?: nextItem.pullRequestNumber} no longer merges cleanly with $baseBranchLabel.",
+                        updatedAt = now
+                    )
+                    approvalIssue?.id -> issue.copy(
+                        status = IssueStatus.BLOCKED,
+                        ceoVerdict = "CHANGES_REQUESTED",
+                        ceoFeedback = conflictMessage,
+                        transitionReason = "Merge is blocked until the execution branch is rebased and conflicts are resolved.",
+                        updatedAt = now
+                    )
+                    else -> issue
+                }
+            }
+            val nextState = state.copy(
+                reviewQueue = state.reviewQueue.map { if (it.id == itemId) nextItem else it },
+                issues = nextIssues
+            ).recordCompanyActivity(
+                companyId = executionIssue?.companyId ?: currentItem.companyId,
+                projectContextId = executionIssue?.projectContextId ?: currentItem.projectContextId,
+                goalId = executionIssue?.goalId,
+                issueId = executionIssue?.id ?: currentItem.issueId,
+                source = "review-queue",
+                title = "Merge conflict requires follow-up work",
+                detail = conflictMessage,
+                severity = "warning"
+            ).recordSignal(
+                source = "review-queue",
+                message = "PR ${nextItem.pullRequestUrl ?: nextItem.pullRequestNumber} could not be merged cleanly and needs remediation.",
+                companyId = executionIssue?.companyId ?: currentItem.companyId,
+                projectContextId = executionIssue?.projectContextId ?: currentItem.projectContextId,
+                goalId = executionIssue?.goalId,
+                issueId = executionIssue?.id ?: currentItem.issueId,
+                severity = "warning"
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            nextItem
+        }
+        val executionIssue = stateStore.load().issues.firstOrNull { it.id == updatedItem.issueId }
+        if (executionIssue != null) {
+            mirrorIssueToLinear(
+                executionIssue.id,
+                comment = "Cotor could not merge \"${executionIssue.title}\" because the pull request no longer merges cleanly: $conflictMessage"
+            )
+        }
+        return updatedItem
     }
 
     suspend fun startCompanyRuntime(companyId: String): CompanyRuntimeSnapshot {
@@ -2752,6 +2960,14 @@ class DesktopAppService(
             if (normalizedStates > 0) {
                 actions += "normalized-states:$normalizedStates"
             }
+            val resolvedGitHubReadinessIssues = resolveGitHubReadinessBlockedIssues(companyId)
+            if (resolvedGitHubReadinessIssues > 0) {
+                actions += "resolved-github-readiness:$resolvedGitHubReadinessIssues"
+                normalizedStates = normalizeCompanyAutomationState(companyId)
+                if (normalizedStates > 0) {
+                    actions += "renormalized-after-github-readiness:$normalizedStates"
+                }
+            }
             val recoveredBlockedIssues = requeueRecoverableBlockedIssues(companyId)
             if (recoveredBlockedIssues > 0) {
                 actions += "retried-recoverable:$recoveredBlockedIssues"
@@ -2815,6 +3031,9 @@ class DesktopAppService(
                 }
                 .filter { issue ->
                     issue.status == IssueStatus.PLANNED || issue.status == IssueStatus.BACKLOG || issue.status == IssueStatus.DELEGATED
+                }
+                .filterNot { issue ->
+                    issue.sourceSignal == "github-readiness"
                 }
                 .sortedWith(compareBy<CompanyIssue> { it.priority }.thenBy { it.createdAt })
                 .filter { issue ->
@@ -2891,6 +3110,151 @@ class DesktopAppService(
                     )
                 ).withDerivedMetrics()
             )
+        }
+    }
+
+    private data class GitHubReadinessRecoveryCandidate(
+        val issueId: String,
+        val infraIssueIds: Set<String>,
+        val repositoryRoot: Path,
+        val baseBranch: String
+    )
+
+    private suspend fun resolveGitHubReadinessBlockedIssues(companyId: String): Int {
+        val candidates = stateMutex.withLock {
+            val state = stateStore.load()
+            val issuesById = state.issues.associateBy { it.id }
+            state.issues
+                .filter { issue ->
+                    issue.companyId == companyId &&
+                        issue.status == IssueStatus.BLOCKED &&
+                        issue.blockedBy.isNotEmpty() &&
+                        requiresGitHubPullRequest(issue, state)
+                }
+                .mapNotNull { issue ->
+                    val readinessInfraIssueIds = issue.blockedBy
+                        .mapNotNull(issuesById::get)
+                        .filter { dependency ->
+                            dependency.sourceSignal == "github-readiness" &&
+                                dependency.kind.equals("infra", ignoreCase = true) &&
+                                dependency.status != IssueStatus.DONE &&
+                                dependency.status != IssueStatus.CANCELED
+                        }
+                        .map { it.id }
+                        .toSet()
+                    if (readinessInfraIssueIds.isEmpty()) {
+                        return@mapNotNull null
+                    }
+                    val workspace = state.workspaces.firstOrNull { it.id == issue.workspaceId } ?: return@mapNotNull null
+                    val repository = state.repositories.firstOrNull { it.id == workspace.repositoryId } ?: return@mapNotNull null
+                    GitHubReadinessRecoveryCandidate(
+                        issueId = issue.id,
+                        infraIssueIds = readinessInfraIssueIds,
+                        repositoryRoot = Path.of(repository.localPath),
+                        baseBranch = workspace.baseBranch
+                    )
+                }
+        }
+        if (candidates.isEmpty()) {
+            return 0
+        }
+
+        val recoveredIssueIds = candidates
+            .filter { candidate ->
+                runCatching {
+                    gitWorkspaceService.ensureGitHubPublishReady(
+                        worktreePath = candidate.repositoryRoot,
+                        baseBranch = candidate.baseBranch
+                    )
+                }.getOrNull()?.ready == true
+            }
+            .map { it.issueId }
+            .toSet()
+        if (recoveredIssueIds.isEmpty()) {
+            return 0
+        }
+
+        return stateMutex.withLock {
+            val state = stateStore.load()
+            val issuesById = state.issues.associateBy { it.id }
+            val candidatesByIssueId = candidates.associateBy { it.issueId }
+            val now = System.currentTimeMillis()
+            var changed = 0
+            val recoveredInfraIssueIds = recoveredIssueIds
+                .mapNotNull(candidatesByIssueId::get)
+                .flatMap { it.infraIssueIds }
+                .toSet()
+            val updatedIssues = state.issues.map { issue ->
+                if (issue.id !in recoveredIssueIds) {
+                    return@map issue
+                }
+                val candidate = candidatesByIssueId[issue.id] ?: return@map issue
+                val readinessDependencies = issue.blockedBy.filter { it in candidate.infraIssueIds }
+                if (readinessDependencies.isEmpty()) {
+                    return@map issue
+                }
+                val remainingBlockedBy = issue.blockedBy.filterNot { it in candidate.infraIssueIds }
+                changed += 1
+                issue.copy(
+                    status = if (remainingBlockedBy.isEmpty()) IssueStatus.PLANNED else IssueStatus.BLOCKED,
+                    blockedBy = remainingBlockedBy,
+                    transitionReason = if (remainingBlockedBy.isEmpty()) null else issue.transitionReason,
+                    updatedAt = now
+                )
+            }.toMutableList()
+
+            val stillBlockingInfraIds = updatedIssues
+                .flatMap { it.blockedBy }
+                .toSet()
+            for (index in updatedIssues.indices) {
+                val issue = updatedIssues[index]
+                if (
+                    issue.id in recoveredInfraIssueIds &&
+                    issue.sourceSignal == "github-readiness" &&
+                    issue.kind.equals("infra", ignoreCase = true) &&
+                    issue.id !in stillBlockingInfraIds &&
+                    issue.status != IssueStatus.DONE
+                ) {
+                    updatedIssues[index] = issue.copy(
+                        status = IssueStatus.DONE,
+                        transitionReason = "Resolved automatically after GitHub publishing became ready.",
+                        updatedAt = now
+                    )
+                }
+            }
+
+            if (changed == 0) {
+                return@withLock 0
+            }
+
+            var nextState = state.copy(issues = updatedIssues)
+            recoveredIssueIds.forEach { issueId ->
+                val issue = updatedIssues.firstOrNull { it.id == issueId } ?: return@forEach
+                nextState = nextState.recordCompanyActivity(
+                    companyId = issue.companyId,
+                    projectContextId = issue.projectContextId,
+                    goalId = issue.goalId,
+                    issueId = issue.id,
+                    source = "github-readiness",
+                    title = "Unblocked code issue",
+                    detail = issue.title
+                )
+            }
+            updatedIssues
+                .filter { it.id in recoveredInfraIssueIds && it.sourceSignal == "github-readiness" && it.kind.equals("infra", ignoreCase = true) && it.status == IssueStatus.DONE }
+                .forEach { infraIssue ->
+                    nextState = nextState.recordCompanyActivity(
+                        companyId = infraIssue.companyId,
+                        projectContextId = infraIssue.projectContextId,
+                        goalId = infraIssue.goalId,
+                        issueId = infraIssue.id,
+                        source = "github-readiness",
+                        title = "Resolved infra issue",
+                        detail = infraIssue.title
+                    )
+                }
+            stateStore.save(nextState.withDerivedMetrics())
+            changed
         }
     }
 
@@ -3024,23 +3388,69 @@ class DesktopAppService(
         return retried
     }
 
+    private fun failureSignals(task: AgentTask, run: AgentRun?): List<String> {
+        if (task.status != DesktopTaskStatus.FAILED && task.status != DesktopTaskStatus.PARTIAL) {
+            return emptyList()
+        }
+        return buildList {
+            add(run?.error)
+            add(run?.publish?.error)
+            add(run?.output)
+        }.mapNotNull { signal ->
+            signal?.trim()?.takeIf { it.isNotBlank() }
+        }
+    }
+
+    private fun isTransientGitHubPublishFailure(message: String): Boolean =
+        message.contains("submitted too quickly") ||
+            message.contains("could not connect to the server") ||
+            message.contains("network connection was lost") ||
+            message.contains("connection refused") ||
+            message.contains("timed out")
+
+    private fun extractGitHubPublishReadinessFailureReason(
+        task: AgentTask,
+        issue: CompanyIssue,
+        run: AgentRun?,
+        state: DesktopAppState
+    ): String? {
+        if (!requiresGitHubPullRequest(issue, state)) {
+            return null
+        }
+        val baseBranch = state.workspaces.firstOrNull { it.id == issue.workspaceId }?.baseBranch ?: "base branch"
+        val matchingSignal = failureSignals(task, run).firstOrNull { signal ->
+            val message = signal.lowercase()
+            when {
+                message.contains("pull request create failed") -> !isTransientGitHubPublishFailure(message)
+                message.contains("no history in common") -> true
+                message.contains("github publishing requires") -> true
+                message.contains("no github remote configured") -> true
+                message.contains("origin remote") && message.contains("github publishing") -> true
+                message.contains("could not resolve to a repository") -> true
+                message.contains("base repository") -> true
+                message.contains("head repository") -> true
+                else -> false
+            }
+        } ?: return null
+        return if (matchingSignal.contains("no history in common", ignoreCase = true)) {
+            "GitHub publishing cannot open PRs for this repository because local $baseBranch was initialized independently and has no history in common with origin/$baseBranch.\n\nOriginal error: $matchingSignal"
+        } else {
+            "GitHub publishing is blocked by repository or pull request configuration.\n\nOriginal error: $matchingSignal"
+        }
+    }
+
     private fun isRecoverableInfrastructureFailure(task: AgentTask, run: AgentRun?): Boolean {
         if (task.status != DesktopTaskStatus.FAILED && task.status != DesktopTaskStatus.PARTIAL) {
             return false
         }
-        val failureSignals = buildList {
-            add(run?.error)
-            add(run?.publish?.error)
-            add(run?.output)
-        }.mapNotNull { it?.lowercase() }
-        return failureSignals.any { message ->
+        return failureSignals(task, run).map { it.lowercase() }.any { message ->
             message.contains("git command failed") ||
                 message.contains("could not connect to the server") ||
                 message.contains("network connection was lost") ||
                 message.contains("connection refused") ||
                 message.contains("no run found") ||
                 message.contains("exited before cotor recorded a final result") ||
-                message.contains("pull request create failed") ||
+                (message.contains("pull request create failed") && isTransientGitHubPublishFailure(message)) ||
                 message.contains("submitted too quickly")
         }
     }
@@ -3113,6 +3523,23 @@ class DesktopAppService(
                         .filter { it.issueId == issue.id }
                         .sortedByDescending { it.updatedAt }
                     val latestTask = issueTasks.firstOrNull() ?: return@forEach
+                    val staleTerminalFailureAlreadySuperseded =
+                        latestTask.status in setOf(DesktopTaskStatus.FAILED, DesktopTaskStatus.PARTIAL) &&
+                            issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
+                            issue.updatedAt > latestTask.updatedAt
+                    if (staleTerminalFailureAlreadySuperseded) {
+                        informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                            issue = issue,
+                            goal = state.goals.firstOrNull { it.id == issue.goalId },
+                            oldStatus = issue.status,
+                            newStatus = issue.status,
+                            source = "reconcileTerminalIssueStates",
+                            reason = "Skipped stale failed-task reconciliation because the issue was reopened after the failed task completed.",
+                            latestTask = latestTask,
+                            latestRun = latestRunsByTaskId[latestTask.id]
+                        )
+                        return@forEach
+                    }
                     val retryDecision = resolveRecoverableRetryDecision(issueTasks, latestRunsByTaskId, now)
                     val latestRun = latestRunsByTaskId[latestTask.id]
                     if (latestTask.status == DesktopTaskStatus.RUNNING || latestTask.status == DesktopTaskStatus.QUEUED) {
@@ -3204,6 +3631,11 @@ class DesktopAppService(
                 val latestTask = tasksByIssueId[issue.id].orEmpty().maxByOrNull { it.updatedAt }
                 val goal = goalsById[issue.goalId]
                 val workflowDrivenIssue = issue.kind.lowercase() in setOf("execution", "review", "approval")
+                val linkedExecutionIssue = if (issue.kind.equals("approval", ignoreCase = true)) {
+                    relatedExecutionIssueId(issue)?.let(issuesById::get)
+                } else {
+                    null
+                }
                 val issueTasks = tasksByIssueId[issue.id].orEmpty().sortedByDescending { it.updatedAt }
                 val latestRun = latestTask?.let { latestRunsByTaskId[it.id] }
                 val retryDecision = resolveRecoverableRetryDecision(issueTasks, latestRunsByTaskId, now)
@@ -3231,7 +3663,14 @@ class DesktopAppService(
                             doneIssueSignatureLatestUpdatedAt[issue.kind.lowercase() to issue.title.trim().lowercase()]
                                 ?.let { latestDoneUpdatedAt -> latestDoneUpdatedAt > issue.updatedAt }
                             ) == true
+                val approvalSatisfiedByMergedExecution =
+                    issue.kind.equals("approval", ignoreCase = true) &&
+                        issue.status != IssueStatus.DONE &&
+                        issue.status != IssueStatus.CANCELED &&
+                        linkedExecutionIssue?.status == IssueStatus.DONE &&
+                        linkedExecutionIssue.mergeResult.equals("MERGED", ignoreCase = true)
                 val nextStatus = when {
+                    approvalSatisfiedByMergedExecution -> IssueStatus.DONE
                     supersededBySuccessfulRetry -> IssueStatus.CANCELED
                     issue.goalId in recursiveGoalIds && issue.status != IssueStatus.DONE && issue.status != IssueStatus.CANCELED -> IssueStatus.CANCELED
                     recoverableBlockedIssueReadyForRetry -> IssueStatus.PLANNED
@@ -3301,9 +3740,15 @@ class DesktopAppService(
                     val updatedIssue = issue.copy(
                         status = nextStatus,
                         blockedBy = if (nextStatus == IssueStatus.PLANNED) emptyList() else issue.blockedBy,
+                        transitionReason = if (approvalSatisfiedByMergedExecution) {
+                            "Linked execution issue already merged; closing the approval gate."
+                        } else {
+                            issue.transitionReason
+                        },
                         updatedAt = now
                     )
                     val reason = when {
+                        approvalSatisfiedByMergedExecution -> "Closed a stale approval issue because the linked execution issue already merged successfully."
                         supersededBySuccessfulRetry -> "A newer retry with the same title and kind already finished successfully."
                         issue.goalId in recursiveGoalIds -> "Canceled recursive nested follow-up work."
                         recoverableBlockedIssueReadyForRetry -> "Reopened a blocked issue because the latest task failed with a recoverable infrastructure error."
@@ -3882,7 +4327,7 @@ class DesktopAppService(
 
     fun settings(): DesktopSettings {
         val state = runBlocking { stateStore.load() }
-        val githubPublishStatus = runBlocking { computeGitHubPublishStatus(state) }
+        val githubPublishStatus = runBlocking { computeGitHubPublishStatus(state = state) }
         return DesktopSettings(
             appHome = stateStore.appHome().toString(),
             managedReposRoot = stateStore.managedReposRoot().toString(),
@@ -3898,15 +4343,26 @@ class DesktopAppService(
         )
     }
 
-    private suspend fun computeGitHubPublishStatus(state: DesktopAppState): GitHubPublishStatus {
-        val company = state.companies.maxByOrNull { it.updatedAt }
-        val repository = company?.let { linked ->
+    suspend fun githubPublishStatus(companyId: String? = null): GitHubPublishStatus {
+        val state = stateStore.load()
+        val company = companyId?.let { requestedId ->
+            state.companies.firstOrNull { it.id == requestedId }
+        }
+        return computeGitHubPublishStatus(state = state, company = company)
+    }
+
+    private suspend fun computeGitHubPublishStatus(
+        state: DesktopAppState,
+        company: Company? = null
+    ): GitHubPublishStatus {
+        val targetCompany = company ?: state.companies.maxByOrNull { it.updatedAt }
+        val repository = targetCompany?.let { linked ->
             state.repositories.firstOrNull { it.id == linked.repositoryId }
         } ?: state.repositories.maxByOrNull { it.updatedAt }
         val environment = runCatching {
             gitWorkspaceService.inspectGitHubPublishEnvironment(
                 repositoryRoot = repository?.localPath?.let(Path::of),
-                baseBranch = company?.defaultBaseBranch ?: repository?.defaultBranch
+                baseBranch = targetCompany?.defaultBaseBranch ?: repository?.defaultBranch
             )
         }.getOrElse {
             GitHubPublishEnvironment(
@@ -3925,8 +4381,8 @@ class DesktopAppService(
             originUrl = environment.originUrl,
             bootstrapAvailable = environment.bootstrapAvailable,
             repositoryPath = environment.repositoryPath,
-            companyId = company?.id,
-            companyName = company?.name,
+            companyId = targetCompany?.id,
+            companyName = targetCompany?.name,
             message = environment.message
         )
     }
@@ -4724,6 +5180,7 @@ class DesktopAppService(
         agentName: String,
         agent: AgentConfig?
     ) {
+        var heartbeatJob: Job? = null
         if (agent == null) {
             recordRunFailure(task, workspace, repository, agentName, "Unknown agent configuration")
             return
@@ -4758,6 +5215,12 @@ class DesktopAppService(
                     issueId = issue?.id,
                     runId = startedRun.id
                 )
+            }
+            heartbeatJob = serviceScope.launch {
+                while (isActive) {
+                    delay(runHeartbeatIntervalMs)
+                    touchActiveRunWithoutProcess(startedRun.id)
+                }
             }
 
             val executionMetadata = AgentExecutionMetadata(
@@ -4867,9 +5330,13 @@ class DesktopAppService(
             }
             val finalError = result.error ?: when {
                 !publishRequired -> null
-                !pullRequestRequired -> publish?.error?.takeUnless { isNonFatalPublishError(it, currentState) }
+                !pullRequestRequired -> publish?.error?.takeUnless {
+                    isNonFatalPublishError(it, currentState, task = task, issue = issue)
+                }
                 publish == null -> "GitHub publishing did not run for required code work"
-                publish.error != null -> publish.error?.takeUnless { isNonFatalPublishError(it, currentState) }
+                publish.error != null -> publish.error?.takeUnless {
+                    isNonFatalPublishError(it, currentState, task = task, issue = issue)
+                }
                 publish.pullRequestUrl.isNullOrBlank() || publish.pullRequestNumber == null ->
                     "GitHub pull request was not created for required code work"
                 else -> null
@@ -4907,7 +5374,9 @@ class DesktopAppService(
                     runId = startedRun.id
                 )
             }
+            heartbeatJob?.cancel()
         } catch (t: Throwable) {
+            heartbeatJob?.cancel()
             recordRunFailure(task, workspace, repository, agent.name, t.message ?: "Unknown error")
         }
     }
@@ -4985,6 +5454,25 @@ class DesktopAppService(
         }
     }
 
+    private suspend fun touchActiveRunWithoutProcess(runId: String) {
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val now = System.currentTimeMillis()
+            var changed = false
+            val nextRuns = state.runs.map { run ->
+                if (run.id == runId && run.status == AgentRunStatus.RUNNING && run.processId == null) {
+                    changed = true
+                    run.copy(updatedAt = now)
+                } else {
+                    run
+                }
+            }
+            if (changed) {
+                stateStore.save(state.copy(runs = nextRuns))
+            }
+        }
+    }
+
     private suspend fun updateTaskStatus(taskId: String, status: DesktopTaskStatus) {
         stateMutex.withLock {
             val state = stateStore.load()
@@ -5049,8 +5537,42 @@ class DesktopAppService(
         }
     }
 
+    private fun isValidationOnlyExecutionFollowUpTitle(title: String): Boolean {
+        val normalized = title.trim().lowercase()
+        if (normalized.isBlank()) return false
+        val validationSignals = listOf(
+            "re-run validation",
+            "rerun validation",
+            "residual risk",
+            "summarize any residual risk",
+            "summarize any residual risks",
+            "capture any residual risk",
+            "capture residual risk"
+        )
+        val implementationSignals = listOf(
+            "implement",
+            "implementation",
+            "fix ",
+            "patch",
+            "build ",
+            "create ",
+            "add ",
+            "deliver ",
+            "ship ",
+            "feature",
+            "page",
+            "screen",
+            "endpoint",
+            "component"
+        )
+        return validationSignals.any(normalized::contains) && implementationSignals.none(normalized::contains)
+    }
+
     private fun requiresCodePublish(issue: CompanyIssue?): Boolean {
         if (issue == null) return true
+        if (issue.kind.equals("execution", ignoreCase = true) && isValidationOnlyExecutionFollowUpTitle(issue.title)) {
+            return false
+        }
         issue.codeProducing?.let { return it }
         return when (issue.kind.lowercase()) {
             "review", "approval", "planning", "infra" -> false
@@ -5140,7 +5662,9 @@ class DesktopAppService(
                         kind = "execution",
                         assigneeRole = assignment.role,
                         priority = 2,
-                        codeProducing = true,
+                        codeProducing = !isValidationOnlyExecutionFollowUpTitle(
+                            assignment.subtasks.firstOrNull()?.title ?: "${assignment.role}: ${assignment.focus}"
+                        ),
                         dependsOn = emptyList(),
                         acceptanceCriteria = (plan.sharedChecklist + assignment.subtasks.map { it.title }).distinct(),
                         reviewRequired = true,
@@ -5252,6 +5776,7 @@ class DesktopAppService(
             appendLine("- Use one issue per branchable slice of work.")
             appendLine("- Generic work should route to Builder-first unless the goal clearly needs a specialist.")
             appendLine("- Set codeProducing=true when the issue should end with a branch and GitHub PR.")
+            appendLine("- For validation-only or residual-risk follow-up work, set codeProducing=false and do not manufacture placeholder repository artifacts just to force a diff.")
             appendLine("- Use dependsOn with refIds from earlier issues when ordering matters.")
             appendLine()
             appendLine("Return JSON only inside one ```json fenced block using this schema:")
@@ -5338,9 +5863,15 @@ class DesktopAppService(
                     profiles = companyProfiles
                 )
             val normalizedKind = plannedIssue.kind.trim().ifBlank { "execution" }.lowercase()
-            val codeProducing = plannedIssue.codeProducing ?: when (normalizedKind) {
-                "planning", "review", "approval", "qa", "infra", "research" -> false
-                else -> true
+            val validationOnlyFollowUp =
+                normalizedKind == "execution" && isValidationOnlyExecutionFollowUpTitle(plannedIssue.title.trim())
+            val codeProducing = if (validationOnlyFollowUp) {
+                false
+            } else {
+                plannedIssue.codeProducing ?: when (normalizedKind) {
+                    "planning", "review", "approval", "qa", "infra", "research" -> false
+                    else -> true
+                }
             }
             plannedIssue to CompanyIssue(
                 id = issueId,
@@ -5909,6 +6440,7 @@ class DesktopAppService(
                 }
             }
             else -> buildString {
+                val validationOnlyFollowUp = issue.kind.equals("execution", ignoreCase = true) && !requiresCodePublish(issue)
                 appendLine("Company execution context")
                 company?.let {
                     appendLine("- company: ${it.name}")
@@ -5925,11 +6457,21 @@ class DesktopAppService(
                 appendLine("- assignedRole: ${profile.roleName}")
                 appendLine()
                 appendLine("Task")
-                appendLine("- Make the smallest complete repository change that satisfies this issue: ${issue.title}")
+                if (validationOnlyFollowUp) {
+                    appendLine("- Re-run the smallest validation needed for this issue and capture exact evidence: ${issue.title}")
+                } else {
+                    appendLine("- Make the smallest complete repository change that satisfies this issue: ${issue.title}")
+                }
                 appendLine("- Act as a direct worker. Do not act like a planner or orchestrator.")
                 appendLine("- Start editing immediately. Do not spend time on broad repo exploration.")
                 appendLine("- Do not create plans, spawn sub-agents, or do broad multi-step analysis.")
-                appendLine("- If the repository is tiny or has no obvious product surface, prefer editing README.md or adding one small text/script artifact.")
+                if (validationOnlyFollowUp) {
+                    appendLine("- Do not create README-only, VALIDATION.md-only, or other placeholder repository changes just to produce a diff.")
+                    appendLine("- If the branch already contains the right evidence, leave files untouched and report the findings precisely.")
+                    appendLine("- No publish is required for a pure validation or residual-risk follow-up.")
+                } else {
+                    appendLine("- If there is no legitimate product change to make, do not manufacture README-only or placeholder artifacts just to force a diff; report the blocker instead.")
+                }
                 appendLine("- Run one targeted validation command that proves the change works, then stop.")
                 issue.qaFeedback?.takeIf { it.isNotBlank() }?.let { feedback ->
                     appendLine()
@@ -6709,6 +7251,12 @@ class DesktopAppService(
         primaryRun: AgentRun?,
         finalStatus: DesktopTaskStatus
     ) {
+        val currentState = stateStore.load()
+        val currentIssue = currentState.issues.firstOrNull { it.id == issue.id } ?: return
+        extractGitHubPublishReadinessFailureReason(task, currentIssue, primaryRun, currentState)?.let { reason ->
+            blockIssueForGitHubReadiness(currentIssue, reason)
+            return
+        }
         var runtimeContinuationCompanyId: String? = null
         val now = System.currentTimeMillis()
         val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
@@ -6739,6 +7287,7 @@ class DesktopAppService(
                 return@withLock
             }
             val hasPublishMetadata = primaryRun?.publish?.pullRequestUrl != null || primaryRun?.publish?.pullRequestNumber != null
+            val completedWithoutPublish = finalStatus == DesktopTaskStatus.COMPLETED && !requiresCodePublish(currentIssue)
             val publishAlreadyAdvanced =
                 hasPublishMetadata &&
                     finalStatus == DesktopTaskStatus.COMPLETED &&
@@ -6764,13 +7313,13 @@ class DesktopAppService(
                 status = nextIssueStatus,
                 branchName = primaryRun?.branchName ?: currentIssue.branchName,
                 worktreePath = primaryRun?.worktreePath ?: currentIssue.worktreePath,
-                pullRequestNumber = primaryRun?.publish?.pullRequestNumber ?: currentIssue.pullRequestNumber,
-                pullRequestUrl = primaryRun?.publish?.pullRequestUrl ?: currentIssue.pullRequestUrl,
-                pullRequestState = primaryRun?.publish?.pullRequestState ?: currentIssue.pullRequestState,
-                qaVerdict = if (hasPublishMetadata) null else currentIssue.qaVerdict,
-                qaFeedback = if (hasPublishMetadata) null else currentIssue.qaFeedback,
-                ceoVerdict = if (hasPublishMetadata) null else currentIssue.ceoVerdict,
-                ceoFeedback = if (hasPublishMetadata) null else currentIssue.ceoFeedback,
+                pullRequestNumber = if (completedWithoutPublish) null else primaryRun?.publish?.pullRequestNumber ?: currentIssue.pullRequestNumber,
+                pullRequestUrl = if (completedWithoutPublish) null else primaryRun?.publish?.pullRequestUrl ?: currentIssue.pullRequestUrl,
+                pullRequestState = if (completedWithoutPublish) null else primaryRun?.publish?.pullRequestState ?: currentIssue.pullRequestState,
+                qaVerdict = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.qaVerdict,
+                qaFeedback = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.qaFeedback,
+                ceoVerdict = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.ceoVerdict,
+                ceoFeedback = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.ceoFeedback,
                 transitionReason = when {
                     finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata ->
                         "Execution completed on branch ${primaryRun?.branchName} and opened PR ${primaryRun?.publish?.pullRequestUrl ?: primaryRun?.publish?.pullRequestNumber}."
@@ -6992,6 +7541,7 @@ class DesktopAppService(
         val verdict = parseStructuredVerdict(primaryRun?.output, "QA_VERDICT", "PASS", "CHANGES_REQUESTED")
             ?: StructuredVerdict("PASS", summarizeForPrompt(primaryRun?.output.orEmpty(), 240))
         val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        val informationalTraceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         stateMutex.withLock {
             val state = stateStore.load()
             val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
@@ -7006,6 +7556,28 @@ class DesktopAppService(
             val chiefProfile = findChiefProfile(currentIssue.companyId, companyProfiles)
             val existingApprovalIssue = state.issues.firstOrNull {
                 relatedExecutionIssueId(it) == executionIssueId && it.kind.equals("approval", ignoreCase = true)
+            }
+            if (
+                reviewTaskAlreadyApplied(
+                    reviewIssue = currentIssue,
+                    executionIssue = executionIssue,
+                    approvalIssue = existingApprovalIssue,
+                    queueItem = targetQueueItem,
+                    verdict = verdict,
+                    reviewPassed = reviewPassed
+                )
+            ) {
+                informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                    issue = currentIssue,
+                    goal = state.goals.firstOrNull { it.id == currentIssue.goalId },
+                    oldStatus = currentIssue.status,
+                    newStatus = currentIssue.status,
+                    source = "syncReviewIssueFromTask",
+                    reason = "Skipped replaying QA sync because the current verdict is already reflected in the review queue and downstream issues.",
+                    latestTask = task,
+                    latestRun = primaryRun
+                )
+                return@withLock
             }
             val updatedReviewIssue = currentIssue.copy(
                 status = if (reviewPassed) IssueStatus.DONE else IssueStatus.BLOCKED,
@@ -7167,20 +7739,27 @@ class DesktopAppService(
             }
         }
         traceEvents.forEach(::appendCompanyAutomationTrace)
+        informationalTraceEvents.forEach(::appendCompanyAutomationTrace)
         queueReviews.forEach { (item, reviewVerdict) ->
             val prNumber = item.pullRequestNumber ?: return@forEach
             val worktreePath = item.worktreePath ?: return@forEach
+            val reviewBody = buildPullRequestFeedbackBody(
+                actorLabel = "QA",
+                verdictKey = "QA_VERDICT",
+                verdict = item.qaVerdict ?: verdict.value,
+                feedback = item.qaFeedback
+            )
             runCatching {
+                gitWorkspaceService.commentOnPullRequest(
+                    worktreePath = Path.of(worktreePath),
+                    pullRequestNumber = prNumber,
+                    body = reviewBody
+                )
                 gitWorkspaceService.submitPullRequestReview(
                     worktreePath = Path.of(worktreePath),
                     pullRequestNumber = prNumber,
                     verdict = reviewVerdict,
-                    body = buildString {
-                        appendLine("QA_VERDICT: ${item.qaVerdict ?: verdict.value}")
-                        if (!item.qaFeedback.isNullOrBlank()) {
-                            appendLine(item.qaFeedback)
-                        }
-                    }.trim()
+                    body = reviewBody
                 )
             }
         }
@@ -7209,6 +7788,7 @@ class DesktopAppService(
             ?: StructuredVerdict("APPROVE", summarizeForPrompt(primaryRun?.output.orEmpty(), 240))
         val approvalGranted = finalStatus == DesktopTaskStatus.COMPLETED && verdict.value == "APPROVE"
         val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        val informationalTraceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         stateMutex.withLock {
             val state = stateStore.load()
             val currentIssue = state.issues.firstOrNull { it.id == issue.id } ?: return@withLock
@@ -7217,6 +7797,27 @@ class DesktopAppService(
             val targetQueueItem = state.reviewQueue
                 .firstOrNull { it.issueId == executionIssueId && it.status == ReviewQueueStatus.READY_FOR_CEO }
                 ?: return@withLock
+            if (
+                approvalTaskAlreadyApplied(
+                    approvalIssue = currentIssue,
+                    executionIssue = executionIssue,
+                    queueItem = targetQueueItem,
+                    verdict = verdict,
+                    approvalGranted = approvalGranted
+                )
+            ) {
+                informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                    issue = currentIssue,
+                    goal = state.goals.firstOrNull { it.id == currentIssue.goalId },
+                    oldStatus = currentIssue.status,
+                    newStatus = currentIssue.status,
+                    source = "syncApprovalIssueFromTask",
+                    reason = "Skipped replaying CEO sync because the current verdict is already reflected in the review queue and approval lane.",
+                    latestTask = task,
+                    latestRun = primaryRun
+                )
+                return@withLock
+            }
             val updatedApprovalIssue = currentIssue.copy(
                 status = if (approvalGranted) IssueStatus.IN_PROGRESS else IssueStatus.BLOCKED,
                 ceoVerdict = verdict.value,
@@ -7300,28 +7901,37 @@ class DesktopAppService(
             }
         }
         traceEvents.forEach(::appendCompanyAutomationTrace)
+        informationalTraceEvents.forEach(::appendCompanyAutomationTrace)
         ceoReviews.forEach { (item, reviewVerdict) ->
             val prNumber = item.pullRequestNumber ?: return@forEach
             val worktreePath = item.worktreePath ?: return@forEach
+            val reviewBody = buildPullRequestFeedbackBody(
+                actorLabel = "CEO",
+                verdictKey = "CEO_VERDICT",
+                verdict = item.ceoVerdict ?: verdict.value,
+                feedback = item.ceoFeedback
+            )
             runCatching {
+                gitWorkspaceService.commentOnPullRequest(
+                    worktreePath = Path.of(worktreePath),
+                    pullRequestNumber = prNumber,
+                    body = reviewBody
+                )
                 gitWorkspaceService.submitPullRequestReview(
                     worktreePath = Path.of(worktreePath),
                     pullRequestNumber = prNumber,
                     verdict = reviewVerdict,
-                    body = buildString {
-                        appendLine("CEO_VERDICT: ${item.ceoVerdict ?: verdict.value}")
-                        if (!item.ceoFeedback.isNullOrBlank()) {
-                            appendLine(item.ceoFeedback)
-                        }
-                    }.trim()
+                    body = reviewBody
                 )
             }
         }
         if (approvalGranted) {
             mergeQueueIds.distinct().forEach { mergeQueueId ->
-                mergeReviewQueueItem(mergeQueueId)
+                val mergedItem = mergeReviewQueueItem(mergeQueueId)
+                if (mergedItem.status == ReviewQueueStatus.MERGED) {
+                    completeApprovalIssueAfterMerge(issue.id)
+                }
             }
-            completeApprovalIssueAfterMerge(issue.id)
         }
         mirrorIssueToLinear(
             issue.id,
@@ -7332,6 +7942,43 @@ class DesktopAppService(
                 runCatching { runCompanyRuntimeTick(companyId) }
             }
         }
+    }
+
+    private fun buildPullRequestFeedbackBody(
+        actorLabel: String,
+        verdictKey: String,
+        verdict: String,
+        feedback: String?
+    ): String = buildString {
+        appendLine("$verdictKey: $verdict")
+        appendLine()
+        appendLine("$actorLabel feedback from Cotor:")
+        if (!feedback.isNullOrBlank()) {
+            appendLine(feedback)
+        } else {
+            appendLine("$actorLabel recorded this verdict without additional notes.")
+        }
+    }.trim()
+
+    private fun isMergeConflictFailure(error: ProcessExecutionException): Boolean {
+        val combined = listOf(error.message, error.stdout, error.stderr)
+            .joinToString("\n")
+            .lowercase()
+        return combined.contains("not mergeable") ||
+            combined.contains("cannot be cleanly created") ||
+            combined.contains("merge conflicts locally") ||
+            combined.contains("merge conflict")
+    }
+
+    private fun mergeConflictFeedback(error: ProcessExecutionException): String {
+        val details = listOf(error.stderr, error.stdout, error.message)
+            .firstOrNull { !it.isNullOrBlank() }
+            ?.lineSequence()
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?.firstOrNull()
+            ?: "GitHub reported that the pull request no longer merges cleanly."
+        return "GitHub could not merge this pull request cleanly. Rebase or merge the latest base branch into the execution worktree, resolve conflicts, and republish before asking CEO approval again.\n\nOriginal error: $details"
     }
 
     private fun buildCompanyAutomationTraceEvent(
@@ -7861,7 +8508,15 @@ class DesktopAppService(
     ): List<CompanyRuntimeSnapshot> =
         runtimes.filterNot { it.companyId == updated.companyId } + updated
 
-    private fun isNonFatalPublishError(error: String, state: DesktopAppState): Boolean {
+    private fun isNonFatalPublishError(
+        error: String,
+        state: DesktopAppState,
+        task: AgentTask? = null,
+        issue: CompanyIssue? = null
+    ): Boolean {
+        if (error.startsWith("No changes to publish") && task?.issueId == null && issue == null) {
+            return true
+        }
         if (state.backendSettings.codePublishMode != CodePublishMode.ALLOW_LOCAL_GIT) {
             return false
         }

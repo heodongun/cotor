@@ -127,6 +127,307 @@ class GitWorkspaceServiceTest : FunSpec({
         processManager.remainingSteps() shouldBe 0
     }
 
+    test("ensureGitHubPublishReady rejects repositories whose local base branch has no shared history with origin") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-publish-readiness")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "show-ref", "--verify", "--quiet", "refs/heads/master"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "ls-remote", "--heads", "origin", "master"),
+                    ProcessResult(0, "abc123\trefs/heads/master\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "merge-base", "master", "refs/remotes/origin/master"),
+                    ProcessResult(1, "", "", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-list", "--count", "master"),
+                    ProcessResult(0, "2\n", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val readiness = service.ensureGitHubPublishReady(repositoryRoot, "master")
+
+        readiness.ready shouldBe false
+        readiness.originUrl shouldBe "https://github.com/heodongun/cotor.git"
+        readiness.error shouldContain "no history in common"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("ensureGitHubPublishReady repairs a bootstrap-only base branch by aligning it to origin") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-bootstrap-repair")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "show-ref", "--verify", "--quiet", "refs/heads/master"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "ls-remote", "--heads", "origin", "master"),
+                    ProcessResult(0, "abc123\trefs/heads/master\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "merge-base", "master", "refs/remotes/origin/master"),
+                    ProcessResult(1, "", "", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-list", "--count", "master"),
+                    ProcessResult(0, "1\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "log", "-1", "--format=%s", "master"),
+                    ProcessResult(0, "Initialize repository\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "log", "-1", "--format=%ae", "master"),
+                    ProcessResult(0, "cotor@local\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--git-common-dir"),
+                    ProcessResult(0, ".git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "status", "--porcelain"),
+                    ProcessResult(0, "?? .cotor/\n?? cotor.log\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "checkout", "-B", "master", "refs/remotes/origin/master"),
+                    ProcessResult(0, "Reset branch 'master'\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "merge-base", "master", "refs/remotes/origin/master"),
+                    ProcessResult(0, "abc123\n", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val readiness = service.ensureGitHubPublishReady(repositoryRoot, "master")
+
+        readiness.ready shouldBe true
+        readiness.originUrl shouldBe "https://github.com/heodongun/cotor.git"
+        readiness.error.shouldBeNull()
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("submitPullRequestReview skips self-authored approvals before invoking gh pr review") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-self-approval")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("gh", "api", "user", "--jq", ".login"),
+                    ProcessResult(
+                        0,
+                        "heodongun\n",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    ProcessResult(
+                        0,
+                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","author":{"login":"heodongun"}}""",
+                        "",
+                        true
+                    )
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val metadata = service.submitPullRequestReview(
+            worktreePath = repositoryRoot,
+            pullRequestNumber = 22,
+            verdict = PullRequestReviewVerdict.APPROVE,
+            body = "CEO approved the PR."
+        )
+
+        metadata.pullRequestNumber shouldBe 22
+        metadata.pullRequestUrl shouldBe "https://github.com/heodongun/cotor-test/pull/22"
+        metadata.pullRequestState shouldBe "OPEN"
+        metadata.reviewState shouldBe "REVIEW_REQUIRED"
+        metadata.mergeability shouldBe "CLEAN"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("submitPullRequestReview skips self-authored request-changes reviews and leaves the PR metadata intact") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-self-request-changes")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("gh", "api", "user", "--jq", ".login"),
+                    ProcessResult(0, "heodongun\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "289", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    ProcessResult(
+                        0,
+                        """{"number":289,"url":"https://github.com/heodongun/cotor-test/pull/289","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","author":{"login":"heodongun"}}""",
+                        "",
+                        true
+                    )
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val metadata = service.submitPullRequestReview(
+            worktreePath = repositoryRoot,
+            pullRequestNumber = 289,
+            verdict = PullRequestReviewVerdict.REQUEST_CHANGES,
+            body = "QA requested changes."
+        )
+
+        metadata.pullRequestNumber shouldBe 289
+        metadata.pullRequestUrl shouldBe "https://github.com/heodongun/cotor-test/pull/289"
+        metadata.pullRequestState shouldBe "OPEN"
+        metadata.reviewState shouldBe "REVIEW_REQUIRED"
+        metadata.mergeability shouldBe "CLEAN"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("mergePullRequest tolerates already-merged responses and refreshes merged state") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-already-merged")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "merge", "22", "--merge"),
+                    ProcessResult(
+                        1,
+                        "! Pull request bssm-oss/cotor-test#22 was already merged\n",
+                        "failed to delete local branch codex/example/codex used by worktree\n",
+                        false
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    ProcessResult(
+                        0,
+                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"MERGED","mergeCommit":{"oid":"deadbeef"},"author":{"login":"heodongun"}}""",
+                        "",
+                        true
+                    )
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val result = service.mergePullRequest(repositoryRoot, 22)
+
+        result.number shouldBe 22
+        result.url shouldBe "https://github.com/heodongun/cotor-test/pull/22"
+        result.state shouldBe "MERGED"
+        result.mergeCommitSha shouldBe "deadbeef"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("syncBaseBranchAfterMerge fast-forwards the checked-out clean base branch and ignores Cotor artifacts") {
+        val worktree = Files.createTempDirectory("git-workspace-sync-base-fast-forward")
+        val repositoryRoot = Files.createDirectories(worktree.resolve(".git").parent ?: worktree)
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--git-common-dir"),
+                    ProcessResult(0, ".git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--abbrev-ref", "HEAD"),
+                    ProcessResult(0, "master\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "status", "--porcelain"),
+                    ProcessResult(0, "?? .cotor/\n?? cotor.log\n?? cotor.2026-03-25.0.log\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "merge", "--ff-only", "refs/remotes/origin/master"),
+                    ProcessResult(0, "Updating d15fdcb..b5d084a\nFast-forward\n", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val result = service.syncBaseBranchAfterMerge(worktree, "master")
+
+        result.synced shouldBe true
+        result.workingTreeUpdated shouldBe true
+        result.skippedReason.shouldBeNull()
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("syncBaseBranchAfterMerge skips fast-forward when the checked-out base branch has real local edits") {
+        val worktree = Files.createTempDirectory("git-workspace-sync-base-dirty")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--git-common-dir"),
+                    ProcessResult(0, ".git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--abbrev-ref", "HEAD"),
+                    ProcessResult(0, "master\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "status", "--porcelain"),
+                    ProcessResult(0, " M README.md\n?? .cotor/\n", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val result = service.syncBaseBranchAfterMerge(worktree, "master")
+
+        result.synced shouldBe false
+        result.workingTreeUpdated shouldBe false
+        result.skippedReason shouldContain "uncommitted changes"
+        processManager.remainingSteps() shouldBe 0
+    }
+
     test("publishRun commits, pushes, and creates a pull request when the worktree has changes") {
         val worktree = Files.createTempDirectory("git-workspace-service-test")
         val processManager = FakeProcessManager(

@@ -107,7 +107,7 @@ Current desktop model:
 
 - top-level `Company` and `TUI` shell modes
 - `Company` mode for multi-company operations, agent roster, goals, issue board/canvas, activity feed, and runtime controls
-- `TUI` mode for repository/workspace execution with a live center terminal session
+- `TUI` mode for standalone folder-backed `cotor` terminals, with multiple live sessions in parallel
 - top session strip for active execution contexts
 - collapsible detail drawer for changes, files, ports, browser, and review metadata
 

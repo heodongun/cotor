@@ -28,6 +28,7 @@ import kotlin.streams.toList
 
 interface ConfigRepository {
     suspend fun loadConfig(path: Path): CotorConfig
+    suspend fun loadConfigExact(path: Path): CotorConfig = loadConfig(path)
     suspend fun saveConfig(config: CotorConfig, path: Path)
 }
 
@@ -44,8 +45,16 @@ class FileConfigRepository(
         val explicitCollections: Set<String>,
     )
 
-    override suspend fun loadConfig(path: Path): CotorConfig = withContext(Dispatchers.IO) {
+    override suspend fun loadConfig(path: Path): CotorConfig = loadConfigInternal(path, includeOverrides = true)
+
+    override suspend fun loadConfigExact(path: Path): CotorConfig = loadConfigInternal(path, includeOverrides = false)
+
+    private suspend fun loadConfigInternal(path: Path, includeOverrides: Boolean): CotorConfig = withContext(Dispatchers.IO) {
         val baseConfig = loadConfigWithImports(path, mutableSetOf())
+        if (!includeOverrides) {
+            return@withContext baseConfig.config
+        }
+
         val configDir = path.toAbsolutePath().parent ?: java.nio.file.Paths.get(".").toAbsolutePath()
         val globalCotorDir = homeDirectoryProvider().resolve(".cotor")
         val localCotorDir = configDir.resolve(".cotor")

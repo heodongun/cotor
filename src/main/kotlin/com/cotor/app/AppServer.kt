@@ -662,11 +662,15 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@post
                     val request = call.receive<CreateCompanyRequest>()
                     respondDesktopRequest {
-                        desktopService.createCompany(
+                        val company = desktopService.createCompany(
                             name = request.name,
                             rootPath = request.rootPath,
                             defaultBaseBranch = request.defaultBaseBranch,
                             autonomyEnabled = request.autonomyEnabled
+                        )
+                        CreateCompanyResponse(
+                            company = company,
+                            githubPublishStatus = desktopService.githubPublishStatus(company.id)
                         )
                     }
                 }
@@ -1301,6 +1305,13 @@ internal fun Application.cotorAppModule(
                 // TUI sessions are long-lived interactive processes. The API separates opening,
                 // transcript snapshots, incremental deltas, and input forwarding so the desktop UI
                 // can rebuild a terminal view without holding a websocket or a native PTY itself.
+                get {
+                    if (!requireToken(token)) return@get
+                    respondDesktopRequest {
+                        tuiSessionService.listSessions()
+                    }
+                }
+
                 post {
                     if (!requireToken(token)) return@post
                     val request = call.receive<OpenTuiSessionRequest>()

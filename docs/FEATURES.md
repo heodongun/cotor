@@ -9,6 +9,8 @@ This page lists features that are backed by the current codebase.
 - direct pipeline execution fallback from the main entrypoint
 - `interactive` TUI as the default surface when `cotor` is launched with no args
 - `tui` alias for `interactive`
+- default `interactive` behavior is single-agent chat, with explicit `auto` and `compare` modes still available
+- interactive sessions persist transcript files plus `interactive.log` under `.cotor/interactive/...`
 
 ## Validation And Recovery
 

@@ -42,6 +42,11 @@ struct CompanyRecord: Codable, Identifiable, Hashable {
     let updatedAt: Int64
 }
 
+struct CreateCompanyResponsePayload: Codable, Hashable {
+    let company: CompanyRecord
+    let githubPublishStatus: GitHubPublishStatusPayload
+}
+
 struct LinearStateMappingPayload: Codable, Hashable {
     let localStatus: String
     let linearStateName: String

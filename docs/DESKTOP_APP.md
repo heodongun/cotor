@@ -6,8 +6,14 @@ The desktop app is a native macOS shell on top of the existing Kotlin runtime an
 
 ```bash
 brew tap bssm-oss/cotor https://github.com/bssm-oss/cotor.git
-brew install cotor    # Installs CLI + Desktop App + JDK 17
+brew install cotor    # Installs CLI + bundled desktop asset + JDK 17
+cotor install         # Copies Cotor Desktop.app into Applications
 ```
+
+The Homebrew package carries a bundled `Cotor Desktop.app` asset. `cotor install`
+and `cotor update` reuse that packaged bundle instead of rebuilding from the Homebrew prefix.
+When `cotor` launches interactive mode with no local config in packaged installs, it writes the
+starter config under `~/.cotor/interactive/default/cotor.yaml`.
 
 Or one-liner:
 
@@ -75,6 +81,14 @@ cotor update
 cotor delete
 ```
 
+Behavior depends on the install layout:
+
+- Homebrew / packaged install
+  - `cotor install` and `cotor update` copy the packaged desktop bundle from the install root
+  - no Gradle or Swift rebuild happens at runtime
+- Source checkout
+  - `cotor install` and `cotor update` rebuild the desktop bundle locally, then install it
+
 ## Current Shell Model
 
 The current macOS shell has two top-level modes.
@@ -88,10 +102,10 @@ The current macOS shell has two top-level modes.
   - company activity feed
   - runtime start/stop/status
 - `TUI`
-  - repository and workspace context
-  - live terminal session strip
-  - dominant center TUI surface
-  - bottom detail drawer for changes, files, ports, browser, and review metadata
+  - independent from company workflow state
+  - folder or repository selection for launching standalone `cotor` sessions
+  - multiple live TUI sessions can stay open in parallel
+  - dominant center terminal surface focused on the currently selected session
 
 ## Repository And Run Isolation
 
@@ -138,6 +152,7 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - inspect linked tasks and runs
 - populate and merge review queue items
 - inspect company activity
+- warn during company creation when GitHub PR publishing is required but the repository is not ready for `gh`/`origin` publishing
 - start, stop, and inspect the local runtime loop
 - prefer locally installed agent CLIs for default company profiles, with `echo` as a final fallback
 

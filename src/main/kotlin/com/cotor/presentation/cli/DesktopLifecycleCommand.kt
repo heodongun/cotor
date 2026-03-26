@@ -8,12 +8,9 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.ProgramResult
-import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
 import kotlin.io.path.exists
 
 data class DesktopScriptResult(
@@ -21,17 +18,18 @@ data class DesktopScriptResult(
     val output: String
 )
 
-typealias DesktopScriptRunner = (Path, String) -> DesktopScriptResult
-typealias ProjectRootProvider = () -> Path?
-typealias OsNameProvider = () -> String
+internal typealias DesktopScriptRunner = (Path, String) -> DesktopScriptResult
+internal typealias PackagedDesktopActionRunner = (DesktopInstallLayout, DesktopInstallAction) -> DesktopScriptResult
+internal typealias DesktopLayoutResolver = () -> DesktopInstallLayout?
+internal typealias OsNameProvider = () -> String
 
-abstract class DesktopLifecycleCommand(
+internal abstract class DesktopLifecycleCommand(
     commandName: String,
     commandHelp: String,
-    private val scriptName: String,
-    private val actionLabel: String,
+    private val action: DesktopInstallAction,
     private val scriptRunner: DesktopScriptRunner = ::runDesktopScript,
-    private val projectRootProvider: ProjectRootProvider = ::detectProjectRoot,
+    private val packagedActionRunner: PackagedDesktopActionRunner = ::runPackagedDesktopAction,
+    private val layoutResolver: DesktopLayoutResolver = ::detectDesktopInstallLayout,
     private val osNameProvider: OsNameProvider = { System.getProperty("os.name") }
 ) : CliktCommand(name = commandName, help = commandHelp) {
     override fun run() {
@@ -40,13 +38,16 @@ abstract class DesktopLifecycleCommand(
             throw ProgramResult(1)
         }
 
-        val projectRoot = projectRootProvider()
+        val layout = layoutResolver()
             ?: run {
-                echo("Could not determine the Cotor project root. Run via shell/cotor or from a Cotor checkout.")
+                echo("Could not determine a usable Cotor install layout. Run via shell/cotor, from a Cotor checkout, or from a packaged install wrapper.")
                 throw ProgramResult(1)
             }
 
-        val result = scriptRunner(projectRoot, scriptName)
+        val result = when (layout.kind) {
+            DesktopInstallLayoutKind.SOURCE_CHECKOUT -> scriptRunner(layout.root, action.scriptName)
+            DesktopInstallLayoutKind.PACKAGED_INSTALL -> packagedActionRunner(layout, action)
+        }
         if (result.output.isNotBlank()) {
             val lines = result.output.lines()
             lines.forEachIndexed { index, line ->
@@ -57,51 +58,54 @@ abstract class DesktopLifecycleCommand(
             }
         }
         if (result.exitCode != 0) {
-            echo("cotor $actionLabel failed.")
+            echo("cotor ${action.actionLabel} failed.")
             throw ProgramResult(result.exitCode)
         }
     }
 }
 
-class InstallCommand(
+internal class InstallCommand(
     scriptRunner: DesktopScriptRunner = ::runDesktopScript,
-    projectRootProvider: ProjectRootProvider = ::detectProjectRoot,
+    packagedActionRunner: PackagedDesktopActionRunner = ::runPackagedDesktopAction,
+    layoutResolver: DesktopLayoutResolver = ::detectDesktopInstallLayout,
     osNameProvider: OsNameProvider = { System.getProperty("os.name") }
 ) : DesktopLifecycleCommand(
     commandName = "install",
-    commandHelp = "Build and install the macOS desktop app into Applications.",
-    scriptName = "install-desktop-app.sh",
-    actionLabel = "install",
+    commandHelp = "Install the macOS desktop app into Applications.",
+    action = DesktopInstallAction.INSTALL,
     scriptRunner = scriptRunner,
-    projectRootProvider = projectRootProvider,
+    packagedActionRunner = packagedActionRunner,
+    layoutResolver = layoutResolver,
     osNameProvider = osNameProvider
 )
 
-class UpdateCommand(
+internal class UpdateCommand(
     scriptRunner: DesktopScriptRunner = ::runDesktopScript,
-    projectRootProvider: ProjectRootProvider = ::detectProjectRoot,
+    packagedActionRunner: PackagedDesktopActionRunner = ::runPackagedDesktopAction,
+    layoutResolver: DesktopLayoutResolver = ::detectDesktopInstallLayout,
     osNameProvider: OsNameProvider = { System.getProperty("os.name") }
 ) : DesktopLifecycleCommand(
     commandName = "update",
-    commandHelp = "Rebuild and update the installed macOS desktop app.",
-    scriptName = "update-desktop-app.sh",
-    actionLabel = "update",
+    commandHelp = "Update the installed macOS desktop app.",
+    action = DesktopInstallAction.UPDATE,
     scriptRunner = scriptRunner,
-    projectRootProvider = projectRootProvider,
+    packagedActionRunner = packagedActionRunner,
+    layoutResolver = layoutResolver,
     osNameProvider = osNameProvider
 )
 
-class DeleteCommand(
+internal class DeleteCommand(
     scriptRunner: DesktopScriptRunner = ::runDesktopScript,
-    projectRootProvider: ProjectRootProvider = ::detectProjectRoot,
+    packagedActionRunner: PackagedDesktopActionRunner = ::runPackagedDesktopAction,
+    layoutResolver: DesktopLayoutResolver = ::detectDesktopInstallLayout,
     osNameProvider: OsNameProvider = { System.getProperty("os.name") }
 ) : DesktopLifecycleCommand(
     commandName = "delete",
     commandHelp = "Delete the installed macOS desktop app and related download artifacts.",
-    scriptName = "delete-desktop-app.sh",
-    actionLabel = "delete",
+    action = DesktopInstallAction.DELETE,
     scriptRunner = scriptRunner,
-    projectRootProvider = projectRootProvider,
+    packagedActionRunner = packagedActionRunner,
+    layoutResolver = layoutResolver,
     osNameProvider = osNameProvider
 )
 
@@ -126,39 +130,5 @@ internal fun runDesktopScript(projectRoot: Path, scriptName: String): DesktopScr
     val exitCode = process.waitFor()
     return DesktopScriptResult(exitCode = exitCode, output = output)
 }
-
-internal fun detectProjectRoot(): Path? {
-    val explicitRoot = System.getenv("COTOR_PROJECT_ROOT")
-        ?.takeIf { it.isNotBlank() }
-        ?.let { Paths.get(it).toAbsolutePath().normalize() }
-        ?.takeIf { isProjectRoot(it) }
-    if (explicitRoot != null) return explicitRoot
-
-    val cwdRoot = locateProjectRoot(Paths.get("").toAbsolutePath().normalize())
-    if (cwdRoot != null) return cwdRoot
-
-    val codeSourceRoot = runCatching {
-        Paths.get(InstallCommand::class.java.protectionDomain.codeSource.location.toURI())
-            .toAbsolutePath()
-            .normalize()
-    }.getOrNull()?.let(::locateProjectRoot)
-
-    return codeSourceRoot
-}
-
-private fun locateProjectRoot(start: Path): Path? {
-    var current: Path? = if (Files.isDirectory(start)) start else start.parent
-    repeat(8) {
-        val candidate = current ?: return null
-        if (isProjectRoot(candidate)) return candidate
-        current = candidate.parent
-    }
-    return null
-}
-
-private fun isProjectRoot(path: Path): Boolean =
-    Files.exists(path.resolve("gradlew")) &&
-        Files.exists(path.resolve("shell/install-desktop-app.sh")) &&
-        Files.exists(path.resolve("macos/Package.swift"))
 
 private fun isMacOs(osName: String): Boolean = osName.lowercase().contains("mac")
