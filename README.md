@@ -114,6 +114,7 @@ Current desktop model:
 
 - top-level `Company` and `TUI` shell modes
 - `Company` mode for multi-company operations, agent roster, goals, issue board/canvas, activity feed, and runtime controls
+- `Company` summary keeps runtime health, blocked workflow count, review attention, and the latest error/action inside the main summary banner instead of a separate tall status card
 - `TUI` mode for standalone folder-backed `cotor` terminals, with multiple live sessions in parallel
 - top session strip for active execution contexts
 - collapsible detail drawer for changes, files, ports, browser, and review metadata
@@ -129,7 +130,7 @@ The current build includes a working local operations layer:
 - decompose goals into issues
 - delegate and run issues
 - populate and merge ready review queue items
-- inspect runtime status and recent company activity
+- inspect compact runtime status, blocked/review attention, and recent company activity from the company summary page
 - start and stop a local autonomous runtime loop per company
 
 Current limits in this build:

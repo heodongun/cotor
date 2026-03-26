@@ -2427,7 +2427,6 @@ private struct CenterPaneView: View {
                 title: l("Company Summary", "회사 요약"),
                 subtitle: l("Use this page as the summary room for what the company is doing right now.", "회사가 지금 무엇을 하고 있는지 보는 요약방입니다.")
             )
-            companyRuntimeAttentionPanel
             operationsBanner
             if store.companyStreamStatusMessage != nil || store.backendStatusMessage != nil {
                 VStack(alignment: .leading, spacing: 8) {
@@ -2470,7 +2469,7 @@ private struct CenterPaneView: View {
     }
 
     @ViewBuilder
-    private var companyRuntimeAttentionPanel: some View {
+    private var companyRuntimeSummaryStrip: some View {
         if let runtime = store.selectedRuntime {
             let companyID = store.selectedCompany?.id
             let blockedWorkflowCount = store.dashboard.issues.filter { issue in
@@ -2483,60 +2482,47 @@ private struct CenterPaneView: View {
                     (item.status == "CHANGES_REQUESTED" || item.status == "READY_FOR_CEO")
             }.count
             let runtimeHealthy = runtime.status.uppercased() == "RUNNING" && runtime.backendHealth.lowercased() == "healthy"
-            let panelTint = runtimeHealthy ? ShellPalette.success : ShellPalette.warning
-
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     StatusSummaryPill(text: l.status(runtime.status), tint: companyRuntimeTint(runtime.status))
                     StatusSummaryPill(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
                     if blockedWorkflowCount > 0 {
-                        StatusSummaryPill(
+                        ShellTag(
                             text: "\(blockedWorkflowCount) \(l("workflow issues blocked", "워크플로우 차단"))",
                             tint: ShellPalette.warning
                         )
                     }
                     if reviewAttentionCount > 0 {
-                        StatusSummaryPill(
+                        ShellTag(
                             text: "\(reviewAttentionCount) \(l("reviews need attention", "리뷰 대기"))",
                             tint: ShellPalette.accentWarm
                         )
                     }
-                    Spacer()
-                }
-
-                if runtimeHealthy && (blockedWorkflowCount > 0 || reviewAttentionCount > 0) {
-                    StatusSummaryLine(
-                        text: l(
-                            "The runtime is healthy. The current bottleneck is in QA, CEO approval, or merge follow-up.",
-                            "런타임은 정상입니다. 지금 병목은 QA, CEO 승인, 또는 병합 후속 작업 쪽입니다."
-                        ),
-                        tint: ShellPalette.success
-                    )
-                }
-
-                if let lastAction = runtime.lastAction, !lastAction.isEmpty {
-                    StatusSummaryLine(
-                        text: "\(l("Last runtime action", "최근 런타임 동작")): \(lastAction)",
-                        tint: ShellPalette.accent
-                    )
+                    Spacer(minLength: 0)
                 }
 
                 if let lastError = runtime.lastError, !lastError.isEmpty {
-                    StatusSummaryLine(
-                        text: "\(l("Latest runtime error", "최근 런타임 오류")): \(lastError)",
-                        tint: ShellPalette.danger
+                    Text("\(l("Latest runtime error", "최근 런타임 오류")): \(lastError)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.danger)
+                        .lineLimit(1)
+                } else if runtimeHealthy && (blockedWorkflowCount > 0 || reviewAttentionCount > 0) {
+                    Text(
+                        l(
+                            "Runtime is healthy. The bottleneck is in QA, CEO approval, or merge follow-up.",
+                            "런타임은 정상입니다. 병목은 QA, CEO 승인, 또는 병합 후속 작업입니다."
+                        )
                     )
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                    .lineLimit(1)
+                } else if let lastAction = runtime.lastAction, !lastAction.isEmpty {
+                    Text("\(l("Last runtime action", "최근 런타임 동작")): \(lastAction)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+                        .lineLimit(1)
                 }
             }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
-                    .fill(ShellPalette.panelAlt)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
-                    .stroke(panelTint.opacity(0.55), lineWidth: 1)
-            )
         }
     }
 
@@ -3188,6 +3174,8 @@ private struct CenterPaneView: View {
                     }
                 }
             }
+
+            companyRuntimeSummaryStrip
 
             HStack(spacing: 8) {
                 ShellTag(text: "\(l("Goals", "목표")) \(store.dashboard.opsMetrics.openGoals)", tint: ShellPalette.accentWarm)
