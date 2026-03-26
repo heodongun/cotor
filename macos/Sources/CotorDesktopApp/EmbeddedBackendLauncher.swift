@@ -16,6 +16,9 @@ actor EmbeddedBackendLauncher {
     private let shutdownPollIntervalMs = 200
 
     func ensureRunning() async {
+        if usesExternalServerConfiguration() {
+            return
+        }
         if shutdownRequested {
             return
         }
@@ -84,6 +87,10 @@ actor EmbeddedBackendLauncher {
     }
 
     func restart() async {
+        if usesExternalServerConfiguration() {
+            AppLogger.info("Skipping embedded backend restart because an external app-server URL is configured.")
+            return
+        }
         shutdownRequested = false
         AppLogger.info("Restarting embedded backend.")
         _ = await terminateCurrentProcess(timeoutSeconds: 2)
@@ -92,11 +99,23 @@ actor EmbeddedBackendLauncher {
     }
 
     func stop(timeoutSeconds: TimeInterval = 5) async -> Bool {
+        if usesExternalServerConfiguration() {
+            AppLogger.info("Skipping embedded backend stop because the backend is launcher-managed or externally configured.")
+            return true
+        }
         shutdownRequested = true
         AppLogger.info("Embedded backend stop started.")
-        let trackedStopped = await terminateCurrentProcess(timeoutSeconds: min(timeoutSeconds, 2))
-        terminateExternalBundledBackendProcesses()
-        let shutdownConfirmed = await waitForShutdown(timeoutSeconds: max(timeoutSeconds - 2, 1))
+        let gracefulShutdownRequested = await requestGracefulShutdown()
+        if gracefulShutdownRequested {
+            AppLogger.info("Requested graceful embedded backend shutdown over HTTP.")
+        }
+        var shutdownConfirmed = await waitForShutdown(timeoutSeconds: min(timeoutSeconds, 3))
+        var trackedStopped = shutdownConfirmed
+        if !shutdownConfirmed {
+            trackedStopped = await terminateCurrentProcess(timeoutSeconds: min(timeoutSeconds, 2))
+            terminateExternalBundledBackendProcesses()
+            shutdownConfirmed = await waitForShutdown(timeoutSeconds: max(timeoutSeconds - 2, 1))
+        }
         if shutdownConfirmed {
             AppLogger.info("Embedded backend stop completed.")
         } else if trackedStopped {
@@ -209,6 +228,25 @@ actor EmbeddedBackendLauncher {
         return false
     }
 
+    private func requestGracefulShutdown() async -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/api/app/shutdown") else {
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 1.5
+        request.setValue("Bearer \(DesktopAPI.embeddedAppToken)", forHTTPHeaderField: "Authorization")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                return http.statusCode == 202 || (200 ..< 300).contains(http.statusCode)
+            }
+        } catch {
+            return false
+        }
+        return false
+    }
+
     private func mergedEnvironment(javaPath: String) -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let javaHome = URL(fileURLWithPath: javaPath).deletingLastPathComponent().deletingLastPathComponent().path
@@ -219,6 +257,14 @@ actor EmbeddedBackendLauncher {
         let defaultPath = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
         env["PATH"] = [env["PATH"], defaultPath].compactMap { $0 }.joined(separator: ":")
         return env
+    }
+
+    private func usesExternalServerConfiguration() -> Bool {
+        guard let rawURL = ProcessInfo.processInfo.environment["COTOR_APP_SERVER_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawURL.isEmpty else {
+            return false
+        }
+        return true
     }
 
     private func resolveJavaExecutablePath() -> String? {

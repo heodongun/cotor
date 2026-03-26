@@ -19,6 +19,7 @@ import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.netty.NettyApplicationEngine
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.request.header
@@ -68,8 +69,18 @@ class AppServer : KoinComponent {
             "[cotor-app-server] acquired desktop app-server instance lock at " +
                 "${lockRecord.lockPath} for app home ${lockRecord.appHome}"
         )
-        val server = embeddedServer(Netty, port = port, host = host) {
-            cotorAppModule(token, desktopService, tuiSessionService)
+        lateinit var server: io.ktor.server.engine.EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>
+        server = embeddedServer(Netty, port = port, host = host) {
+            cotorAppModule(
+                token = token,
+                desktopService = desktopService,
+                tuiSessionService = tuiSessionService,
+                shutdownHandler = {
+                    Thread {
+                        server.stop(1000, 5000)
+                    }.start()
+                }
+            )
         }
         server.environment.monitor.subscribe(ApplicationStopped) {
             tuiSessionService.shutdown()
@@ -180,7 +191,8 @@ internal val desktopAppServerInstanceGuard = DesktopAppServerInstanceGuard()
 internal fun Application.cotorAppModule(
     token: String?,
     desktopService: DesktopAppService,
-    tuiSessionService: DesktopTuiSessionService
+    tuiSessionService: DesktopTuiSessionService,
+    shutdownHandler: (() -> Unit)? = null
 ) {
     val streamJson = Json { ignoreUnknownKeys = true }
     install(ContentNegotiation) {
@@ -212,6 +224,12 @@ internal fun Application.cotorAppModule(
             get("/health") {
                 if (!requireToken(token)) return@get
                 call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
+            }
+
+            post("/shutdown") {
+                if (!requireToken(token)) return@post
+                call.respond(HttpStatusCode.Accepted, HealthResponse(ok = true, service = "cotor-app-server"))
+                shutdownHandler?.invoke()
             }
 
             get("/dashboard") {

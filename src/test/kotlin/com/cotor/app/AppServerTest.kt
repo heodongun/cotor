@@ -23,6 +23,8 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
 import io.mockk.mockk
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class AppServerTest : FunSpec({
     val desktopService = mockk<DesktopAppService>(relaxed = true)
@@ -63,6 +65,29 @@ class AppServerTest : FunSpec({
             val response = client.get("/api/app/dashboard")
             response.status shouldBe HttpStatusCode.Unauthorized
             response.bodyAsText() shouldContain "Unauthorized"
+        }
+    }
+
+    test("shutdown route accepts authenticated graceful shutdown requests") {
+        val shutdownLatch = CountDownLatch(1)
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService,
+                    shutdownHandler = { shutdownLatch.countDown() }
+                )
+            }
+
+            val response = client.post("/api/app/shutdown") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.Accepted
+            response.bodyAsText() shouldContain "\"ok\":true"
+            shutdownLatch.await(2, TimeUnit.SECONDS) shouldBe true
         }
     }
 
