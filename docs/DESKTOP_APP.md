@@ -74,6 +74,7 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 ```
 
 The bundle starts the local backend lazily when needed.
+Closing the last desktop window quits the app and shuts down the bundled backend.
 
 You can update or remove the installed bundle from the CLI:
 

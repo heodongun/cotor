@@ -126,6 +126,10 @@ final class DesktopAppLifecycleDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if terminationInFlight {
             return .terminateLater

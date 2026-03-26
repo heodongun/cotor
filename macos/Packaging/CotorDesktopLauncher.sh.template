@@ -117,6 +117,16 @@ wait_for_backend() {
     return 1
 }
 
+request_backend_shutdown() {
+    local url="$1"
+    local token="$2"
+    [[ -n "$url" ]] || return 1
+    [[ -n "$token" ]] || return 1
+    curl -fsS -X POST "$url/api/app/shutdown" \
+        -H "Authorization: Bearer $token" \
+        >/dev/null 2>&1
+}
+
 log_launcher() {
     printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" >>"$LOG_FILE"
 }
@@ -269,7 +279,7 @@ stop_managed_backend() {
     fi
 
     log_launcher "Stopping managed backend $backend_pid."
-    kill "$backend_pid" >/dev/null 2>&1 || true
+    request_backend_shutdown "$SERVER_URL" "$SERVER_TOKEN" || kill "$backend_pid" >/dev/null 2>&1 || true
 
     local attempts=0
     while (( attempts < 20 )); do
