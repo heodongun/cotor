@@ -1,13 +1,15 @@
 # Cotor 문서 안내
 
-이 문서는 현재 코드베이스 기준의 문서 진입점입니다. 현재 문서와 과거 기록을 구분하려면 [INDEX.md](INDEX.md)를 먼저 보십시오.
+이 문서는 현재 코드베이스 기준의 문서 진입점입니다. 현재 문서와 과거 기록을 구분하려면 [INDEX.md](INDEX.md) 또는 [INDEX.ko.md](INDEX.ko.md)를 먼저 보십시오.
+
+한글 동반 문서가 있는 경우 같은 경로에서 `.ko.md` 이름을 사용합니다.
 
 ## 먼저 볼 문서
 
-- [QUICK_START.md](QUICK_START.md): 빠른 설치와 첫 실행
-- [FEATURES.md](FEATURES.md): 코드 기준 기능 목록
-- [DESKTOP_APP.md](DESKTOP_APP.md): `app-server`와 macOS 셸
-- [TEST_PLAN.md](TEST_PLAN.md): 자동/수동 검증 매트릭스
+- [QUICK_START.ko.md](QUICK_START.ko.md): 빠른 설치와 첫 실행
+- [FEATURES.ko.md](FEATURES.ko.md): 코드 기준 기능 목록
+- [DESKTOP_APP.ko.md](DESKTOP_APP.ko.md): `app-server`와 macOS 셸
+- [TEST_PLAN.ko.md](TEST_PLAN.ko.md): 자동/수동 검증 매트릭스
 - [team-ops/README.ko.md](team-ops/README.ko.md): 온보딩과 유지보수 운영
 
 ## 현재 제품 스냅샷
@@ -61,10 +63,10 @@ Cotor는 하나의 Kotlin 코어 위에 세 가지 운영 표면을 제공합니
 
 ## 참고 문서
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): 공통 런타임 구조
-- [WEB_EDITOR.md](WEB_EDITOR.md): 웹 에디터 사용법
-- [USAGE_TIPS.md](USAGE_TIPS.md): 운영 팁
-- [CONDITION_DSL.md](CONDITION_DSL.md): 조건 DSL
+- [ARCHITECTURE.ko.md](ARCHITECTURE.ko.md): 공통 런타임 구조
+- [WEB_EDITOR.ko.md](WEB_EDITOR.ko.md): 웹 에디터 사용법
+- [USAGE_TIPS.ko.md](USAGE_TIPS.ko.md): 운영 팁
+- [CONDITION_DSL.ko.md](CONDITION_DSL.ko.md): 조건 DSL
 - [cookbook.md](cookbook.md): 예제 워크플로우
 - [CLAUDE_SETUP.md](CLAUDE_SETUP.md): Claude 연동
 - [templates/temp-cotor-template.md](templates/temp-cotor-template.md): 템플릿 관련 문서
