@@ -196,7 +196,7 @@ private fun buildEffectivePath(
     addPathEntries(inheritedPath)
     addPathEntries(System.getenv("PATH"))
 
-    val home = System.getProperty("user.home").orEmpty()
+    val home = effectiveUserHome().orEmpty()
     listOf(
         "/opt/homebrew/bin",
         "/opt/homebrew/sbin",
@@ -221,7 +221,21 @@ private fun buildEffectivePath(
     return entries.joinToString(File.pathSeparator)
 }
 
-fun resolveExecutablePath(command: String): Path? {
+internal fun effectiveUserHome(
+    environment: Map<String, String> = System.getenv(),
+    systemHome: String? = System.getProperty("user.home")
+): String? {
+    return environment["HOME"]
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: systemHome?.trim()?.takeIf { it.isNotBlank() }
+}
+
+fun resolveExecutablePath(
+    command: String,
+    environment: Map<String, String> = System.getenv(),
+    systemHome: String? = System.getProperty("user.home")
+): Path? {
     val normalized = command.trim().trim('"')
     if (normalized.isBlank()) {
         return null
@@ -236,13 +250,13 @@ fun resolveExecutablePath(command: String): Path? {
     }
 
     val searchDirectories = buildList {
-        val rawPath = System.getenv("PATH").orEmpty()
+        val rawPath = environment["PATH"].orEmpty()
         rawPath.split(java.io.File.pathSeparator)
             .map { it.trim().trim('"') }
             .filter { it.isNotBlank() }
             .forEach { add(it) }
 
-        val home = System.getProperty("user.home").orEmpty()
+        val home = effectiveUserHome(environment, systemHome).orEmpty()
         add("/opt/homebrew/bin")
         add("/usr/local/bin")
         add("/usr/bin")

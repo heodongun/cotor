@@ -11,13 +11,14 @@ package com.cotor.data.process
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
-import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
 import kotlinx.coroutines.TimeoutCancellationException
 import org.slf4j.Logger
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermission
 
 class ProcessManagerTest : FunSpec({
@@ -101,5 +102,44 @@ class ProcessManagerTest : FunSpec({
                 timeout = 200
             )
         }
+    }
+
+    test("effectiveUserHome prefers HOME from the environment over user.home") {
+        effectiveUserHome(
+            environment = mapOf("HOME" to "/tmp/cotor-home"),
+            systemHome = "/Users/real-home"
+        ) shouldBe "/tmp/cotor-home"
+    }
+
+    test("resolveExecutablePath searches the HOME override user-local bin before the real user home") {
+        val fakeHome = Files.createTempDirectory("process-manager-home-override")
+        val fakeLocalBin = fakeHome.resolve(".local").resolve("bin")
+        Files.createDirectories(fakeLocalBin)
+        val commandName = "cotor-home-only-probe"
+        val fakeExecutable = fakeLocalBin.resolve(commandName)
+        Files.writeString(
+            fakeExecutable,
+            """
+            #!/bin/sh
+            exit 0
+            """.trimIndent()
+        )
+        Files.setPosixFilePermissions(
+            fakeExecutable,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE
+            )
+        )
+
+        val resolved = resolveExecutablePath(
+            command = commandName,
+            environment = mapOf("PATH" to "/usr/bin:/bin", "HOME" to fakeHome.toString()),
+            systemHome = "/Users/real-home"
+        )
+
+        resolved.shouldNotBeNull()
+        resolved shouldBe Path.of(fakeExecutable.toString()).toAbsolutePath().normalize()
     }
 })
