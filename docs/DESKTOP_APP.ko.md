@@ -79,6 +79,7 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 ```
 
 설치된 번들은 필요할 때 로컬 백엔드를 지연 시작합니다.
+마지막 데스크톱 창을 닫으면 앱도 종료되고 번들 백엔드도 같이 내려갑니다.
 
 ```bash
 cotor update
