@@ -102,6 +102,7 @@ The current macOS shell has two top-level modes.
   - goal list and goal creation
   - Linear-style issue board/canvas inside the app
   - company activity feed
+  - compact company summary banner that keeps runtime health, blocked workflows, review attention, and the latest error/action in one place
   - runtime start/stop/status
 - `TUI`
   - independent from company workflow state
@@ -154,6 +155,7 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - inspect linked tasks and runs
 - populate and merge review queue items
 - inspect company activity
+- inspect runtime health, blocked/review attention, and the latest runtime signal from the compact company summary banner
 - warn during company creation when GitHub PR publishing is required but the repository is not ready for `gh`/`origin` publishing
 - start, stop, and inspect the local runtime loop
 - prefer locally installed agent CLIs for default company profiles, with `echo` as a final fallback
