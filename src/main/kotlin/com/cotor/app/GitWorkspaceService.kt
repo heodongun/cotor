@@ -54,6 +54,12 @@ data class PullRequestMergeResult(
     val mergeCommitSha: String? = null
 )
 
+data class BaseBranchSyncResult(
+    val synced: Boolean = false,
+    val workingTreeUpdated: Boolean = false,
+    val skippedReason: String? = null
+)
+
 /**
  * Encapsulates every git-aware filesystem operation used by the desktop app.
  *
@@ -66,6 +72,12 @@ class GitWorkspaceService(
     private val logger: Logger
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+    @Volatile private var cachedGitHubLogin: String? = null
+
+    companion object {
+        private const val BOOTSTRAP_COMMIT_MESSAGE = "Initialize repository"
+        private const val BOOTSTRAP_COMMIT_EMAIL = "cotor@local"
+    }
 
     /**
      * Normalizes any nested path inside a repository back to the real git root.
@@ -108,7 +120,7 @@ class GitWorkspaceService(
                 "commit",
                 "--allow-empty",
                 "-m",
-                "Initialize repository"
+                BOOTSTRAP_COMMIT_MESSAGE
             )
         )
     }
@@ -344,9 +356,18 @@ class GitWorkspaceService(
 
     suspend fun ensureGitHubPublishReady(worktreePath: Path, baseBranch: String): GitHubPublishReadiness {
         if (hasOriginRemote(worktreePath)) {
+            val originUrl = originRemoteUrl(worktreePath)
+            val sharedHistoryError = ensureSharedHistoryWithRemoteBase(worktreePath, baseBranch, originUrl)
+            if (sharedHistoryError != null) {
+                return GitHubPublishReadiness(
+                    ready = false,
+                    originUrl = originUrl,
+                    error = sharedHistoryError
+                )
+            }
             return GitHubPublishReadiness(
                 ready = true,
-                originUrl = originRemoteUrl(worktreePath)
+                originUrl = originUrl
             )
         }
 
@@ -364,9 +385,18 @@ class GitWorkspaceService(
 
         val hasRemote = ensureGitHubOrigin(worktreePath, baseBranch)
         return if (hasRemote) {
+            val originUrl = originRemoteUrl(worktreePath)
+            val sharedHistoryError = ensureSharedHistoryWithRemoteBase(worktreePath, baseBranch, originUrl)
+            if (sharedHistoryError != null) {
+                return GitHubPublishReadiness(
+                    ready = false,
+                    originUrl = originUrl,
+                    error = sharedHistoryError
+                )
+            }
             GitHubPublishReadiness(
                 ready = true,
-                originUrl = originRemoteUrl(worktreePath)
+                originUrl = originUrl
             )
         } else {
             GitHubPublishReadiness(
@@ -419,6 +449,22 @@ class GitWorkspaceService(
         verdict: PullRequestReviewVerdict,
         body: String
     ): PublishMetadata {
+        val currentLogin = currentGitHubLogin(worktreePath)
+        val currentPullRequest = viewPullRequest(worktreePath, pullRequestNumber)
+        val selfAuthoredReview =
+            verdict != PullRequestReviewVerdict.COMMENT &&
+                !currentLogin.isNullOrBlank() &&
+                currentPullRequest.author?.login?.equals(currentLogin, ignoreCase = true) == true
+        if (selfAuthoredReview) {
+            logger.info("Skipping GitHub ${verdict.name.lowercase()} review for self-authored PR #$pullRequestNumber because GitHub blocks self-review.")
+            return PublishMetadata(
+                pullRequestNumber = currentPullRequest.number,
+                pullRequestUrl = currentPullRequest.url,
+                pullRequestState = currentPullRequest.state,
+                reviewState = currentPullRequest.reviewDecision,
+                mergeability = currentPullRequest.mergeStateStatus
+            )
+        }
         val command = mutableListOf("gh", "pr", "review", pullRequestNumber.toString())
         when (verdict) {
             PullRequestReviewVerdict.COMMENT -> command += "--comment"
@@ -426,7 +472,15 @@ class GitWorkspaceService(
             PullRequestReviewVerdict.REQUEST_CHANGES -> command += "--request-changes"
         }
         command += listOf("--body", body)
-        runCommand(worktreePath, command)
+        try {
+            runCommand(worktreePath, command)
+        } catch (error: ProcessExecutionException) {
+            if (verdict != PullRequestReviewVerdict.COMMENT && isSelfReviewBlocked(error)) {
+                logger.info("Skipping GitHub ${verdict.name.lowercase()} review for self-authored PR #$pullRequestNumber because GitHub blocks self-review.")
+            } else {
+                throw error
+            }
+        }
 
         val refreshed = viewPullRequest(worktreePath, pullRequestNumber)
         return PublishMetadata(
@@ -438,11 +492,30 @@ class GitWorkspaceService(
         )
     }
 
-    suspend fun mergePullRequest(worktreePath: Path, pullRequestNumber: Int): PullRequestMergeResult {
+    suspend fun commentOnPullRequest(
+        worktreePath: Path,
+        pullRequestNumber: Int,
+        body: String
+    ) {
         runCommand(
             worktreePath,
-            listOf("gh", "pr", "merge", pullRequestNumber.toString(), "--merge", "--delete-branch")
+            listOf("gh", "pr", "comment", pullRequestNumber.toString(), "--body", body)
         )
+    }
+
+    suspend fun mergePullRequest(worktreePath: Path, pullRequestNumber: Int): PullRequestMergeResult {
+        try {
+            runCommand(
+                worktreePath,
+                listOf("gh", "pr", "merge", pullRequestNumber.toString(), "--merge")
+            )
+        } catch (error: ProcessExecutionException) {
+            if (isAlreadyMerged(error)) {
+                logger.info("PR #$pullRequestNumber was already merged before Cotor refreshed local state.")
+            } else {
+                throw error
+            }
+        }
         val refreshed = viewPullRequest(worktreePath, pullRequestNumber)
         return PullRequestMergeResult(
             number = refreshed.number,
@@ -450,6 +523,109 @@ class GitWorkspaceService(
             state = refreshed.state,
             mergeCommitSha = refreshed.mergeCommit?.oid
         )
+    }
+
+    /**
+     * After GitHub merges a PR, keep the repository root's base branch aligned so the
+     * user immediately sees merged changes in the folder they opened in Cotor.
+     *
+     * The sync is deliberately conservative:
+     * - if the root checkout is already on the base branch, only fast-forward it when
+     *   there are no user edits beyond Cotor's own local artifacts
+     * - if another branch is checked out, update the base branch ref only and leave the
+     *   current working tree untouched
+     */
+    suspend fun syncBaseBranchAfterMerge(worktreePath: Path, baseBranch: String): BaseBranchSyncResult {
+        val normalizedBaseBranch = baseBranch.trim()
+        if (normalizedBaseBranch.isBlank()) {
+            return BaseBranchSyncResult(skippedReason = "No base branch configured for post-merge sync.")
+        }
+
+        val repositoryRoot = repositoryCommonRoot(worktreePath)
+        if (!hasOriginRemote(repositoryRoot)) {
+            return BaseBranchSyncResult(skippedReason = "No origin remote configured for post-merge sync.")
+        }
+
+        val remoteTrackingRef = "refs/remotes/origin/$normalizedBaseBranch"
+        val fetchResult = runGit(
+            repositoryRoot,
+            "fetch",
+            "--no-tags",
+            "origin",
+            "refs/heads/$normalizedBaseBranch:$remoteTrackingRef",
+            failOnError = false,
+            timeoutMs = 30_000
+        )
+        if (!fetchResult.isSuccess) {
+            logger.warn("Could not fetch origin/$normalizedBaseBranch after merge")
+            return BaseBranchSyncResult(skippedReason = "Could not fetch origin/$normalizedBaseBranch after merge.")
+        }
+
+        val currentBranch = runGit(
+            repositoryRoot,
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+            failOnError = false,
+            timeoutMs = 10_000
+        ).stdout.trim()
+
+        if (currentBranch == normalizedBaseBranch) {
+            if (!hasOnlyBenignCotorArtifacts(repositoryRoot)) {
+                return BaseBranchSyncResult(
+                    skippedReason = "Skipped post-merge sync for $normalizedBaseBranch because the repository root has uncommitted changes."
+                )
+            }
+            val fastForwardResult = runGit(
+                repositoryRoot,
+                "merge",
+                "--ff-only",
+                remoteTrackingRef,
+                failOnError = false,
+                timeoutMs = 30_000
+            )
+            if (!fastForwardResult.isSuccess) {
+                logger.warn("Could not fast-forward $normalizedBaseBranch to $remoteTrackingRef after merge")
+                return BaseBranchSyncResult(skippedReason = "Could not fast-forward local $normalizedBaseBranch after merge.")
+            }
+            return BaseBranchSyncResult(synced = true, workingTreeUpdated = true)
+        }
+
+        val localBaseBranchExists = runGit(
+            repositoryRoot,
+            "show-ref",
+            "--verify",
+            "--quiet",
+            "refs/heads/$normalizedBaseBranch",
+            failOnError = false,
+            timeoutMs = 10_000
+        ).isSuccess
+        val updateRefResult = if (localBaseBranchExists) {
+            runGit(
+                repositoryRoot,
+                "branch",
+                "-f",
+                normalizedBaseBranch,
+                remoteTrackingRef,
+                failOnError = false,
+                timeoutMs = 10_000
+            )
+        } else {
+            runGit(
+                repositoryRoot,
+                "branch",
+                normalizedBaseBranch,
+                remoteTrackingRef,
+                failOnError = false,
+                timeoutMs = 10_000
+            )
+        }
+        if (!updateRefResult.isSuccess) {
+            logger.warn("Could not update local $normalizedBaseBranch ref to $remoteTrackingRef after merge")
+            return BaseBranchSyncResult(skippedReason = "Could not update local $normalizedBaseBranch ref after merge.")
+        }
+
+        return BaseBranchSyncResult(synced = true, workingTreeUpdated = false)
     }
 
     private suspend fun hasOriginRemote(repositoryRoot: Path): Boolean {
@@ -477,6 +653,188 @@ class GitWorkspaceService(
             timeoutMs = 10_000
         )
         return result.stdout.trim().takeIf { result.isSuccess && it.isNotBlank() }
+    }
+
+    private suspend fun ensureSharedHistoryWithRemoteBase(
+        worktreePath: Path,
+        baseBranch: String,
+        originUrl: String?
+    ): String? {
+        val localBaseBranchExists = runGit(
+            worktreePath,
+            "show-ref",
+            "--verify",
+            "--quiet",
+            "refs/heads/$baseBranch",
+            failOnError = false,
+            timeoutMs = 10_000
+        ).isSuccess
+        if (!localBaseBranchExists) {
+            return "GitHub publishing requires a local $baseBranch branch before opening pull requests."
+        }
+
+        val remoteBaseBranchExists = runGit(
+            worktreePath,
+            "ls-remote",
+            "--heads",
+            "origin",
+            baseBranch,
+            failOnError = false,
+            timeoutMs = 15_000
+        ).stdout.trim().isNotBlank()
+        if (!remoteBaseBranchExists) {
+            return null
+        }
+
+        val remoteTrackingRef = "refs/remotes/origin/$baseBranch"
+        val fetchResult = runGit(
+            worktreePath,
+            "fetch",
+            "--no-tags",
+            "origin",
+            "refs/heads/$baseBranch:$remoteTrackingRef",
+            failOnError = false,
+            timeoutMs = 30_000
+        )
+        if (!fetchResult.isSuccess) {
+            logger.warn("Could not fetch origin/$baseBranch while checking GitHub publish readiness")
+            return null
+        }
+
+        val mergeBaseResult = runGit(
+            worktreePath,
+            "merge-base",
+            baseBranch,
+            remoteTrackingRef,
+            failOnError = false,
+            timeoutMs = 10_000
+        )
+        if (mergeBaseResult.isSuccess) {
+            return null
+        }
+
+        val repairedBootstrapBase = repairBootstrapBaseBranchFromRemote(
+            worktreePath = worktreePath,
+            baseBranch = baseBranch,
+            remoteTrackingRef = remoteTrackingRef
+        )
+        if (repairedBootstrapBase) {
+            val repairedMergeBase = runGit(
+                worktreePath,
+                "merge-base",
+                baseBranch,
+                remoteTrackingRef,
+                failOnError = false,
+                timeoutMs = 10_000
+            )
+            if (repairedMergeBase.isSuccess) {
+                return null
+            }
+        }
+
+        val remoteLabel = originUrl ?: "origin"
+        return "GitHub publishing cannot open PRs against $remoteLabel because local $baseBranch was initialized independently and has no history in common with origin/$baseBranch."
+    }
+
+    private suspend fun repairBootstrapBaseBranchFromRemote(
+        worktreePath: Path,
+        baseBranch: String,
+        remoteTrackingRef: String
+    ): Boolean {
+        val bootstrapCommitCount = runGit(
+            worktreePath,
+            "rev-list",
+            "--count",
+            baseBranch,
+            failOnError = false,
+            timeoutMs = 10_000
+        ).stdout.trim().toIntOrNull() ?: return false
+        if (bootstrapCommitCount != 1) {
+            return false
+        }
+
+        val bootstrapSubject = runGit(
+            worktreePath,
+            "log",
+            "-1",
+            "--format=%s",
+            baseBranch,
+            failOnError = false,
+            timeoutMs = 10_000
+        ).stdout.trim()
+        if (bootstrapSubject != BOOTSTRAP_COMMIT_MESSAGE) {
+            return false
+        }
+
+        val bootstrapEmail = runGit(
+            worktreePath,
+            "log",
+            "-1",
+            "--format=%ae",
+            baseBranch,
+            failOnError = false,
+            timeoutMs = 10_000
+        ).stdout.trim()
+        if (bootstrapEmail != BOOTSTRAP_COMMIT_EMAIL) {
+            return false
+        }
+
+        val repositoryRoot = repositoryCommonRoot(worktreePath)
+        if (!hasOnlyBenignCotorArtifacts(repositoryRoot)) {
+            return false
+        }
+
+        val checkoutResult = runGit(
+            repositoryRoot,
+            "checkout",
+            "-B",
+            baseBranch,
+            remoteTrackingRef,
+            failOnError = false,
+            timeoutMs = 30_000
+        )
+        if (!checkoutResult.isSuccess) {
+            logger.warn("Could not align bootstrap-only $baseBranch with $remoteTrackingRef")
+            return false
+        }
+
+        logger.info("Aligned bootstrap-only $baseBranch with $remoteTrackingRef at {}", repositoryRoot)
+        return true
+    }
+
+    private suspend fun hasOnlyBenignCotorArtifacts(repositoryRoot: Path): Boolean {
+        val statusResult = runGit(
+            repositoryRoot,
+            "status",
+            "--porcelain",
+            failOnError = false,
+            timeoutMs = 10_000
+        )
+        if (!statusResult.isSuccess) {
+            return false
+        }
+
+        return statusResult.stdout
+            .lines()
+            .map { it.trimEnd() }
+            .filter { it.isNotBlank() }
+            .all(::isBenignCotorArtifact)
+    }
+
+    private fun isBenignCotorArtifact(statusLine: String): Boolean {
+        if (statusLine.length < 4) {
+            return false
+        }
+        val status = statusLine.take(2)
+        val path = statusLine.drop(3).trim()
+        if (status != "??") {
+            return false
+        }
+        return path == ".cotor" ||
+            path.startsWith(".cotor/") ||
+            path == "cotor.log" ||
+            path.matches(Regex("""cotor\.\d{4}-\d{2}-\d{2}\.\d+\.log""")) ||
+            path == ".DS_Store"
     }
 
     private suspend fun ensureGitHubOrigin(worktreePath: Path, baseBranch: String): Boolean {
@@ -636,6 +994,19 @@ class GitWorkspaceService(
         return result.stdout
     }
 
+    private suspend fun currentGitHubLogin(worktreePath: Path): String? {
+        cachedGitHubLogin?.let { return it }
+        val login = runCatching {
+            ghOutput(worktreePath, "api", "user", "--jq", ".login")
+                .trim()
+                .takeIf { it.isNotBlank() }
+        }.getOrNull()
+        if (!login.isNullOrBlank()) {
+            cachedGitHubLogin = login
+        }
+        return login
+    }
+
     private suspend fun runGit(
         workingDirectory: Path?,
         vararg args: String,
@@ -726,7 +1097,7 @@ class GitWorkspaceService(
             "view",
             pullRequestNumber.toString(),
             "--json",
-            "number,url,state,reviewDecision,mergeStateStatus,mergeCommit"
+            "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"
         )
         return json.decodeFromString<PullRequestRef>(raw)
     }
@@ -775,6 +1146,25 @@ class GitWorkspaceService(
             }
             else -> "Publish failed: ${t.message ?: "Unknown error"}"
         }
+    }
+
+    private fun isSelfReviewBlocked(error: ProcessExecutionException): Boolean {
+        val combined = listOf(error.message, error.stdout, error.stderr)
+            .joinToString("\n")
+            .lowercase()
+        return combined.contains("approve your own pull request") ||
+            combined.contains("review your own pull request") ||
+            combined.contains("can not review your own pull request") ||
+            combined.contains("cannot review your own pull request") ||
+            combined.contains("cannot approve your own pull request") ||
+            combined.contains("can not approve your own pull request")
+    }
+
+    private fun isAlreadyMerged(error: ProcessExecutionException): Boolean {
+        val combined = listOf(error.message, error.stdout, error.stderr)
+            .joinToString("\n")
+            .lowercase()
+        return combined.contains("already merged")
     }
 
     private fun scanTree(root: Path, directory: Path, depthRemaining: Int): List<FileTreeNode> {
@@ -834,11 +1224,17 @@ class GitWorkspaceService(
         val state: String? = null,
         val reviewDecision: String? = null,
         val mergeStateStatus: String? = null,
-        val mergeCommit: MergeCommitRef? = null
+        val mergeCommit: MergeCommitRef? = null,
+        val author: PullRequestAuthorRef? = null
     )
 
     @Serializable
     private data class MergeCommitRef(
         val oid: String? = null
+    )
+
+    @Serializable
+    private data class PullRequestAuthorRef(
+        val login: String? = null
     )
 }
