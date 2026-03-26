@@ -66,6 +66,42 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("tui session list route returns active sessions when authorized") {
+        coEvery { tuiSessionService.listSessions() } returns listOf(
+            TuiSession(
+                id = "tui-1",
+                workspaceId = "workspace-1",
+                repositoryId = "repo-1",
+                repositoryPath = "/tmp/repo",
+                agentName = "codex",
+                baseBranch = "master",
+                status = TuiSessionStatus.RUNNING,
+                transcript = "cotor>",
+                createdAt = 1L,
+                updatedAt = 2L
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/tui/sessions") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"id\":\"tui-1\""
+            response.bodyAsText() shouldContain "\"repositoryPath\":\"/tmp/repo\""
+            response.bodyAsText() shouldContain "\"status\":\"RUNNING\""
+        }
+    }
+
     test("company runtime routes return lifecycle snapshots when authorized") {
         coEvery { desktopService.runtimeStatus() } returns CompanyRuntimeSnapshot(
             status = CompanyRuntimeStatus.STOPPED,
@@ -136,6 +172,67 @@ class AppServerTest : FunSpec({
             response.status shouldBe HttpStatusCode.OK
             response.bodyAsText() shouldContain "\"id\":\"company-1\""
             response.bodyAsText() shouldContain "\"name\":\"Cotor\""
+        }
+    }
+
+    test("company create route returns company-scoped GitHub readiness when authorized") {
+        val company = Company(
+            id = "company-1",
+            name = "Cotor",
+            rootPath = "/tmp/cotor",
+            repositoryId = "repo-1",
+            defaultBaseBranch = "master",
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+        coEvery {
+            desktopService.createCompany(
+                name = "Cotor",
+                rootPath = "/tmp/cotor",
+                defaultBaseBranch = "master",
+                autonomyEnabled = true
+            )
+        } returns company
+        coEvery { desktopService.githubPublishStatus("company-1") } returns GitHubPublishStatus(
+            policy = CodePublishMode.REQUIRE_GITHUB_PR,
+            ghInstalled = true,
+            ghAuthenticated = false,
+            originConfigured = false,
+            repositoryPath = "/tmp/cotor",
+            companyId = "company-1",
+            companyName = "Cotor",
+            message = "GitHub PR mode requires an authenticated gh CLI session."
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/companies") {
+                header("Authorization", "Bearer secret-token")
+                setBody(
+                    """
+                    {
+                      "name": "Cotor",
+                      "rootPath": "/tmp/cotor",
+                      "defaultBaseBranch": "master",
+                      "autonomyEnabled": true
+                    }
+                    """.trimIndent()
+                )
+                header("Content-Type", "application/json")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"company\":{\"id\":\"company-1\""
+            response.bodyAsText() shouldContain "\"githubPublishStatus\":{\"policy\":\"REQUIRE_GITHUB_PR\""
+            response.bodyAsText() shouldContain "\"ghAuthenticated\":false"
+            response.bodyAsText() shouldContain "authenticated gh CLI session"
         }
     }
 

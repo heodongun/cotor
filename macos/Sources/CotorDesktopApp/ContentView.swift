@@ -199,22 +199,30 @@ struct ContentView: View {
     private func shell(for layoutMode: DesktopLayoutMode, size: CGSize) -> some View {
         switch layoutMode {
         case .wide:
-            HStack(alignment: .top, spacing: 12) {
-                SidebarView(searchText: searchText, companySurface: $companySurface)
-                    .frame(width: ShellMetrics.sidebarIdealWidth)
-                    .frame(maxHeight: .infinity)
+            if store.shellMode == .company {
+                unifiedCompanyShell(layoutMode: layoutMode, sidebarWidth: ShellMetrics.sidebarIdealWidth)
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    SidebarView(searchText: searchText, companySurface: $companySurface)
+                        .frame(width: ShellMetrics.sidebarIdealWidth)
+                        .frame(maxHeight: .infinity)
 
-                CenterPaneView(layoutMode: layoutMode, searchText: searchText, companySurface: companySurface)
-                    .frame(minWidth: ShellMetrics.contentMinWidth, maxWidth: .infinity, maxHeight: .infinity)
+                    CenterPaneView(layoutMode: layoutMode, searchText: searchText, companySurface: companySurface)
+                        .frame(minWidth: ShellMetrics.contentMinWidth, maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         case .stacked:
-            HStack(alignment: .top, spacing: 12) {
-                SidebarView(searchText: searchText, companySurface: $companySurface)
-                    .frame(width: 286)
-                    .frame(maxHeight: .infinity)
+            if store.shellMode == .company {
+                unifiedCompanyShell(layoutMode: layoutMode, sidebarWidth: 286)
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    SidebarView(searchText: searchText, companySurface: $companySurface)
+                        .frame(width: 286)
+                        .frame(maxHeight: .infinity)
 
-                CenterPaneView(layoutMode: layoutMode, searchText: searchText, companySurface: companySurface)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    CenterPaneView(layoutMode: layoutMode, searchText: searchText, companySurface: companySurface)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         case .compact:
             VStack(spacing: 12) {
@@ -267,6 +275,26 @@ struct ContentView: View {
         }
         .padding(14)
         .shellCard()
+    }
+
+    private func unifiedCompanyShell(layoutMode: DesktopLayoutMode, sidebarWidth: CGFloat) -> some View {
+        ScrollView {
+            HStack(alignment: .top, spacing: 12) {
+                SidebarView(searchText: searchText, companySurface: $companySurface, scrollsInternally: false)
+                    .frame(width: sidebarWidth, alignment: .top)
+
+                CenterPaneView(
+                    layoutMode: layoutMode,
+                    searchText: searchText,
+                    companySurface: companySurface,
+                    scrollsInternally: false
+                )
+                .frame(minWidth: ShellMetrics.contentMinWidth, maxWidth: .infinity, alignment: .top)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.trailing, 2)
+        }
+        .scrollIndicators(.hidden)
     }
 }
 
@@ -443,6 +471,7 @@ private struct SidebarView: View {
     @EnvironmentObject private var store: DesktopStore
     let searchText: String
     @Binding var companySurface: CompanySidebarSurface
+    var scrollsInternally: Bool = true
     private var l: AppLanguage { store.language }
 
     private var filteredGoals: [GoalRecord] {
@@ -493,19 +522,31 @@ private struct SidebarView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                switch store.shellMode {
-                case .company:
-                    companySidebar
-                case .tui:
-                    tuiSidebar
+        Group {
+            if scrollsInternally {
+                ScrollView {
+                    sidebarContent
                 }
+                .scrollIndicators(.hidden)
+            } else {
+                sidebarContent
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(2)
         }
-        .scrollIndicators(.hidden)
         .shellCard()
+    }
+
+    private var sidebarContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            switch store.shellMode {
+            case .company:
+                companySidebar
+            case .tui:
+                tuiSidebar
+            }
+        }
+        .padding(2)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var companySidebar: some View {
@@ -535,10 +576,9 @@ private struct SidebarView: View {
     private var tuiSidebar: some View {
         Group {
             tuiSidebarHeader
+            tuiSessionSection
             workspaceSection
-            workspaceComposer
-            workflowSection
-            taskSection
+            tuiLaunchSection
         }
     }
 
@@ -670,15 +710,32 @@ private struct SidebarView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(l("TUI Workspaces", "TUI 워크스페이스"))
+                    Text(l("Interactive TUI", "대화형 TUI"))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(ShellPalette.text)
-                    Text(l("Pick one workspace and stay focused on the live terminal.", "하나의 워크스페이스를 고르고 라이브 터미널에 집중합니다."))
+                    Text(l("This surface mirrors the standalone `cotor` terminal. Pick folders, open sessions, and switch between several live terminals.", "이 surface는 단독 `cotor` 터미널을 그대로 보여줍니다. 폴더를 고르고 세션을 열어 여러 라이브 터미널을 전환하세요."))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(ShellPalette.muted)
-                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
+                Button {
+                    Task { await store.openRepositoryPicker() }
+                } label: {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ShellPalette.text)
+                        .padding(9)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(ShellPalette.panelAlt)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(ShellPalette.line, lineWidth: 1)
+                )
                 Button {
                     Task { await store.refreshDashboard() }
                 } label: {
@@ -698,6 +755,87 @@ private struct SidebarView: View {
                 )
             }
 
+        }
+    }
+
+    private var tuiSessionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle(
+                title: l("Live Sessions", "열린 세션"),
+                subtitle: l("Each folder keeps its own independent Cotor TUI session.", "각 폴더는 자기만의 독립적인 Cotor TUI 세션을 유지합니다.")
+            )
+
+            if store.tuiSessions.isEmpty {
+                EmptyStateView(
+                    image: "terminal",
+                    title: l("No live sessions yet", "아직 열린 세션이 없습니다"),
+                    subtitle: l("Pick a folder below and open a TUI session. Existing sessions stay alive while you switch to another one.", "아래에서 폴더를 고르고 TUI 세션을 열어보세요. 다른 세션으로 전환해도 기존 세션은 계속 살아 있습니다.")
+                )
+                .frame(height: 180)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(store.tuiSessions) { session in
+                        HStack(alignment: .top, spacing: 10) {
+                            Button {
+                                Task { await store.selectTuiSession(session) }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    HStack(spacing: 8) {
+                                        Text(tuiSessionTitle(session))
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(ShellPalette.text)
+                                            .lineLimit(1)
+                                        ShellStatusPill(text: l.status(session.status), tint: tuiStatusTint(session.status))
+                                    }
+                                    Text(session.repositoryPath)
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(ShellPalette.muted)
+                                        .lineLimit(1)
+                                    HStack(spacing: 6) {
+                                        ShellTag(text: session.baseBranch, tint: ShellPalette.accentWarm)
+                                        if let agentName = session.agentName {
+                                            ShellTag(text: agentName, tint: ShellPalette.accent)
+                                        }
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            HStack(spacing: 6) {
+                                Button {
+                                    Task {
+                                        await store.selectTuiSession(session)
+                                        await store.restartTuiSession()
+                                    }
+                                } label: {
+                                    Image(systemName: "arrow.clockwise")
+                                }
+                                .buttonStyle(.plain)
+
+                                Button(role: .destructive) {
+                                    Task { await store.terminateTuiSession(session) }
+                                } label: {
+                                    Image(systemName: "xmark")
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(ShellPalette.muted)
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(store.selectedTuiSessionID == session.id ? ShellPalette.accentSoft.opacity(0.82) : ShellPalette.panelAlt)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(store.selectedTuiSessionID == session.id ? ShellPalette.lineStrong : ShellPalette.line, lineWidth: 1)
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -840,6 +978,14 @@ private struct SidebarView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(store.newCompanyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.newCompanyRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if let message = store.companyGitHubStatusMessage, !message.isEmpty {
+                    Text(message)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
                 LazyVGrid(columns: [
                     GridItem(.flexible(), spacing: 8),
@@ -1222,8 +1368,8 @@ private struct SidebarView: View {
     private var workspaceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle(
-                title: l.text(.workspaces),
-                subtitle: l("Choose a repository, then a workspace under that repository.", "저장소를 선택한 뒤 그 아래 워크스페이스를 고릅니다.")
+                title: l("Folders", "폴더"),
+                subtitle: l("Choose a repository folder. Workspaces remain the hidden branch context behind each TUI session.", "저장소 폴더를 고르세요. 워크스페이스는 각 TUI 세션 뒤에서 브랜치 컨텍스트를 잡아주는 숨은 단위로만 남습니다.")
             )
 
             if filteredRepositories.isEmpty {
@@ -1243,14 +1389,26 @@ private struct SidebarView: View {
         }
     }
 
-    private var workspaceComposer: some View {
+    private var tuiLaunchSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle(
-                title: l.text(.createWorkspace),
-                subtitle: l("Lock a new workspace to the pending base branch for the currently selected repository.", "현재 선택된 저장소의 대기 기준 브랜치에 새 워크스페이스를 고정합니다.")
+                title: l("Open Session", "세션 열기"),
+                subtitle: l("Use the selected folder and branch as the context for a standalone Cotor TUI session.", "선택한 폴더와 브랜치를 단독 Cotor TUI 세션의 컨텍스트로 사용합니다.")
             )
 
-            if !store.availableBranches.isEmpty {
+            if !store.availableCliAgents.isEmpty {
+                Picker(l("Preferred AI CLI", "선호 AI CLI"), selection: Binding(
+                    get: { store.workflowLeadAgent },
+                    set: { store.setWorkflowLeadAgent($0) }
+                )) {
+                    ForEach(store.availableCliAgents, id: \.self) { agent in
+                        Text(agent).tag(agent)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            if !store.availableBranches.isEmpty, store.selectedRepository != nil {
                 Picker(l("New workspace base branch", "새 워크스페이스 기준 브랜치"), selection: $store.pendingWorkspaceBaseBranch) {
                     ForEach(store.availableBranches, id: \.self) { branch in
                         Text(branch).tag(branch)
@@ -1259,88 +1417,35 @@ private struct SidebarView: View {
                 .pickerStyle(.menu)
             }
 
-            TextField(l.text(.newWorkspaceName), text: $store.newWorkspaceName)
-                .textFieldStyle(.roundedBorder)
+            HStack(spacing: 8) {
+                Button {
+                    Task { await store.openRepositoryPicker() }
+                } label: {
+                    Label(l("Pick Folder", "폴더 선택"), systemImage: "folder")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ShellTopBarButtonStyle(prominent: false))
 
-            Button {
-                Task { await store.createWorkspace() }
-            } label: {
-                Label(l.text(.createWorkspace), systemImage: "plus")
-                    .frame(maxWidth: .infinity)
+                Button {
+                    Task { await store.launchTuiSession() }
+                } label: {
+                    Label(l("Open TUI Session", "TUI 세션 열기"), systemImage: "terminal")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ShellTopBarButtonStyle(prominent: true))
+                .disabled(store.selectedRepository == nil)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(store.selectedRepository == nil)
-        }
-        .padding(14)
-        .shellInset()
-    }
 
-    private var workflowSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle(
-                title: l("Workflow Routing", "워크플로우 라우팅"),
-                subtitle: l("Pick one lead CLI and optional workers from installed agents.", "설치된 에이전트 중 리더 1개와 워커를 고릅니다.")
-            )
-
-            if store.dashboard.settings.availableAgents.isEmpty {
-                EmptyStateView(
-                    image: "person.2.slash",
-                    title: l("No CLIs detected", "감지된 CLI 없음"),
-                    subtitle: l("Configure at least one installed AI CLI to launch the interactive TUI.", "실시간 TUI를 시작하려면 최소 하나의 설치된 AI CLI가 필요합니다.")
-                )
-                .frame(height: 140)
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    Picker(l("Lead AI CLI", "리더 AI CLI"), selection: Binding(
-                        get: { store.workflowLeadAgent },
-                        set: { store.setWorkflowLeadAgent($0) }
-                    )) {
-                        ForEach(store.dashboard.settings.availableAgents, id: \.self) { agent in
-                            Text(agent).tag(agent)
-                        }
-                    }
-                    .pickerStyle(.menu)
-
-                    FlowLayout(items: store.dashboard.settings.availableAgents, selected: store.agentSelection) { agent in
-                        store.toggleWorkflowAgent(agent)
-                    }
-
-                    HStack(spacing: 8) {
-                        ShellTag(text: "\(l("Lead", "리드")): \(store.workflowLeadAgent)", tint: ShellPalette.accent)
-                        ShellTag(text: "\(l("Selected", "선택")): \(store.agentSelection.count)", tint: ShellPalette.accentWarm)
-                        Spacer()
-                    }
+            if let repository = store.selectedRepository {
+                HStack(spacing: 8) {
+                    ShellTag(text: repository.name, tint: ShellPalette.accent)
+                    ShellTag(text: store.pendingWorkspaceBaseBranch, tint: ShellPalette.accentWarm)
+                    Spacer()
                 }
             }
         }
         .padding(14)
         .shellInset()
-    }
-
-    private var taskSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionTitle(
-                title: l.text(.tasks),
-                subtitle: l("Tasks remain the execution infrastructure underneath company issues and workspace runs.", "task는 회사 이슈와 워크스페이스 실행 아래에서 계속 실행 인프라 역할을 합니다.")
-            )
-
-            if filteredTasks.isEmpty {
-                EmptyStateView(
-                    image: "list.bullet.rectangle",
-                    title: l("No tasks yet", "아직 task가 없습니다"),
-                    subtitle: l("Create or run an issue to populate the execution queue.", "이슈를 생성하거나 실행하면 execution queue가 채워집니다.")
-                )
-                .frame(height: 150)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(filteredTasks) { task in
-                        SidebarTaskRow(task: task, language: l, isSelected: store.selectedTaskID == task.id) {
-                            Task { await store.selectTask(task) }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     private var issueSection: some View {
@@ -1380,6 +1485,24 @@ private struct SidebarView: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func tuiStatusTint(_ status: String) -> Color {
+        switch status.uppercased() {
+        case "RUNNING":
+            return ShellPalette.success
+        case "STARTING":
+            return ShellPalette.accent
+        case "FAILED":
+            return ShellPalette.danger
+        default:
+            return ShellPalette.warning
+        }
+    }
+
+    private func tuiSessionTitle(_ session: TuiSessionRecord) -> String {
+        let folderName = URL(fileURLWithPath: session.repositoryPath).lastPathComponent
+        return folderName.isEmpty ? session.repositoryPath : folderName
     }
 }
 
@@ -2032,6 +2155,7 @@ private struct CenterPaneView: View {
     let layoutMode: DesktopLayoutMode
     let searchText: String
     let companySurface: CompanySidebarSurface
+    var scrollsInternally: Bool = true
     @State private var goalSurface: GoalSurface = .board
     @State private var detailDrawerOpen = false
     @State private var presentedGoal: GoalRecord?
@@ -2159,10 +2283,17 @@ private struct CenterPaneView: View {
     }
 
     var body: some View {
-        ScrollView {
-            content
+        Group {
+            if scrollsInternally {
+                ScrollView {
+                    content
+                }
+                .scrollIndicators(.hidden)
+            } else {
+                content
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
         }
-        .scrollIndicators(.hidden)
         .shellCard()
         .sheet(item: $presentedGoal) { goal in
             GoalDetailSheet(goal: goal, issues: store.dashboard.issues.filter { $0.goalId == goal.id }, language: l)
@@ -2176,7 +2307,6 @@ private struct CenterPaneView: View {
             if store.shellMode == .tui {
                 terminalContextBar
                 tuiConsole
-                detailDrawer
             } else {
                 companyPageContent
             }
@@ -2201,57 +2331,69 @@ private struct CenterPaneView: View {
     private var sessionStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                if let repository = store.selectedRepository {
-                    SessionStripItem(
-                        title: repository.name,
-                        subtitle: repository.defaultBranch,
-                        tint: ShellPalette.accent
-                    ) {
-                        Task { await store.selectRepository(repository) }
+                if store.shellMode == .tui {
+                    ForEach(store.tuiSessions) { session in
+                        SessionStripItem(
+                            title: tuiSessionTitle(session),
+                            subtitle: session.baseBranch,
+                            tint: store.selectedTuiSessionID == session.id ? ShellPalette.accent : tuiStatusTint(session.status)
+                        ) {
+                            Task { await store.selectTuiSession(session) }
+                        }
                     }
-                }
-                if let workspace = store.selectedWorkspace {
-                    SessionStripItem(
-                        title: workspace.name,
-                        subtitle: workspace.baseBranch,
-                        tint: ShellPalette.accentWarm
-                    ) {
-                        Task { await store.selectWorkspace(workspace) }
+                } else {
+                    if let repository = store.selectedRepository {
+                        SessionStripItem(
+                            title: repository.name,
+                            subtitle: repository.defaultBranch,
+                            tint: ShellPalette.accent
+                        ) {
+                            Task { await store.selectRepository(repository) }
+                        }
                     }
-                }
-                if let goal = store.selectedGoal {
-                    SessionStripItem(
-                        title: goal.title,
-                        subtitle: l.status(goal.status),
-                        tint: statusTint(for: goal.status)
-                    ) {
-                        Task { await store.selectGoal(goal) }
+                    if let workspace = store.selectedWorkspace {
+                        SessionStripItem(
+                            title: workspace.name,
+                            subtitle: workspace.baseBranch,
+                            tint: ShellPalette.accentWarm
+                        ) {
+                            Task { await store.selectWorkspace(workspace) }
+                        }
                     }
-                }
-                if let issue = store.selectedIssue {
-                    SessionStripItem(
-                        title: issue.title,
-                        subtitle: l.status(issue.status),
-                        tint: statusTint(for: issue.status)
-                    ) {
-                        Task { await store.selectIssue(issue) }
+                    if let goal = store.selectedGoal {
+                        SessionStripItem(
+                            title: goal.title,
+                            subtitle: l.status(goal.status),
+                            tint: statusTint(for: goal.status)
+                        ) {
+                            Task { await store.selectGoal(goal) }
+                        }
                     }
-                }
-                if let task = store.selectedTask {
-                    SessionStripItem(
-                        title: task.title,
-                        subtitle: task.agents.joined(separator: " · "),
-                        tint: statusTint(for: task.status)
-                    ) {
-                        Task { await store.selectTask(task) }
+                    if let issue = store.selectedIssue {
+                        SessionStripItem(
+                            title: issue.title,
+                            subtitle: l.status(issue.status),
+                            tint: statusTint(for: issue.status)
+                        ) {
+                            Task { await store.selectIssue(issue) }
+                        }
                     }
-                }
-                if let reviewItem = store.selectedReviewQueueItem {
-                    SessionStripItem(
-                        title: l("Review Queue", "리뷰 큐"),
-                        subtitle: l.status(reviewItem.status),
-                        tint: reviewTint(reviewItem.status)
-                    ) {}
+                    if let task = store.selectedTask {
+                        SessionStripItem(
+                            title: task.title,
+                            subtitle: task.agents.joined(separator: " · "),
+                            tint: statusTint(for: task.status)
+                        ) {
+                            Task { await store.selectTask(task) }
+                        }
+                    }
+                    if let reviewItem = store.selectedReviewQueueItem {
+                        SessionStripItem(
+                            title: l("Review Queue", "리뷰 큐"),
+                            subtitle: l.status(reviewItem.status),
+                            tint: reviewTint(reviewItem.status)
+                        ) {}
+                    }
                 }
             }
             .padding(.vertical, 2)
@@ -2260,13 +2402,16 @@ private struct CenterPaneView: View {
 
     private var terminalContextBar: some View {
         HStack(spacing: 10) {
-            ShellTag(text: store.selectedGoal?.title ?? l("No goal selected", "선택된 목표 없음"), tint: ShellPalette.accent)
-            if let issue = store.selectedIssue {
-                ShellTag(text: l.status(issue.status), tint: statusTint(for: issue.status))
-            }
-            ShellTag(text: "\(l("Lead AI", "리더 AI")): \(workflowLeader)", tint: ShellPalette.accentWarm)
-            if let session = store.tuiSession {
-                ShellTag(text: session.baseBranch, tint: ShellPalette.success)
+            if let session = store.activeTuiSession {
+                ShellTag(text: tuiSessionTitle(session), tint: ShellPalette.accent)
+                ShellTag(text: session.baseBranch, tint: ShellPalette.accentWarm)
+                if let agentName = session.agentName {
+                    ShellTag(text: "\(l("CLI", "CLI")): \(agentName)", tint: ShellPalette.accent)
+                }
+                ShellTag(text: l.status(session.status), tint: tuiStatusTint(session.status))
+            } else if let repository = store.selectedRepository {
+                ShellTag(text: repository.name, tint: ShellPalette.accent)
+                ShellTag(text: store.pendingWorkspaceBaseBranch, tint: ShellPalette.accentWarm)
             }
             Spacer()
         }
@@ -2278,6 +2423,7 @@ private struct CenterPaneView: View {
                 title: l("Company Summary", "회사 요약"),
                 subtitle: l("Use this page as the summary room for what the company is doing right now.", "회사가 지금 무엇을 하고 있는지 보는 요약방입니다.")
             )
+            companyRuntimeAttentionPanel
             operationsBanner
             if store.companyStreamStatusMessage != nil || store.backendStatusMessage != nil {
                 VStack(alignment: .leading, spacing: 8) {
@@ -2316,6 +2462,77 @@ private struct CenterPaneView: View {
 
             companyLinearPanel
             companyActivityFeed
+        }
+    }
+
+    @ViewBuilder
+    private var companyRuntimeAttentionPanel: some View {
+        if let runtime = store.selectedRuntime {
+            let companyID = store.selectedCompany?.id
+            let blockedWorkflowCount = store.dashboard.issues.filter { issue in
+                issue.companyId == companyID &&
+                    issue.status == "BLOCKED" &&
+                    ["execution", "review", "approval"].contains(issue.kind.lowercased())
+            }.count
+            let reviewAttentionCount = store.dashboard.reviewQueue.filter { item in
+                item.companyId == companyID &&
+                    (item.status == "CHANGES_REQUESTED" || item.status == "READY_FOR_CEO")
+            }.count
+            let runtimeHealthy = runtime.status.uppercased() == "RUNNING" && runtime.backendHealth.lowercased() == "healthy"
+            let panelTint = runtimeHealthy ? ShellPalette.success : ShellPalette.warning
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    StatusSummaryPill(text: l.status(runtime.status), tint: companyRuntimeTint(runtime.status))
+                    StatusSummaryPill(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
+                    if blockedWorkflowCount > 0 {
+                        StatusSummaryPill(
+                            text: "\(blockedWorkflowCount) \(l("workflow issues blocked", "워크플로우 차단"))",
+                            tint: ShellPalette.warning
+                        )
+                    }
+                    if reviewAttentionCount > 0 {
+                        StatusSummaryPill(
+                            text: "\(reviewAttentionCount) \(l("reviews need attention", "리뷰 대기"))",
+                            tint: ShellPalette.accentWarm
+                        )
+                    }
+                    Spacer()
+                }
+
+                if runtimeHealthy && (blockedWorkflowCount > 0 || reviewAttentionCount > 0) {
+                    StatusSummaryLine(
+                        text: l(
+                            "The runtime is healthy. The current bottleneck is in QA, CEO approval, or merge follow-up.",
+                            "런타임은 정상입니다. 지금 병목은 QA, CEO 승인, 또는 병합 후속 작업 쪽입니다."
+                        ),
+                        tint: ShellPalette.success
+                    )
+                }
+
+                if let lastAction = runtime.lastAction, !lastAction.isEmpty {
+                    StatusSummaryLine(
+                        text: "\(l("Last runtime action", "최근 런타임 동작")): \(lastAction)",
+                        tint: ShellPalette.accent
+                    )
+                }
+
+                if let lastError = runtime.lastError, !lastError.isEmpty {
+                    StatusSummaryLine(
+                        text: "\(l("Latest runtime error", "최근 런타임 오류")): \(lastError)",
+                        tint: ShellPalette.danger
+                    )
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                    .fill(ShellPalette.panelAlt)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                    .stroke(panelTint.opacity(0.55), lineWidth: 1)
+            )
         }
     }
 
@@ -3065,50 +3282,60 @@ private struct CenterPaneView: View {
     }
 
     private var issueCanvas: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
-                ForEach(filteredIssues) { issue in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top) {
-                            Text(issue.title)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(ShellPalette.text)
-                            Spacer()
-                            Circle()
-                                .fill(statusTint(for: issue.status))
-                                .frame(width: 10, height: 10)
-                        }
-
-                        Text(issue.description)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(ShellPalette.muted)
-                            .lineLimit(4)
-
-                        if !issue.dependsOn.isEmpty {
-                            Text("\(l("Depends on", "의존")): \(issue.dependsOn.count)")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(ShellPalette.faint)
-                        }
-
-                        HStack(spacing: 8) {
-                            ShellTag(text: issue.kind, tint: ShellPalette.accent)
-                            ShellTag(text: l.status(issue.status), tint: statusTint(for: issue.status))
-                        }
-                    }
-                    .padding(14)
-                    .background(store.selectedIssueID == issue.id ? ShellPalette.panelRaised : ShellPalette.panelAlt)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
-                            .stroke(store.selectedIssueID == issue.id ? ShellPalette.lineStrong : ShellPalette.line, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous))
-                    .onTapGesture {
-                        Task { await store.selectIssue(issue) }
-                    }
+        Group {
+            if scrollsInternally {
+                ScrollView {
+                    issueCanvasGrid
                 }
+            } else {
+                issueCanvasGrid
             }
         }
         .frame(minHeight: 260)
+    }
+
+    private var issueCanvasGrid: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
+            ForEach(filteredIssues) { issue in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top) {
+                        Text(issue.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+                        Spacer()
+                        Circle()
+                            .fill(statusTint(for: issue.status))
+                            .frame(width: 10, height: 10)
+                    }
+
+                    Text(issue.description)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+                        .lineLimit(4)
+
+                    if !issue.dependsOn.isEmpty {
+                        Text("\(l("Depends on", "의존")): \(issue.dependsOn.count)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(ShellPalette.faint)
+                    }
+
+                    HStack(spacing: 8) {
+                        ShellTag(text: issue.kind, tint: ShellPalette.accent)
+                        ShellTag(text: l.status(issue.status), tint: statusTint(for: issue.status))
+                    }
+                }
+                .padding(14)
+                .background(store.selectedIssueID == issue.id ? ShellPalette.panelRaised : ShellPalette.panelAlt)
+                .overlay(
+                    RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                        .stroke(store.selectedIssueID == issue.id ? ShellPalette.lineStrong : ShellPalette.line, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous))
+                .onTapGesture {
+                    Task { await store.selectIssue(issue) }
+                }
+            }
+        }
     }
 
     private var composerSurface: some View {
@@ -3252,7 +3479,7 @@ private struct CenterPaneView: View {
                     Text(l("Interactive TUI", "대화형 TUI"))
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(ShellPalette.text)
-                    Text(l("This center surface is the real Cotor terminal loop. Define workflows here, then let the lead AI orchestrate worker agents from the TUI.", "가운데 surface는 실제 Cotor 터미널 루프입니다. 여기서 워크플로우를 정의하고, 리더 AI가 TUI에서 워커 에이전트를 오케스트레이션하게 만드세요."))
+                    Text(l("This center surface runs the same interactive shell as `cotor` in the terminal. Background sessions keep running while you switch between folders.", "가운데 surface는 터미널의 `cotor`와 같은 대화형 셸을 실행합니다. 폴더를 전환해도 백그라운드 세션은 계속 돌아갑니다."))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(ShellPalette.muted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3260,7 +3487,7 @@ private struct CenterPaneView: View {
                 Spacer()
 
                 HStack(spacing: 8) {
-                    if let session = store.tuiSession {
+                    if let session = store.activeTuiSession {
                         ShellStatusPill(text: l.status(session.status), tint: tuiStatusTint(session.status))
                     }
 
@@ -3277,6 +3504,15 @@ private struct CenterPaneView: View {
                         Label(l.text(.openFolder), systemImage: "folder")
                     }
                     .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+
+                    if let session = store.activeTuiSession {
+                        Button(role: .destructive) {
+                            Task { await store.terminateTuiSession(session) }
+                        } label: {
+                            Label(l("Close", "닫기"), systemImage: "xmark")
+                        }
+                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                    }
                 }
             }
             .padding(14)
@@ -3288,9 +3524,9 @@ private struct CenterPaneView: View {
                     EmptyStateView(
                         image: "wifi.slash",
                         title: l("Local app-server is unavailable", "로컬 app-server에 연결할 수 없습니다"),
-                        subtitle: l("Start `cotor app-server` or run `cotor update`, then reopen the TUI workspace.", "`cotor app-server`를 실행하거나 `cotor update` 후 TUI 워크스페이스를 다시 여세요.")
+                        subtitle: l("Start `cotor app-server` or run `cotor update`, then reopen a TUI session.", "`cotor app-server`를 실행하거나 `cotor update` 후 TUI 세션을 다시 여세요.")
                     )
-                } else if let session = store.tuiSession, session.workspaceId == store.selectedWorkspaceID {
+                } else if let session = store.activeTuiSession {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 8) {
                             ShellTag(text: session.baseBranch, tint: ShellPalette.accentWarm)
@@ -3312,18 +3548,18 @@ private struct CenterPaneView: View {
                         )
                             .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
                     }
-                } else if store.selectedWorkspace != nil {
+                } else if store.selectedRepository != nil {
                     EmptyStateView(
                         image: "terminal",
-                        title: l("Open the workspace TUI", "워크스페이스 TUI 열기"),
-                        subtitle: l("The center panel keeps one live interactive Cotor session per workspace.", "가운데 패널은 워크스페이스마다 하나의 실시간 Cotor 세션을 유지합니다.")
+                        title: l("Open a TUI session", "TUI 세션 열기"),
+                        subtitle: l("Use the sidebar to open the standalone Cotor shell for the selected folder.", "사이드바에서 선택한 폴더로 단독 Cotor 셸을 열어보세요.")
                     )
                     .padding(14)
                 } else {
                     EmptyStateView(
                         image: "terminal",
-                        title: l.text(.chooseWorkspace),
-                        subtitle: l("Select a workspace to launch the real TUI in the center pane.", "가운데 패널에서 실제 TUI를 띄우려면 워크스페이스를 선택하세요.")
+                        title: l("Choose a folder", "폴더 선택"),
+                        subtitle: l("Select or open a repository folder to launch the real TUI in the center pane.", "가운데 패널에서 실제 TUI를 띄우려면 저장소 폴더를 선택하거나 여세요.")
                     )
                     .padding(14)
                 }
@@ -3401,6 +3637,11 @@ private struct CenterPaneView: View {
         }
     }
 
+    private func tuiSessionTitle(_ session: TuiSessionRecord) -> String {
+        let folderName = URL(fileURLWithPath: session.repositoryPath).lastPathComponent
+        return folderName.isEmpty ? session.repositoryPath : folderName
+    }
+
     private var paneDivider: some View {
         Rectangle()
             .fill(ShellPalette.line)
@@ -3443,6 +3684,10 @@ private struct CompanyCard: View {
                         ShellTag(text: company.defaultBaseBranch, tint: ShellPalette.accentWarm)
                         if let runtime {
                             ShellTag(text: language.status(runtime.status), tint: companyRuntimeTint(runtime.status))
+                            ShellTag(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
+                            if let lastError = runtime.lastError, !lastError.isEmpty {
+                                ShellTag(text: language("Needs attention", "주의 필요"), tint: ShellPalette.danger)
+                            }
                         }
                     }
                 }
@@ -3551,6 +3796,19 @@ private func companyRuntimeTint(_ status: String) -> Color {
         return ShellPalette.danger
     case "STOPPED":
         return ShellPalette.warning
+    default:
+        return ShellPalette.accent
+    }
+}
+
+private func companyRuntimeHealthTint(_ health: String) -> Color {
+    switch health.lowercased() {
+    case "healthy":
+        return ShellPalette.success
+    case "starting", "degraded":
+        return ShellPalette.warning
+    case "failed", "error", "offline":
+        return ShellPalette.danger
     default:
         return ShellPalette.accent
     }

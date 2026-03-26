@@ -160,7 +160,7 @@ struct DesktopAPI {
         try await delete(path: "api/app/companies/\(companyId)/goals/\(goalId)")
     }
 
-    func createCompany(name: String, rootPath: String, defaultBaseBranch: String?) async throws -> CompanyRecord {
+    func createCompany(name: String, rootPath: String, defaultBaseBranch: String?) async throws -> CreateCompanyResponsePayload {
         try await post(
             path: "api/app/companies",
             body: CreateCompanyPayload(
@@ -418,6 +418,12 @@ struct DesktopAPI {
             path: "api/app/tui/sessions",
             body: OpenTuiSessionPayload(workspaceId: workspaceId, preferredAgent: preferredAgent)
         )
+    }
+
+    /// List every active TUI session so the desktop shell can switch between
+    /// multiple folder-backed terminals without relying on company state.
+    func listTuiSessions() async throws -> [TuiSessionRecord] {
+        try await get(path: "api/app/tui/sessions")
     }
 
     /// Fetch the latest rolling transcript for an active TUI session.

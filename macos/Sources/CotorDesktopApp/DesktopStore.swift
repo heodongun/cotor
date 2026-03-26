@@ -38,7 +38,9 @@ final class DesktopStore: ObservableObject {
 
     @Published var dashboard: DashboardPayload = .empty
     @Published var runs: [RunRecord] = []
+    @Published var tuiSessions: [TuiSessionRecord] = []
     @Published var tuiSession: TuiSessionRecord?
+    @Published var selectedTuiSessionID: String?
     @Published var availableBranches: [String] = ["master"]
     @Published var pendingWorkspaceBaseBranch = "master"
     @Published var selectedRepositoryID: String?
@@ -95,6 +97,7 @@ final class DesktopStore: ObservableObject {
     @Published var companyLinearTeamID = ""
     @Published var companyLinearProjectID = ""
     @Published var companyLinearStatusMessage: String?
+    @Published var companyGitHubStatusMessage: String?
     @Published var newTaskTitle = ""
     @Published var newTaskPrompt = ""
     @Published var agentSelection: Set<String> = ["claude", "codex"]
@@ -336,6 +339,14 @@ final class DesktopStore: ObservableObject {
         return runs.first
     }
 
+    var activeTuiSession: TuiSessionRecord? {
+        if let selectedTuiSessionID,
+           let explicit = tuiSessions.first(where: { $0.id == selectedTuiSessionID }) {
+            return explicit
+        }
+        return tuiSession ?? tuiSessions.first
+    }
+
     func text(_ key: DesktopTextKey) -> String {
         DesktopStrings.text(key, language: language)
     }
@@ -456,8 +467,14 @@ final class DesktopStore: ObservableObject {
             syncBackendFormState()
             await refreshAvailableBranches()
             await refreshTaskDetails()
-            await ensureTuiSession()
-            if restartEventStream {
+            await refreshTuiSessionList()
+            if shellMode == .tui {
+                selectWorkspaceForTuiIfNeeded()
+                if let session = activeTuiSession {
+                    await selectTuiSession(session)
+                }
+            }
+            if restartEventStream, shellMode == .company {
                 await restartCompanyEventStream()
             }
         } catch is CancellationError {
@@ -467,6 +484,9 @@ final class DesktopStore: ObservableObject {
             // backend disconnect or a failed goal creation request.
             return
         } catch {
+            if isBenignCancellationLikeError(error) {
+                return
+            }
             let backendStillHealthy = (try? await api.health()) == true
             if backendStillHealthy {
                 AppLogger.error("Dashboard refresh failed while backend remained healthy: \(error.localizedDescription)")
@@ -491,7 +511,9 @@ final class DesktopStore: ObservableObject {
             await refreshAvailableBranches()
             stopTuiPolling()
             companyEventTask?.cancel()
+            tuiSessions = []
             tuiSession = nil
+            selectedTuiSessionID = nil
         }
     }
 
@@ -794,7 +816,6 @@ final class DesktopStore: ObservableObject {
             await refreshDashboard()
             selectedWorkspaceID = created.id
             pendingWorkspaceBaseBranch = created.baseBranch
-            await ensureTuiSession()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -964,24 +985,54 @@ final class DesktopStore: ObservableObject {
         guard !name.isEmpty, !rootPath.isEmpty else { return }
         do {
             actionErrorMessage = nil
+            companyGitHubStatusMessage = nil
             errorMessage = nil
             AppLogger.info("Creating company '\(name)' with rootPath '\(rootPath)'.")
-            let company = try await runWithEmbeddedBackendRecovery {
+            let response = try await runWithEmbeddedBackendRecovery {
                 try await api.createCompany(name: name, rootPath: rootPath, defaultBaseBranch: pendingWorkspaceBaseBranch)
             }
+            let company = response.company
             newCompanyName = ""
             newCompanyRootPath = ""
             selectedCompanyID = company.id
+            companyGitHubStatusMessage = githubRequirementMessage(for: response.githubPublishStatus)
             AppLogger.info("Created company '\(company.name)' (\(company.id)).")
             await performNonCriticalCompanyRefresh(selecting: company)
         } catch is CancellationError {
+            companyGitHubStatusMessage = nil
             actionErrorMessage = nil
             errorMessage = nil
         } catch {
+            companyGitHubStatusMessage = nil
             actionErrorMessage = error.localizedDescription
             AppLogger.error("Create company failed for '\(name)': \(error.localizedDescription)")
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func githubRequirementMessage(for status: GitHubPublishStatusPayload) -> String? {
+        guard status.policy == "REQUIRE_GITHUB_PR" else { return nil }
+        var requirements: [String] = []
+        if !status.ghInstalled {
+            requirements.append(language("install the gh CLI", "gh CLI를 설치"))
+        }
+        if !status.ghAuthenticated {
+            requirements.append(language("run gh auth login", "gh auth login 실행"))
+        }
+        if !status.originConfigured {
+            requirements.append(language("connect an origin remote", "origin remote를 연결"))
+        }
+        guard !requirements.isEmpty else { return nil }
+        let prefix = language(
+            "GitHub PR mode is enabled for this company. Connect GitHub before starting code work:",
+            "이 회사는 GitHub PR 모드입니다. 코드 작업을 시작하기 전에 GitHub를 연결하세요:"
+        )
+        let detail = status.message?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = requirements.joined(separator: ", ")
+        if let detail, !detail.isEmpty {
+            return "\(prefix) \(body). \(detail)"
+        }
+        return "\(prefix) \(body)."
     }
 
     func deleteSelectedCompany() async {
@@ -1122,7 +1173,9 @@ final class DesktopStore: ObservableObject {
             await refreshDashboard()
             selectedWorkspaceID = updated.id
             pendingWorkspaceBaseBranch = updated.baseBranch
-            await ensureTuiSession(forceRestart: true)
+            if shellMode == .tui {
+                await ensureTuiSession(forceRestart: true)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1213,6 +1266,9 @@ final class DesktopStore: ObservableObject {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            if isBenignCancellationLikeError(error) {
+                throw error
+            }
             guard shouldAttemptEmbeddedBackendRecovery(for: error) else {
                 AppLogger.error("Desktop action failed without backend recovery: \(error.localizedDescription)")
                 throw error
@@ -1230,7 +1286,7 @@ final class DesktopStore: ObservableObject {
     }
 
     private func shouldAttemptEmbeddedBackendRecovery(for error: Error) -> Bool {
-        if error is CancellationError {
+        if isBenignCancellationLikeError(error) {
             return false
         }
         let nsError = error as NSError
@@ -1251,6 +1307,23 @@ final class DesktopStore: ObservableObject {
             || message.contains("couldn't connect to server")
             || message.contains("cannot connect to host")
             || message.contains("connection refused")
+    }
+
+    private func isBenignCancellationLikeError(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        let message = error.localizedDescription
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return message == "cancelled" || message == "canceled"
     }
 
     private func resetGoalComposer() {
@@ -1327,33 +1400,44 @@ final class DesktopStore: ObservableObject {
     /// Update every dependent selection when the repository changes.
     func selectRepository(_ repository: RepositoryRecord) async {
         selectedRepositoryID = repository.id
-        if let company = companies.first(where: { $0.repositoryId == repository.id }) {
+        if shellMode != .tui, let company = companies.first(where: { $0.repositoryId == repository.id }) {
             selectedCompanyID = company.id
         }
         // Selection cascades from repository -> workspace -> task so every pane stays aligned.
         selectedWorkspaceID = workspaces.first?.id
-        selectedGoalID = goals.first?.id
-        selectedIssueID = issues.first?.id
-        selectedTaskID = tasks.first?.id
-        selectedAgentName = selectedTask?.agents.first
+        if shellMode == .tui {
+            selectedGoalID = nil
+            selectedIssueID = nil
+            selectedTaskID = nil
+            selectedAgentName = nil
+        } else {
+            selectedGoalID = goals.first?.id
+            selectedIssueID = issues.first?.id
+            selectedTaskID = tasks.first?.id
+            selectedAgentName = selectedTask?.agents.first
+        }
         pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? repository.defaultBranch
         await refreshAvailableBranches()
         await refreshTaskDetails()
-        await ensureTuiSession()
     }
 
     /// Switch to a new workspace and reload the task/inspector state derived from it.
     func selectWorkspace(_ workspace: WorkspaceRecord) async {
         selectedWorkspaceID = workspace.id
-        if let company = companies.first(where: { $0.repositoryId == workspace.repositoryId }) {
+        if shellMode != .tui, let company = companies.first(where: { $0.repositoryId == workspace.repositoryId }) {
             selectedCompanyID = company.id
         }
-        selectedIssueID = dashboard.issues.first(where: { $0.workspaceId == workspace.id && (selectedGoalID == nil || $0.goalId == selectedGoalID) })?.id
-        selectedTaskID = tasks.first?.id
-        selectedAgentName = selectedTask?.agents.first
+        if shellMode == .tui {
+            selectedIssueID = nil
+            selectedTaskID = nil
+            selectedAgentName = nil
+        } else {
+            selectedIssueID = dashboard.issues.first(where: { $0.workspaceId == workspace.id && (selectedGoalID == nil || $0.goalId == selectedGoalID) })?.id
+            selectedTaskID = tasks.first?.id
+            selectedAgentName = selectedTask?.agents.first
+        }
         pendingWorkspaceBaseBranch = workspace.baseBranch
         await refreshTaskDetails()
-        await ensureTuiSession()
     }
 
     func selectCompany(_ company: CompanyRecord) async {
@@ -1385,7 +1469,9 @@ final class DesktopStore: ObservableObject {
         selectedTaskID = selectedTask?.id
         selectedAgentName = selectedTask?.agents.first
         await refreshTaskDetails()
-        await ensureTuiSession()
+        if shellMode == .tui {
+            await ensureTuiSession()
+        }
     }
 
     func selectIssue(_ issue: IssueRecord) async {
@@ -1399,7 +1485,9 @@ final class DesktopStore: ObservableObject {
             .first?.id
         selectedAgentName = selectedTask?.agents.first
         await refreshTaskDetails()
-        await ensureTuiSession()
+        if shellMode == .tui {
+            await ensureTuiSession()
+        }
     }
 
     /// Focus a task row and refresh the right-hand inspector for its default agent.
@@ -1417,7 +1505,7 @@ final class DesktopStore: ObservableObject {
 
     /// Open Finder at the most relevant location for the current selection.
     func openSelectedLocation() {
-        let path = selectedRun?.worktreePath ?? selectedRepository?.localPath
+        let path = activeTuiSession?.repositoryPath ?? selectedRun?.worktreePath ?? selectedRepository?.localPath
         guard let path else { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
@@ -1597,12 +1685,12 @@ final class DesktopStore: ObservableObject {
     }
 
     private func isBenignCompanyEventError(_ error: Error) -> Bool {
-        if error is CancellationError {
+        if isBenignCancellationLikeError(error) {
             return true
         }
         if let urlError = error as? URLError {
             switch urlError.code {
-            case .cancelled, .networkConnectionLost, .timedOut, .cannotConnectToHost, .cannotFindHost, .notConnectedToInternet:
+            case .networkConnectionLost, .timedOut, .cannotConnectToHost, .cannotFindHost, .notConnectedToInternet:
                 return true
             default:
                 return false
@@ -1618,30 +1706,72 @@ final class DesktopStore: ObservableObject {
             await restartCompanyEventStream()
         case .tui:
             companyEventTask?.cancel()
+            await refreshTuiSessionList(suppressErrors: true)
             selectWorkspaceForTuiIfNeeded()
-            await ensureTuiSession()
+            if let session = activeTuiSession {
+                await selectTuiSession(session)
+            }
         }
     }
 
     private func selectWorkspaceForTuiIfNeeded() {
-        if let company = selectedCompany {
-            let currentWorkspace = selectedWorkspace
-            let isCurrentWorkspaceAligned = currentWorkspace?.repositoryId == company.repositoryId
-            if !isCurrentWorkspaceAligned {
-                selectedWorkspaceID =
-                    dashboard.workspaces.first(where: { $0.repositoryId == company.repositoryId && $0.baseBranch == company.defaultBaseBranch })?.id
-                    ?? dashboard.workspaces.first(where: { $0.repositoryId == company.repositoryId })?.id
-            }
-            selectedRepositoryID = company.repositoryId
+        if let session = activeTuiSession {
+            selectedTuiSessionID = session.id
+            selectedRepositoryID = session.repositoryId
+            selectedWorkspaceID = session.workspaceId
+            pendingWorkspaceBaseBranch = session.baseBranch
+            return
         }
 
+        if selectedRepositoryID == nil {
+            selectedRepositoryID = repositories.first?.id
+        }
         if selectedWorkspaceID == nil {
             selectedWorkspaceID = dashboard.workspaces.first?.id
         }
+        if selectedWorkspace?.repositoryId != selectedRepositoryID {
+            selectedWorkspaceID = workspaces.first?.id
+        }
+        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedRepository?.defaultBranch ?? pendingWorkspaceBaseBranch
     }
 
-    /// The center pane should always show the real interactive TUI for the
-    /// selected workspace, so the store eagerly opens or reuses that session.
+    func refreshTuiSessionList(suppressErrors: Bool = false) async {
+        if isOffline {
+            tuiSessions = []
+            tuiSession = nil
+            selectedTuiSessionID = nil
+            return
+        }
+
+        do {
+            let sessions = try await api.listTuiSessions()
+                .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+            tuiSessions = sessions
+
+            if let selectedTuiSessionID,
+               let selected = sessions.first(where: { $0.id == selectedTuiSessionID }) {
+                tuiSession = selected
+            } else if let current = tuiSession,
+                      let refreshed = sessions.first(where: { $0.id == current.id }) {
+                selectedTuiSessionID = refreshed.id
+                tuiSession = refreshed
+            } else if let first = sessions.first {
+                selectedTuiSessionID = first.id
+                tuiSession = first
+            } else {
+                selectedTuiSessionID = nil
+                tuiSession = nil
+            }
+        } catch {
+            if !suppressErrors {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// The desktop TUI should behave like the CLI interactive shell, with one
+    /// live terminal per selected folder/workspace and the ability to switch
+    /// between several open sessions without routing through company state.
     func ensureTuiSession(forceRestart: Bool = false) async {
         if shellMode != .tui && !forceRestart {
             return
@@ -1649,22 +1779,25 @@ final class DesktopStore: ObservableObject {
         guard let workspace = selectedWorkspace else {
             stopTuiPolling()
             tuiSession = nil
+            selectedTuiSessionID = nil
             return
         }
 
         if isOffline {
             stopTuiPolling()
             tuiSession = nil
+            selectedTuiSessionID = nil
             return
         }
 
         do {
-            let preferredAgent = workflowLeadAgent.isEmpty ? selectedAgentName : workflowLeadAgent
-            if forceRestart, let session = tuiSession {
+            let preferredAgent = workflowLeadAgent.isEmpty ? preferredCliAgent : workflowLeadAgent
+            if forceRestart, let session = activeTuiSession {
                 _ = try? await api.terminateTuiSession(sessionId: session.id)
+                removeTuiSession(session.id)
             }
             let session = try await api.openTuiSession(workspaceId: workspace.id, preferredAgent: preferredAgent)
-            tuiSession = session
+            upsertTuiSession(session, selectSession: true)
             errorMessage = nil
             startTuiPolling(sessionID: session.id, workspaceID: workspace.id)
         } catch {
@@ -1672,10 +1805,50 @@ final class DesktopStore: ObservableObject {
         }
     }
 
+    func launchTuiSession() async {
+        guard let workspace = await ensureWorkspaceForTuiSelection() else { return }
+        selectedWorkspaceID = workspace.id
+        selectedRepositoryID = workspace.repositoryId
+        pendingWorkspaceBaseBranch = workspace.baseBranch
+        await ensureTuiSession()
+    }
+
+    func selectTuiSession(_ session: TuiSessionRecord) async {
+        selectedTuiSessionID = session.id
+        tuiSession = session
+        selectedRepositoryID = session.repositoryId
+        selectedWorkspaceID = session.workspaceId
+        pendingWorkspaceBaseBranch = session.baseBranch
+        errorMessage = nil
+        startTuiPolling(sessionID: session.id, workspaceID: session.workspaceId)
+    }
+
+    func terminateTuiSession(_ session: TuiSessionRecord) async {
+        do {
+            let terminated = try await api.terminateTuiSession(sessionId: session.id)
+            removeTuiSession(session.id)
+            if selectedTuiSessionID == session.id {
+                let nextSession = tuiSessions.first
+                selectedTuiSessionID = nextSession?.id
+                tuiSession = nextSession
+                if let nextSession {
+                    await selectTuiSession(nextSession)
+                } else {
+                    stopTuiPolling()
+                }
+            }
+            upsertTuiSession(terminated, selectSession: false)
+            removeTuiSession(terminated.id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Stop the current TUI loop so the user can launch a fresh interactive shell.
     func restartTuiSession() async {
-        if let session = tuiSession {
+        if let session = activeTuiSession {
             _ = try? await api.terminateTuiSession(sessionId: session.id)
+            removeTuiSession(session.id)
         }
         await ensureTuiSession()
     }
@@ -1687,15 +1860,19 @@ final class DesktopStore: ObservableObject {
         polledTuiSessionID = sessionID
         tuiPollingTask = Task { [weak self] in
             guard let self else { return }
+            var refreshCounter = 0
 
             while !Task.isCancelled {
                 do {
                     let latest = try await api.tuiSession(sessionId: sessionID)
-                    if self.selectedWorkspaceID == workspaceID {
-                        self.tuiSession = latest
+                    self.upsertTuiSession(latest, selectSession: self.selectedTuiSessionID == sessionID)
+                    refreshCounter += 1
+                    if refreshCounter % 3 == 0 {
+                        await self.refreshTuiSessionList(suppressErrors: true)
                     }
 
                     if latest.status == "EXITED" || latest.status == "FAILED" {
+                        await self.refreshTuiSessionList(suppressErrors: true)
                         break
                     }
                 } catch {
@@ -1724,9 +1901,10 @@ final class DesktopStore: ObservableObject {
     private func recoverFromStaleTuiSession(_ error: Error, sessionID: String, workspaceID: String) async -> Bool {
         guard selectedWorkspaceID == workspaceID else { return false }
         guard isRecoverableTuiSessionError(error) else { return false }
-        guard tuiSession?.id == sessionID || polledTuiSessionID == sessionID else { return false }
+        guard selectedTuiSessionID == sessionID || tuiSession?.id == sessionID || polledTuiSessionID == sessionID else { return false }
 
         stopTuiPolling()
+        removeTuiSession(sessionID)
         tuiSession = nil
         errorMessage = nil
         await ensureTuiSession()
@@ -1748,5 +1926,48 @@ final class DesktopStore: ObservableObject {
         }
 
         return false
+    }
+
+    private func ensureWorkspaceForTuiSelection() async -> WorkspaceRecord? {
+        guard let repository = selectedRepository else { return nil }
+        if let existing = dashboard.workspaces.first(where: { $0.repositoryId == repository.id && $0.baseBranch == pendingWorkspaceBaseBranch }) {
+            return existing
+        }
+
+        do {
+            let created = try await api.createWorkspace(
+                repositoryId: repository.id,
+                name: nil,
+                baseBranch: pendingWorkspaceBaseBranch
+            )
+            await refreshDashboard(restartEventStream: false)
+            return dashboard.workspaces.first(where: { $0.id == created.id }) ?? created
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    private func upsertTuiSession(_ session: TuiSessionRecord, selectSession: Bool) {
+        var next = tuiSessions.filter { $0.id != session.id }
+        next.append(session)
+        next.sort { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+        tuiSessions = next
+        if selectSession {
+            selectedTuiSessionID = session.id
+            tuiSession = session
+        } else if selectedTuiSessionID == session.id || tuiSession?.id == session.id {
+            tuiSession = session
+        }
+    }
+
+    private func removeTuiSession(_ sessionID: String) {
+        tuiSessions.removeAll { $0.id == sessionID }
+        if selectedTuiSessionID == sessionID {
+            selectedTuiSessionID = nil
+        }
+        if tuiSession?.id == sessionID {
+            tuiSession = nil
+        }
     }
 }
