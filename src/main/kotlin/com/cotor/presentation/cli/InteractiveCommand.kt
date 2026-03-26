@@ -166,7 +166,7 @@ class InteractiveCommand :
         val chatMode = resolveInitialChatMode(mode)
         val activeAgent = resolveActiveAgent(chatMode, agent, selectedAgents, allAgents)
 
-        val outputDir = (saveDir ?: defaultSaveDir()).also { it.createDirectories() }
+        val outputDir = (saveDir ?: defaultSaveDir(resolvedConfigPath)).also { it.createDirectories() }
         val transcript = ChatTranscriptWriter(outputDir)
         val sessionLogger = InteractiveSessionLogger(outputDir)
         val bootstrapContext = loadBootstrapContext(bootstrapMaxChars)
@@ -732,8 +732,8 @@ class InteractiveCommand :
         return merged.take(maxChars)
     }
 
-    private fun defaultSaveDir(): java.nio.file.Path {
-        return Path(".cotor").resolve("interactive").resolve("default")
+    private fun defaultSaveDir(resolvedConfigPath: java.nio.file.Path): java.nio.file.Path {
+        return defaultInteractiveSaveDir(resolvedConfigPath)
     }
 
     private suspend fun loadInteractiveConfig(path: java.nio.file.Path, exact: Boolean): com.cotor.model.CotorConfig {

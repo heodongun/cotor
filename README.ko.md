@@ -87,7 +87,11 @@ cotor delete
 
 Homebrew 설치에서는 `cotor install` / `cotor update`가 패키지에 포함된 번들을 복사합니다.
 소스 체크아웃에서는 같은 명령이 로컬에서 데스크톱 앱을 다시 빌드한 뒤 설치합니다.
+`cotor install`은 실제 설치된 앱 경로를 출력하고, `/Applications`에 쓸 수 없으면 자동으로 `~/Applications`를 사용합니다.
 즉 `brew install cotor` 다음에는 `cotor install`을 한 번 실행해 앱 번들을 Applications로 복사해야 합니다.
+packaged install의 실제 첫 실행 경로와 문제 해결은 [docs/HOMEBREW_INSTALL.ko.md](docs/HOMEBREW_INSTALL.ko.md)를 보면 됩니다.
+
+현재 폴더에 이미 `./cotor.yaml`이 있으면 packaged starter 대신 그 로컬 config가 우선합니다.
 
 현재 데스크톱 셸 구조:
 

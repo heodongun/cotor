@@ -76,7 +76,7 @@ internal fun runPackagedDesktopAction(
     action: DesktopInstallAction,
     environment: Map<String, String> = System.getenv(),
     homeDirectoryProvider: () -> Path = {
-        Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize()
+        desktopInstallHomeDirectory(environment)
     }
 ): DesktopScriptResult {
     val desktopBundle = layout.desktopBundle ?: layout.root.resolve("desktop").resolve(BUNDLED_DESKTOP_APP_NAME)
@@ -101,6 +101,7 @@ internal fun runPackagedDesktopAction(
                         appendLine("✅ Cotor Desktop is ready.")
                         appendLine("   Source:    $desktopBundle")
                         appendLine("   Installed: $targetBundle")
+                        appendLine("   Launch:    open \"$targetBundle\"")
                     }
                 )
             }
@@ -163,7 +164,7 @@ internal fun runPackagedDesktopAction(
 internal fun resolveDesktopInstallRoot(
     environment: Map<String, String> = System.getenv(),
     homeDirectoryProvider: () -> Path = {
-        Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize()
+        desktopInstallHomeDirectory(environment)
     }
 ): Path {
     val overrideRoot = environment["COTOR_DESKTOP_INSTALL_ROOT"]
@@ -179,6 +180,17 @@ internal fun resolveDesktopInstallRoot(
     } else {
         homeDirectoryProvider().resolve("Applications")
     }
+}
+
+internal fun desktopInstallHomeDirectory(
+    environment: Map<String, String> = System.getenv(),
+    systemHome: String? = System.getProperty("user.home")
+): Path {
+    val home = environment["HOME"]
+        ?.takeIf { it.isNotBlank() }
+        ?: systemHome
+        ?: "."
+    return Paths.get(home).toAbsolutePath().normalize()
 }
 
 private fun detectPackagedInstallLayout(environment: Map<String, String>): DesktopInstallLayout? {

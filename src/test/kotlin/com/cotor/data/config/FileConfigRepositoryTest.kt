@@ -26,6 +26,15 @@ class FileConfigRepositoryTest : FunSpec({
     val yamlParser = YamlParser()
     val jsonParser = JsonParser()
 
+    test("defaultConfigHomeDirectory prefers HOME over user.home") {
+        val resolved = defaultConfigHomeDirectory(
+            environment = mapOf("HOME" to "/tmp/cotor-config-home"),
+            systemHome = "/tmp/cotor-system-home"
+        )
+
+        resolved shouldBe java.nio.file.Paths.get("/tmp/cotor-config-home").toAbsolutePath().normalize()
+    }
+
     test("merges configs from .cotor directory") {
         val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val baseDir = Files.createTempDirectory("config-merge")
@@ -242,6 +251,41 @@ class FileConfigRepositoryTest : FunSpec({
 
         loadedConfig.agents.map { it.name }.toSet() shouldBe setOf("base", "global-agent", "local-agent", "shared-agent")
         loadedConfig.agents.find { it.name == "shared-agent" }?.pluginClass shouldBe "com.cotor.LocalShared"
+    }
+
+    test("merges agent presets from .cotor/agents without scanning unrelated runtime directories") {
+        val baseDir = Files.createTempDirectory("config-agents-subdir")
+        val localCotorDir = baseDir.resolve(".cotor").createDirectory()
+        val fakeHome = baseDir.resolve("home").createDirectory()
+        val repo = FileConfigRepository(yamlParser, jsonParser) { fakeHome }
+
+        val mainConfigPath = baseDir.resolve("cotor.yaml")
+        mainConfigPath.writeText(
+            """
+            version: "1.0"
+            agents:
+              - name: base
+                pluginClass: "com.cotor.Base"
+            """.trimIndent()
+        )
+
+        localCotorDir.resolve("agents").createDirectory()
+            .resolve("codex.yaml")
+            .writeText(
+                """
+                agents:
+                  - name: codex
+                    pluginClass: "com.cotor.Codex"
+                """.trimIndent()
+            )
+
+        localCotorDir.resolve("worktrees").createDirectory()
+            .resolve("bad.yaml")
+            .writeText(":\n  definitely: not-valid-yaml")
+
+        val loadedConfig = runBlocking { repo.loadConfig(mainConfigPath) }
+
+        loadedConfig.agents.map { it.name }.toSet() shouldBe setOf("base", "codex")
     }
 
     test("loadConfigExact ignores global and local .cotor overrides") {

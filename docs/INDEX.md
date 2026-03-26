@@ -7,6 +7,7 @@ Use this page as the router for current product docs vs historical or design rec
 - `README.md` / `README.ko.md`: top-level product snapshot
 - `docs/README.md` / `docs/README.ko.md`: docs entry guide
 - `docs/QUICK_START.md`: first setup and first run
+- `docs/HOMEBREW_INSTALL.md` / `docs/HOMEBREW_INSTALL.ko.md`: packaged install, first-run paths, and Homebrew troubleshooting
 - `docs/FEATURES.md`: code-backed capability inventory
 - `docs/DESKTOP_APP.md`: `app-server`, Company/TUI shell, and multi-company operations UI
 - `docs/TEST_PLAN.md`: automated, CLI, desktop, and autonomous-company validation plan

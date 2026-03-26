@@ -58,6 +58,8 @@ brew install cotor
 This installs JDK 17 + the CLI and packages a bundled desktop app asset.
 Run `cotor install` after `brew install` to copy `Cotor Desktop.app` into Applications.
 `cotor install` / `cotor update` reuse the packaged app instead of rebuilding from the Homebrew prefix.
+`cotor install` prints the exact installed app path and falls back to `~/Applications` when `/Applications` is not writable.
+For the full packaged-install behavior, first-run paths, and troubleshooting flow, see [docs/HOMEBREW_INSTALL.md](docs/HOMEBREW_INSTALL.md).
 
 Or use the one-liner:
 
@@ -100,6 +102,11 @@ cotor install    # Install bundled app from Homebrew package
 cotor update     # Reinstall bundled app from Homebrew package
 cotor delete     # Remove app
 ```
+
+If no local `cotor.yaml` exists, the first packaged `cotor` run writes a starter config under
+`~/.cotor/interactive/default/cotor.yaml`. If no authenticated AI CLI or API key is ready yet,
+that starter intentionally falls back to `example-agent` echo mode instead of failing immediately.
+If you run `cotor` inside a repo that already contains `./cotor.yaml`, that local config still wins.
 
 From a source checkout, the same commands still rebuild the desktop app locally before installing it.
 

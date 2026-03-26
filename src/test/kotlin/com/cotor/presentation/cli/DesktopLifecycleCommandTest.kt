@@ -21,6 +21,15 @@ import kotlin.io.path.createParentDirectories
 import kotlin.io.path.exists
 
 class DesktopLifecycleCommandTest : FunSpec({
+    test("desktopInstallHomeDirectory prefers HOME over user.home") {
+        val resolved = desktopInstallHomeDirectory(
+            environment = mapOf("HOME" to "/tmp/cotor-desktop-home"),
+            systemHome = "/tmp/cotor-system-home"
+        )
+
+        resolved shouldBe Paths.get("/tmp/cotor-desktop-home").toAbsolutePath().normalize()
+    }
+
     test("detectDesktopInstallLayout recognizes a source checkout only with full source markers") {
         val root = Files.createTempDirectory("cotor-source-layout")
         root.resolve("gradlew").createFile()

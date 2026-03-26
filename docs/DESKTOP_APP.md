@@ -14,6 +14,7 @@ The Homebrew package carries a bundled `Cotor Desktop.app` asset. `cotor install
 and `cotor update` reuse that packaged bundle instead of rebuilding from the Homebrew prefix.
 When `cotor` launches interactive mode with no local config in packaged installs, it writes the
 starter config under `~/.cotor/interactive/default/cotor.yaml`.
+See `docs/HOMEBREW_INSTALL.md` for the full packaged-install and first-run behavior.
 
 Or one-liner:
 
