@@ -131,4 +131,15 @@ class StarterAgentResolverTest : FunSpec({
 
         resolved shouldBe defaultInteractiveConfigPath(environment)
     }
+
+    test("packaged interactive save dir follows the home-backed config path") {
+        val tempHome = Files.createTempDirectory("cotor-packaged-home-save")
+        val environment = mapOf(
+            "COTOR_INSTALL_KIND" to "packaged",
+            "HOME" to tempHome.toString()
+        )
+
+        defaultInteractiveSaveDir(defaultInteractiveConfigPath(environment), environment) shouldBe
+            tempHome.resolve(".cotor").resolve("interactive").resolve("default")
+    }
 })

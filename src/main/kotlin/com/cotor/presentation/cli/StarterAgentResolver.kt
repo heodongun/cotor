@@ -97,6 +97,19 @@ internal fun defaultInteractiveConfigPath(
         .resolve("cotor.yaml")
 }
 
+internal fun defaultInteractiveSaveDir(
+    resolvedConfigPath: Path,
+    environment: Map<String, String> = System.getenv()
+): java.nio.file.Path {
+    val packagedDefaultConfig = defaultInteractiveConfigPath(environment)
+    val normalizedConfigPath = resolvedConfigPath.toAbsolutePath().normalize()
+    return if (normalizedConfigPath == packagedDefaultConfig.toAbsolutePath().normalize()) {
+        packagedDefaultConfig.parent
+    } else {
+        Paths.get(".cotor").resolve("interactive").resolve("default")
+    }
+}
+
 internal fun resolveInteractiveConfigPath(
     requestedPath: Path,
     environment: Map<String, String> = System.getenv(),

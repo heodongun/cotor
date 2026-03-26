@@ -36,7 +36,7 @@ class FileConfigRepository(
     private val yamlParser: YamlParser,
     private val jsonParser: JsonParser,
     private val homeDirectoryProvider: () -> Path = {
-        java.nio.file.Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize()
+        defaultConfigHomeDirectory()
     },
 ) : ConfigRepository {
 
@@ -103,10 +103,25 @@ class FileConfigRepository(
             return emptyList()
         }
 
-        return Files.walk(directory)
-            .filter { it.isRegularFile() && it.extension.lowercase() in listOf("yaml", "yml") }
+        // Treat only the dedicated override roots as config sources. Recursing
+        // through the whole `.cotor` tree pulls in unrelated runtime snapshots,
+        // worktree checkouts, and editor assets that are not configuration.
+        val candidateDirectories = listOf(directory, directory.resolve("agents"))
+            .distinct()
+            .filter { it.isDirectory() }
+
+        return candidateDirectories
+            .flatMap { listYamlFiles(it) }
             .sorted()
-            .toList()
+    }
+
+    private fun listYamlFiles(directory: Path): List<Path> {
+        return Files.list(directory).use { entries ->
+            entries
+                .filter { it.isRegularFile() && it.extension.lowercase() in listOf("yaml", "yml") }
+                .sorted()
+                .toList()
+        }
     }
 
     private fun parseConfig(path: Path): ParsedConfig {
@@ -261,4 +276,15 @@ class FileConfigRepository(
         path.parent?.let { Files.createDirectories(it) }
         path.writeText(content)
     }
+}
+
+internal fun defaultConfigHomeDirectory(
+    environment: Map<String, String> = System.getenv(),
+    systemHome: String? = System.getProperty("user.home")
+): Path {
+    val home = environment["HOME"]
+        ?.takeIf { it.isNotBlank() }
+        ?: systemHome
+        ?: "."
+    return java.nio.file.Paths.get(home).toAbsolutePath().normalize()
 }
