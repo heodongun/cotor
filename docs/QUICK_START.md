@@ -26,7 +26,9 @@ open "/Applications/Cotor Desktop.app"
 
 참고:
 - Homebrew formula는 packaged desktop bundle을 함께 설치하지만, Applications 복사는 `cotor install`을 사용자 셸에서 명시적으로 실행할 때 수행됩니다.
+- `cotor install`은 실제 설치된 앱 경로를 출력하고, `/Applications`에 쓸 수 없으면 자동으로 `~/Applications`를 사용합니다.
 - `brew install cotor` 뒤 첫 `cotor` 실행에서 로컬 `cotor.yaml`이 없으면 starter config는 `~/.cotor/interactive/default/cotor.yaml` 아래에 생성됩니다.
+- packaged install의 자세한 첫 실행 규칙과 문제 해결은 `docs/HOMEBREW_INSTALL.md` / `docs/HOMEBREW_INSTALL.ko.md`를 참고하세요.
 - 이 starter config는 실제로 바로 응답 가능한 AI CLI 또는 API 키만 자동 채택하고, 준비되지 않은 CLI는 starter 후보에서 제외합니다.
 
 업데이트:
