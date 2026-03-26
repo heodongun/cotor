@@ -17,6 +17,7 @@ import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.aggregator.ResultAggregator
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.model.AgentConfig
+import com.cotor.model.AgentResult
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
@@ -40,7 +41,6 @@ import org.jline.reader.UserInterruptException
 import org.jline.terminal.TerminalBuilder
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import java.io.File
 import java.io.PrintStream
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
@@ -72,7 +72,6 @@ class InteractiveCommand :
 
     private val mode by option("--mode", help = "Chat mode")
         .choice("auto", "single", "compare")
-        .default("auto")
 
     private val agent by option("--agent", help = "Active agent for single mode (name)")
 
@@ -128,21 +127,29 @@ class InteractiveCommand :
     )
 
     override fun run() = runBlocking {
-        if (!configPath.exists()) {
-            terminal.println(yellow("⚠ cotor.yaml not found at: $configPath"))
+        val resolvedConfigPath = resolveInteractiveConfigPath(configPath)
+        var bootstrapLoadExact = false
+
+        if (resolvedConfigPath != configPath) {
+            terminal.println(dim("Using interactive config: $resolvedConfigPath"))
+        }
+
+        if (!resolvedConfigPath.exists()) {
+            terminal.println(yellow("⚠ cotor.yaml not found at: $resolvedConfigPath"))
             terminal.println(dim("Creating a starter config automatically for interactive mode..."))
-            writeStarterConfig(configPath)
-            terminal.println(green("✓ Created starter config: $configPath"))
+            writeStarterConfig(resolvedConfigPath)
+            bootstrapLoadExact = true
+            terminal.println(green("✓ Created starter config: $resolvedConfigPath"))
             terminal.println()
         }
 
-        var config = configRepository.loadConfig(configPath)
+        var config = loadInteractiveConfig(resolvedConfigPath, bootstrapLoadExact)
 
         if (shouldRefreshStarterConfig(config)) {
             terminal.println(yellow("⚠ 현재 설정이 Echo starter(example-agent)라 대화형 답변이 제한됩니다."))
             terminal.println(dim("   감지된 AI CLI 기반 starter로 자동 교체합니다..."))
-            writeStarterConfig(configPath)
-            config = configRepository.loadConfig(configPath)
+            writeStarterConfig(resolvedConfigPath)
+            config = loadInteractiveConfig(resolvedConfigPath, exact = true)
             terminal.println(green("✓ starter config를 AI 우선 설정으로 갱신했습니다."))
             terminal.println()
         }
@@ -155,12 +162,13 @@ class InteractiveCommand :
         config.agents.forEach { agentRegistry.registerAgent(it) }
         val allAgents = config.agents.associateBy { it.name }
 
-        val chatMode = ChatMode.parse(mode)
         val selectedAgents = parseAgentsOption(agents, allAgents.values.toList())
+        val chatMode = resolveInitialChatMode(mode)
         val activeAgent = resolveActiveAgent(chatMode, agent, selectedAgents, allAgents)
 
         val outputDir = (saveDir ?: defaultSaveDir()).also { it.createDirectories() }
         val transcript = ChatTranscriptWriter(outputDir)
+        val sessionLogger = InteractiveSessionLogger(outputDir)
         val bootstrapContext = loadBootstrapContext(bootstrapMaxChars)
         val session = ChatSession(
             includeContext = !noContext,
@@ -169,73 +177,136 @@ class InteractiveCommand :
         )
 
         val headerLines = buildList {
-            add("Config: $configPath")
+            add("Config: $resolvedConfigPath")
             add("Mode: $chatMode")
             add("Agents: ${selectedAgents.joinToString(", ") { it.name }}")
             if (activeAgent != null) add("ActiveAgent: ${activeAgent.name}")
         }
 
-        when {
-            prompt != null -> {
-                val response = runTurn(
-                    session = session,
-                    chatMode = chatMode,
-                    activeAgent = activeAgent,
-                    selectedAgents = selectedAgents,
-                    userInput = prompt!!,
-                    verbose = false,
-                    bootstrapContext = bootstrapContext,
-                    memoryContext = transcript.searchMemory(prompt!!, memorySearchLimit)
-                )
-                session.addUser(prompt!!)
-                session.addAssistant(response)
-                transcript.writeMarkdown(session, headerLines)
-                transcript.writeRawText(session)
-                transcript.writeJsonl(session)
-                transcript.flushMemoryIfNeeded(session)
-                echo(response)
-            }
+        sessionLogger.logSessionStart(resolvedConfigPath, chatMode, selectedAgents, activeAgent)
+        var sessionEndReason = "completed"
 
-            promptFile != null -> {
-                if (!promptFile!!.exists()) {
-                    throw IllegalArgumentException("Prompt file not found: $promptFile")
-                }
-                val prompts = promptFile!!.readLines().map { it.trimEnd() }.filter { it.isNotBlank() }
-                val outputs = mutableListOf<String>()
-                for (line in prompts) {
-                    val response = runTurn(
+        try {
+            when {
+                prompt != null -> {
+                    val outcome = executeLoggedTurn(
                         session = session,
                         chatMode = chatMode,
                         activeAgent = activeAgent,
                         selectedAgents = selectedAgents,
-                        userInput = line,
+                        userInput = prompt!!,
                         verbose = false,
                         bootstrapContext = bootstrapContext,
-                        memoryContext = transcript.searchMemory(line, memorySearchLimit)
+                        memoryContext = transcript.searchMemory(prompt!!, memorySearchLimit),
+                        sessionLogger = sessionLogger
                     )
-                    session.addUser(line)
-                    session.addAssistant(response)
-                    outputs += response
+                    session.addUser(prompt!!)
+                    session.addAssistant(outcome.response)
+                    transcript.writeMarkdown(session, headerLines)
+                    transcript.writeRawText(session)
+                    transcript.writeJsonl(session)
+                    transcript.flushMemoryIfNeeded(session)
+                    echo(outcome.response)
+                    sessionEndReason = "prompt_completed"
                 }
-                transcript.writeMarkdown(session, headerLines)
-                transcript.writeRawText(session)
-                transcript.writeJsonl(session)
-                transcript.flushMemoryIfNeeded(session)
-                echo(outputs.joinToString("\n\n"))
-            }
 
-            else -> {
-                runInteractiveLoop(
-                    session = session,
-                    chatModeInitial = chatMode,
-                    activeAgentInitial = activeAgent,
-                    selectedAgentsInitial = selectedAgents,
-                    allAgents = allAgents,
-                    transcript = transcript,
-                    headerLines = headerLines,
-                    bootstrapContext = bootstrapContext
-                )
+                promptFile != null -> {
+                    if (!promptFile!!.exists()) {
+                        throw IllegalArgumentException("Prompt file not found: $promptFile")
+                    }
+                    val prompts = promptFile!!.readLines().map { it.trimEnd() }.filter { it.isNotBlank() }
+                    val outputs = mutableListOf<String>()
+                    for (line in prompts) {
+                        val outcome = executeLoggedTurn(
+                            session = session,
+                            chatMode = chatMode,
+                            activeAgent = activeAgent,
+                            selectedAgents = selectedAgents,
+                            userInput = line,
+                            verbose = false,
+                            bootstrapContext = bootstrapContext,
+                            memoryContext = transcript.searchMemory(line, memorySearchLimit),
+                            sessionLogger = sessionLogger
+                        )
+                        session.addUser(line)
+                        session.addAssistant(outcome.response)
+                        outputs += outcome.response
+                    }
+                    transcript.writeMarkdown(session, headerLines)
+                    transcript.writeRawText(session)
+                    transcript.writeJsonl(session)
+                    transcript.flushMemoryIfNeeded(session)
+                    echo(outputs.joinToString("\n\n"))
+                    sessionEndReason = "prompt_file_completed"
+                }
+
+                else -> {
+                    sessionEndReason = runInteractiveLoop(
+                        session = session,
+                        chatModeInitial = chatMode,
+                        activeAgentInitial = activeAgent,
+                        selectedAgentsInitial = selectedAgents,
+                        allAgents = allAgents,
+                        transcript = transcript,
+                        sessionLogger = sessionLogger,
+                        headerLines = headerLines,
+                        bootstrapContext = bootstrapContext
+                    )
+                }
             }
+        } catch (e: Exception) {
+            sessionEndReason = "failed: ${e.message ?: e::class.java.simpleName}"
+            throw e
+        } finally {
+            sessionLogger.logSessionEnd(sessionEndReason)
+        }
+    }
+
+    private fun resolveInitialChatMode(requestedMode: String?): ChatMode {
+        return requestedMode?.let(ChatMode::parse) ?: ChatMode.SINGLE
+    }
+
+    private suspend fun executeLoggedTurn(
+        session: ChatSession,
+        chatMode: ChatMode,
+        activeAgent: AgentConfig?,
+        selectedAgents: List<AgentConfig>,
+        userInput: String,
+        verbose: Boolean,
+        bootstrapContext: String,
+        memoryContext: List<String>,
+        sessionLogger: InteractiveSessionLogger
+    ): InteractiveTurnOutcome {
+        val turnContext = sessionLogger.startTurn(
+            chatMode = chatMode,
+            selectedAgents = selectedAgents,
+            activeAgent = activeAgent,
+            userInput = userInput
+        )
+
+        return try {
+            val outcome = runTurnWithSpinner(
+                session = session,
+                chatMode = chatMode,
+                activeAgent = activeAgent,
+                selectedAgents = selectedAgents,
+                userInput = userInput,
+                verbose = verbose,
+                bootstrapContext = bootstrapContext,
+                memoryContext = memoryContext
+            )
+            sessionLogger.logTurnSuccess(turnContext, outcome)
+            outcome
+        } catch (e: Exception) {
+            sessionLogger.logTurnFailure(turnContext, e, extractAgentSummaries(e))
+            throw e
+        }
+    }
+
+    private fun extractAgentSummaries(error: Throwable): List<InteractiveAgentSummary> {
+        return when (error) {
+            is InteractiveTurnException -> error.agentSummaries
+            else -> emptyList()
         }
     }
 
@@ -278,11 +349,17 @@ class InteractiveCommand :
                         allAgents[requestedActiveAgent]
                             ?: throw IllegalArgumentException("Unknown agent: $requestedActiveAgent")
                     }
-                    else -> selectedAgents.firstOrNull()
+                    else -> preferredSingleAgent(selectedAgents)
                 }
             }
             ChatMode.COMPARE, ChatMode.AUTO -> null
         }
+    }
+
+    private fun preferredSingleAgent(selectedAgents: List<AgentConfig>): AgentConfig? {
+        return selectedAgents.firstOrNull { it.name.equals("codex", ignoreCase = true) }
+            ?: selectedAgents.firstOrNull { it.tags.contains("starter") }
+            ?: selectedAgents.firstOrNull()
     }
 
     private suspend fun runTurnWithSpinner(
@@ -294,7 +371,7 @@ class InteractiveCommand :
         verbose: Boolean,
         bootstrapContext: String,
         memoryContext: List<String>
-    ): String = coroutineScope {
+    ): InteractiveTurnOutcome = coroutineScope {
         // The native desktop shell already renders its own terminal surface and
         // polls incrementally, so the CLI spinner just floods the PTY with redraw
         // frames and makes the embedded TUI look broken even when input works.
@@ -347,7 +424,7 @@ class InteractiveCommand :
         verbose: Boolean,
         bootstrapContext: String,
         memoryContext: List<String>
-    ): String = coroutineScope {
+    ): InteractiveTurnOutcome = coroutineScope {
         val effectivePrompt = session.buildPrompt(
             currentUserInput = userInput,
             bootstrapContext = bootstrapContext,
@@ -363,9 +440,15 @@ class InteractiveCommand :
                     agentExecutor.executeAgent(target, effectivePrompt)
                 }
                 if (!result.isSuccess) {
-                    throw IllegalStateException("Agent '${target.name}' failed: ${result.error}")
+                    throw InteractiveTurnException(
+                        "Agent '${target.name}' failed: ${result.error}",
+                        agentSummaries = listOf(result.toInteractiveSummary())
+                    )
                 }
-                result.output.orEmpty()
+                InteractiveTurnOutcome(
+                    response = result.output.orEmpty(),
+                    agentSummaries = listOf(result.toInteractiveSummary())
+                )
             }
 
             ChatMode.COMPARE, ChatMode.AUTO -> {
@@ -385,26 +468,35 @@ class InteractiveCommand :
                     val errors = aggregated.results.joinToString("\n") {
                         "- ${it.agentName}: ${it.error ?: "unknown error"}"
                     }
-                    throw IllegalStateException("All agents failed.\n$errors")
+                    throw InteractiveTurnException(
+                        "All agents failed.\n$errors",
+                        agentSummaries = aggregated.results.map { it.toInteractiveSummary() }
+                    )
                 }
 
-                if (chatMode == ChatMode.COMPARE || showAll) {
-                    return@coroutineScope aggregated.aggregatedOutput
-                }
-
-                val bestName = aggregated.analysis?.bestAgent
-                val best = bestName?.let { name -> aggregated.results.firstOrNull { it.agentName == name && it.isSuccess } }
-                if (best != null && best.output != null) {
-                    val consensus = aggregated.analysis?.consensusScore?.let { (it * 100).toInt() }
-                    val header = if (consensus != null) "best=$bestName consensus=$consensus%" else "best=$bestName"
-                    if (verbose) {
-                        return@coroutineScope "[$header]\n\n${best.output}"
+                val response = when {
+                    chatMode == ChatMode.COMPARE || showAll -> aggregated.aggregatedOutput
+                    else -> {
+                        val bestName = aggregated.analysis?.bestAgent
+                        val best = bestName?.let { name -> aggregated.results.firstOrNull { it.agentName == name && it.isSuccess } }
+                        if (best != null && best.output != null) {
+                            val consensus = aggregated.analysis?.consensusScore?.let { (it * 100).toInt() }
+                            val header = if (consensus != null) "best=$bestName consensus=$consensus%" else "best=$bestName"
+                            if (verbose) {
+                                "[$header]\n\n${best.output}"
+                            } else {
+                                best.output
+                            }
+                        } else {
+                            aggregated.aggregatedOutput
+                        }
                     }
-                    return@coroutineScope best.output
                 }
 
-                // Fallback: show successful outputs
-                aggregated.aggregatedOutput
+                InteractiveTurnOutcome(
+                    response = response,
+                    agentSummaries = aggregated.results.map { it.toInteractiveSummary() }
+                )
             }
         }
     }
@@ -416,9 +508,10 @@ class InteractiveCommand :
         selectedAgentsInitial: List<AgentConfig>,
         allAgents: Map<String, AgentConfig>,
         transcript: ChatTranscriptWriter,
+        sessionLogger: InteractiveSessionLogger,
         headerLines: List<String>,
         bootstrapContext: String
-    ) {
+    ): String {
         var chatMode = chatModeInitial
         var selectedAgents = selectedAgentsInitial
         var activeAgent: AgentConfig? = activeAgentInitial
@@ -428,7 +521,14 @@ class InteractiveCommand :
         terminal.println()
         terminal.println(bold("◎ Cotor Interactive"))
         terminal.println(dim("Type ':help' for commands, ':exit' to quit."))
+        terminal.println(dim("Mode: $chatMode"))
+        if (chatMode == ChatMode.SINGLE) {
+            terminal.println(dim("Active agent: ${activeAgent?.name ?: "-"}"))
+        } else {
+            terminal.println(dim("Agents: ${selectedAgents.joinToString(", ") { it.name }}"))
+        }
         terminal.println(dim("Transcript: ${transcript.ensureDir()}"))
+        terminal.println(dim("Debug log: ${sessionLogger.filePath()}"))
         if (session.snapshot().isNotEmpty()) {
             terminal.println(dim("Loaded ${session.snapshot().size} messages from session.jsonl"))
         }
@@ -472,7 +572,7 @@ class InteractiveCommand :
                     cmd.startsWith("mode ", true) -> {
                         val value = cmd.substringAfter("mode ").trim()
                         chatMode = ChatMode.parse(value)
-                        activeAgent = if (chatMode == ChatMode.SINGLE) (activeAgent ?: selectedAgents.firstOrNull()) else null
+                        activeAgent = if (chatMode == ChatMode.SINGLE) (activeAgent ?: preferredSingleAgent(selectedAgents)) else null
                         terminal.println(dim("Mode set to $chatMode"))
                     }
                     cmd.startsWith("use ", true) || cmd.startsWith("model ", true) -> {
@@ -494,7 +594,8 @@ class InteractiveCommand :
                         val next = parseAgentsOption(list, allAgents.values.toList())
                         selectedAgents = next
                         if (chatMode == ChatMode.SINGLE) {
-                            activeAgent = activeAgent?.let { current -> next.firstOrNull { it.name == current.name } } ?: next.firstOrNull()
+                            activeAgent = activeAgent?.let { current -> next.firstOrNull { it.name == current.name } }
+                                ?: preferredSingleAgent(next)
                         }
                         terminal.println(dim("Agents set: ${selectedAgents.joinToString(", ") { it.name }}"))
                     }
@@ -512,7 +613,7 @@ class InteractiveCommand :
 
             try {
                 // Only add to session after we have a response; this keeps history consistent when a turn errors.
-                val response = runTurnWithSpinner(
+                val outcome = executeLoggedTurn(
                     session = session,
                     chatMode = chatMode,
                     activeAgent = activeAgent,
@@ -520,13 +621,14 @@ class InteractiveCommand :
                     userInput = input,
                     verbose = true,
                     bootstrapContext = bootstrapContext,
-                    memoryContext = transcript.searchMemory(input, memorySearchLimit)
+                    memoryContext = transcript.searchMemory(input, memorySearchLimit),
+                    sessionLogger = sessionLogger
                 )
                 session.addUser(input)
-                session.addAssistant(response)
+                session.addAssistant(outcome.response)
 
                 terminal.println(bold(green("cotor>")))
-                terminal.println(response.trimEnd())
+                terminal.println(outcome.response.trimEnd())
                 terminal.println()
 
                 // Persist after each successful turn.
@@ -537,6 +639,7 @@ class InteractiveCommand :
             } catch (e: Exception) {
                 terminal.println(red("Error: ${e.message ?: "unknown error"}"))
                 terminal.println(dim("Hint: use ':agents' to list, ':mode auto|compare|single', ':model <name>'"))
+                terminal.println(dim("Details: ${sessionLogger.filePath()}"))
             }
         }
 
@@ -546,8 +649,10 @@ class InteractiveCommand :
         transcript.flushMemoryIfNeeded(session)
         if (endedByEof) {
             terminal.println(dim("Input stream closed (EOF). Exiting interactive mode."))
+            return "eof"
         }
         terminal.println(dim("Bye. Saved transcript to ${transcript.ensureDir()}"))
+        return "user_exit"
     }
 
     private fun printDesktopPrompt() {
@@ -631,6 +736,14 @@ class InteractiveCommand :
         return Path(".cotor").resolve("interactive").resolve("default")
     }
 
+    private suspend fun loadInteractiveConfig(path: java.nio.file.Path, exact: Boolean): com.cotor.model.CotorConfig {
+        return if (exact) {
+            configRepository.loadConfigExact(path)
+        } else {
+            configRepository.loadConfig(path)
+        }
+    }
+
     companion object {
         private val ANSI_ESCAPE_REGEX = Regex("""\u001B\[[0-?]*[ -/]*[@-~]""")
         private val PROMPT_PREFIX_REGEX = Regex("""^\s*(?:you>\s*)+""")
@@ -652,26 +765,19 @@ class InteractiveCommand :
         }
     }
 
-    private data class StarterAgent(
-        val name: String,
-        val pluginClass: String,
-        val executable: String,
-        val parameterBlock: String = ""
-    )
-
     private fun shouldRefreshStarterConfig(config: com.cotor.model.CotorConfig): Boolean {
         if (config.agents.size != 1) return false
         val only = config.agents.first()
 
-        val canUseRealAi = hasCommand("codex") || hasCommand("gemini") || hasCommand("claude") || !System.getenv("OPENAI_API_KEY").isNullOrBlank()
+        val canUseRealAi = canUseRealAiStarter()
 
         // Upgrade legacy echo starter when real AI is available.
         if (only.name.equals("example-agent", ignoreCase = true) && only.pluginClass.endsWith("EchoPlugin")) {
             return canUseRealAi
         }
 
-        // Prefer codex over starter-claude when codex exists.
-        if (only.tags.contains("starter") && only.pluginClass.endsWith("ClaudePlugin") && hasCommand("codex")) {
+        // Prefer codex over any starter agent once codex is actually ready.
+        if (only.tags.contains("starter") && !only.name.equals("codex", ignoreCase = true) && isCodexReadyForStarter()) {
             return true
         }
 
@@ -680,6 +786,7 @@ class InteractiveCommand :
 
     private fun writeStarterConfig(path: java.nio.file.Path) {
         val starter = resolveStarterAgent()
+        path.parent?.createDirectories()
 
         val parameterSection = if (starter.parameterBlock.isBlank()) {
             ""
@@ -716,8 +823,7 @@ security:
   allowedExecutables:
     - ${starter.executable}
   allowedDirectories:
-    - /usr/local/bin
-    - /opt/homebrew/bin
+${starterAllowedDirectoriesYaml()}
 
 logging:
   level: INFO
@@ -732,55 +838,21 @@ performance:
         path.writeText(defaultConfig)
 
         if (starter.pluginClass.endsWith("EchoPlugin")) {
-            terminal.println(yellow("⚠ AI CLI(claude/gemini/codex) 미감지로 Echo starter를 생성했습니다."))
-            terminal.println(dim("   실제 답변을 원하면 claude/gemini 설치 후 cotor.yaml의 pluginClass를 바꿔주세요."))
+            terminal.println(yellow("⚠ 준비된 AI starter를 찾지 못해 Echo starter를 생성했습니다."))
+            terminal.println(dim("   codex login 또는 AI CLI 인증/환경 변수를 설정한 뒤 다시 실행하면 starter config를 갱신합니다."))
         } else {
             terminal.println(dim("Starter agent selected: ${starter.name} (${starter.pluginClass.substringAfterLast('.')})"))
         }
     }
 
-    private fun resolveStarterAgent(): StarterAgent {
-        return when {
-            hasCommand("codex") -> StarterAgent(
-                name = "codex",
-                pluginClass = "com.cotor.data.plugin.CodexPlugin",
-                executable = "codex"
-            )
-            hasCommand("gemini") -> StarterAgent(
-                name = "gemini",
-                pluginClass = "com.cotor.data.plugin.GeminiPlugin",
-                executable = "gemini"
-            )
-            hasCommand("claude") -> StarterAgent(
-                name = "claude",
-                pluginClass = "com.cotor.data.plugin.ClaudePlugin",
-                executable = "claude",
-                parameterBlock = """
-model: claude-sonnet-4-20250514
-                """.trimIndent()
-            )
-            !System.getenv("OPENAI_API_KEY").isNullOrBlank() -> StarterAgent(
-                name = "openai",
-                pluginClass = "com.cotor.data.plugin.OpenAIPlugin",
-                executable = "java",
-                parameterBlock = """
-model: gpt-4o-mini
-apiKeyEnv: OPENAI_API_KEY
-                """.trimIndent()
-            )
-            else -> StarterAgent(
-                name = "example-agent",
-                pluginClass = "com.cotor.data.plugin.EchoPlugin",
-                executable = "echo"
-            )
-        }
-    }
+    private fun resolveStarterAgent(): StarterAgentSpec = resolveStarterAgentSpec()
 
-    private fun hasCommand(command: String): Boolean {
-        val path = System.getenv("PATH") ?: return false
-        return path.split(File.pathSeparator).any { dir ->
-            val file = File(dir, command)
-            file.exists() && file.canExecute()
-        }
+    private fun AgentResult.toInteractiveSummary(): InteractiveAgentSummary {
+        return InteractiveAgentSummary(
+            agentName = agentName,
+            success = isSuccess,
+            durationMs = duration,
+            error = error
+        )
     }
 }

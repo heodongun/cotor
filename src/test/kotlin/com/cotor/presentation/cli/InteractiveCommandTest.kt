@@ -30,6 +30,7 @@ import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
 import com.github.ajalt.clikt.testing.test
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import org.koin.core.context.startKoin
@@ -110,6 +111,41 @@ class InteractiveCommandTest : FunSpec({
         txt.readText().shouldContain("hello")
     }
 
+    test("interactive defaults to a single preferred codex agent and writes an interactive log") {
+        val dir = Files.createTempDirectory("cotor-interactive-default-single")
+        val configPath = dir.resolve("cotor.yaml")
+        val saveDir = dir.resolve("out")
+
+        configPath.writeText(
+            """
+            version: "1.0"
+            agents:
+              - name: echo2
+                pluginClass: com.cotor.data.plugin.EchoPlugin
+              - name: codex
+                pluginClass: com.cotor.data.plugin.EchoPlugin
+                tags:
+                  - starter
+            """.trimIndent()
+        )
+
+        val result = InteractiveCommand().test(
+            "--config", configPath.toString(),
+            "--no-context",
+            "--save-dir", saveDir.toString(),
+            "--prompt", "hello"
+        )
+
+        result.statusCode shouldBe 0
+        result.stdout.trim() shouldBe "hello"
+
+        val interactiveLog = saveDir.resolve("interactive.log")
+        interactiveLog.exists() shouldBe true
+        interactiveLog.readText().shouldContain("mode=SINGLE")
+        interactiveLog.readText().shouldContain("active_agent=codex")
+        interactiveLog.readText().shouldContain("agent_result name=codex success=true")
+    }
+
     test("interactive --prompt (compare) returns aggregated output for multiple agents") {
         val dir = Files.createTempDirectory("cotor-interactive-compare")
         val configPath = dir.resolve("cotor.yaml")
@@ -139,6 +175,68 @@ class InteractiveCommandTest : FunSpec({
         result.stdout.shouldContain("[echo1]")
         result.stdout.shouldContain("[echo2]")
         result.stdout.shouldContain("ping")
+    }
+
+    test("interactive --prompt (auto with show-all) keeps multi-agent behavior when mode is explicit") {
+        val dir = Files.createTempDirectory("cotor-interactive-auto")
+        val configPath = dir.resolve("cotor.yaml")
+        val saveDir = dir.resolve("out")
+
+        configPath.writeText(
+            """
+            version: "1.0"
+            agents:
+              - name: echo1
+                pluginClass: com.cotor.data.plugin.EchoPlugin
+              - name: echo2
+                pluginClass: com.cotor.data.plugin.EchoPlugin
+            """.trimIndent()
+        )
+
+        val result = InteractiveCommand().test(
+            "--config", configPath.toString(),
+            "--mode", "auto",
+            "--show-all",
+            "--agents", "echo1,echo2",
+            "--no-context",
+            "--save-dir", saveDir.toString(),
+            "--prompt", "ping"
+        )
+
+        result.statusCode shouldBe 0
+        result.stdout.shouldContain("[echo1]")
+        result.stdout.shouldContain("[echo2]")
+    }
+
+    test("interactive writes failure details to interactive.log when a turn fails") {
+        val dir = Files.createTempDirectory("cotor-interactive-failure")
+        val configPath = dir.resolve("cotor.yaml")
+        val saveDir = dir.resolve("out")
+
+        configPath.writeText(
+            """
+            version: "1.0"
+            agents:
+              - name: codex
+                pluginClass: com.example.MissingPlugin
+            """.trimIndent()
+        )
+
+        val failure = runCatching {
+            InteractiveCommand().test(
+                "--config", configPath.toString(),
+                "--no-context",
+                "--save-dir", saveDir.toString(),
+                "--prompt", "hello"
+            )
+        }.exceptionOrNull()
+
+        failure.shouldNotBeNull()
+
+        val interactiveLog = saveDir.resolve("interactive.log")
+        interactiveLog.exists() shouldBe true
+        interactiveLog.readText().shouldContain("success=false")
+        interactiveLog.readText().shouldContain("stacktrace=")
     }
 
     test("desktop input normalizer strips echoed prompt prefixes from commands") {

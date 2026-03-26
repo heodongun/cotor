@@ -1,7 +1,9 @@
 class Cotor < Formula
   desc "AI company orchestration platform - CLI and desktop app"
   homepage "https://github.com/bssm-oss/cotor"
-  url "https://github.com/bssm-oss/cotor.git", tag: "v1.0.0"
+  url "https://github.com/bssm-oss/cotor.git",
+      branch: "master"
+  version "1.0.0"
   license "MIT"
   head "https://github.com/bssm-oss/cotor.git", branch: "master"
 
@@ -13,29 +15,25 @@ class Cotor < Formula
     # Build the shadow JAR (CLI backend)
     system "./gradlew", "shadowJar", "--no-daemon"
 
-    # Install the JAR
-    libexec.install "build/libs/cotor-1.0.0-all.jar" => "cotor.jar"
+    if OS.mac?
+      desktop_output = buildpath/"build/homebrew-desktop"
+      ENV["COTOR_PROJECT_ROOT"] = buildpath.to_s
+      ENV["COTOR_DESKTOP_BUILD_OUTPUT_ROOT"] = desktop_output.to_s
+      system "bash", "shell/build-desktop-app-bundle.sh"
+      (pkgshare/"desktop").install desktop_output/"Cotor Desktop.app"
+    end
 
-    # Create CLI wrapper with JDK 17 pinned
+    # Install the JAR built from the current Gradle project version.
+    libexec.install Dir["build/libs/cotor-*-all.jar"].fetch(0) => "cotor.jar"
+
+    # Create CLI wrapper with JDK 17 pinned.
     (bin/"cotor").write <<~EOS
       #!/bin/bash
       export JAVA_HOME="#{Formula["openjdk@17"].opt_prefix}"
-      export COTOR_PROJECT_ROOT="#{prefix}"
+      export COTOR_INSTALL_KIND="packaged"
+      export COTOR_INSTALL_ROOT="#{pkgshare}"
       exec "${JAVA_HOME}/bin/java" -jar "#{libexec}/cotor.jar" "$@"
     EOS
-
-    # Install desktop app build scripts for `cotor install` / `cotor update`
-    prefix.install "shell"
-    prefix.install "macos"
-  end
-
-  def post_install
-    # Build and install macOS desktop app
-    if OS.mac?
-      ENV["JAVA_HOME"] = Formula["openjdk@17"].opt_prefix
-      ENV["COTOR_PROJECT_ROOT"] = prefix.to_s
-      system "bash", "#{prefix}/shell/install-desktop-app.sh"
-    end
   end
 
   def caveats
@@ -44,7 +42,8 @@ class Cotor < Formula
         cotor version
         cotor app-server
 
-      Desktop app:
+      Desktop app bundle:
+        cotor install
         open "/Applications/Cotor Desktop.app"
 
       Update:
@@ -54,5 +53,14 @@ class Cotor < Formula
 
   test do
     assert_match "Cotor version", shell_output("#{bin}/cotor version")
+    assert_match "Chat with the master agent", shell_output("#{bin}/cotor interactive --help")
+
+    if OS.mac?
+      assert_predicate pkgshare/"desktop/Cotor Desktop.app", :directory?
+      test_install_root = testpath/"Applications"
+      ENV["COTOR_DESKTOP_INSTALL_ROOT"] = test_install_root.to_s
+      system bin/"cotor", "install"
+      assert_predicate test_install_root/"Cotor Desktop.app", :directory?
+    end
   end
 end

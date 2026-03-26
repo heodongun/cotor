@@ -244,6 +244,44 @@ class FileConfigRepositoryTest : FunSpec({
         loadedConfig.agents.find { it.name == "shared-agent" }?.pluginClass shouldBe "com.cotor.LocalShared"
     }
 
+    test("loadConfigExact ignores global and local .cotor overrides") {
+        val baseDir = Files.createTempDirectory("config-exact-load")
+        val localCotorDir = baseDir.resolve(".cotor").createDirectory()
+        val fakeHome = baseDir.resolve("home").createDirectory()
+        val globalCotorDir = fakeHome.resolve(".cotor").createDirectory()
+        val repo = FileConfigRepository(yamlParser, jsonParser) { fakeHome }
+
+        val mainConfigPath = baseDir.resolve("cotor.yaml")
+        mainConfigPath.writeText(
+            """
+            version: "1.0"
+            agents:
+              - name: base
+                pluginClass: "com.cotor.Base"
+            """.trimIndent()
+        )
+
+        globalCotorDir.resolve("agents.yaml").writeText(
+            """
+            agents:
+              - name: global-agent
+                pluginClass: "com.cotor.Global"
+            """.trimIndent()
+        )
+
+        localCotorDir.resolve("agents.yaml").writeText(
+            """
+            agents:
+              - name: local-agent
+                pluginClass: "com.cotor.Local"
+            """.trimIndent()
+        )
+
+        val loadedConfig = runBlocking { repo.loadConfigExact(mainConfigPath) }
+
+        loadedConfig.agents.map { it.name } shouldBe listOf("base")
+    }
+
     test("throws friendly error when config file is missing") {
         val repo = FileConfigRepository(yamlParser, jsonParser) { Files.createTempDirectory("fake-home") }
         val missing = Files.createTempDirectory("config-missing").resolve("nope.yaml")
