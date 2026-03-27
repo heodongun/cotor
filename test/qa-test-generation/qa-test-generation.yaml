@@ -5,7 +5,7 @@ agents:
     pluginClass: com.cotor.data.plugin.CodexPlugin
     timeout: 180000
     parameters:
-      model: gpt-5.3-codex-spark
+      model: gpt-5.4
     tags:
       - qa
       - test-generation

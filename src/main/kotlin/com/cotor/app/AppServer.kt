@@ -124,7 +124,9 @@ internal class DesktopAppServerInstanceGuard(
     private var channel: FileChannel? = null
     private var lock: FileLock? = null
     private var record: DesktopAppServerLockRecord? = null
-    private val json = Json { prettyPrint = true }
+    private val json = Json {
+        encodeDefaults = true
+    }
 
     fun acquire(host: String, port: Int): DesktopAppServerLockRecord {
         if (lock != null) {
@@ -194,9 +196,16 @@ internal fun Application.cotorAppModule(
     tuiSessionService: DesktopTuiSessionService,
     shutdownHandler: (() -> Unit)? = null
 ) {
-    val streamJson = Json { ignoreUnknownKeys = true }
+    val ktorJson = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+    }
+    val streamJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
     install(ContentNegotiation) {
-        json()
+        json(ktorJson)
     }
     install(CORS) {
         anyHost()
@@ -700,6 +709,13 @@ internal fun Application.cotorAppModule(
                     val company = desktopService.getCompany(companyId)
                         ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Company not found: $companyId"))
                     call.respond(company)
+                }
+
+                get("/{companyId}/dashboard") {
+                    if (!requireToken(token)) return@get
+                    val companyId = call.parameters["companyId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    call.respond(desktopService.companyDashboard(companyId))
                 }
 
                 patch("/{companyId}") {

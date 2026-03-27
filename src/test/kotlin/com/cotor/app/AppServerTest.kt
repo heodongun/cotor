@@ -22,7 +22,9 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.flow.flowOf
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -691,6 +693,156 @@ class AppServerTest : FunSpec({
             response.status shouldBe HttpStatusCode.OK
             response.bodyAsText() shouldContain "\"id\":\"issue-1\""
             response.bodyAsText() shouldContain "\"companyId\":\"company-1\""
+        }
+    }
+
+    test("company dashboard route returns a company-scoped live snapshot when authorized") {
+        coEvery { desktopService.companyDashboard("company-1") } returns CompanyDashboardResponse(
+            companies = listOf(
+                Company(
+                    id = "company-1",
+                    name = "Cotor",
+                    rootPath = "/tmp/cotor",
+                    repositoryId = "repo-1",
+                    defaultBaseBranch = "master",
+                    createdAt = 1L,
+                    updatedAt = 1L
+                )
+            ),
+            issues = listOf(
+                CompanyIssue(
+                    id = "issue-1",
+                    companyId = "company-1",
+                    projectContextId = "project-1",
+                    goalId = "goal-1",
+                    workspaceId = "workspace-1",
+                    title = "Issue",
+                    description = "Issue desc",
+                    status = IssueStatus.IN_PROGRESS,
+                    kind = "execution",
+                    createdAt = 1L,
+                    updatedAt = 2L
+                )
+            ),
+            tasks = listOf(
+                AgentTask(
+                    id = "task-1",
+                    workspaceId = "workspace-1",
+                    issueId = "issue-1",
+                    title = "Issue",
+                    prompt = "Issue desc",
+                    agents = listOf("codex"),
+                    status = DesktopTaskStatus.RUNNING,
+                    createdAt = 1L,
+                    updatedAt = 2L
+                )
+            ),
+            runtime = CompanyRuntimeSnapshot(
+                companyId = "company-1",
+                status = CompanyRuntimeStatus.RUNNING,
+                lastAction = "monitoring-active-runs"
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/companies/company-1/dashboard") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"issues\":[{\"id\":\"issue-1\""
+            response.bodyAsText() shouldContain "\"tasks\":[{\"id\":\"task-1\""
+            response.bodyAsText() shouldContain "\"issueDependencies\":[]"
+            response.bodyAsText() shouldContain "\"reviewQueue\":[]"
+            response.bodyAsText() shouldContain "\"workflowTopologies\":[]"
+            response.bodyAsText() shouldContain "\"goalDecisions\":[]"
+            response.bodyAsText() shouldContain "\"runningAgentSessions\":[]"
+            response.bodyAsText() shouldContain "\"signals\":[]"
+            response.bodyAsText() shouldContain "\"activity\":[]"
+            response.bodyAsText() shouldContain "\"lastAction\":\"monitoring-active-runs\""
+            response.bodyAsText() shouldContain "\"tickIntervalSeconds\":60"
+            response.bodyAsText() shouldContain "\"backendKind\":\"LOCAL_COTOR\""
+            response.bodyAsText() shouldContain "\"backendHealth\":\"unknown\""
+            response.bodyAsText() shouldContain "\"backendLifecycleState\":\"STOPPED\""
+        }
+    }
+
+    test("company event stream includes the company dashboard snapshot when authorized") {
+        every { desktopService.companyEvents("company-1") } returns flowOf(
+            CompanyEventEnvelope(
+                event = CompanyEvent(
+                    id = "event-1",
+                    companyId = "company-1",
+                    type = "runtime.updated",
+                    title = "Runtime updated",
+                    createdAt = 1L
+                ),
+                companyDashboard = CompanyDashboardResponse(
+                    companies = listOf(
+                        Company(
+                            id = "company-1",
+                            name = "Cotor",
+                            rootPath = "/tmp/cotor",
+                            repositoryId = "repo-1",
+                            defaultBaseBranch = "master",
+                            createdAt = 1L,
+                            updatedAt = 1L
+                        )
+                    ),
+                    activity = listOf(
+                        CompanyActivityItem(
+                            id = "activity-1",
+                            companyId = "company-1",
+                            source = "runtime",
+                            title = "Started issue run",
+                            createdAt = 1L
+                        )
+                    ),
+                    runtime = CompanyRuntimeSnapshot(
+                        companyId = "company-1",
+                        status = CompanyRuntimeStatus.RUNNING,
+                        lastAction = "monitoring-active-runs"
+                    )
+                )
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/companies/company-1/events") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"companyDashboard\""
+            response.bodyAsText() shouldContain "\"tasks\":[]"
+            response.bodyAsText() shouldContain "\"issueDependencies\":[]"
+            response.bodyAsText() shouldContain "\"reviewQueue\":[]"
+            response.bodyAsText() shouldContain "\"workflowTopologies\":[]"
+            response.bodyAsText() shouldContain "\"goalDecisions\":[]"
+            response.bodyAsText() shouldContain "\"runningAgentSessions\":[]"
+            response.bodyAsText() shouldContain "\"signals\":[]"
+            response.bodyAsText() shouldContain "\"activity\":[{\"id\":\"activity-1\""
+            response.bodyAsText() shouldContain "\"lastAction\":\"monitoring-active-runs\""
+            response.bodyAsText() shouldContain "\"tickIntervalSeconds\":60"
+            response.bodyAsText() shouldContain "\"backendKind\":\"LOCAL_COTOR\""
+            response.bodyAsText() shouldContain "\"backendHealth\":\"unknown\""
+            response.bodyAsText() shouldContain "\"backendLifecycleState\":\"STOPPED\""
         }
     }
 })

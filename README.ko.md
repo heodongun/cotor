@@ -98,6 +98,11 @@ packaged install의 실제 첫 실행 경로와 문제 해결은 [docs/HOMEBREW_
 - 최상위 `Company` / `TUI` 모드 분리
 - `Company` 모드에서 회사 목록, 에이전트 정의, 목표, 이슈 보드/캔버스, 활동 피드, 런타임 제어
 - `Company` 요약은 별도 긴 상태 카드 대신 메인 요약 배너 안에서 런타임 건강도, 차단 수, 리뷰 주의 수, 최근 오류/동작을 함께 보여줌
+- `Company` 모드는 기본적으로 이벤트 기반 live update를 사용해서, 정상 동작 중에는 수동 새로고침 없이 활동 로그, 이슈, 리뷰 상태, 런타임 상태가 바로 반영됨
+- 회사 실시간 stream이 잠깐 끊겨도 현재 company snapshot은 유지하고, generic decode 오류 대신 회사 전용 재동기화 메시지를 보여줌
+- 이슈 보드는 lane 내부 스크롤을 써서 차단/리뷰 카드가 많아져도 상단만 잘린 채 보이지 않게 함
+- GitHub PR이 다시 clean 상태가 되면 stale merge-conflict 차단도 자동으로 CEO lane으로 되돌려서, rebase 후 수동 리셋 없이 흐름을 이어감
+- 연결된 PR이 이미 머지됐는데 stale execution sync 때문에 `BLOCKED`로 남은 이슈는 다음 runtime tick에서 자동으로 `DONE`으로 정규화됨
 - `TUI` 모드에서 폴더 기반 단독 `cotor` 터미널을 여러 개 병렬로 유지
 - 활성 실행 컨텍스트를 옮기는 상단 세션 스트립
 - 변경점, 파일, 포트, 브라우저, 리뷰 메타데이터를 담는 접이식 상세 드로어
@@ -113,8 +118,12 @@ packaged install의 실제 첫 실행 경로와 문제 해결은 [docs/HOMEBREW_
 - 목표를 이슈로 분해
 - 이슈 위임 및 실행
 - 리뷰 큐 생성
+- 회사 런타임을 수동으로 중지하면 앱 재실행, dashboard 조회, 실시간 재연결 뒤에도 시작을 다시 누르기 전까지 그대로 중지 상태 유지
 - 회사 요약 페이지에서 압축된 런타임 상태, 차단/리뷰 주의, 활동 피드 조회
 - 회사별 로컬 자율 런타임 시작/중지
+- active task/run이 남아 있으면 회사 런타임이 느린 idle backoff로 내려가지 않고 빠른 monitoring cadence를 유지해서 죽은 `RUNNING` 상태를 더 빨리 정리
+- app-server가 active company work 도중 종료되면, 현재 빌드는 일반 process-exit 실패로 굳히지 않고 해당 이슈를 다시 큐에 올려 재개 가능하게 유지
+- 그 뒤 데스크톱 앱을 다시 열면 실행 중이던 회사 런타임이 queued delegated work를 다시 태우고, 회사 활동 로그에도 복구 흐름이 바로 반영됨
 
 현재 한계:
 
@@ -132,6 +141,7 @@ packaged install의 실제 첫 실행 경로와 문제 해결은 [docs/HOMEBREW_
 - [영문 가이드](docs/README.md)
 - [한글 가이드](docs/README.ko.md)
 - [빠른 시작](docs/QUICK_START.md)
+- [문제 해결](docs/TROUBLESHOOTING.ko.md)
 - [데스크톱 앱](docs/DESKTOP_APP.md)
 - [기능 목록](docs/FEATURES.md)
 - [검증 계획](docs/TEST_PLAN.md)

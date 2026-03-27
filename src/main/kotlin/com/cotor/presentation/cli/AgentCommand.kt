@@ -13,6 +13,7 @@ import com.cotor.data.config.FileConfigRepository
 import com.cotor.data.config.JsonParser
 import com.cotor.data.config.YamlParser
 import com.cotor.model.AgentConfig
+import com.cotor.model.CodexDefaults
 import com.cotor.model.CotorConfig
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.UsageError
@@ -69,7 +70,7 @@ private val defaultHomeDirectoryProvider: () -> java.nio.file.Path = {
 private val builtinPresets = listOf(
     AgentPreset("gemini", "com.cotor.data.plugin.GeminiPlugin", "gemini", 60000, "gemini-3.0-flash"),
     AgentPreset("claude", "com.cotor.data.plugin.ClaudePlugin", "claude", 60000, "claude-sonnet-4-20250514"),
-    AgentPreset("codex", "com.cotor.data.plugin.CodexPlugin", "codex", 60000, "gpt-5.3-codex-spark"),
+    AgentPreset("codex", "com.cotor.data.plugin.CodexPlugin", "codex", 60000, CodexDefaults.DEFAULT_MODEL),
     AgentPreset("copilot", "com.cotor.data.plugin.CopilotPlugin", "copilot", 60000, "copilot"),
     AgentPreset("opencode", "com.cotor.data.plugin.OpenCodePlugin", "opencode", 60000, "opencode-default"),
     AgentPreset("qwen", "com.cotor.data.plugin.CommandPlugin", "qwen", 60000, "qwen3-coder"),
@@ -90,7 +91,7 @@ class AgentAddCommand(
 
         Examples:
         - cotor agent add gemini --local --yes
-        - cotor agent add codex --model gpt-5.3-codex-spark --name reviewer
+        - cotor agent add codex --model ${CodexDefaults.DEFAULT_MODEL} --name reviewer
         - cotor agent add qwen --dry-run
     """.trimIndent()
 ) {

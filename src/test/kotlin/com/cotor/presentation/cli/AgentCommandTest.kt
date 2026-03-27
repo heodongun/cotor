@@ -133,7 +133,7 @@ class AgentCommandTest : FunSpec({
         result.statusCode shouldBe 0
         val added = root.resolve(".cotor/agents/codex.yaml")
         added.exists() shouldBe true
-        added.readText() shouldContain "model: \"gpt-5.3-codex-spark\""
+        added.readText() shouldContain "model: \"gpt-5.4\""
     }
 
     test("agent add help shows detailed usage") {

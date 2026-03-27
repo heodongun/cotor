@@ -2061,36 +2061,41 @@ private struct SidebarTaskRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .top) {
+                    Text(task.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ShellPalette.text)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 8)
+                    Text(language.status(task.status))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(ShellPalette.muted)
+                }
+
+                Text(task.prompt)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                    .lineLimit(2)
+
+                Text(task.agents.joined(separator: " · "))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ShellPalette.faint)
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+            .padding(.trailing, 12)
+            .padding(.leading, 34)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(isSelected ? ShellPalette.panelRaised : ShellPalette.panelAlt)
+            .overlay(alignment: .leading) {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(statusTint(for: task.status))
-                    .frame(width: 5)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .top) {
-                        Text(task.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(ShellPalette.text)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 8)
-                        Text(language.status(task.status))
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(ShellPalette.muted)
-                    }
-
-                    Text(task.prompt)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(ShellPalette.muted)
-                        .lineLimit(2)
-
-                    Text(task.agents.joined(separator: " · "))
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(ShellPalette.faint)
-                }
+                    .frame(width: 6)
+                    .padding(.vertical, 12)
+                    .padding(.leading, 12)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? ShellPalette.panelRaised : ShellPalette.panelAlt)
             .overlay(
                 RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
                     .stroke(isSelected ? ShellPalette.lineStrong : ShellPalette.line, lineWidth: 1)
@@ -2109,41 +2114,46 @@ private struct IssueSidebarRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(statusTint(for: issue.status))
-                    .frame(width: 5)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(issue.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ShellPalette.text)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(issue.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(ShellPalette.text)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                Text(issue.description)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                    .lineLimit(1)
 
-                    Text(issue.description)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(ShellPalette.muted)
-                        .lineLimit(1)
+                HStack(spacing: 8) {
+                    ShellTag(text: issue.kind.uppercased(), tint: ShellPalette.accentSoft)
+                    ShellTag(text: language.status(issue.status), tint: statusTint(for: issue.status))
+                    Spacer()
+                }
 
+                if !issue.dependsOn.isEmpty {
                     HStack(spacing: 8) {
-                        ShellTag(text: issue.kind.uppercased(), tint: ShellPalette.accentSoft)
-                        ShellTag(text: language.status(issue.status), tint: statusTint(for: issue.status))
+                        ShellTag(text: "\(issue.dependsOn.count) \(language("deps", "의존"))", tint: ShellPalette.warning)
                         Spacer()
-                    }
-
-                    if !issue.dependsOn.isEmpty {
-                        HStack(spacing: 8) {
-                            ShellTag(text: "\(issue.dependsOn.count) \(language("deps", "의존"))", tint: ShellPalette.warning)
-                            Spacer()
-                        }
                     }
                 }
             }
-            .padding(12)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+            .padding(.trailing, 12)
+            .padding(.leading, 34)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             .background(isSelected ? ShellPalette.panelRaised : ShellPalette.panelAlt)
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(statusTint(for: issue.status))
+                    .frame(width: 6)
+                    .padding(.vertical, 12)
+                    .padding(.leading, 12)
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
                     .stroke(isSelected ? ShellPalette.lineStrong : ShellPalette.line, lineWidth: 1)
@@ -2238,7 +2248,7 @@ private struct CenterPaneView: View {
     }
 
     private var visibleActivity: [CompanyActivityItemRecord] {
-        Array(store.activity.prefix(8))
+        Array(store.activity.prefix(40))
     }
 
     private var visibleDecisions: [GoalOrchestrationDecisionRecord] {
@@ -2315,7 +2325,7 @@ private struct CenterPaneView: View {
                 companyPageContent
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -2485,6 +2495,12 @@ private struct CenterPaneView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     StatusSummaryPill(text: l.status(runtime.status), tint: companyRuntimeTint(runtime.status))
+                    if runtime.isManuallyStopped {
+                        ShellTag(
+                            text: l("Stopped manually", "수동 중지"),
+                            tint: ShellPalette.warning
+                        )
+                    }
                     StatusSummaryPill(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
                     if blockedWorkflowCount > 0 {
                         ShellTag(
@@ -2506,6 +2522,16 @@ private struct CenterPaneView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(ShellPalette.danger)
                         .lineLimit(1)
+                } else if runtime.isManuallyStopped {
+                    Text(
+                        l(
+                            "Runtime was stopped manually. Press Start to resume company automation.",
+                            "런타임이 수동으로 중지되었습니다. 회사 자동화를 다시 시작하려면 시작을 누르세요."
+                        )
+                    )
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                    .lineLimit(1)
                 } else if runtimeHealthy && (blockedWorkflowCount > 0 || reviewAttentionCount > 0) {
                     Text(
                         l(
@@ -3016,96 +3042,104 @@ private struct CenterPaneView: View {
             }
 
             if let issue = store.selectedIssue {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(issue.title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(ShellPalette.text)
-
-                    Text(issue.description)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(ShellPalette.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HStack(spacing: 8) {
-                        StatusSummaryPill(text: issue.kind.uppercased(), tint: ShellPalette.accentSoft)
-                        if let assignee = store.selectedIssueAssignee {
-                            StatusSummaryPill(text: assignee.roleName, tint: ShellPalette.accent)
-                        }
-                        if let linearIdentifier = issue.linearIssueIdentifier, !linearIdentifier.isEmpty {
-                            StatusSummaryPill(text: linearIdentifier, tint: ShellPalette.accentWarm)
-                        }
-                        if let task = selectedIssueTask {
-                            StatusSummaryPill(text: l.status(task.status), tint: statusTint(for: task.status))
-                        }
-                        if let reviewItem = store.selectedReviewQueueItem {
-                            StatusSummaryPill(text: l.status(reviewItem.status), tint: reviewTint(reviewItem.status))
-                        }
-                    }
-
-                    HStack(spacing: 8) {
-                        Button(role: .destructive) {
-                            Task { await store.deleteSelectedIssue() }
-                        } label: {
-                            Label(l("Delete Issue", "이슈 삭제"), systemImage: "trash")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
-                    }
-
-                    if issue.linearIssueId != nil {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(l("Linear", "Linear"))
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(ShellPalette.text)
-                            if let linearIdentifier = issue.linearIssueIdentifier, !linearIdentifier.isEmpty {
-                                valueLine(label: l("Issue", "이슈"), value: linearIdentifier)
-                            }
-                            if let linearIssueUrl = issue.linearIssueUrl, let url = URL(string: linearIssueUrl) {
-                                Link(destination: url) {
-                                    Label(l("Open in Linear", "Linear에서 열기"), systemImage: "arrow.up.right.square")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .foregroundStyle(ShellPalette.accent)
-                            }
-                            if let lastSyncAt = issue.lastLinearSyncAt {
-                                valueLine(label: l("Last sync", "마지막 동기화"), value: relativeTimestamp(lastSyncAt))
-                            }
-                        }
-                    }
-
-                    if !issue.acceptanceCriteria.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(l("Acceptance", "수용 기준"))
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(ShellPalette.text)
-                            ForEach(issue.acceptanceCriteria, id: \.self) { criterion in
-                                StatusSummaryLine(text: criterion, tint: ShellPalette.success)
-                            }
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(l("Execution Log", "실행 로그"))
-                            .font(.system(size: 11, weight: .semibold))
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(issue.title)
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(ShellPalette.text)
 
-                        ScrollView {
-                            Text(selectedIssueLog)
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundStyle(ShellPalette.text)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                                .padding(12)
+                        Text(issue.description)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(ShellPalette.muted)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        HStack(spacing: 8) {
+                            StatusSummaryPill(text: issue.kind.uppercased(), tint: ShellPalette.accentSoft)
+                            if let assignee = store.selectedIssueAssignee {
+                                StatusSummaryPill(text: assignee.roleName, tint: ShellPalette.accent)
+                            }
+                            if let linearIdentifier = issue.linearIssueIdentifier, !linearIdentifier.isEmpty {
+                                StatusSummaryPill(text: linearIdentifier, tint: ShellPalette.accentWarm)
+                            }
+                            if let task = selectedIssueTask {
+                                StatusSummaryPill(text: l.status(task.status), tint: statusTint(for: task.status))
+                            }
+                            if let reviewItem = store.selectedReviewQueueItem {
+                                StatusSummaryPill(text: l.status(reviewItem.status), tint: reviewTint(reviewItem.status))
+                            }
                         }
-                        .frame(minHeight: 170)
-                        .background(ShellPalette.panelAlt)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
-                                .stroke(ShellPalette.line, lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+
+                        HStack(spacing: 8) {
+                            Button(role: .destructive) {
+                                Task { await store.deleteSelectedIssue() }
+                            } label: {
+                                Label(l("Delete Issue", "이슈 삭제"), systemImage: "trash")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                        }
+
+                        if issue.linearIssueId != nil {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(l("Linear", "Linear"))
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(ShellPalette.text)
+                                if let linearIdentifier = issue.linearIssueIdentifier, !linearIdentifier.isEmpty {
+                                    valueLine(label: l("Issue", "이슈"), value: linearIdentifier)
+                                }
+                                if let linearIssueUrl = issue.linearIssueUrl, let url = URL(string: linearIssueUrl) {
+                                    Link(destination: url) {
+                                        Label(l("Open in Linear", "Linear에서 열기"), systemImage: "arrow.up.right.square")
+                                            .font(.system(size: 11, weight: .semibold))
+                                    }
+                                    .foregroundStyle(ShellPalette.accent)
+                                }
+                                if let lastSyncAt = issue.lastLinearSyncAt {
+                                    valueLine(label: l("Last sync", "마지막 동기화"), value: relativeTimestamp(lastSyncAt))
+                                }
+                            }
+                        }
+
+                        if !issue.acceptanceCriteria.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(l("Acceptance", "수용 기준"))
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(ShellPalette.text)
+                                ForEach(Array(issue.acceptanceCriteria.prefix(3)), id: \.self) { criterion in
+                                    StatusSummaryLine(text: criterion, tint: ShellPalette.success)
+                                }
+                                if issue.acceptanceCriteria.count > 3 {
+                                    Text(l("+ \(issue.acceptanceCriteria.count - 3) more", "+ \(issue.acceptanceCriteria.count - 3)개 더"))
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(ShellPalette.faint)
+                                }
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(l("Execution Log", "실행 로그"))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(ShellPalette.text)
+                            ScrollView {
+                                Text(selectedIssueLog)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(ShellPalette.text)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                                    .padding(12)
+                            }
+                            .frame(minHeight: 96, maxHeight: 132)
+                            .background(ShellPalette.panelAlt)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                    .stroke(ShellPalette.line, lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+                        }
                     }
                 }
+                .frame(maxHeight: layoutMode == .compact ? 220 : 250, alignment: .top)
             } else {
                 EmptyStateView(
                     image: "text.alignleft",
@@ -3223,6 +3257,7 @@ private struct CenterPaneView: View {
                 .frame(height: 150)
             } else {
                 CompanyActivityFeedList(items: visibleActivity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(14)
@@ -3249,7 +3284,7 @@ private struct CenterPaneView: View {
 
     private var issueBoard: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 12) {
+            LazyHStack(alignment: .top, spacing: 12) {
                 ForEach(["PLANNED", "DELEGATED", "IN_PROGRESS", "IN_REVIEW", "BLOCKED", "DONE"], id: \.self) { status in
                     IssueBoardLaneView(
                         title: l.status(status),
@@ -3263,14 +3298,16 @@ private struct CenterPaneView: View {
                         },
                         selectedIssueID: store.selectedIssueID,
                         language: l,
-                        width: layoutMode == .compact ? 260 : 280
+                        width: layoutMode == .compact ? 224 : 236
                     ) { issue in
                         Task { await store.selectIssue(issue) }
                     }
                 }
             }
+            .padding(.vertical, 2)
         }
-        .frame(minHeight: 260)
+        .frame(height: layoutMode == .compact ? 420 : 540, alignment: .top)
+        .clipped()
     }
 
     private var issueCanvas: some View {
@@ -3650,43 +3687,51 @@ private struct CompanyCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? ShellPalette.accent : ShellPalette.panelRaised)
-                    .frame(width: 8)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text(company.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ShellPalette.text)
+                    Spacer()
+                    ShellTag(
+                        text: company.autonomyEnabled ? language("AUTO", "자동") : language("MANUAL", "수동"),
+                        tint: company.autonomyEnabled ? ShellPalette.success : ShellPalette.warning
+                    )
+                }
 
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text(company.name)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(ShellPalette.text)
-                        Spacer()
-                        ShellTag(
-                            text: company.autonomyEnabled ? language("AUTO", "자동") : language("MANUAL", "수동"),
-                            tint: company.autonomyEnabled ? ShellPalette.success : ShellPalette.warning
-                        )
-                    }
+                Text(company.rootPath)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(ShellPalette.muted)
+                    .lineLimit(2)
 
-                    Text(company.rootPath)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(ShellPalette.muted)
-                        .lineLimit(2)
-
-                    HStack(spacing: 8) {
-                        ShellTag(text: company.defaultBaseBranch, tint: ShellPalette.accentWarm)
-                        if let runtime {
-                            ShellTag(text: language.status(runtime.status), tint: companyRuntimeTint(runtime.status))
-                            ShellTag(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
-                            if let lastError = runtime.lastError, !lastError.isEmpty {
-                                ShellTag(text: language("Needs attention", "주의 필요"), tint: ShellPalette.danger)
-                            }
+                HStack(spacing: 8) {
+                    ShellTag(text: company.defaultBaseBranch, tint: ShellPalette.accentWarm)
+                    if let runtime {
+                        ShellTag(text: language.status(runtime.status), tint: companyRuntimeTint(runtime.status))
+                        if runtime.isManuallyStopped {
+                            ShellTag(text: language("Stopped manually", "수동 중지"), tint: ShellPalette.warning)
+                        }
+                        ShellTag(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
+                        if let lastError = runtime.lastError, !lastError.isEmpty {
+                            ShellTag(text: language("Needs attention", "주의 필요"), tint: ShellPalette.danger)
                         }
                     }
                 }
             }
-            .padding(12)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+            .padding(.trailing, 12)
+            .padding(.leading, 34)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
             .background(isSelected ? ShellPalette.panelRaised : ShellPalette.panelAlt)
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? ShellPalette.accent : ShellPalette.panelRaised)
+                    .frame(width: 6)
+                    .padding(.vertical, 12)
+                    .padding(.leading, 12)
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
                     .stroke(isSelected ? ShellPalette.lineStrong : ShellPalette.line, lineWidth: 1)
@@ -3702,15 +3747,10 @@ private struct CompanyActivityFeedList: View {
     let items: [CompanyActivityItemRecord]
 
     var body: some View {
-        VStack(spacing: 8) {
-            if items.indices.contains(0) { activityRow(items[0]) }
-            if items.indices.contains(1) { activityRow(items[1]) }
-            if items.indices.contains(2) { activityRow(items[2]) }
-            if items.indices.contains(3) { activityRow(items[3]) }
-            if items.indices.contains(4) { activityRow(items[4]) }
-            if items.indices.contains(5) { activityRow(items[5]) }
-            if items.indices.contains(6) { activityRow(items[6]) }
-            if items.indices.contains(7) { activityRow(items[7]) }
+        LazyVStack(spacing: 8) {
+            ForEach(items) { item in
+                activityRow(item)
+            }
         }
     }
 
@@ -3933,24 +3973,28 @@ private struct IssueBoardLaneView: View {
                     title: language("No issues", "이슈 없음"),
                     subtitle: language("The CEO agent has nothing queued in this lane right now.", "이 lane에는 현재 CEO 에이전트가 배치한 이슈가 없습니다.")
                 )
-                .frame(height: 152)
+                .frame(maxWidth: .infinity, minHeight: 176, maxHeight: 176)
             } else {
-                VStack(spacing: 8) {
-                    ForEach(issues) { issue in
-                        IssueBoardCard(
-                            issue: issue,
-                            assignee: assigneeProvider(issue),
-                            reviewItem: reviewProvider(issue),
-                            language: language,
-                            isSelected: selectedIssueID == issue.id
-                        ) {
-                            onSelect(issue)
+                ScrollView(.vertical, showsIndicators: issues.count > 2) {
+                    LazyVStack(spacing: 8) {
+                        ForEach(issues) { issue in
+                            IssueBoardCard(
+                                issue: issue,
+                                assignee: assigneeProvider(issue),
+                                reviewItem: reviewProvider(issue),
+                                language: language,
+                                isSelected: selectedIssueID == issue.id
+                            ) {
+                                onSelect(issue)
+                            }
                         }
                     }
                 }
+                .frame(maxHeight: .infinity, alignment: .top)
             }
         }
-        .frame(width: width, alignment: .top)
+        .frame(width: width)
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding(12)
         .background(ShellPalette.panelAlt)
         .overlay(
@@ -3978,7 +4022,7 @@ private struct IssueBoardCard: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(ShellPalette.text)
                             .multilineTextAlignment(.leading)
-                            .lineLimit(3)
+                            .lineLimit(2)
                         HStack(spacing: 6) {
                             ShellTag(text: issue.kind.uppercased(), tint: ShellPalette.accentSoft)
                             ShellTag(text: language.status(issue.status), tint: statusTint(for: issue.status))
@@ -3993,7 +4037,7 @@ private struct IssueBoardCard: View {
                 Text(issue.description)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(ShellPalette.muted)
-                    .lineLimit(4)
+                    .lineLimit(3)
 
                 HStack(spacing: 8) {
                     if let assignee {
@@ -4025,12 +4069,12 @@ private struct IssueBoardCard: View {
                             Text(checksSummary)
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(ShellPalette.muted)
-                                .lineLimit(2)
+                                .lineLimit(1)
                         }
                     }
                 }
             }
-            .padding(12)
+            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(isSelected ? ShellPalette.panelRaised : ShellPalette.panel)
             .overlay(
@@ -4039,6 +4083,7 @@ private struct IssueBoardCard: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
             .contentShape(Rectangle())
+            .fixedSize(horizontal: false, vertical: true)
         }
         .buttonStyle(.plain)
     }
@@ -4528,7 +4573,8 @@ private struct EmptyStateView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .fixedSize(horizontal: false, vertical: true)
         .padding(24)
         .shellInset()
     }

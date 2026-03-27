@@ -105,9 +105,16 @@ cotor delete
 - 에이전트 정의 작성
 - 목표 목록과 목표 생성
 - 앱 내부의 Linear 스타일 이슈 보드/캔버스
-- 회사 활동 피드
+- 이벤트 기반으로 바로 갱신되는 회사 활동 피드
+- 회사 live update는 무거운 전체 refresh 대신 company event stream + 회사 전용 dashboard snapshot으로 상태를 반영
+- 회사 실시간 stream이 끊기면 마지막 snapshot은 유지한 채 `회사 실시간 업데이트 연결이 끊어졌습니다. 다시 동기화하는 중...` 메시지를 보여주며 복구
 - 런타임 건강도, 차단 워크플로우 수, 리뷰 주의 수, 최근 오류/동작을 한곳에 모아 둔 압축형 회사 요약 배너
+- 고정된 보드 surface 안에서도 lane 내부 스크롤로 차단/리뷰 카드가 길게 쌓여도 읽을 수 있는 이슈 보드
+- 연결된 GitHub PR이 다시 clean 상태가 되면 stale CEO merge-conflict 차단도 자동으로 다시 열림
+- PR이 이미 머지됐는데 stale execution sync 때문에 막혀 남은 execution 이슈도 다음 runtime tick에서 자동으로 닫힘
 - 런타임 시작/중지/상태
+- 회사 런타임을 명시적으로 중지하면 앱 재실행이나 회사 refresh 뒤에도 사용자가 다시 시작할 때까지 그대로 유지
+- 회사 모드 이벤트마다 전체 데스크톱 새로고침을 돌리지 않고, 회사 전용 dashboard snapshot으로 상태를 바로 패치
 
 ### `TUI`
 
@@ -139,6 +146,7 @@ cotor delete
 - `GET /api/app/companies/{companyId}/issues`
 - `GET /api/app/companies/{companyId}/review-queue`
 - `GET /api/app/companies/{companyId}/activity`
+- `GET /api/app/companies/{companyId}/dashboard`
 - `GET /api/app/companies/{companyId}/contexts`
 - `GET /api/app/companies/{companyId}/runtime`
 - `POST /api/app/companies/{companyId}/runtime/start`
@@ -160,10 +168,14 @@ cotor delete
 - 회사 단위 Linear sync가 켜져 있으면 바깥 Linear로 이슈/진행 상태 미러링
 - 연결된 태스크와 실행 이력 조회
 - 리뷰 큐 아이템 생성 및 머지 처리
-- 회사 활동 조회
+- 정상적인 회사 모드에서는 수동 새로고침 없이 회사 활동 조회
 - 압축형 회사 요약 배너에서 런타임 건강도, 차단/리뷰 주의, 최근 런타임 신호 조회
 - GitHub PR 발행이 필요한데 `gh`/`origin` 준비가 안 된 저장소는 회사 생성 시 경고
 - 로컬 런타임 루프의 시작/중지/상태 확인
+- active autonomous goal이 남아 있어도, 수동으로 중지한 회사 런타임은 사용자가 다시 시작할 때까지 유지
+- active task/run이 남아 있으면 빠른 monitoring cadence를 유지해서 stale `RUNNING` 상태를 더 빨리 정리
+- app-server 종료로 끊긴 회사 작업은 일반 process-exit 실패로 남기지 않고 다시 큐에 올려 재개 가능하게 복구
+- 그 후 데스크톱 앱과 번들 backend가 다시 올라오면 queued delegated 회사 작업을 다시 시작하고, 회사 활동 로그에도 그 복구 흐름을 남김
 - 기본 회사 프로필은 로컬 설치된 agent CLI를 우선 사용하고, 끝까지 없으면 `echo` fallback 사용
 
 ## 현재 한계

@@ -503,6 +503,20 @@ class GitWorkspaceService(
         )
     }
 
+    suspend fun refreshPullRequestMetadata(
+        worktreePath: Path,
+        pullRequestNumber: Int
+    ): PublishMetadata {
+        val refreshed = viewPullRequest(worktreePath, pullRequestNumber)
+        return PublishMetadata(
+            pullRequestNumber = refreshed.number,
+            pullRequestUrl = refreshed.url,
+            pullRequestState = refreshed.state,
+            reviewState = refreshed.reviewDecision,
+            mergeability = refreshed.mergeStateStatus
+        )
+    }
+
     suspend fun mergePullRequest(worktreePath: Path, pullRequestNumber: Int): PullRequestMergeResult {
         try {
             runCommand(

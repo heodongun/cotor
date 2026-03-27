@@ -190,7 +190,8 @@ data class TestBackendRequest(
 @Serializable
 data class CompanyEventEnvelope(
     val event: CompanyEvent,
-    val dashboard: DashboardResponse? = null
+    val dashboard: DashboardResponse? = null,
+    val companyDashboard: CompanyDashboardResponse? = null
 )
 
 @Serializable
@@ -213,6 +214,7 @@ data class CompanyDashboardResponse(
     val projectContexts: List<CompanyProjectContext> = emptyList(),
     val goals: List<CompanyGoal> = emptyList(),
     val issues: List<CompanyIssue> = emptyList(),
+    val tasks: List<AgentTask> = emptyList(),
     val issueDependencies: List<IssueDependency> = emptyList(),
     val reviewQueue: List<ReviewQueueItem> = emptyList(),
     val orgProfiles: List<OrgAgentProfile> = emptyList(),

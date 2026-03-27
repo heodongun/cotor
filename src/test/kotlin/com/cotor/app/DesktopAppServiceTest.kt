@@ -1393,6 +1393,154 @@ class DesktopAppServiceTest : FunSpec({
         stateStore.load().runtime.status shouldBe CompanyRuntimeStatus.STOPPED
     }
 
+    test("manual runtime stop persists a sticky stop intent until the user starts again") {
+        val appHome = Files.createTempDirectory("desktop-runtime-manual-stop-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-manual-stop-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        val goal = service.createGoal(
+            title = "Manual stop intent",
+            description = "Stopping a company should stay stopped until the user starts it again.",
+            autonomyEnabled = false
+        )
+
+        service.startCompanyRuntime(goal.companyId).status shouldBe CompanyRuntimeStatus.RUNNING
+        val stopped = service.stopCompanyRuntime(goal.companyId)
+        stopped.status shouldBe CompanyRuntimeStatus.STOPPED
+        stopped.manuallyStoppedAt shouldNotBe null
+
+        val restarted = service.startCompanyRuntime(goal.companyId)
+        restarted.status shouldBe CompanyRuntimeStatus.RUNNING
+        restarted.manuallyStoppedAt shouldBe null
+    }
+
+    test("manual runtime stop survives app restart and dashboard reads") {
+        val appHome = Files.createTempDirectory("desktop-runtime-restart-stop-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-restart-stop-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val bootstrapService = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        val goal = bootstrapService.createGoal(
+            title = "Stay stopped after restart",
+            description = "A manually stopped company must not auto-start during startup healing.",
+            autonomyEnabled = false
+        )
+        val now = System.currentTimeMillis()
+        stateStore.save(
+            stateStore.load().copy(
+                goals = stateStore.load().goals.map {
+                    if (it.id == goal.id) it.copy(autonomyEnabled = true, status = GoalStatus.ACTIVE, updatedAt = now) else it
+                },
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = goal.companyId,
+                        status = CompanyRuntimeStatus.STOPPED,
+                        lastStoppedAt = now,
+                        manuallyStoppedAt = now,
+                        lastAction = "runtime-stopped"
+                    )
+                )
+            )
+        )
+
+        val restarted = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        delay(150)
+        restarted.dashboard()
+        restarted.companyDashboard(goal.companyId)
+        delay(150)
+
+        val runtime = stateStore.load().companyRuntimes.first { it.companyId == goal.companyId }
+        runtime.status shouldBe CompanyRuntimeStatus.STOPPED
+        runtime.manuallyStoppedAt shouldNotBe null
+    }
+
+    test("goal updates do not auto-start a manually stopped runtime") {
+        val appHome = Files.createTempDirectory("desktop-runtime-goal-update-stop-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-goal-update-stop-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        val goal = service.createGoal(
+            title = "Hold manual stop",
+            description = "Goal changes must not undo an explicit runtime stop.",
+            autonomyEnabled = false
+        )
+
+        service.stopCompanyRuntime(goal.companyId).status shouldBe CompanyRuntimeStatus.STOPPED
+        service.updateGoal(goal.id, autonomyEnabled = true)
+        delay(150)
+
+        val runtime = stateStore.load().companyRuntimes.first { it.companyId == goal.companyId }
+        runtime.status shouldBe CompanyRuntimeStatus.STOPPED
+        runtime.manuallyStoppedAt shouldNotBe null
+    }
+
+    test("new autonomous goals do not auto-start a manually stopped runtime") {
+        val appHome = Files.createTempDirectory("desktop-runtime-goal-create-stop-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-goal-create-stop-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>()
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        coEvery { gitWorkspaceService.resolveRepositoryRoot(any()) } returns repoRoot
+        coEvery { gitWorkspaceService.detectDefaultBranch(any()) } returns "master"
+        coEvery { gitWorkspaceService.detectRemoteUrl(any()) } returns null
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        val company = service.createCompany(
+            name = "Stopped Runtime Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        service.stopCompanyRuntime(company.id).status shouldBe CompanyRuntimeStatus.STOPPED
+
+        service.createGoal(
+            companyId = company.id,
+            title = "Respect manual stop",
+            description = "Creating a new autonomous goal should not implicitly resume a manually stopped runtime.",
+            autonomyEnabled = true
+        )
+        delay(150)
+
+        val runtime = stateStore.load().companyRuntimes.first { it.companyId == company.id }
+        runtime.status shouldBe CompanyRuntimeStatus.STOPPED
+        runtime.manuallyStoppedAt shouldNotBe null
+    }
+
     test("default org profiles prefer installed agent CLIs over missing claude") {
         val appHome = Files.createTempDirectory("desktop-runtime-agents-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-agents-test").resolve("repo"))
@@ -1478,7 +1626,7 @@ class DesktopAppServiceTest : FunSpec({
         )
     }
 
-    test("company dashboard restarts autonomous company runtimes that were left stopped") {
+    test("company dashboard keeps manually stopped autonomous runtimes stopped") {
         val appHome = Files.createTempDirectory("desktop-dashboard-runtime-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-dashboard-runtime-test").resolve("repo"))
         val worktreeRoot = Files.createDirectories(Files.createTempDirectory("desktop-dashboard-runtime-worktree"))
@@ -1534,16 +1682,12 @@ class DesktopAppServiceTest : FunSpec({
         service.stopCompanyRuntime(company.id)
 
         service.companyDashboard(company.id)
+        delay(150)
 
-        withTimeout(5_000) {
-            while (
-                service.runtimeStatus(company.id).status != CompanyRuntimeStatus.RUNNING ||
-                !stateStore.load().tasks.any { it.issueId != null }
-            ) {
-                delay(25)
-            }
-        }
-        stateStore.load().tasks.any { it.issueId != null } shouldBe true
+        val runtime = service.runtimeStatus(company.id)
+        runtime.status shouldBe CompanyRuntimeStatus.STOPPED
+        runtime.manuallyStoppedAt shouldNotBe null
+        stateStore.load().tasks.any { it.issueId != null } shouldBe false
     }
 
     test("company dashboard re-ticks autonomous companies when pending issues are idle") {
@@ -1732,6 +1876,516 @@ class DesktopAppServiceTest : FunSpec({
                         companyId = company.id,
                         name = "Requeue Co",
                         slug = "requeue-co",
+                        contextDocPath = appHome.resolve("project.md").toString(),
+                        lastUpdatedAt = 1L
+                    )
+                ),
+                goals = listOf(goal),
+                issues = listOf(issue),
+                tasks = listOf(task),
+                runs = listOf(run)
+            )
+        )
+        val service = testService(
+            processManager = FakeGitProcessManager(
+                repoRoot = repoRoot,
+                remoteUrl = null,
+                defaultBranch = "master"
+            ),
+            stateStore = stateStore
+        )
+
+        service.companyDashboard(company.id)
+
+        withTimeout(5_000) {
+            while (true) {
+                service.companyDashboard(company.id)
+                val latestIssue = stateStore.load().issues.first { it.id == issue.id }
+                if (latestIssue.status == IssueStatus.PLANNED) {
+                    latestIssue.blockedBy.shouldBeEmpty()
+                    return@withTimeout
+                }
+                delay(25)
+            }
+        }
+    }
+
+    test("company dashboard requeues blocked issues caused by unsupported codex reasoning config") {
+        val repoRoot = Files.createTempDirectory("desktop-company-requeue-codex-config-repo")
+        val appHome = Files.createTempDirectory("desktop-company-requeue-codex-config-home")
+        val stateStore = DesktopStateStore { appHome }
+        val company = Company(
+            id = "company-requeue-codex-config",
+            name = "Requeue Codex Config Co",
+            rootPath = repoRoot.toString(),
+            repositoryId = REPOSITORY_ID,
+            defaultBaseBranch = "master",
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+        val goal = CompanyGoal(
+            id = "goal-requeue-codex-config",
+            companyId = company.id,
+            projectContextId = "project-requeue-codex-config",
+            title = "hello",
+            description = "say hello",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = 2L,
+            updatedAt = 2L
+        )
+        val issue = CompanyIssue(
+            id = "issue-requeue-codex-config",
+            companyId = company.id,
+            projectContextId = "project-requeue-codex-config",
+            goalId = goal.id,
+            workspaceId = WORKSPACE_ID,
+            title = "Execution issue",
+            description = "Do the work",
+            status = IssueStatus.BLOCKED,
+            createdAt = 3L,
+            updatedAt = 3L
+        )
+        val task = AgentTask(
+            id = "task-requeue-codex-config",
+            workspaceId = WORKSPACE_ID,
+            issueId = issue.id,
+            title = issue.title,
+            prompt = "prompt",
+            agents = listOf("codex"),
+            status = DesktopTaskStatus.FAILED,
+            createdAt = 4L,
+            updatedAt = 4L
+        )
+        val run = AgentRun(
+            id = "run-requeue-codex-config",
+            taskId = task.id,
+            workspaceId = WORKSPACE_ID,
+            repositoryId = REPOSITORY_ID,
+            agentName = "codex",
+            branchName = "codex/cotor/requeue-codex-config/codex",
+            worktreePath = repoRoot.toString(),
+            status = AgentRunStatus.FAILED,
+            error = "Codex execution failed: Error: unknown variant `xhigh`, expected one of `none`, `minimal`, `low`, `medium`, `high`\nin `model_reasoning_effort`\n",
+            createdAt = 5L,
+            updatedAt = 5L
+        )
+        stateStore.save(
+            DesktopAppState(
+                companies = listOf(company),
+                repositories = listOf(
+                    ManagedRepository(
+                        id = REPOSITORY_ID,
+                        name = "repo",
+                        localPath = repoRoot.toString(),
+                        sourceKind = RepositorySourceKind.LOCAL,
+                        defaultBranch = "master",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                workspaces = listOf(
+                    Workspace(
+                        id = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        name = "repo · master",
+                        baseBranch = "master",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                projectContexts = listOf(
+                    CompanyProjectContext(
+                        id = "project-requeue-codex-config",
+                        companyId = company.id,
+                        name = "Requeue Codex Config Co",
+                        slug = "requeue-codex-config-co",
+                        contextDocPath = appHome.resolve("project.md").toString(),
+                        lastUpdatedAt = 1L
+                    )
+                ),
+                goals = listOf(goal),
+                issues = listOf(issue),
+                tasks = listOf(task),
+                runs = listOf(run)
+            )
+        )
+        val service = testService(
+            processManager = FakeGitProcessManager(
+                repoRoot = repoRoot,
+                remoteUrl = null,
+                defaultBranch = "master"
+            ),
+            stateStore = stateStore
+        )
+
+        service.companyDashboard(company.id)
+
+        withTimeout(5_000) {
+            while (true) {
+                service.companyDashboard(company.id)
+                val latestIssue = stateStore.load().issues.first { it.id == issue.id }
+                if (latestIssue.status == IssueStatus.PLANNED) {
+                    latestIssue.blockedBy.shouldBeEmpty()
+                    return@withTimeout
+                }
+                delay(25)
+            }
+        }
+    }
+
+    test("company dashboard requeues blocked issues caused by retired codex model ids even after retry exhaustion") {
+        val repoRoot = Files.createTempDirectory("desktop-company-requeue-codex-model-repo")
+        val appHome = Files.createTempDirectory("desktop-company-requeue-codex-model-home")
+        val stateStore = DesktopStateStore { appHome }
+        val company = Company(
+            id = "company-requeue-codex-model",
+            name = "Requeue Codex Model Co",
+            rootPath = repoRoot.toString(),
+            repositoryId = REPOSITORY_ID,
+            defaultBaseBranch = "master",
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+        val goal = CompanyGoal(
+            id = "goal-requeue-codex-model",
+            companyId = company.id,
+            projectContextId = "project-requeue-codex-model",
+            title = "hello",
+            description = "say hello",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = 2L,
+            updatedAt = 2L
+        )
+        val issue = CompanyIssue(
+            id = "issue-requeue-codex-model",
+            companyId = company.id,
+            projectContextId = "project-requeue-codex-model",
+            goalId = goal.id,
+            workspaceId = WORKSPACE_ID,
+            title = "Execution issue",
+            description = "Do the work",
+            status = IssueStatus.BLOCKED,
+            createdAt = 3L,
+            updatedAt = 3L
+        )
+        val tasks = (1..3).map { index ->
+            AgentTask(
+                id = "task-requeue-codex-model-$index",
+                workspaceId = WORKSPACE_ID,
+                issueId = issue.id,
+                title = issue.title,
+                prompt = "prompt",
+                agents = listOf("codex"),
+                status = DesktopTaskStatus.FAILED,
+                createdAt = (3L + index),
+                updatedAt = (3L + index)
+            )
+        }
+        val runs = tasks.mapIndexed { index, task ->
+            AgentRun(
+                id = "run-requeue-codex-model-${index + 1}",
+                taskId = task.id,
+                workspaceId = WORKSPACE_ID,
+                repositoryId = REPOSITORY_ID,
+                agentName = "codex",
+                branchName = "codex/cotor/requeue-codex-model-${index + 1}/codex",
+                worktreePath = repoRoot.toString(),
+                status = AgentRunStatus.FAILED,
+                error = """
+                    Codex execution failed: OpenAI Codex v0.58.0 (research preview)
+                    ERROR: unexpected status 400 Bad Request: {
+                      "error": {
+                        "message": "The requested model 'gpt-5.3-codex-spark' does not exist.",
+                        "type": "invalid_request_error",
+                        "param": "model",
+                        "code": "model_not_found"
+                      }
+                    }
+                """.trimIndent(),
+                createdAt = (4L + index),
+                updatedAt = (4L + index)
+            )
+        }
+        stateStore.save(
+            DesktopAppState(
+                companies = listOf(company),
+                repositories = listOf(
+                    ManagedRepository(
+                        id = REPOSITORY_ID,
+                        name = "repo",
+                        localPath = repoRoot.toString(),
+                        sourceKind = RepositorySourceKind.LOCAL,
+                        defaultBranch = "master",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                workspaces = listOf(
+                    Workspace(
+                        id = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        name = "repo · master",
+                        baseBranch = "master",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                projectContexts = listOf(
+                    CompanyProjectContext(
+                        id = "project-requeue-codex-model",
+                        companyId = company.id,
+                        name = "Requeue Codex Model Co",
+                        slug = "requeue-codex-model-co",
+                        contextDocPath = appHome.resolve("project.md").toString(),
+                        lastUpdatedAt = 1L
+                    )
+                ),
+                goals = listOf(goal),
+                issues = listOf(issue),
+                tasks = tasks,
+                runs = runs
+            )
+        )
+        val service = testService(
+            processManager = FakeGitProcessManager(
+                repoRoot = repoRoot,
+                remoteUrl = null,
+                defaultBranch = "master"
+            ),
+            stateStore = stateStore
+        )
+
+        service.companyDashboard(company.id)
+
+        withTimeout(5_000) {
+            while (true) {
+                service.companyDashboard(company.id)
+                val latestIssue = stateStore.load().issues.first { it.id == issue.id }
+                if (latestIssue.status == IssueStatus.PLANNED) {
+                    latestIssue.blockedBy.shouldBeEmpty()
+                    return@withTimeout
+                }
+                delay(25)
+            }
+        }
+    }
+
+    test("company dashboard requeues blocked issues caused by app-server shutdown interruption") {
+        val repoRoot = Files.createTempDirectory("desktop-company-requeue-shutdown-repo")
+        val appHome = Files.createTempDirectory("desktop-company-requeue-shutdown-home")
+        val stateStore = DesktopStateStore { appHome }
+        val company = Company(
+            id = "company-requeue-shutdown",
+            name = "Requeue Shutdown Co",
+            rootPath = repoRoot.toString(),
+            repositoryId = REPOSITORY_ID,
+            defaultBaseBranch = "master",
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+        val goal = CompanyGoal(
+            id = "goal-requeue-shutdown",
+            companyId = company.id,
+            projectContextId = "project-requeue-shutdown",
+            title = "hello",
+            description = "say hello",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = 2L,
+            updatedAt = 2L
+        )
+        val issue = CompanyIssue(
+            id = "issue-requeue-shutdown",
+            companyId = company.id,
+            projectContextId = "project-requeue-shutdown",
+            goalId = goal.id,
+            workspaceId = WORKSPACE_ID,
+            title = "Execution issue",
+            description = "Do the work",
+            status = IssueStatus.BLOCKED,
+            createdAt = 3L,
+            updatedAt = 3L
+        )
+        val task = AgentTask(
+            id = "task-requeue-shutdown",
+            workspaceId = WORKSPACE_ID,
+            issueId = issue.id,
+            title = issue.title,
+            prompt = "prompt",
+            agents = listOf("codex"),
+            status = DesktopTaskStatus.FAILED,
+            createdAt = 4L,
+            updatedAt = 4L
+        )
+        val run = AgentRun(
+            id = "run-requeue-shutdown",
+            taskId = task.id,
+            workspaceId = WORKSPACE_ID,
+            repositoryId = REPOSITORY_ID,
+            agentName = "codex",
+            branchName = "codex/cotor/requeue-shutdown/codex",
+            worktreePath = repoRoot.toString(),
+            status = AgentRunStatus.FAILED,
+            error = "Execution was interrupted because the app-server stopped before the run finished.",
+            createdAt = 5L,
+            updatedAt = 5L
+        )
+        stateStore.save(
+            DesktopAppState(
+                companies = listOf(company),
+                repositories = listOf(
+                    ManagedRepository(
+                        id = REPOSITORY_ID,
+                        name = "repo",
+                        localPath = repoRoot.toString(),
+                        sourceKind = RepositorySourceKind.LOCAL,
+                        defaultBranch = "master",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                workspaces = listOf(
+                    Workspace(
+                        id = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        name = "repo · master",
+                        baseBranch = "master",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                projectContexts = listOf(
+                    CompanyProjectContext(
+                        id = "project-requeue-shutdown",
+                        companyId = company.id,
+                        name = "Requeue Shutdown Co",
+                        slug = "requeue-shutdown-co",
+                        contextDocPath = appHome.resolve("project.md").toString(),
+                        lastUpdatedAt = 1L
+                    )
+                ),
+                goals = listOf(goal),
+                issues = listOf(issue),
+                tasks = listOf(task),
+                runs = listOf(run)
+            )
+        )
+        val service = testService(
+            processManager = FakeGitProcessManager(
+                repoRoot = repoRoot,
+                remoteUrl = null,
+                defaultBranch = "master"
+            ),
+            stateStore = stateStore
+        )
+
+        service.companyDashboard(company.id)
+
+        withTimeout(5_000) {
+            while (true) {
+                service.companyDashboard(company.id)
+                val latestIssue = stateStore.load().issues.first { it.id == issue.id }
+                if (latestIssue.status == IssueStatus.PLANNED) {
+                    latestIssue.blockedBy.shouldBeEmpty()
+                    return@withTimeout
+                }
+                delay(25)
+            }
+        }
+    }
+
+    test("company dashboard requeues blocked issues caused by recoverable codex MCP auth noise") {
+        val repoRoot = Files.createTempDirectory("desktop-company-requeue-codex-mcp-repo")
+        val appHome = Files.createTempDirectory("desktop-company-requeue-codex-mcp-home")
+        val stateStore = DesktopStateStore { appHome }
+        val company = Company(
+            id = "company-requeue-codex-mcp",
+            name = "Requeue Codex MCP Co",
+            rootPath = repoRoot.toString(),
+            repositoryId = REPOSITORY_ID,
+            defaultBaseBranch = "master",
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+        val goal = CompanyGoal(
+            id = "goal-requeue-codex-mcp",
+            companyId = company.id,
+            projectContextId = "project-requeue-codex-mcp",
+            title = "hello",
+            description = "say hello",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = 2L,
+            updatedAt = 2L
+        )
+        val issue = CompanyIssue(
+            id = "issue-requeue-codex-mcp",
+            companyId = company.id,
+            projectContextId = "project-requeue-codex-mcp",
+            goalId = goal.id,
+            workspaceId = WORKSPACE_ID,
+            title = "Execution issue",
+            description = "Do the work",
+            status = IssueStatus.BLOCKED,
+            createdAt = 3L,
+            updatedAt = 3L
+        )
+        val task = AgentTask(
+            id = "task-requeue-codex-mcp",
+            workspaceId = WORKSPACE_ID,
+            issueId = issue.id,
+            title = issue.title,
+            prompt = "prompt",
+            agents = listOf("codex"),
+            status = DesktopTaskStatus.FAILED,
+            createdAt = 4L,
+            updatedAt = 4L
+        )
+        val run = AgentRun(
+            id = "run-requeue-codex-mcp",
+            taskId = task.id,
+            workspaceId = WORKSPACE_ID,
+            repositoryId = REPOSITORY_ID,
+            agentName = "codex",
+            branchName = "codex/cotor/requeue-codex-mcp/codex",
+            worktreePath = repoRoot.toString(),
+            status = AgentRunStatus.FAILED,
+            error = "Codex execution failed: 2026-03-27T00:28:17.256604Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when AuthRequired(AuthRequiredError { www_authenticate_header: \"Bearer realm=\\\"OAuth\\\", error=\\\"invalid_token\\\"\" })\n2026-03-27T00:28:17.644786Z ERROR rmcp::transport::worker: worker quit with fatal: Transport channel closed, when AuthRequired(AuthRequiredError { www_authenticate_header: \"Bearer error=\\\"invalid_request\\\", error_description=\\\"No access token was provided in this request\\\", resource_metadata=\\\"https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/\\\"\" })\n",
+            createdAt = 5L,
+            updatedAt = 5L
+        )
+        stateStore.save(
+            DesktopAppState(
+                companies = listOf(company),
+                repositories = listOf(
+                    ManagedRepository(
+                        id = REPOSITORY_ID,
+                        name = "repo",
+                        localPath = repoRoot.toString(),
+                        sourceKind = RepositorySourceKind.LOCAL,
+                        defaultBranch = "master",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                workspaces = listOf(
+                    Workspace(
+                        id = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        name = "repo · master",
+                        baseBranch = "master",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                projectContexts = listOf(
+                    CompanyProjectContext(
+                        id = "project-requeue-codex-mcp",
+                        companyId = company.id,
+                        name = "Requeue Codex MCP Co",
+                        slug = "requeue-codex-mcp-co",
                         contextDocPath = appHome.resolve("project.md").toString(),
                         lastUpdatedAt = 1L
                     )
@@ -3253,7 +3907,12 @@ class DesktopAppServiceTest : FunSpec({
         refreshedGoals.first { it.status == GoalStatus.ACTIVE }.title shouldBe "Resolve follow-up for \"${triggerIssue.title}\""
         refreshedGoals.first { it.id == firstLegacyFollowUp.id }.operatingPolicy shouldBe "auto-follow-up:goal:${goal.id}"
         refreshedGoals.first { it.id == nestedLegacyFollowUp.id }.status shouldBe GoalStatus.COMPLETED
-        refreshedGoals.first { it.id == siblingLegacyFollowUp.id }.status shouldBe GoalStatus.COMPLETED
+        listOf(firstLegacyFollowUp.id, siblingLegacyFollowUp.id).count { candidateId ->
+            refreshedGoals.first { it.id == candidateId }.status == GoalStatus.ACTIVE
+        } shouldBe 1
+        listOf(firstLegacyFollowUp.id, siblingLegacyFollowUp.id).count { candidateId ->
+            refreshedGoals.first { it.id == candidateId }.status == GoalStatus.COMPLETED
+        } shouldBe 1
     }
 
     test("continuous CEO goals exclude completed follow-up titles from the next cycle briefing") {
@@ -3662,6 +4321,355 @@ class DesktopAppServiceTest : FunSpec({
         (reconciledIssue.status == IssueStatus.BLOCKED || reconciledIssue.status == IssueStatus.PLANNED) shouldBe true
     }
 
+    test("company runtime tick reports monitoring-active-runs while work is still running") {
+        val appHome = Files.createTempDirectory("desktop-runtime-monitoring-home")
+        val stateStore = DesktopStateStore { appHome }
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(relaxed = true),
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+        val now = System.currentTimeMillis()
+        stateStore.save(
+            DesktopAppState(
+                repositories = listOf(
+                    ManagedRepository(
+                        id = REPOSITORY_ID,
+                        name = "repo",
+                        localPath = appHome.toString(),
+                        sourceKind = RepositorySourceKind.LOCAL,
+                        defaultBranch = "master",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                workspaces = listOf(
+                    Workspace(
+                        id = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        name = "repo · master",
+                        baseBranch = "master",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                companies = listOf(
+                    Company(
+                        id = "company-monitoring",
+                        name = "Monitoring Co",
+                        rootPath = appHome.toString(),
+                        repositoryId = REPOSITORY_ID,
+                        defaultBaseBranch = "master",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                goals = listOf(
+                    CompanyGoal(
+                        id = "goal-monitoring",
+                        companyId = "company-monitoring",
+                        title = "Keep the loop alive",
+                        description = "Monitor running agent work without idling the runtime.",
+                        status = GoalStatus.ACTIVE,
+                        autonomyEnabled = true,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                issues = listOf(
+                    CompanyIssue(
+                        id = "issue-monitoring",
+                        companyId = "company-monitoring",
+                        goalId = "goal-monitoring",
+                        workspaceId = WORKSPACE_ID,
+                        title = "Investigate",
+                        description = "Watch a running task.",
+                        status = IssueStatus.IN_PROGRESS,
+                        kind = "execution",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                tasks = listOf(
+                    AgentTask(
+                        id = "task-monitoring",
+                        workspaceId = WORKSPACE_ID,
+                        issueId = "issue-monitoring",
+                        title = "Investigate",
+                        prompt = "Watch a running task.",
+                        agents = listOf("codex"),
+                        status = DesktopTaskStatus.RUNNING,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                runs = listOf(
+                    AgentRun(
+                        id = "run-monitoring",
+                        taskId = "task-monitoring",
+                        workspaceId = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        agentName = "codex",
+                        branchName = "codex/cotor/monitoring",
+                        worktreePath = appHome.toString(),
+                        status = AgentRunStatus.RUNNING,
+                        processId = ProcessHandle.current().pid(),
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = "company-monitoring",
+                        status = CompanyRuntimeStatus.RUNNING,
+                        lastTickAt = now,
+                        adaptiveTickMs = 65_000L
+                    )
+                )
+            )
+        )
+
+        val snapshot = service.runCompanyRuntimeTick("company-monitoring")
+
+        snapshot.status shouldBe CompanyRuntimeStatus.RUNNING
+        snapshot.lastAction shouldBe "monitoring-active-runs"
+        stateStore.load().companyRuntimes.first { it.companyId == "company-monitoring" }.lastAction shouldBe "monitoring-active-runs"
+    }
+
+    test("shutdown requeues active company issues instead of leaving them blocked") {
+        val appHome = Files.createTempDirectory("desktop-runtime-shutdown-home")
+        val stateStore = DesktopStateStore { appHome }
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(relaxed = true),
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+        val now = System.currentTimeMillis()
+        stateStore.save(
+            DesktopAppState(
+                repositories = listOf(
+                    ManagedRepository(
+                        id = REPOSITORY_ID,
+                        name = "repo",
+                        localPath = appHome.toString(),
+                        sourceKind = RepositorySourceKind.LOCAL,
+                        defaultBranch = "master",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                workspaces = listOf(
+                    Workspace(
+                        id = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        name = "repo · master",
+                        baseBranch = "master",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                companies = listOf(
+                    Company(
+                        id = "company-shutdown",
+                        name = "Shutdown Co",
+                        rootPath = appHome.toString(),
+                        repositoryId = REPOSITORY_ID,
+                        defaultBaseBranch = "master",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                goals = listOf(
+                    CompanyGoal(
+                        id = "goal-shutdown",
+                        companyId = "company-shutdown",
+                        title = "Keep moving",
+                        description = "Requeue work when the backend exits.",
+                        status = GoalStatus.ACTIVE,
+                        autonomyEnabled = true,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                issues = listOf(
+                    CompanyIssue(
+                        id = "issue-shutdown",
+                        companyId = "company-shutdown",
+                        goalId = "goal-shutdown",
+                        workspaceId = WORKSPACE_ID,
+                        title = "Ship the branch",
+                        description = "Execution was in flight when shutdown happened.",
+                        status = IssueStatus.IN_PROGRESS,
+                        kind = "execution",
+                        assigneeProfileId = "profile-1",
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                tasks = listOf(
+                    AgentTask(
+                        id = "task-shutdown",
+                        workspaceId = WORKSPACE_ID,
+                        issueId = "issue-shutdown",
+                        title = "Ship the branch",
+                        prompt = "Execute work",
+                        agents = listOf("codex"),
+                        status = DesktopTaskStatus.RUNNING,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                ),
+                runs = listOf(
+                    AgentRun(
+                        id = "run-shutdown",
+                        taskId = "task-shutdown",
+                        workspaceId = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        agentName = "codex",
+                        branchName = "codex/cotor/shutdown",
+                        worktreePath = appHome.toString(),
+                        status = AgentRunStatus.RUNNING,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            )
+        )
+
+        service.shutdown()
+
+        val repaired = stateStore.load()
+        repaired.issues.first { it.id == "issue-shutdown" }.status shouldBe IssueStatus.DELEGATED
+        repaired.issues.first { it.id == "issue-shutdown" }.transitionReason shouldContain "Runtime stopped while execution was in progress"
+        repaired.tasks.first { it.id == "task-shutdown" }.status shouldBe DesktopTaskStatus.FAILED
+        repaired.runs.first { it.id == "run-shutdown" }.error shouldContain "Execution was interrupted because the app-server stopped"
+        repaired.companyActivity.any { activity ->
+            activity.issueId == "issue-shutdown" &&
+                activity.title == "Interrupted by app-server shutdown"
+        } shouldBe true
+    }
+
+    test("company runtime tick reopens blocked issues that were interrupted before the runtime restarted") {
+        val appHome = Files.createTempDirectory("desktop-runtime-reopen-interrupted-home")
+        val stateStore = DesktopStateStore { appHome }
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(relaxed = true),
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+        val failureAt = System.currentTimeMillis() - 120_000
+        val restartAt = failureAt + 60_000
+        stateStore.save(
+            DesktopAppState(
+                repositories = listOf(
+                    ManagedRepository(
+                        id = REPOSITORY_ID,
+                        name = "repo",
+                        localPath = appHome.toString(),
+                        sourceKind = RepositorySourceKind.LOCAL,
+                        defaultBranch = "master",
+                        createdAt = failureAt,
+                        updatedAt = failureAt
+                    )
+                ),
+                workspaces = listOf(
+                    Workspace(
+                        id = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        name = "repo · master",
+                        baseBranch = "master",
+                        createdAt = failureAt,
+                        updatedAt = failureAt
+                    )
+                ),
+                companies = listOf(
+                    Company(
+                        id = "company-reopen",
+                        name = "Reopen Co",
+                        rootPath = appHome.toString(),
+                        repositoryId = REPOSITORY_ID,
+                        defaultBaseBranch = "master",
+                        createdAt = failureAt,
+                        updatedAt = failureAt
+                    )
+                ),
+                goals = listOf(
+                    CompanyGoal(
+                        id = "goal-reopen",
+                        companyId = "company-reopen",
+                        title = "Recover interrupted work",
+                        description = "Reopen false blocked issues after a restart.",
+                        status = GoalStatus.ACTIVE,
+                        autonomyEnabled = false,
+                        createdAt = failureAt,
+                        updatedAt = failureAt
+                    )
+                ),
+                issues = listOf(
+                    CompanyIssue(
+                        id = "issue-reopen",
+                        companyId = "company-reopen",
+                        goalId = "goal-reopen",
+                        workspaceId = WORKSPACE_ID,
+                        title = "Recover this issue",
+                        description = "This was interrupted during a shutdown.",
+                        status = IssueStatus.BLOCKED,
+                        kind = "execution",
+                        createdAt = failureAt,
+                        updatedAt = failureAt
+                    )
+                ),
+                tasks = listOf(
+                    AgentTask(
+                        id = "task-reopen",
+                        workspaceId = WORKSPACE_ID,
+                        issueId = "issue-reopen",
+                        title = "Recover this issue",
+                        prompt = "Resume work",
+                        agents = listOf("codex"),
+                        status = DesktopTaskStatus.FAILED,
+                        createdAt = failureAt,
+                        updatedAt = failureAt
+                    )
+                ),
+                runs = listOf(
+                    AgentRun(
+                        id = "run-reopen",
+                        taskId = "task-reopen",
+                        workspaceId = WORKSPACE_ID,
+                        repositoryId = REPOSITORY_ID,
+                        agentName = "codex",
+                        branchName = "codex/cotor/reopen",
+                        worktreePath = appHome.toString(),
+                        status = AgentRunStatus.FAILED,
+                        error = "Agent process exited before Cotor recorded a final result",
+                        createdAt = failureAt,
+                        updatedAt = failureAt
+                    )
+                ),
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = "company-reopen",
+                        status = CompanyRuntimeStatus.RUNNING,
+                        lastStartedAt = restartAt,
+                        lastTickAt = restartAt,
+                        adaptiveTickMs = 15_000L
+                    )
+                )
+            )
+        )
+
+        service.runCompanyRuntimeTick("company-reopen")
+
+        val reopened = stateStore.load()
+        reopened.issues.first { it.id == "issue-reopen" }.status shouldBe IssueStatus.DELEGATED
+        reopened.issues.first { it.id == "issue-reopen" }.transitionReason shouldContain "Runtime stopped while execution was in progress"
+        reopened.runs.first { it.id == "run-reopen" }.error shouldContain "Execution was interrupted because the app-server stopped"
+    }
+
     test("company dashboard resumes persisted running runtimes after a backend restart") {
         val appHome = Files.createTempDirectory("desktop-runtime-resume-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-resume-test").resolve("repo"))
@@ -3726,6 +4734,18 @@ class DesktopAppServiceTest : FunSpec({
                 goals = stateStore.load().goals.map {
                     if (it.id == goal.id) it.copy(autonomyEnabled = true, status = GoalStatus.ACTIVE, updatedAt = System.currentTimeMillis()) else it
                 },
+                issues = stateStore.load().issues + CompanyIssue(
+                    id = "issue-resume-delegated",
+                    companyId = company.id,
+                    projectContextId = "project-resume",
+                    goalId = goal.id,
+                    workspaceId = WORKSPACE_ID,
+                    title = "Resume delegated issue",
+                    description = "Restart should immediately resume delegated work after app-server shutdown.",
+                    status = IssueStatus.DELEGATED,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                ),
                 companyRuntimes = listOf(
                     CompanyRuntimeSnapshot(
                         companyId = company.id,
@@ -3753,7 +4773,13 @@ class DesktopAppServiceTest : FunSpec({
         }
 
         capturedAgents.shouldNotBeEmpty()
-        stateStore.load().tasks.any { it.issueId != null && it.status != DesktopTaskStatus.QUEUED } shouldBe true
+        val resumedState = stateStore.load()
+        resumedState.tasks.any { it.issueId == "issue-resume-delegated" && it.status != DesktopTaskStatus.QUEUED } shouldBe true
+        resumedState.companyActivity.any { activity ->
+            activity.companyId == company.id &&
+                activity.title == "Resumed delegated issues"
+        } shouldBe true
+        resumedState.companyRuntimes.first { it.companyId == company.id }.lastAction shouldNotBe "idle-no-work"
         DesktopAppService(
             stateStore = stateStore,
             gitWorkspaceService = gitWorkspaceService,
@@ -5320,6 +6346,438 @@ class DesktopAppServiceTest : FunSpec({
         val finalState = stateStore.load()
         finalState.issues.first { it.id == executionIssue.id }.status shouldBe IssueStatus.PLANNED
         finalState.issues.first { it.id == approvalIssue.id }.status shouldBe IssueStatus.BLOCKED
+    }
+
+    test("company runtime tick reopens CEO merge-conflict blocks after GitHub reports a clean PR again") {
+        val appHome = Files.createTempDirectory("desktop-app-service-merge-conflict-recovery")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-merge-conflict-recovery-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        val worktreePath = repoRoot.resolve(".cotor/worktrees/ceo-merge-conflict-recovery/codex")
+        coEvery {
+            gitWorkspaceService.refreshPullRequestMetadata(worktreePath, 22)
+        } returns PublishMetadata(
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            mergeability = "CLEAN"
+        )
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "CEO Merge Conflict Recovery Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-ceo-merge-conflict-recovery",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Recover stale CEO conflict blockers",
+            description = "Normalize review queue state after conflicts are fixed.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-ceo-merge-conflict-recovery",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Ship the previously conflicted PR",
+            description = "Execution branch work.",
+            status = IssueStatus.BLOCKED,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/ceo-merge-conflict-recovery/codex",
+            worktreePath = worktreePath.toString(),
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            transitionReason = "Execution failed and requires a recoverable retry or remediation.",
+            createdAt = now,
+            updatedAt = now
+        )
+        val approvalIssue = CompanyIssue(
+            id = "issue-approval-ceo-merge-conflict-recovery",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "CEO approve Ship the previously conflicted PR",
+            description = "CEO approval gate.",
+            status = IssueStatus.BLOCKED,
+            priority = 1,
+            kind = "approval",
+            dependsOn = listOf(executionIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            transitionReason = "Merge is blocked until the execution branch is rebased and conflicts are resolved.",
+            sourceSignal = "ceo-approval:${executionIssue.id}",
+            createdAt = now,
+            updatedAt = now
+        )
+        val reviewQueueItem = ReviewQueueItem(
+            id = "rq-ceo-merge-conflict-recovery",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            issueId = executionIssue.id,
+            runId = "run-execution-ceo-merge-conflict-recovery",
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            status = ReviewQueueStatus.CHANGES_REQUESTED,
+            mergeability = "DIRTY",
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            ceoReviewedAt = now - 500,
+            approvalIssueId = approvalIssue.id,
+            createdAt = now - 10_000,
+            updatedAt = now - 500
+        )
+        val runningRuntime = baseState.companyRuntimes.first { it.companyId == company.id }.copy(
+            status = CompanyRuntimeStatus.RUNNING,
+            lastStartedAt = now - 5_000,
+            lastAction = "runtime-started",
+            adaptiveTickMs = 15_000
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + listOf(executionIssue, approvalIssue),
+                reviewQueue = baseState.reviewQueue + reviewQueueItem,
+                companyRuntimes = baseState.companyRuntimes.map {
+                    if (it.companyId == company.id) runningRuntime else it
+                }
+            )
+        )
+
+        service.runCompanyRuntimeTick(company.id)
+
+        val refreshedState = stateStore.load()
+        val refreshedExecution = refreshedState.issues.first { it.id == executionIssue.id }
+        val refreshedApproval = refreshedState.issues.first { it.id == approvalIssue.id }
+        val refreshedQueue = refreshedState.reviewQueue.first { it.id == reviewQueueItem.id }
+
+        refreshedExecution.status shouldBe IssueStatus.READY_FOR_CEO
+        refreshedExecution.ceoVerdict shouldBe null
+        refreshedExecution.transitionReason.shouldContain("ready for CEO approval again")
+        refreshedApproval.status shouldBe IssueStatus.PLANNED
+        refreshedApproval.ceoVerdict shouldBe null
+        refreshedApproval.transitionReason.shouldContain("CEO approval can run again")
+        refreshedQueue.status shouldBe ReviewQueueStatus.READY_FOR_CEO
+        refreshedQueue.mergeability shouldBe "CLEAN"
+        refreshedQueue.ceoVerdict shouldBe null
+        coVerify(exactly = 1) {
+            gitWorkspaceService.refreshPullRequestMetadata(worktreePath, 22)
+        }
+    }
+
+    test("company runtime tick restores CEO approval when a remediation run reuses an existing clean PR without new diff") {
+        val appHome = Files.createTempDirectory("desktop-app-service-existing-pr-recovery")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-existing-pr-recovery-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        val worktreePath = repoRoot.resolve(".cotor/worktrees/existing-pr-recovery/codex")
+        coEvery {
+            gitWorkspaceService.refreshPullRequestMetadata(worktreePath, 22)
+        } returns PublishMetadata(
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            mergeability = "CLEAN"
+        )
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "Existing PR Recovery Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-existing-pr-recovery",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Recover reused PR after remediation",
+            description = "Normalize no-op remediation runs that still point at a clean PR.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-existing-pr-recovery",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Hand the result back to the CEO for another decision cycle.",
+            description = "Confirm the cleaned PR can go back to the CEO without creating noise.",
+            status = IssueStatus.BLOCKED,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/existing-pr-recovery/codex",
+            worktreePath = worktreePath.toString(),
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            qaVerdict = "PASS",
+            qaFeedback = "QA already approved the existing PR.",
+            ceoVerdict = "APPROVE",
+            transitionReason = "Execution completed but required PR publication did not succeed.",
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionTask = AgentTask(
+            id = "task-execution-existing-pr-recovery",
+            workspaceId = workspace.id,
+            issueId = executionIssue.id,
+            title = executionIssue.title,
+            prompt = executionIssue.description,
+            agents = listOf("codex"),
+            status = DesktopTaskStatus.COMPLETED,
+            createdAt = now - 1_000,
+            updatedAt = now - 500
+        )
+        val executionRun = AgentRun(
+            id = "run-execution-existing-pr-recovery",
+            taskId = executionTask.id,
+            workspaceId = workspace.id,
+            repositoryId = company.repositoryId,
+            agentName = "codex",
+            repoRoot = repoRoot.toString(),
+            baseBranch = "master",
+            status = AgentRunStatus.COMPLETED,
+            output = "No repository edit was made because there is no legitimate local change to apply: this assigned branch already matches `master` exactly, so there is nothing to rebase or merge in the worktree without manufacturing noise.",
+            branchName = requireNotNull(executionIssue.branchName),
+            worktreePath = requireNotNull(executionIssue.worktreePath),
+            publish = PublishMetadata(
+                commitSha = "abc1234"
+            ),
+            durationMs = 250,
+            createdAt = now - 1_000,
+            updatedAt = now - 500
+        )
+        val runningRuntime = baseState.companyRuntimes.first { it.companyId == company.id }.copy(
+            status = CompanyRuntimeStatus.RUNNING,
+            lastStartedAt = now - 5_000,
+            lastAction = "runtime-started",
+            adaptiveTickMs = 15_000
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + executionIssue,
+                tasks = baseState.tasks + executionTask,
+                runs = baseState.runs + executionRun,
+                companyRuntimes = baseState.companyRuntimes.map {
+                    if (it.companyId == company.id) runningRuntime else it
+                }
+            )
+        )
+
+        service.runCompanyRuntimeTick(company.id)
+
+        val refreshedState = stateStore.load()
+        val refreshedExecution = refreshedState.issues.first { it.id == executionIssue.id }
+        val refreshedApproval = refreshedState.issues.first {
+            it.kind.equals("approval", ignoreCase = true) && executionIssue.id in it.dependsOn
+        }
+        val refreshedQueue = refreshedState.reviewQueue.first { it.issueId == executionIssue.id }
+
+        refreshedExecution.status shouldBe IssueStatus.READY_FOR_CEO
+        refreshedExecution.ceoVerdict shouldBe null
+        refreshedExecution.transitionReason.shouldContain("ready for CEO approval again")
+        refreshedApproval.status shouldBe IssueStatus.PLANNED
+        refreshedApproval.pullRequestNumber shouldBe 22
+        refreshedQueue.status shouldBe ReviewQueueStatus.READY_FOR_CEO
+        refreshedQueue.pullRequestNumber shouldBe 22
+        refreshedQueue.mergeability shouldBe "CLEAN"
+        refreshedQueue.ceoVerdict shouldBe null
+        coVerify(exactly = 1) {
+            gitWorkspaceService.refreshPullRequestMetadata(worktreePath, 22)
+        }
+    }
+
+    test("company runtime tick closes stale blocked execution issues when the linked pull request is already merged") {
+        val appHome = Files.createTempDirectory("desktop-app-service-merged-pr-normalization")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-merged-pr-normalization-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "Merged PR Normalization Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-merged-pr-normalization",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Normalize stale merged execution issues",
+            description = "Ensure stale no-op sync cannot keep a merged execution issue blocked.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-merged-pr-normalization",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Hand the result back to the CEO for another decision cycle.",
+            description = "Normalize stale execution state after merge.",
+            status = IssueStatus.BLOCKED,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/merged-pr-normalization/codex",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/merged-pr-normalization/codex").toString(),
+            pullRequestNumber = 309,
+            pullRequestUrl = "https://github.com/bssm-oss/cotor-test/pull/309",
+            pullRequestState = "MERGED",
+            qaVerdict = "PASS",
+            qaFeedback = "QA already approved the linked PR.",
+            ceoVerdict = "APPROVE",
+            ceoFeedback = "CEO already approved the merge.",
+            transitionReason = "Execution completed but required PR publication did not succeed.",
+            createdAt = now,
+            updatedAt = now
+        )
+        val approvalIssue = CompanyIssue(
+            id = "issue-approval-merged-pr-normalization",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "CEO approve Hand the result back to the CEO for another decision cycle.",
+            description = "CEO approval already completed for the merged PR.",
+            status = IssueStatus.DONE,
+            priority = 1,
+            kind = "approval",
+            dependsOn = listOf(executionIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = "MERGED",
+            qaVerdict = "PASS",
+            qaFeedback = executionIssue.qaFeedback,
+            ceoVerdict = "APPROVE",
+            ceoFeedback = executionIssue.ceoFeedback,
+            transitionReason = "CEO approved https://github.com/bssm-oss/cotor-test/pull/309 and queued it for merge.",
+            sourceSignal = "ceo-approval:${executionIssue.id}",
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionTask = AgentTask(
+            id = "task-merged-pr-normalization",
+            workspaceId = workspace.id,
+            issueId = executionIssue.id,
+            title = executionIssue.title,
+            prompt = executionIssue.description,
+            agents = listOf("codex"),
+            status = DesktopTaskStatus.COMPLETED,
+            createdAt = now - 1_000,
+            updatedAt = now - 500
+        )
+        val executionRun = AgentRun(
+            id = "run-merged-pr-normalization",
+            taskId = executionTask.id,
+            workspaceId = workspace.id,
+            repositoryId = company.repositoryId,
+            agentName = "codex",
+            repoRoot = repoRoot.toString(),
+            baseBranch = "master",
+            status = AgentRunStatus.COMPLETED,
+            output = "No repository edit was made because there is no legitimate local change to apply: this assigned branch already matches `master` exactly, so there is nothing to rebase or merge in the worktree without manufacturing noise.",
+            branchName = requireNotNull(executionIssue.branchName),
+            worktreePath = requireNotNull(executionIssue.worktreePath),
+            publish = PublishMetadata(
+                commitSha = "2c717b0"
+            ),
+            durationMs = 250,
+            createdAt = now - 1_000,
+            updatedAt = now - 500
+        )
+        val runningRuntime = baseState.companyRuntimes.first { it.companyId == company.id }.copy(
+            status = CompanyRuntimeStatus.RUNNING,
+            lastStartedAt = now - 5_000,
+            lastAction = "runtime-started",
+            adaptiveTickMs = 15_000
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + listOf(executionIssue, approvalIssue),
+                tasks = baseState.tasks + executionTask,
+                runs = baseState.runs + executionRun,
+                companyRuntimes = baseState.companyRuntimes.map {
+                    if (it.companyId == company.id) runningRuntime else it
+                }
+            )
+        )
+
+        service.runCompanyRuntimeTick(company.id)
+
+        val refreshedState = stateStore.load()
+        val refreshedExecution = refreshedState.issues.first { it.id == executionIssue.id }
+        val refreshedApproval = refreshedState.issues.first { it.id == approvalIssue.id }
+
+        refreshedExecution.status shouldBe IssueStatus.DONE
+        refreshedExecution.pullRequestState shouldBe "MERGED"
+        refreshedExecution.mergeResult shouldBe "MERGED"
+        refreshedExecution.transitionReason.shouldContain("already merged")
+        refreshedApproval.status shouldBe IssueStatus.DONE
     }
 
     test("approval prompt scopes evidence to CEO-ready pull requests and excludes stale review history") {
