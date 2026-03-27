@@ -101,9 +101,16 @@ The current macOS shell has two top-level modes.
   - agent-definition composer
   - goal list and goal creation
   - Linear-style issue board/canvas inside the app
-  - company activity feed
+  - company activity feed with live event-driven updates
+  - live company updates use the company event stream plus a focused company dashboard snapshot, not a heavyweight full refresh on every event
+  - if the live company stream disconnects, the UI keeps the last company snapshot and shows `Live company updates disconnected. Re-syncing...` while it recovers
   - compact company summary banner that keeps runtime health, blocked workflows, review attention, and the latest error/action in one place
+  - scrollable issue-board lanes so tall blocked/review queues stay readable inside the fixed board surface
+  - stale CEO merge-conflict blocks are reopened automatically once the linked GitHub PR reports a clean merge state again
+  - stale execution issues that were accidentally left blocked after a PR already merged are closed automatically on the next runtime tick
   - runtime start/stop/status
+  - an explicit runtime stop remains sticky across app restarts and company refreshes until the user starts that company again
+  - company mode uses a focused company dashboard snapshot instead of forcing a full desktop refresh on every event
 - `TUI`
   - independent from company workflow state
   - folder or repository selection for launching standalone `cotor` sessions
@@ -133,6 +140,7 @@ Current company-first routes:
 - `GET /api/app/companies/{companyId}/issues`
 - `GET /api/app/companies/{companyId}/review-queue`
 - `GET /api/app/companies/{companyId}/activity`
+- `GET /api/app/companies/{companyId}/dashboard`
 - `GET /api/app/companies/{companyId}/contexts`
 - `GET /api/app/companies/{companyId}/runtime`
 - `POST /api/app/companies/{companyId}/runtime/start`
@@ -154,10 +162,14 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - mirror company issues and progress to Linear when company-scoped Linear sync is enabled
 - inspect linked tasks and runs
 - populate and merge review queue items
-- inspect company activity
+- inspect company activity without manual refresh in normal company mode
 - inspect runtime health, blocked/review attention, and the latest runtime signal from the compact company summary banner
 - warn during company creation when GitHub PR publishing is required but the repository is not ready for `gh`/`origin` publishing
 - start, stop, and inspect the local runtime loop
+- keep an explicit company stop sticky until the user presses Start again, even if active autonomous goals still exist
+- keep active company work on a fast monitoring cadence so stale `RUNNING` tasks/runs are reconciled sooner
+- re-queue company issues that were interrupted by an app-server shutdown instead of leaving them blocked by a generic process-exit failure
+- resume queued delegated company work after the desktop app and bundled backend come back, and record that recovery in the live company activity feed
 - prefer locally installed agent CLIs for default company profiles, with `echo` as a final fallback
 
 ## Current Limits

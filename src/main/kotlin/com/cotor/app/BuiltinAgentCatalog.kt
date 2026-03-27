@@ -10,6 +10,7 @@ package com.cotor.app
 
 
 import com.cotor.model.AgentConfig
+import com.cotor.model.CodexDefaults
 
 /**
  * Internal template used to synthesize AgentConfig values for the built-in agent roster.
@@ -36,7 +37,7 @@ object BuiltinAgentCatalog {
         "codex" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.CodexPlugin",
             defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
-            defaultParameters = mapOf("model" to "gpt-5.3-codex-spark")
+            defaultParameters = mapOf("model" to CodexDefaults.DEFAULT_MODEL)
         ),
         "gemini" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.GeminiPlugin",

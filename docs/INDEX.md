@@ -10,6 +10,7 @@ Korean companion docs use the same path with `.ko.md` when available.
 - `docs/README.md` / `docs/README.ko.md`: docs entry guide
 - `docs/QUICK_START.md` / `docs/QUICK_START.ko.md`: first setup and first run
 - `docs/HOMEBREW_INSTALL.md` / `docs/HOMEBREW_INSTALL.ko.md`: packaged install, first-run paths, and Homebrew troubleshooting
+- `docs/TROUBLESHOOTING.md` / `docs/TROUBLESHOOTING.ko.md`: desktop, company runtime, GitHub, QA/CEO, and interactive recovery paths
 - `docs/FEATURES.md` / `docs/FEATURES.ko.md`: code-backed capability inventory
 - `docs/DESKTOP_APP.md` / `docs/DESKTOP_APP.ko.md`: `app-server`, Company/TUI shell, and multi-company operations UI
 - `docs/TEST_PLAN.md` / `docs/TEST_PLAN.ko.md`: automated, CLI, desktop, and autonomous-company validation plan

@@ -697,6 +697,7 @@ data class CompanyRuntimeSnapshot(
     val autonomyEnabledGoalCount: Int = 0,
     val lastStartedAt: Long? = null,
     val lastStoppedAt: Long? = null,
+    val manuallyStoppedAt: Long? = null,
     val lastTickAt: Long? = null,
     val lastAction: String? = null,
     val lastError: String? = null,

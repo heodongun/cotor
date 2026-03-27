@@ -443,6 +443,18 @@ final class DesktopStore: ObservableObject {
 
     /// Reload the top-level dashboard payload and preserve/repair selection state.
     func refreshDashboard(restartEventStream: Bool = true) async {
+        if shouldUseCompanyScopedRefresh {
+            await refreshCompanyDashboard(restartEventStream: restartEventStream)
+            return
+        }
+        await refreshFullDashboard(restartEventStream: restartEventStream)
+    }
+
+    private var shouldUseCompanyScopedRefresh: Bool {
+        didInitializeShellMode && shellMode == .company && selectedCompanyID != nil
+    }
+
+    private func refreshFullDashboard(restartEventStream: Bool) async {
         // The dashboard payload is the SwiftUI store's source of truth. Most per-pane selections
         // are repaired immediately after loading so the shell can survive backend restarts, data
         // deletions, and stream reconnects without stranding the user on stale identifiers.
@@ -478,10 +490,6 @@ final class DesktopStore: ObservableObject {
                 await restartCompanyEventStream()
             }
         } catch is CancellationError {
-            // Dashboard refresh is also used from the live company event stream.
-            // When that stream is restarted we can cancel an in-flight refresh as
-            // part of normal control flow, which should not be treated as a
-            // backend disconnect or a failed goal creation request.
             return
         } catch {
             if isBenignCancellationLikeError(error) {
@@ -515,6 +523,115 @@ final class DesktopStore: ObservableObject {
             tuiSession = nil
             selectedTuiSessionID = nil
         }
+    }
+
+    private func refreshCompanyDashboard(restartEventStream: Bool) async {
+        guard let companyID = selectedCompanyID else {
+            await refreshFullDashboard(restartEventStream: restartEventStream)
+            return
+        }
+
+        isBusy = true
+        defer { isBusy = false }
+
+        do {
+            let fresh = try await runWithEmbeddedBackendRecovery {
+                try await api.companyDashboard(companyId: companyID)
+            }
+            applyCompanyDashboard(fresh, companyId: companyID)
+            errorMessage = nil
+            isOffline = false
+            statusState = .connected(api.baseURL.absoluteString)
+            if restartEventStream {
+                await restartCompanyEventStream()
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            if isBenignCancellationLikeError(error) {
+                return
+            }
+            let backendStillHealthy = (try? await api.health()) == true
+            if backendStillHealthy {
+                AppLogger.error("Company dashboard refresh failed while backend remained healthy: \(error.localizedDescription)")
+                isOffline = false
+                statusState = .connected(api.baseURL.absoluteString)
+                errorMessage = error.localizedDescription
+                return
+            }
+            isOffline = true
+            statusState = .offlineMock
+            AppLogger.error("Company dashboard refresh marked app offline: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
+            runs = []
+            changes = emptyChangeSummary()
+            files = []
+            ports = []
+            browserURL = nil
+            selectedAgentName = selectedTask?.agents.first
+            stopTuiPolling()
+            companyEventTask?.cancel()
+        }
+    }
+
+    private func applyCompanyDashboard(_ snapshot: CompanyDashboardPayload, companyId: String) {
+        let currentCompanyIssueIDs = Set(dashboard.issues.filter { $0.companyId == companyId }.map(\.id))
+        let mergedTasks = dashboard.tasks.filter { task in
+            guard let issueId = task.issueId else { return true }
+            return !currentCompanyIssueIDs.contains(issueId)
+        } + snapshot.tasks
+        let mergedCompanyAgentDefinitions = dashboard.companyAgentDefinitions.filter { $0.companyId != companyId } + snapshot.companyAgentDefinitions
+        let mergedProjectContexts = dashboard.projectContexts.filter { $0.companyId != companyId } + snapshot.projectContexts
+        let mergedGoals = dashboard.goals.filter { $0.companyId != companyId } + snapshot.goals
+        let mergedIssues = dashboard.issues.filter { $0.companyId != companyId } + snapshot.issues
+        let mergedReviewQueue = dashboard.reviewQueue.filter { $0.companyId != companyId } + snapshot.reviewQueue
+        let mergedOrgProfiles = dashboard.orgProfiles.filter { $0.companyId != companyId } + snapshot.orgProfiles
+        let mergedWorkflowTopologies = dashboard.workflowTopologies.filter { $0.companyId != companyId } + snapshot.workflowTopologies
+        let mergedGoalDecisions = dashboard.goalDecisions.filter { $0.companyId != companyId } + snapshot.goalDecisions
+        let mergedRunningAgentSessions = dashboard.runningAgentSessions.filter { $0.companyId != companyId } + snapshot.runningAgentSessions
+        let mergedActivity = dashboard.activity.filter { $0.companyId != companyId } + snapshot.activity
+        let mergedCompanyRuntimes = dashboard.companyRuntimes.filter { $0.companyId != companyId } + [snapshot.runtime]
+        let mergedBackendStatuses = mergeBackendStatuses(current: dashboard.backendStatuses, incoming: snapshot.backendStatuses)
+
+        dashboard = DashboardPayload(
+            repositories: dashboard.repositories,
+            workspaces: dashboard.workspaces,
+            tasks: mergedTasks.sorted { $0.updatedAt > $1.updatedAt },
+            settings: dashboard.settings,
+            companies: snapshot.companies.sorted { $0.updatedAt > $1.updatedAt },
+            companyAgentDefinitions: mergedCompanyAgentDefinitions.sorted {
+                if $0.displayOrder == $1.displayOrder {
+                    return $0.title < $1.title
+                }
+                return $0.displayOrder < $1.displayOrder
+            },
+            projectContexts: mergedProjectContexts.sorted { $0.lastUpdatedAt > $1.lastUpdatedAt },
+            goals: mergedGoals.sorted { $0.updatedAt > $1.updatedAt },
+            issues: mergedIssues.sorted { $0.updatedAt > $1.updatedAt },
+            reviewQueue: mergedReviewQueue.sorted { $0.updatedAt > $1.updatedAt },
+            orgProfiles: mergedOrgProfiles.sorted { $0.roleName < $1.roleName },
+            workflowTopologies: mergedWorkflowTopologies.sorted { $0.updatedAt > $1.updatedAt },
+            goalDecisions: mergedGoalDecisions.sorted { $0.createdAt > $1.createdAt },
+            runningAgentSessions: mergedRunningAgentSessions.sorted { $0.updatedAt > $1.updatedAt },
+            backendStatuses: mergedBackendStatuses,
+            opsMetrics: snapshot.opsMetrics,
+            activity: mergedActivity.sorted { $0.createdAt > $1.createdAt },
+            companyRuntimes: mergedCompanyRuntimes.sorted { ($0.lastTickAt ?? 0) > ($1.lastTickAt ?? 0) }
+        )
+        companyStreamStatusMessage = nil
+        reconcileWorkflowLeadAgent()
+        reconcileCompanySelection()
+        syncIssueComposerState()
+        syncBackendFormState()
+    }
+
+    private func mergeBackendStatuses(
+        current: [ExecutionBackendStatusPayload],
+        incoming: [ExecutionBackendStatusPayload]
+    ) -> [ExecutionBackendStatusPayload] {
+        guard !incoming.isEmpty else { return current }
+        let incomingKinds = Set(incoming.map(\.kind))
+        return current.filter { !incomingKinds.contains($0.kind) } + incoming
     }
 
     /// Repair selection state after a dashboard refresh so every pane still points
@@ -554,6 +671,47 @@ final class DesktopStore: ObservableObject {
             }
         }
 
+        if let task = selectedTask {
+            if !task.agents.contains(selectedAgentName ?? "") {
+                selectedAgentName = task.agents.first
+            }
+        } else {
+            selectedAgentName = nil
+        }
+        if let editingAgentID = editingCompanyAgentID,
+           !companyAgentDefinitions.contains(where: { $0.id == editingAgentID && $0.companyId == editingCompanyAgentCompanyID }) {
+            resetCompanyAgentComposer()
+        }
+        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? "master"
+    }
+
+    private func reconcileCompanySelection() {
+        if !companies.contains(where: { $0.id == selectedCompanyID }) {
+            selectedCompanyID = companies.first?.id
+        }
+        if let selectedCompany {
+            selectedRepositoryID = selectedCompany.repositoryId
+        }
+        if !goals.contains(where: { $0.id == selectedGoalID }) {
+            selectedGoalID = goals.first?.id
+        }
+        if !issues.contains(where: { $0.id == selectedIssueID }) {
+            selectedIssueID = issues.first?.id
+        }
+        if let issue = selectedIssue {
+            selectedCompanyID = issue.companyId
+            selectedGoalID = issue.goalId
+            selectedWorkspaceID = issue.workspaceId
+        }
+        if let selectedIssueID {
+            let matchingTask = dashboard.tasks
+                .filter { $0.issueId == selectedIssueID }
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .first
+            if selectedTaskID == nil || !dashboard.tasks.contains(where: { $0.id == selectedTaskID }) {
+                selectedTaskID = matchingTask?.id
+            }
+        }
         if let task = selectedTask {
             if !task.agents.contains(selectedAgentName ?? "") {
                 selectedAgentName = task.agents.first
@@ -1608,9 +1766,9 @@ final class DesktopStore: ObservableObject {
     }
 
     private func restartCompanyEventStream() async {
-        // Company events are treated as an eventually consistent acceleration path. If the stream
-        // includes an embedded dashboard snapshot we can patch state immediately; otherwise we fall
-        // back to a full refresh to keep the native store aligned with the backend contract.
+        // Company mode uses the event stream as the primary data path. Events now carry a focused
+        // company snapshot so the store can patch live state without forcing a heavyweight global
+        // dashboard refresh on every runtime transition.
         companyEventTask?.cancel()
         guard !isOffline, shellMode == .company, let companyID = selectedCompanyID else { return }
         companyEventTask = Task { [weak self] in
@@ -1619,32 +1777,30 @@ final class DesktopStore: ObservableObject {
                 for try await envelope in api.companyEvents(companyId: companyID) {
                     await MainActor.run {
                         self.companyStreamStatusMessage = nil
-                        if let dashboard = envelope.dashboard {
+                        if let companyDashboard = envelope.companyDashboard {
+                            self.applyCompanyDashboard(companyDashboard, companyId: companyID)
+                        } else if let dashboard = envelope.dashboard {
                             self.dashboard = dashboard
                             self.reconcileWorkflowLeadAgent()
                             self.reconcileSelection()
                             self.syncBackendFormState()
                         }
                     }
-                    if envelope.dashboard == nil {
-                        await self.refreshDashboard(restartEventStream: false)
+                    if envelope.companyDashboard == nil && envelope.dashboard == nil {
+                        await self.refreshCompanyDashboard(restartEventStream: false)
                     }
                 }
             } catch is CancellationError {
             } catch {
+                AppLogger.error("Company event stream failed: \(error.localizedDescription)")
                 let shouldRetry = await MainActor.run { () -> Bool in
                     guard self.selectedCompanyID == companyID, self.shellMode == .company else { return false }
-                    if self.isBenignCompanyEventError(error) {
-                        self.companyStreamStatusMessage = self.language(
-                            "Reconnecting to company events…",
-                            "회사 이벤트를 다시 연결하는 중…"
-                        )
-                        return true
-                    }
-                    self.companyStreamStatusMessage = error.localizedDescription
+                    self.companyStreamStatusMessage = self.companyStreamRecoveryMessage()
+                    self.errorMessage = nil
                     return true
                 }
                 guard shouldRetry else { return }
+                await self.refreshCompanyDashboard(restartEventStream: false)
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
                 await self.restartCompanyEventStream()
@@ -1659,7 +1815,10 @@ final class DesktopStore: ObservableObject {
             while !Task.isCancelled {
                 let pollState = await MainActor.run { () -> (shouldRefresh: Bool, isOffline: Bool) in
                     (
-                        shouldRefresh: self.shellMode == .company && self.selectedCompanyID != nil && !self.isBusy,
+                        shouldRefresh: self.shellMode == .company &&
+                            self.selectedCompanyID != nil &&
+                            !self.isBusy &&
+                            (self.isOffline || self.companyStreamStatusMessage != nil || self.companyEventTask == nil),
                         isOffline: self.isOffline
                     )
                 }
@@ -1667,9 +1826,9 @@ final class DesktopStore: ObservableObject {
                     await EmbeddedBackendLauncher.shared.ensureRunning()
                 }
                 if pollState.shouldRefresh {
-                    await self.refreshDashboard(restartEventStream: false)
+                    await self.refreshCompanyDashboard(restartEventStream: false)
                 }
-                try? await Task.sleep(for: .seconds(3))
+                try? await Task.sleep(for: .seconds(10))
             }
         }
     }
@@ -1697,6 +1856,13 @@ final class DesktopStore: ObservableObject {
             }
         }
         return false
+    }
+
+    private func companyStreamRecoveryMessage() -> String {
+        language(
+            "Live company updates disconnected. Re-syncing...",
+            "회사 실시간 업데이트 연결이 끊어졌습니다. 다시 동기화하는 중..."
+        )
     }
 
     private func handleShellModeChange(_ mode: AppShellMode) async {

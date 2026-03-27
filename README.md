@@ -115,6 +115,11 @@ Current desktop model:
 - top-level `Company` and `TUI` shell modes
 - `Company` mode for multi-company operations, agent roster, goals, issue board/canvas, activity feed, and runtime controls
 - `Company` summary keeps runtime health, blocked workflow count, review attention, and the latest error/action inside the main summary banner instead of a separate tall status card
+- `Company` mode now uses event-driven live updates as the primary path, so activity, issues, review state, and runtime status update without a manual refresh in normal operation
+- if the live company stream drops, the desktop shell keeps the current company snapshot on screen and shows a company-specific re-sync message instead of a generic decode error
+- the issue board keeps each lane scrollable inside a fixed board surface so long blocked/review lanes stay readable instead of clipping at the top
+- stale merge-conflict blocks are re-opened automatically when the linked GitHub PR becomes clean again, so resolved rebases flow back into the CEO lane without a manual reset
+- stale execution issues that were accidentally left `BLOCKED` after the linked PR already merged are normalized back to `DONE` on the next runtime tick
 - `TUI` mode for standalone folder-backed `cotor` terminals, with multiple live sessions in parallel
 - top session strip for active execution contexts
 - collapsible detail drawer for changes, files, ports, browser, and review metadata
@@ -132,6 +137,10 @@ The current build includes a working local operations layer:
 - populate and merge ready review queue items
 - inspect compact runtime status, blocked/review attention, and recent company activity from the company summary page
 - start and stop a local autonomous runtime loop per company
+- keep an explicit company stop sticky across app restarts, dashboard reads, and live reconnects until the user presses Start again
+- keep the company runtime in a fast monitoring cadence while active tasks/runs still exist, so dead or stale `RUNNING` runs reconcile sooner instead of looking idle for a long backoff window
+- when the app-server shuts down during active company work, current builds re-queue interrupted issues instead of leaving them permanently blocked by a generic process-exit failure
+- when the desktop app comes back after that shutdown, a running company runtime resumes queued delegated work and the company activity feed reflects the recovery without a full manual refresh
 
 Current limits in this build:
 
@@ -152,6 +161,7 @@ Start here:
 - [English Guide](docs/README.md)
 - [Korean Guide](docs/README.ko.md)
 - [Quick Start](docs/QUICK_START.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Desktop App](docs/DESKTOP_APP.md)
 - [Features](docs/FEATURES.md)
 - [Validation Plan](docs/TEST_PLAN.md)

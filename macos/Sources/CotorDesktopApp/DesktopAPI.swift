@@ -28,6 +28,11 @@ struct DesktopAPI {
         try await get(path: "api/app/dashboard")
     }
 
+    /// Fetch the focused company snapshot used for live company-mode updates.
+    func companyDashboard(companyId: String) async throws -> CompanyDashboardPayload {
+        try await get(path: "api/app/companies/\(companyId)/dashboard")
+    }
+
     func health() async throws -> Bool {
         struct HealthPayload: Decodable {
             let status: String?

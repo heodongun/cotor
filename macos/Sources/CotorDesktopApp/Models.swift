@@ -6,6 +6,12 @@ import Foundation
 // It collects declarations centered on models so the native shell code stays easier to navigate.
 // Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
 
+private extension KeyedDecodingContainer {
+    func decodeValue<T: Decodable>(_ type: T.Type, forKey key: Key, default defaultValue: T) throws -> T {
+        try decodeIfPresent(type, forKey: key) ?? defaultValue
+    }
+}
+
 /// Mirrors the repository DTO returned by `/api/app/dashboard`.
 struct RepositoryRecord: Codable, Identifiable, Hashable {
     let id: String
@@ -155,6 +161,57 @@ struct CompanyActivityItemRecord: Codable, Identifiable, Hashable {
     let detail: String?
     let severity: String
     let createdAt: Int64
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case companyId
+        case projectContextId
+        case goalId
+        case issueId
+        case source
+        case title
+        case detail
+        case severity
+        case createdAt
+    }
+
+    init(
+        id: String,
+        companyId: String,
+        projectContextId: String? = nil,
+        goalId: String? = nil,
+        issueId: String? = nil,
+        source: String,
+        title: String,
+        detail: String? = nil,
+        severity: String = "info",
+        createdAt: Int64
+    ) {
+        self.id = id
+        self.companyId = companyId
+        self.projectContextId = projectContextId
+        self.goalId = goalId
+        self.issueId = issueId
+        self.source = source
+        self.title = title
+        self.detail = detail
+        self.severity = severity
+        self.createdAt = createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        companyId = try container.decode(String.self, forKey: .companyId)
+        projectContextId = try container.decodeIfPresent(String.self, forKey: .projectContextId)
+        goalId = try container.decodeIfPresent(String.self, forKey: .goalId)
+        issueId = try container.decodeIfPresent(String.self, forKey: .issueId)
+        source = try container.decode(String.self, forKey: .source)
+        title = try container.decode(String.self, forKey: .title)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
+        severity = try container.decodeValue(String.self, forKey: .severity, default: "info")
+        createdAt = try container.decode(Int64.self, forKey: .createdAt)
+    }
 }
 
 /// User-authored task record shown in the center pane.
@@ -300,6 +357,13 @@ struct ReviewQueueItemRecord: Codable, Identifiable, Hashable {
     let updatedAt: Int64
 }
 
+struct IssueDependencyRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let issueId: String
+    let dependsOnIssueId: String
+    let relation: String
+}
+
 struct OpsMetricSnapshotRecord: Codable, Hashable {
     let openGoals: Int
     let activeIssues: Int
@@ -307,6 +371,34 @@ struct OpsMetricSnapshotRecord: Codable, Hashable {
     let readyToMergeCount: Int
     let mergedCount: Int
     let lastUpdatedAt: Int64
+
+    init(
+        openGoals: Int = 0,
+        activeIssues: Int = 0,
+        blockedIssues: Int = 0,
+        readyToMergeCount: Int = 0,
+        mergedCount: Int = 0,
+        lastUpdatedAt: Int64 = 0
+    ) {
+        self.openGoals = openGoals
+        self.activeIssues = activeIssues
+        self.blockedIssues = blockedIssues
+        self.readyToMergeCount = readyToMergeCount
+        self.mergedCount = mergedCount
+        self.lastUpdatedAt = lastUpdatedAt
+    }
+}
+
+struct OpsSignalRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String?
+    let projectContextId: String?
+    let source: String
+    let message: String
+    let severity: String
+    let goalId: String?
+    let issueId: String?
+    let createdAt: Int64
 }
 
 struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
@@ -318,6 +410,7 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
     let autonomyEnabledGoalCount: Int
     let lastStartedAt: Int64?
     let lastStoppedAt: Int64?
+    let manuallyStoppedAt: Int64?
     let lastTickAt: Int64?
     let lastAction: String?
     let lastError: String?
@@ -327,6 +420,93 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
     let backendLifecycleState: String
     let backendPid: Int64?
     let backendPort: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case companyId
+        case status
+        case tickIntervalSeconds
+        case activeGoalCount
+        case activeIssueCount
+        case autonomyEnabledGoalCount
+        case lastStartedAt
+        case lastStoppedAt
+        case manuallyStoppedAt
+        case lastTickAt
+        case lastAction
+        case lastError
+        case backendKind
+        case backendHealth
+        case backendMessage
+        case backendLifecycleState
+        case backendPid
+        case backendPort
+    }
+
+    init(
+        companyId: String? = nil,
+        status: String = "STOPPED",
+        tickIntervalSeconds: Int64 = 60,
+        activeGoalCount: Int = 0,
+        activeIssueCount: Int = 0,
+        autonomyEnabledGoalCount: Int = 0,
+        lastStartedAt: Int64? = nil,
+        lastStoppedAt: Int64? = nil,
+        manuallyStoppedAt: Int64? = nil,
+        lastTickAt: Int64? = nil,
+        lastAction: String? = nil,
+        lastError: String? = nil,
+        backendKind: String = "LOCAL_COTOR",
+        backendHealth: String = "unknown",
+        backendMessage: String? = nil,
+        backendLifecycleState: String = "STOPPED",
+        backendPid: Int64? = nil,
+        backendPort: Int? = nil
+    ) {
+        self.companyId = companyId
+        self.status = status
+        self.tickIntervalSeconds = tickIntervalSeconds
+        self.activeGoalCount = activeGoalCount
+        self.activeIssueCount = activeIssueCount
+        self.autonomyEnabledGoalCount = autonomyEnabledGoalCount
+        self.lastStartedAt = lastStartedAt
+        self.lastStoppedAt = lastStoppedAt
+        self.manuallyStoppedAt = manuallyStoppedAt
+        self.lastTickAt = lastTickAt
+        self.lastAction = lastAction
+        self.lastError = lastError
+        self.backendKind = backendKind
+        self.backendHealth = backendHealth
+        self.backendMessage = backendMessage
+        self.backendLifecycleState = backendLifecycleState
+        self.backendPid = backendPid
+        self.backendPort = backendPort
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        companyId = try container.decodeIfPresent(String.self, forKey: .companyId)
+        status = try container.decodeValue(String.self, forKey: .status, default: "STOPPED")
+        tickIntervalSeconds = try container.decodeValue(Int64.self, forKey: .tickIntervalSeconds, default: 60)
+        activeGoalCount = try container.decodeValue(Int.self, forKey: .activeGoalCount, default: 0)
+        activeIssueCount = try container.decodeValue(Int.self, forKey: .activeIssueCount, default: 0)
+        autonomyEnabledGoalCount = try container.decodeValue(Int.self, forKey: .autonomyEnabledGoalCount, default: 0)
+        lastStartedAt = try container.decodeIfPresent(Int64.self, forKey: .lastStartedAt)
+        lastStoppedAt = try container.decodeIfPresent(Int64.self, forKey: .lastStoppedAt)
+        manuallyStoppedAt = try container.decodeIfPresent(Int64.self, forKey: .manuallyStoppedAt)
+        lastTickAt = try container.decodeIfPresent(Int64.self, forKey: .lastTickAt)
+        lastAction = try container.decodeIfPresent(String.self, forKey: .lastAction)
+        lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+        backendKind = try container.decodeValue(String.self, forKey: .backendKind, default: "LOCAL_COTOR")
+        backendHealth = try container.decodeValue(String.self, forKey: .backendHealth, default: "unknown")
+        backendMessage = try container.decodeIfPresent(String.self, forKey: .backendMessage)
+        backendLifecycleState = try container.decodeValue(String.self, forKey: .backendLifecycleState, default: "STOPPED")
+        backendPid = try container.decodeIfPresent(Int64.self, forKey: .backendPid)
+        backendPort = try container.decodeIfPresent(Int.self, forKey: .backendPort)
+    }
+
+    var isManuallyStopped: Bool {
+        status.uppercased() == "STOPPED" && manuallyStoppedAt != nil
+    }
 }
 
 struct AgentCollaborationEdgeRecord: Codable, Hashable, Identifiable {
@@ -396,6 +576,68 @@ struct CompanyEventRecord: Codable, Hashable, Identifiable {
 struct CompanyEventEnvelopePayload: Codable {
     let event: CompanyEventRecord
     let dashboard: DashboardPayload?
+    let companyDashboard: CompanyDashboardPayload?
+}
+
+struct CompanyDashboardPayload: Codable {
+    let companies: [CompanyRecord]
+    let companyAgentDefinitions: [CompanyAgentDefinitionRecord]
+    let projectContexts: [CompanyProjectContextRecord]
+    let goals: [GoalRecord]
+    let issues: [IssueRecord]
+    let tasks: [TaskRecord]
+    let issueDependencies: [IssueDependencyRecord]
+    let reviewQueue: [ReviewQueueItemRecord]
+    let orgProfiles: [OrgAgentProfileRecord]
+    let workflowTopologies: [WorkflowTopologySnapshotRecord]
+    let goalDecisions: [GoalOrchestrationDecisionRecord]
+    let runningAgentSessions: [RunningAgentSessionRecord]
+    let backendStatuses: [ExecutionBackendStatusPayload]
+    let opsMetrics: OpsMetricSnapshotRecord
+    let runtime: CompanyRuntimeSnapshotRecord
+    let signals: [OpsSignalRecord]
+    let activity: [CompanyActivityItemRecord]
+
+    private enum CodingKeys: String, CodingKey {
+        case companies
+        case companyAgentDefinitions
+        case projectContexts
+        case goals
+        case issues
+        case tasks
+        case issueDependencies
+        case reviewQueue
+        case orgProfiles
+        case workflowTopologies
+        case goalDecisions
+        case runningAgentSessions
+        case backendStatuses
+        case opsMetrics
+        case runtime
+        case signals
+        case activity
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        companies = try container.decodeValue([CompanyRecord].self, forKey: .companies, default: [])
+        companyAgentDefinitions = try container.decodeValue([CompanyAgentDefinitionRecord].self, forKey: .companyAgentDefinitions, default: [])
+        projectContexts = try container.decodeValue([CompanyProjectContextRecord].self, forKey: .projectContexts, default: [])
+        goals = try container.decodeValue([GoalRecord].self, forKey: .goals, default: [])
+        issues = try container.decodeValue([IssueRecord].self, forKey: .issues, default: [])
+        tasks = try container.decodeValue([TaskRecord].self, forKey: .tasks, default: [])
+        issueDependencies = try container.decodeValue([IssueDependencyRecord].self, forKey: .issueDependencies, default: [])
+        reviewQueue = try container.decodeValue([ReviewQueueItemRecord].self, forKey: .reviewQueue, default: [])
+        orgProfiles = try container.decodeValue([OrgAgentProfileRecord].self, forKey: .orgProfiles, default: [])
+        workflowTopologies = try container.decodeValue([WorkflowTopologySnapshotRecord].self, forKey: .workflowTopologies, default: [])
+        goalDecisions = try container.decodeValue([GoalOrchestrationDecisionRecord].self, forKey: .goalDecisions, default: [])
+        runningAgentSessions = try container.decodeValue([RunningAgentSessionRecord].self, forKey: .runningAgentSessions, default: [])
+        backendStatuses = try container.decodeValue([ExecutionBackendStatusPayload].self, forKey: .backendStatuses, default: [])
+        opsMetrics = try container.decodeValue(OpsMetricSnapshotRecord.self, forKey: .opsMetrics, default: OpsMetricSnapshotRecord())
+        runtime = try container.decodeValue(CompanyRuntimeSnapshotRecord.self, forKey: .runtime, default: CompanyRuntimeSnapshotRecord())
+        signals = try container.decodeValue([OpsSignalRecord].self, forKey: .signals, default: [])
+        activity = try container.decodeValue([CompanyActivityItemRecord].self, forKey: .activity, default: [])
+    }
 }
 
 /// Live TUI session snapshot rendered in the center terminal surface.

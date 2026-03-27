@@ -10,6 +10,7 @@
 - `docs/README.md` / `docs/README.ko.md`: 문서 진입 가이드
 - `docs/QUICK_START.md`: 첫 설치와 첫 실행
 - `docs/HOMEBREW_INSTALL.md` / `docs/HOMEBREW_INSTALL.ko.md`: packaged 설치, 첫 실행 경로, Homebrew 문제 해결
+- `docs/TROUBLESHOOTING.md` / `docs/TROUBLESHOOTING.ko.md`: 데스크톱, 회사 런타임, GitHub, QA/CEO, 인터랙티브 문제 해결
 - `docs/FEATURES.md` / `docs/FEATURES.ko.md`: 코드 기준 기능 목록
 - `docs/DESKTOP_APP.md` / `docs/DESKTOP_APP.ko.md`: `app-server`, Company/TUI 셸, 다중 회사 UI
 - `docs/TEST_PLAN.md` / `docs/TEST_PLAN.ko.md`: 자동/CLI/데스크톱/자율 회사 검증 계획
