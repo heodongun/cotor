@@ -87,7 +87,9 @@ data class CreateCompanyRequest(
     val name: String,
     val rootPath: String,
     val defaultBaseBranch: String? = null,
-    val autonomyEnabled: Boolean = true
+    val autonomyEnabled: Boolean = true,
+    val dailyBudgetCents: Int? = null,
+    val monthlyBudgetCents: Int? = null
 )
 
 @Serializable
@@ -101,7 +103,9 @@ data class UpdateCompanyRequest(
     val name: String? = null,
     val defaultBaseBranch: String? = null,
     val autonomyEnabled: Boolean? = null,
-    val backendKind: ExecutionBackendKind? = null
+    val backendKind: ExecutionBackendKind? = null,
+    val dailyBudgetCents: Int? = null,
+    val monthlyBudgetCents: Int? = null
 )
 
 @Serializable

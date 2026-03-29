@@ -165,14 +165,44 @@ struct DesktopAPI {
         try await delete(path: "api/app/companies/\(companyId)/goals/\(goalId)")
     }
 
-    func createCompany(name: String, rootPath: String, defaultBaseBranch: String?) async throws -> CreateCompanyResponsePayload {
+    func createCompany(
+        name: String,
+        rootPath: String,
+        defaultBaseBranch: String?,
+        dailyBudgetCents: Int?,
+        monthlyBudgetCents: Int?
+    ) async throws -> CreateCompanyResponsePayload {
         try await post(
             path: "api/app/companies",
             body: CreateCompanyPayload(
                 name: name,
                 rootPath: rootPath,
                 defaultBaseBranch: defaultBaseBranch,
-                autonomyEnabled: true
+                autonomyEnabled: true,
+                dailyBudgetCents: dailyBudgetCents,
+                monthlyBudgetCents: monthlyBudgetCents
+            )
+        )
+    }
+
+    func updateCompany(
+        companyId: String,
+        name: String? = nil,
+        defaultBaseBranch: String? = nil,
+        autonomyEnabled: Bool? = nil,
+        backendKind: String? = nil,
+        dailyBudgetCents: Int? = nil,
+        monthlyBudgetCents: Int? = nil
+    ) async throws -> CompanyRecord {
+        try await patch(
+            path: "api/app/companies/\(companyId)",
+            body: UpdateCompanyPayload(
+                name: name,
+                defaultBaseBranch: defaultBaseBranch,
+                autonomyEnabled: autonomyEnabled,
+                backendKind: backendKind,
+                dailyBudgetCents: dailyBudgetCents,
+                monthlyBudgetCents: monthlyBudgetCents
             )
         )
     }

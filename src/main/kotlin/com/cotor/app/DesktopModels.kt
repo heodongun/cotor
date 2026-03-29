@@ -449,6 +449,20 @@ data class PublishMetadata(
     val error: String? = null
 )
 
+@Serializable
+data class WorkflowLineageSnapshot(
+    val lineageId: String,
+    val reviewQueueItemId: String,
+    val executionIssueId: String,
+    val executionTaskId: String,
+    val executionRunId: String,
+    val pullRequestNumber: Int? = null,
+    val pullRequestUrl: String? = null,
+    val branchName: String? = null,
+    val worktreePath: String? = null,
+    val generation: Int = 1
+)
+
 /**
  * User-authored task that can be fanned out to multiple agents.
  */
@@ -463,7 +477,8 @@ data class AgentTask(
     val plan: TaskExecutionPlan? = null,
     val status: DesktopTaskStatus,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val workflowLineage: WorkflowLineageSnapshot? = null
 )
 
 /**
@@ -530,7 +545,8 @@ data class AgentRun(
     val durationMs: Long? = null,
     val estimatedCostCents: Int? = null,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val workflowLineage: WorkflowLineageSnapshot? = null
 )
 
 /**
@@ -592,7 +608,8 @@ data class CompanyIssue(
     val pipelineId: String? = null,
     val currentStageId: String? = null,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val workflowLineage: WorkflowLineageSnapshot? = null
 )
 
 /**
@@ -652,7 +669,8 @@ data class ReviewQueueItem(
     val mergeCommitSha: String? = null,
     val mergedAt: Long? = null,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val workflowLineage: WorkflowLineageSnapshot? = null
 )
 
 /**
@@ -714,6 +732,44 @@ data class CompanyRuntimeSnapshot(
     val budgetPausedAt: Long? = null,
     val budgetResetDate: String? = null
 )
+
+internal fun CompanyRuntimeSnapshot.withNormalizedStopIntent(): CompanyRuntimeSnapshot {
+    val inferredManualStopAt = manuallyStoppedAt ?: when {
+        status == CompanyRuntimeStatus.STOPPED && lastAction == "runtime-stopped" ->
+            lastStoppedAt ?: lastTickAt ?: lastStartedAt
+        else -> null
+    }
+    val normalizedBackendHealth = if (status == CompanyRuntimeStatus.STOPPED) {
+        "stopped"
+    } else {
+        backendHealth
+    }
+    val normalizedBackendMessage = if (status == CompanyRuntimeStatus.STOPPED && inferredManualStopAt != null) {
+        "Runtime stopped manually until the user presses Start."
+    } else {
+        backendMessage
+    }
+    val normalizedBackendLifecycleState = if (status == CompanyRuntimeStatus.STOPPED) {
+        BackendLifecycleState.STOPPED
+    } else {
+        backendLifecycleState
+    }
+    return if (
+        inferredManualStopAt == manuallyStoppedAt &&
+        normalizedBackendHealth == backendHealth &&
+        normalizedBackendMessage == backendMessage &&
+        normalizedBackendLifecycleState == backendLifecycleState
+    ) {
+        this
+    } else {
+        copy(
+            manuallyStoppedAt = inferredManualStopAt,
+            backendHealth = normalizedBackendHealth,
+            backendMessage = normalizedBackendMessage,
+            backendLifecycleState = normalizedBackendLifecycleState
+        )
+    }
+}
 
 @Serializable
 data class CompanyEvent(

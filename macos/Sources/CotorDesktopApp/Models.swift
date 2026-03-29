@@ -44,6 +44,8 @@ struct CompanyRecord: Codable, Identifiable, Hashable {
     let linearSyncEnabled: Bool?
     let linearConfigOverride: LinearConnectionConfigPayload?
     let autonomyEnabled: Bool
+    let dailyBudgetCents: Int?
+    let monthlyBudgetCents: Int?
     let createdAt: Int64
     let updatedAt: Int64
 }
@@ -420,6 +422,10 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
     let backendLifecycleState: String
     let backendPid: Int64?
     let backendPort: Int?
+    let todaySpentCents: Int
+    let monthSpentCents: Int
+    let budgetPausedAt: Int64?
+    let budgetResetDate: String?
 
     private enum CodingKeys: String, CodingKey {
         case companyId
@@ -440,6 +446,10 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
         case backendLifecycleState
         case backendPid
         case backendPort
+        case todaySpentCents
+        case monthSpentCents
+        case budgetPausedAt
+        case budgetResetDate
     }
 
     init(
@@ -460,7 +470,11 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
         backendMessage: String? = nil,
         backendLifecycleState: String = "STOPPED",
         backendPid: Int64? = nil,
-        backendPort: Int? = nil
+        backendPort: Int? = nil,
+        todaySpentCents: Int = 0,
+        monthSpentCents: Int = 0,
+        budgetPausedAt: Int64? = nil,
+        budgetResetDate: String? = nil
     ) {
         self.companyId = companyId
         self.status = status
@@ -480,6 +494,10 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
         self.backendLifecycleState = backendLifecycleState
         self.backendPid = backendPid
         self.backendPort = backendPort
+        self.todaySpentCents = todaySpentCents
+        self.monthSpentCents = monthSpentCents
+        self.budgetPausedAt = budgetPausedAt
+        self.budgetResetDate = budgetResetDate
     }
 
     init(from decoder: Decoder) throws {
@@ -502,10 +520,18 @@ struct CompanyRuntimeSnapshotRecord: Codable, Hashable {
         backendLifecycleState = try container.decodeValue(String.self, forKey: .backendLifecycleState, default: "STOPPED")
         backendPid = try container.decodeIfPresent(Int64.self, forKey: .backendPid)
         backendPort = try container.decodeIfPresent(Int.self, forKey: .backendPort)
+        todaySpentCents = try container.decodeValue(Int.self, forKey: .todaySpentCents, default: 0)
+        monthSpentCents = try container.decodeValue(Int.self, forKey: .monthSpentCents, default: 0)
+        budgetPausedAt = try container.decodeIfPresent(Int64.self, forKey: .budgetPausedAt)
+        budgetResetDate = try container.decodeIfPresent(String.self, forKey: .budgetResetDate)
     }
 
     var isManuallyStopped: Bool {
         status.uppercased() == "STOPPED" && manuallyStoppedAt != nil
+    }
+
+    var isBudgetPaused: Bool {
+        budgetPausedAt != nil
     }
 }
 
@@ -853,6 +879,17 @@ struct CreateCompanyPayload: Codable {
     let rootPath: String
     let defaultBaseBranch: String?
     let autonomyEnabled: Bool
+    let dailyBudgetCents: Int?
+    let monthlyBudgetCents: Int?
+}
+
+struct UpdateCompanyPayload: Codable {
+    let name: String?
+    let defaultBaseBranch: String?
+    let autonomyEnabled: Bool?
+    let backendKind: String?
+    let dailyBudgetCents: Int?
+    let monthlyBudgetCents: Int?
 }
 
 struct UpdateCompanyLinearPayload: Codable {
@@ -1030,6 +1067,8 @@ struct MockSeed {
                 linearSyncEnabled: false,
                 linearConfigOverride: nil,
                 autonomyEnabled: true,
+                dailyBudgetCents: 2500,
+                monthlyBudgetCents: 20000,
                 createdAt: 0,
                 updatedAt: 0
             )
@@ -1331,6 +1370,7 @@ struct MockSeed {
                 autonomyEnabledGoalCount: 1,
                 lastStartedAt: 0,
                 lastStoppedAt: nil,
+                manuallyStoppedAt: nil,
                 lastTickAt: 0,
                 lastAction: "started:issue-demo-build",
                 lastError: nil,
@@ -1339,7 +1379,11 @@ struct MockSeed {
                 backendMessage: "Using local Cotor app-server and CLI execution.",
                 backendLifecycleState: "RUNNING",
                 backendPid: nil,
-                backendPort: 8787
+                backendPort: 8787,
+                todaySpentCents: 145,
+                monthSpentCents: 1260,
+                budgetPausedAt: nil,
+                budgetResetDate: "2026-03-28"
             )
         ]
     )

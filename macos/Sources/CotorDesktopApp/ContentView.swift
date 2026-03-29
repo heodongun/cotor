@@ -904,6 +904,18 @@ private struct SidebarView: View {
                 .pickerStyle(.menu)
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text(l("Optional cost guardrails (USD)", "선택 사항: 비용 상한 (USD)"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(ShellPalette.muted)
+                HStack(spacing: 8) {
+                    TextField(l("Daily cap", "일 상한"), text: $store.newCompanyDailyBudgetInput)
+                        .textFieldStyle(.roundedBorder)
+                    TextField(l("Monthly cap", "월 상한"), text: $store.newCompanyMonthlyBudgetInput)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
             if let company = store.selectedCompany {
                 Picker(l("Company execution backend", "회사 실행 백엔드"), selection: Binding(
                     get: { company.backendKind },
@@ -915,6 +927,66 @@ private struct SidebarView: View {
                     Text("Codex App Server").tag("CODEX_APP_SERVER")
                 }
                 .pickerStyle(.menu)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(l("Estimated AI spend guardrail", "추정 AI 비용 가드레일"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(ShellPalette.text)
+                            Text(l("Blank means no cap. Runtime pauses when an estimated budget window is exhausted.", "비워두면 상한이 없습니다. 추정 예산 창을 소진하면 런타임이 멈춥니다."))
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(ShellPalette.muted)
+                        }
+                        Spacer()
+                        if let runtime = store.selectedRuntime, runtime.isBudgetPaused {
+                            ShellTag(text: l("Cap reached", "상한 도달"), tint: ShellPalette.warning)
+                        }
+                    }
+
+                    if let runtime = store.selectedRuntime {
+                        HStack(spacing: 8) {
+                            ShellTag(
+                                text: runtimeSpendSummary(
+                                    label: l("Today", "오늘"),
+                                    spentCents: runtime.todaySpentCents,
+                                    capCents: company.dailyBudgetCents,
+                                    language: l
+                                ),
+                                tint: ShellPalette.accent
+                            )
+                            ShellTag(
+                                text: runtimeSpendSummary(
+                                    label: l("Month", "월"),
+                                    spentCents: runtime.monthSpentCents,
+                                    capCents: company.monthlyBudgetCents,
+                                    language: l
+                                ),
+                                tint: ShellPalette.accentWarm
+                            )
+                            Spacer()
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        TextField(l("Daily cap", "일 상한"), text: $store.companyDailyBudgetInput)
+                            .textFieldStyle(.roundedBorder)
+                        TextField(l("Monthly cap", "월 상한"), text: $store.companyMonthlyBudgetInput)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    Button {
+                        Task { await store.saveSelectedCompanyBudget() }
+                    } label: {
+                        Label(l("Save Guardrails", "상한 저장"), systemImage: "dollarsign.circle")
+                            .frame(maxWidth: .infinity)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                }
+                .padding(12)
+                .background(ShellPalette.panelAlt)
+                .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 10) {
                     Toggle(isOn: $store.companyLinearSyncEnabled) {
@@ -1030,6 +1102,12 @@ private struct SidebarView: View {
         }
         .padding(14)
         .shellInset()
+        .onAppear {
+            store.syncSelectedCompanyBudgetFormState()
+        }
+        .onChange(of: store.selectedCompanyID) { _, _ in
+            store.syncSelectedCompanyBudgetFormState()
+        }
     }
 
     private var goalSection: some View {
@@ -2172,6 +2250,7 @@ private struct CenterPaneView: View {
     var scrollsInternally: Bool = true
     @State private var goalSurface: GoalSurface = .board
     @State private var detailDrawerOpen = false
+    @State private var issueComposerExpanded = false
     @State private var presentedGoal: GoalRecord?
     private var l: AppLanguage { store.language }
 
@@ -2245,6 +2324,10 @@ private struct CenterPaneView: View {
             return recentDetail
         }
         return l("No execution log has been captured for this issue yet.", "이 이슈에 대해 아직 캡처된 실행 로그가 없습니다.")
+    }
+
+    private var shouldShowIssueComposer: Bool {
+        issueComposerExpanded || filteredIssues.isEmpty
     }
 
     private var visibleActivity: [CompanyActivityItemRecord] {
@@ -2481,6 +2564,7 @@ private struct CenterPaneView: View {
     @ViewBuilder
     private var companyRuntimeSummaryStrip: some View {
         if let runtime = store.selectedRuntime {
+            let selectedCompany = store.selectedCompany
             let companyID = store.selectedCompany?.id
             let blockedWorkflowCount = store.dashboard.issues.filter { issue in
                 issue.companyId == companyID &&
@@ -2514,6 +2598,32 @@ private struct CenterPaneView: View {
                             tint: ShellPalette.accentWarm
                         )
                     }
+                    if let company = selectedCompany {
+                        ShellTag(
+                            text: runtimeSpendSummary(
+                                label: l("Today", "오늘"),
+                                spentCents: runtime.todaySpentCents,
+                                capCents: company.dailyBudgetCents,
+                                language: l
+                            ),
+                            tint: ShellPalette.accent
+                        )
+                        ShellTag(
+                            text: runtimeSpendSummary(
+                                label: l("Month", "월"),
+                                spentCents: runtime.monthSpentCents,
+                                capCents: company.monthlyBudgetCents,
+                                language: l
+                            ),
+                            tint: ShellPalette.accentWarm
+                        )
+                    }
+                    if runtime.isBudgetPaused {
+                        ShellTag(
+                            text: l("Cost cap reached", "비용 상한 도달"),
+                            tint: ShellPalette.warning
+                        )
+                    }
                     Spacer(minLength: 0)
                 }
 
@@ -2532,6 +2642,16 @@ private struct CenterPaneView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(ShellPalette.muted)
                     .lineLimit(1)
+                } else if runtime.isBudgetPaused {
+                    Text(
+                        l(
+                            "Estimated spend hit a configured guardrail. Raise the cap or wait for the budget window to reset.",
+                            "추정 비용이 설정한 상한에 도달했습니다. 상한을 올리거나 예산 창이 리셋될 때까지 기다리세요."
+                        )
+                    )
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShellPalette.warning)
+                    .lineLimit(2)
                 } else if runtimeHealthy && (blockedWorkflowCount > 0 || reviewAttentionCount > 0) {
                     Text(
                         l(
@@ -2606,12 +2726,63 @@ private struct CenterPaneView: View {
                 title: l("Issues", "이슈"),
                 subtitle: l("Select an issue to see its status, linked task, and latest execution log.", "이슈를 선택하면 상태, 연결된 task, 최근 실행 로그를 볼 수 있습니다.")
             )
-            issueComposerPanel
-            surfaceSwitcher
-            issueSurface
-            selectedIssueDetailPanel
+            if shouldShowIssueComposer {
+                issueComposerPanel
+            }
+            if layoutMode == .wide, store.selectedIssue != nil {
+                HStack(alignment: .top, spacing: 12) {
+                    issueBoardWorkspacePanel
+                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .top)
+                    selectedIssueDetailPanel
+                        .frame(width: 344, alignment: .top)
+                }
+            } else {
+                issueBoardWorkspacePanel
+                selectedIssueDetailPanel
+            }
             detailDrawer
         }
+    }
+
+    private var issueBoardWorkspacePanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(l("Execution Board", "실행 보드"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ShellPalette.text)
+                    Text(
+                        l(
+                            "Track issue flow first. Open the composer only when you actually need a new issue.",
+                            "기본은 이슈 흐름을 보는 화면입니다. 새 이슈가 필요할 때만 생성 패널을 여세요."
+                        )
+                    )
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                }
+
+                Spacer(minLength: 0)
+
+                surfaceSwitcher
+                    .frame(width: layoutMode == .compact ? nil : 220)
+
+                Button {
+                    withAnimation(ShellMotion.spring) {
+                        issueComposerExpanded.toggle()
+                    }
+                } label: {
+                    Label(
+                        shouldShowIssueComposer ? l("Hide Composer", "입력 접기") : l("New Issue", "새 이슈"),
+                        systemImage: shouldShowIssueComposer ? "chevron.up.circle" : "plus.circle"
+                    )
+                }
+                .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+            }
+
+            issueSurface
+        }
+        .padding(14)
+        .shellInset()
     }
 
     private var issueComposerPanel: some View {
@@ -2620,12 +2791,44 @@ private struct CenterPaneView: View {
                 Text(l("Create Issue", "이슈 만들기"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(ShellPalette.text)
+                Text(l("Add a concrete execution unit without obscuring the board.", "보드를 가리지 않는 선에서 구체 실행 단위를 추가합니다."))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
                 Spacer()
                 if let company = store.issueComposerCompany {
                     StatusSummaryPill(text: company.name, tint: ShellPalette.accent)
                 }
+                if !filteredIssues.isEmpty {
+                    Button {
+                        withAnimation(ShellMotion.spring) {
+                            issueComposerExpanded = false
+                        }
+                    } label: {
+                        Label(l("Close", "닫기"), systemImage: "xmark")
+                    }
+                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                }
             }
 
+            if layoutMode == .wide {
+                HStack(alignment: .top, spacing: 12) {
+                    issueComposerFields
+                    issueComposerActions
+                        .frame(width: 220)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    issueComposerFields
+                    issueComposerActions
+                }
+            }
+        }
+        .padding(14)
+        .shellInset()
+    }
+
+    private var issueComposerFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Picker(l("Company", "회사"), selection: Binding(
                     get: { store.newIssueCompanyID ?? store.selectedCompanyID ?? store.companies.first?.id ?? "" },
@@ -2641,7 +2844,6 @@ private struct CenterPaneView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 170)
 
                 Picker(l("Goal", "목표"), selection: Binding(
                     get: { store.newIssueGoalID ?? store.issueComposerGoals.first?.id ?? "" },
@@ -2660,7 +2862,7 @@ private struct CenterPaneView: View {
 
             TextEditor(text: $store.newIssueDescription)
                 .font(.system(size: 12, weight: .medium))
-                .frame(minHeight: 88)
+                .frame(minHeight: 72, idealHeight: 84, maxHeight: 120)
                 .padding(10)
                 .scrollContentBackground(.hidden)
                 .background(ShellPalette.panelAlt)
@@ -2669,6 +2871,32 @@ private struct CenterPaneView: View {
                         .stroke(ShellPalette.line, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+
+        }
+    }
+
+    private var issueComposerActions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(l("Target", "대상"))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(ShellPalette.text)
+
+            if let company = store.issueComposerCompany {
+                ShellTag(text: company.name, tint: ShellPalette.accent)
+            }
+            if let goal = store.issueComposerGoals.first(where: { $0.id == (store.newIssueGoalID ?? store.issueComposerGoals.first?.id) }) {
+                ShellTag(text: goal.title, tint: ShellPalette.accentWarm)
+            }
+
+            Text(
+                l(
+                    "Keep the issue title concrete and the description short. The board remains the source of truth.",
+                    "이슈 제목은 구체적으로, 설명은 짧게 유지하세요. 보드가 기준 화면입니다."
+                )
+            )
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(ShellPalette.muted)
+            .fixedSize(horizontal: false, vertical: true)
 
             Button {
                 Task { await store.createIssue() }
@@ -2684,8 +2912,6 @@ private struct CenterPaneView: View {
                 store.newIssueDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             )
         }
-        .padding(14)
-        .shellInset()
     }
 
     private var goalNodeGrid: some View {
@@ -3712,10 +3938,26 @@ private struct CompanyCard: View {
                             ShellTag(text: language("Stopped manually", "수동 중지"), tint: ShellPalette.warning)
                         }
                         ShellTag(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
+                        if runtime.isBudgetPaused {
+                            ShellTag(text: language("Cap reached", "상한 도달"), tint: ShellPalette.warning)
+                        }
                         if let lastError = runtime.lastError, !lastError.isEmpty {
                             ShellTag(text: language("Needs attention", "주의 필요"), tint: ShellPalette.danger)
                         }
                     }
+                }
+
+                if let runtime, runtime.todaySpentCents > 0 || company.dailyBudgetCents != nil || company.monthlyBudgetCents != nil {
+                    Text(
+                        companySpendOverview(
+                            company: company,
+                            runtime: runtime,
+                            language: language
+                        )
+                    )
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                    .lineLimit(2)
                 }
             }
             .padding(.top, 12)
@@ -3837,6 +4079,8 @@ private func companyRuntimeHealthTint(_ health: String) -> Color {
     switch health.lowercased() {
     case "healthy":
         return ShellPalette.success
+    case "stopped", "paused":
+        return ShellPalette.warning
     case "starting", "degraded":
         return ShellPalette.warning
     case "failed", "error", "offline":
@@ -3857,6 +4101,50 @@ private func companyActivityTint(_ kind: String) -> Color {
     default:
         return ShellPalette.accentWarm
     }
+}
+
+private func runtimeSpendSummary(
+    label: String,
+    spentCents: Int,
+    capCents: Int?,
+    language: AppLanguage
+) -> String {
+    let spent = usdCurrencyText(spentCents)
+    guard let capCents, capCents > 0 else {
+        return "\(label) \(spent)"
+    }
+    return "\(label) \(spent) / \(usdCurrencyText(capCents))"
+}
+
+private func companySpendOverview(
+    company: CompanyRecord,
+    runtime: CompanyRuntimeSnapshotRecord,
+    language: AppLanguage
+) -> String {
+    [
+        runtimeSpendSummary(
+            label: language("Today", "오늘"),
+            spentCents: runtime.todaySpentCents,
+            capCents: company.dailyBudgetCents,
+            language: language
+        ),
+        runtimeSpendSummary(
+            label: language("Month", "월"),
+            spentCents: runtime.monthSpentCents,
+            capCents: company.monthlyBudgetCents,
+            language: language
+        )
+    ].joined(separator: " · ")
+}
+
+private func usdCurrencyText(_ cents: Int?) -> String {
+    guard let cents else { return "—" }
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .currency
+    formatter.currencyCode = "USD"
+    formatter.maximumFractionDigits = 2
+    formatter.minimumFractionDigits = cents % 100 == 0 ? 0 : 2
+    return formatter.string(from: NSNumber(value: Double(cents) / 100.0)) ?? String(format: "$%.2f", Double(cents) / 100.0)
 }
 
 private func relativeTimestamp(_ value: Int64) -> String {

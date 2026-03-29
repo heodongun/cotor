@@ -64,6 +64,8 @@ final class DesktopStore: ObservableObject {
     @Published var cloneURLInput = ""
     @Published var newCompanyName = ""
     @Published var newCompanyRootPath = ""
+    @Published var newCompanyDailyBudgetInput = ""
+    @Published var newCompanyMonthlyBudgetInput = ""
     @Published var newCompanyAgentTitle = ""
     @Published var newCompanyAgentCli = ""
     @Published var newCompanyAgentRole = ""
@@ -96,6 +98,8 @@ final class DesktopStore: ObservableObject {
     @Published var companyLinearEndpoint = ""
     @Published var companyLinearTeamID = ""
     @Published var companyLinearProjectID = ""
+    @Published var companyDailyBudgetInput = ""
+    @Published var companyMonthlyBudgetInput = ""
     @Published var companyLinearStatusMessage: String?
     @Published var companyGitHubStatusMessage: String?
     @Published var newTaskTitle = ""
@@ -799,6 +803,16 @@ final class DesktopStore: ObservableObject {
         syncSelectedCompanyLinearFormState()
     }
 
+    func syncSelectedCompanyBudgetFormState() {
+        guard let company = selectedCompany else {
+            companyDailyBudgetInput = ""
+            companyMonthlyBudgetInput = ""
+            return
+        }
+        companyDailyBudgetInput = budgetInputString(from: company.dailyBudgetCents)
+        companyMonthlyBudgetInput = budgetInputString(from: company.monthlyBudgetCents)
+    }
+
     private func syncSelectedCompanyLinearFormState() {
         guard let company = selectedCompany else {
             companyLinearSyncEnabled = false
@@ -815,6 +829,42 @@ final class DesktopStore: ObservableObject {
         companyLinearTeamID = config?.teamId ?? ""
         companyLinearProjectID = config?.projectId ?? ""
         companyLinearStatusMessage = latestCompanyLinearActivityMessage(companyId: company.id)
+    }
+
+    private func budgetInputString(from cents: Int?) -> String {
+        guard let cents, cents > 0 else { return "" }
+        let dollars = Double(cents) / 100.0
+        if cents % 100 == 0 {
+            return String(Int(dollars))
+        }
+        return String(format: "%.2f", dollars)
+    }
+
+    private func budgetCentsForCreateInput(_ value: String) throws -> Int? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return try parseBudgetInput(trimmed)
+    }
+
+    private func budgetCentsForUpdateInput(_ value: String) throws -> Int {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 0 }
+        return try parseBudgetInput(trimmed) ?? 0
+    }
+
+    private func parseBudgetInput(_ value: String) throws -> Int? {
+        let sanitized = value.replacingOccurrences(of: ",", with: "")
+        guard let amount = Double(sanitized), amount >= 0 else {
+            throw NSError(
+                domain: "CotorDesktop",
+                code: 400,
+                userInfo: [NSLocalizedDescriptionKey: language(
+                    "Enter a valid USD budget amount such as 25 or 25.50.",
+                    "25 또는 25.50 같은 올바른 USD 예산 금액을 입력하세요."
+                )]
+            )
+        }
+        return Int((amount * 100.0).rounded())
     }
 
     private func latestCompanyLinearActivityMessage(companyId: String) -> String? {
@@ -1085,6 +1135,7 @@ final class DesktopStore: ObservableObject {
     private func performNonCriticalCompanyRefresh(selecting company: CompanyRecord) async {
         await refreshDashboard()
         selectedCompanyID = company.id
+        syncSelectedCompanyBudgetFormState()
         if let repository = repositories.first(where: { $0.id == company.repositoryId }) {
             await selectRepository(repository)
         }
@@ -1142,16 +1193,26 @@ final class DesktopStore: ObservableObject {
         let rootPath = newCompanyRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !rootPath.isEmpty else { return }
         do {
+            let dailyBudgetCents = try budgetCentsForCreateInput(newCompanyDailyBudgetInput)
+            let monthlyBudgetCents = try budgetCentsForCreateInput(newCompanyMonthlyBudgetInput)
             actionErrorMessage = nil
             companyGitHubStatusMessage = nil
             errorMessage = nil
             AppLogger.info("Creating company '\(name)' with rootPath '\(rootPath)'.")
             let response = try await runWithEmbeddedBackendRecovery {
-                try await api.createCompany(name: name, rootPath: rootPath, defaultBaseBranch: pendingWorkspaceBaseBranch)
+                try await api.createCompany(
+                    name: name,
+                    rootPath: rootPath,
+                    defaultBaseBranch: pendingWorkspaceBaseBranch,
+                    dailyBudgetCents: dailyBudgetCents,
+                    monthlyBudgetCents: monthlyBudgetCents
+                )
             }
             let company = response.company
             newCompanyName = ""
             newCompanyRootPath = ""
+            newCompanyDailyBudgetInput = ""
+            newCompanyMonthlyBudgetInput = ""
             selectedCompanyID = company.id
             companyGitHubStatusMessage = githubRequirementMessage(for: response.githubPublishStatus)
             AppLogger.info("Created company '\(company.name)' (\(company.id)).")
@@ -1611,6 +1672,7 @@ final class DesktopStore: ObservableObject {
         await refreshAvailableBranches()
         await refreshTaskDetails()
         syncIssueComposerState()
+        syncSelectedCompanyBudgetFormState()
         syncSelectedCompanyLinearFormState()
         await restartCompanyEventStream()
     }
@@ -1762,6 +1824,23 @@ final class DesktopStore: ObservableObject {
             await refreshDashboard()
         } catch {
             backendStatusMessage = error.localizedDescription
+        }
+    }
+
+    func saveSelectedCompanyBudget() async {
+        guard let company = selectedCompany else { return }
+        do {
+            let dailyBudgetCents = try budgetCentsForUpdateInput(companyDailyBudgetInput)
+            let monthlyBudgetCents = try budgetCentsForUpdateInput(companyMonthlyBudgetInput)
+            _ = try await api.updateCompany(
+                companyId: company.id,
+                dailyBudgetCents: dailyBudgetCents,
+                monthlyBudgetCents: monthlyBudgetCents
+            )
+            await refreshDashboard()
+            syncSelectedCompanyBudgetFormState()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

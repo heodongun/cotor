@@ -62,6 +62,7 @@ class DesktopStateStore(
         prettyPrint = true
         isLenient = true
         coerceInputValues = true
+        encodeDefaults = true
     }
 
     // A single process can finish multiple background runs nearly at once, so writes
@@ -101,7 +102,7 @@ class DesktopStateStore(
             }
             val raw = runCatching { stateFile.readText() }.getOrElse { return@withStateFileLock DesktopAppState() }
             decodeState(raw)?.also { decoded ->
-                val compacted = compactStateForPersistence(decoded)
+                val compacted = compactStateForPersistence(normalizeLegacyCompanyRuntimeState(decoded))
                 if (raw != json.encodeToString(DesktopAppState.serializer(), compacted)) {
                     saveLocked(compacted)
                 } else {
@@ -112,7 +113,7 @@ class DesktopStateStore(
             if (backupFile.exists()) {
                 val backupRaw = runCatching { backupFile.readText() }.getOrNull()
                 decodeState(backupRaw.orEmpty())?.also { recovered ->
-                    val compacted = compactStateForPersistence(recovered)
+                    val compacted = compactStateForPersistence(normalizeLegacyCompanyRuntimeState(recovered))
                     saveLocked(compacted)
                     return@withStateFileLock compacted
                 }
@@ -144,7 +145,7 @@ class DesktopStateStore(
         // app can start from a completely clean machine state.
         file.parent?.createDirectories()
         managedReposRoot().createDirectories()
-        val compactedState = compactStateForPersistence(state)
+        val compactedState = compactStateForPersistence(normalizeLegacyCompanyRuntimeState(state))
         val payload = json.encodeToString(DesktopAppState.serializer(), compactedState)
         val tempFile = Files.createTempFile(file.parent, "${file.fileName}.", ".tmp")
         tempFile.writeText(payload)
@@ -375,6 +376,14 @@ class DesktopStateStore(
                 goalDecisions = goalDecisions.sortedByDescending { it.createdAt }.take(150)
             )
         }
+
+    private fun normalizeLegacyCompanyRuntimeState(state: DesktopAppState): DesktopAppState =
+        state.copy(
+            runtime = state.runtime.withNormalizedStopIntent(),
+            companyRuntimes = state.companyRuntimes.map { runtime ->
+                runtime.withNormalizedStopIntent()
+            }
+        )
 
     private fun compactTaskForPersistence(task: AgentTask): AgentTask {
         if (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED) {
