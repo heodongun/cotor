@@ -914,6 +914,70 @@ class DesktopAppServiceTest : FunSpec({
         stateStore.load().issues.count { it.goalId == goal.id && it.kind == "planning" } shouldBe 1
     }
 
+    test("decomposeGoal replans the next wave after previous goal issues finish while preserving history") {
+        val appHome = Files.createTempDirectory("desktop-ceo-replan-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-ceo-replan-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val gitWorkspaceService = mockk<GitWorkspaceService>()
+        coEvery { gitWorkspaceService.resolveRepositoryRoot(any()) } returns repoRoot
+        coEvery { gitWorkspaceService.detectDefaultBranch(any()) } returns "master"
+        coEvery { gitWorkspaceService.detectRemoteUrl(any()) } returns null
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "CEO Replan Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val goal = service.createGoal(
+            companyId = company.id,
+            title = "Keep planning follow-up waves",
+            description = "The CEO should reopen planning when the previous wave finishes.",
+            autonomyEnabled = false
+        )
+        val initialPlanningIssue = stateStore.load().issues.first { it.goalId == goal.id && it.kind == "planning" }
+        val now = System.currentTimeMillis()
+        val finishedExecutionIssue = CompanyIssue(
+            id = "finished-wave-issue",
+            companyId = company.id,
+            projectContextId = goal.projectContextId,
+            goalId = goal.id,
+            workspaceId = initialPlanningIssue.workspaceId,
+            title = "Finished implementation wave",
+            description = "Already done.",
+            status = IssueStatus.DONE,
+            priority = 2,
+            kind = "execution",
+            createdAt = now,
+            updatedAt = now
+        )
+        stateStore.save(
+            stateStore.load().copy(
+                issues = stateStore.load().issues.map {
+                    if (it.id == initialPlanningIssue.id) {
+                        it.copy(status = IssueStatus.DONE, updatedAt = now)
+                    } else {
+                        it
+                    }
+                } + finishedExecutionIssue
+            )
+        )
+
+        val issues = service.decomposeGoal(goal.id)
+        val reopenedPlanningIssue = issues.first { it.id == initialPlanningIssue.id && it.kind == "planning" }
+        val newExecutionIssues = issues.filter { it.goalId == goal.id && it.kind == "execution" && it.id != finishedExecutionIssue.id }
+
+        reopenedPlanningIssue.status shouldBe IssueStatus.DONE
+        issues.any { it.id == finishedExecutionIssue.id && it.status == IssueStatus.DONE } shouldBe true
+        newExecutionIssues.isNotEmpty() shouldBe true
+    }
+
     test("runTask uses assigned prompts when present and raw prompt when absent") {
         val appHome = Files.createTempDirectory("desktop-planner-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-planner-test").resolve("repo"))
@@ -1422,6 +1486,79 @@ class DesktopAppServiceTest : FunSpec({
         restarted.manuallyStoppedAt shouldBe null
     }
 
+    test("company budgets can be saved, cleared, and survive runtime restarts") {
+        val appHome = Files.createTempDirectory("desktop-runtime-budget-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-budget-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        val company = service.createCompany(
+            name = "Budget Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master",
+            dailyBudgetCents = 250,
+            monthlyBudgetCents = 1000
+        )
+        service.recordRunCost(company.id, 300)
+
+        val updated = service.updateCompany(
+            companyId = company.id,
+            dailyBudgetCents = 500,
+            monthlyBudgetCents = 2000
+        )
+        updated.dailyBudgetCents shouldBe 500
+        updated.monthlyBudgetCents shouldBe 2000
+
+        val restarted = service.startCompanyRuntime(company.id)
+        restarted.todaySpentCents shouldBe 300
+        restarted.monthSpentCents shouldBe 300
+        restarted.budgetPausedAt shouldBe null
+
+        val cleared = service.updateCompany(
+            companyId = company.id,
+            dailyBudgetCents = 0,
+            monthlyBudgetCents = 0
+        )
+        cleared.dailyBudgetCents shouldBe null
+        cleared.monthlyBudgetCents shouldBe null
+    }
+
+    test("runtime pauses when estimated monthly budget is exhausted") {
+        val appHome = Files.createTempDirectory("desktop-runtime-monthly-budget-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-monthly-budget-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        val company = service.createCompany(
+            name = "Monthly Budget Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master",
+            monthlyBudgetCents = 150
+        )
+        service.recordRunCost(company.id, 175)
+        service.startCompanyRuntime(company.id)
+
+        val snapshot = service.runCompanyRuntimeTick(company.id)
+
+        snapshot.lastAction shouldBe "budget-paused"
+        snapshot.budgetPausedAt shouldNotBe null
+        snapshot.monthSpentCents shouldBe 175
+    }
+
     test("manual runtime stop survives app restart and dashboard reads") {
         val appHome = Files.createTempDirectory("desktop-runtime-restart-stop-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-restart-stop-test").resolve("repo"))
@@ -1474,6 +1611,60 @@ class DesktopAppServiceTest : FunSpec({
         val runtime = stateStore.load().companyRuntimes.first { it.companyId == goal.companyId }
         runtime.status shouldBe CompanyRuntimeStatus.STOPPED
         runtime.manuallyStoppedAt shouldNotBe null
+    }
+
+    test("legacy runtime-stopped snapshots backfill manual stop intent before startup healing") {
+        val appHome = Files.createTempDirectory("desktop-runtime-legacy-stop-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-legacy-stop-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val bootstrapService = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        val goal = bootstrapService.createGoal(
+            title = "Legacy manual stop",
+            description = "Older runtime snapshots that only recorded runtime-stopped should remain stopped after restart.",
+            autonomyEnabled = false
+        )
+        val now = System.currentTimeMillis()
+        stateStore.save(
+            stateStore.load().copy(
+                goals = stateStore.load().goals.map {
+                    if (it.id == goal.id) it.copy(autonomyEnabled = true, status = GoalStatus.ACTIVE, updatedAt = now) else it
+                },
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = goal.companyId,
+                        status = CompanyRuntimeStatus.STOPPED,
+                        lastStoppedAt = now,
+                        lastAction = "runtime-stopped"
+                    )
+                )
+            )
+        )
+
+        val restarted = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true),
+            companyRuntimeTickIntervalMs = 25
+        )
+
+        delay(150)
+        restarted.dashboard()
+        restarted.companyDashboard(goal.companyId)
+        delay(150)
+
+        val runtime = stateStore.load().companyRuntimes.first { it.companyId == goal.companyId }
+        runtime.status shouldBe CompanyRuntimeStatus.STOPPED
+        runtime.manuallyStoppedAt shouldNotBe null
+        stateStore.load().tasks.any { it.issueId != null } shouldBe false
     }
 
     test("goal updates do not auto-start a manually stopped runtime") {
@@ -2940,6 +3131,8 @@ class DesktopAppServiceTest : FunSpec({
         }
         nextGoals shouldHaveSize 1
         nextGoals.single().status shouldBe GoalStatus.ACTIVE
+        nextGoals.single().description shouldContain "portfolio of 3 to 5 branchable issues"
+        nextGoals.single().description shouldContain "multiple compatible implementation and validation tracks"
         stateStore.load().issues.any { it.goalId == nextGoals.single().id } shouldBe true
     }
 
@@ -4729,6 +4922,7 @@ class DesktopAppServiceTest : FunSpec({
             description = "Make sure persisted company runtimes keep executing after the backend restarts.",
             autonomyEnabled = false
         )
+        bootstrapService.shutdown()
         stateStore.save(
             stateStore.load().copy(
                 goals = stateStore.load().goals.map {
@@ -4758,7 +4952,7 @@ class DesktopAppServiceTest : FunSpec({
         )
         capturedAgents.clear()
 
-        DesktopAppService(
+        val restartedService = DesktopAppService(
             stateStore = stateStore,
             gitWorkspaceService = gitWorkspaceService,
             configRepository = mockk<ConfigRepository>(relaxed = true),
@@ -4766,27 +4960,33 @@ class DesktopAppServiceTest : FunSpec({
             commandAvailability = { command -> command == "codex" || command == "/bin/echo" }
         )
 
+        lateinit var resumedState: DesktopAppState
         withTimeout(5_000) {
-            while (capturedAgents.isEmpty()) {
+            while (true) {
+                resumedState = stateStore.load()
+                val resumedTaskStarted = resumedState.tasks.any {
+                    it.issueId == "issue-resume-delegated" && it.status != DesktopTaskStatus.QUEUED
+                }
+                val resumeActivityRecorded = resumedState.companyActivity.any { activity ->
+                    activity.companyId == company.id &&
+                        activity.title == "Resumed delegated issues"
+                }
+                if (resumedTaskStarted && resumeActivityRecorded) {
+                    break
+                }
                 delay(25)
             }
         }
 
         capturedAgents.shouldNotBeEmpty()
-        val resumedState = stateStore.load()
         resumedState.tasks.any { it.issueId == "issue-resume-delegated" && it.status != DesktopTaskStatus.QUEUED } shouldBe true
         resumedState.companyActivity.any { activity ->
             activity.companyId == company.id &&
                 activity.title == "Resumed delegated issues"
         } shouldBe true
         resumedState.companyRuntimes.first { it.companyId == company.id }.lastAction shouldNotBe "idle-no-work"
-        DesktopAppService(
-            stateStore = stateStore,
-            gitWorkspaceService = gitWorkspaceService,
-            configRepository = mockk<ConfigRepository>(relaxed = true),
-            agentExecutor = agentExecutor,
-            commandAvailability = { command -> command == "codex" || command == "/bin/echo" }
-        ).stopCompanyRuntime(goal.companyId).status shouldBe CompanyRuntimeStatus.STOPPED
+        restartedService.stopCompanyRuntime(goal.companyId).status shouldBe CompanyRuntimeStatus.STOPPED
+        restartedService.shutdown()
     }
 
     test("company execution resolves arbitrary installed CLI agents through the command plugin") {
@@ -5832,6 +6032,461 @@ class DesktopAppServiceTest : FunSpec({
             "Linked execution issue already merged; closing the approval gate."
     }
 
+    test("runtime creates a fresh QA lineage and closes the superseded PR when a retry publishes a new PR") {
+        val appHome = Files.createTempDirectory("desktop-app-service-fresh-qa-lineage")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-fresh-qa-lineage-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        coEvery { gitWorkspaceService.closePullRequest(any(), 11, any()) } returns PublishMetadata(
+            pullRequestNumber = 11,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/11",
+            pullRequestState = "CLOSED"
+        )
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "Fresh QA Lineage Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-fresh-qa-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Keep retries scoped to the latest PR",
+            description = "A newer retry should not inherit stale QA work.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = true,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-fresh-qa-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Deliver the updated change",
+            description = "Publish the next retry.",
+            status = IssueStatus.PLANNED,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/old-pr/codex",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/old-pr/codex").toString(),
+            pullRequestNumber = 11,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/11",
+            pullRequestState = "OPEN",
+            qaVerdict = "CHANGES_REQUESTED",
+            qaFeedback = "Old QA feedback against the superseded branch.",
+            createdAt = now - 20_000,
+            updatedAt = now - 20_000
+        )
+        val staleReviewIssue = CompanyIssue(
+            id = "issue-review-stale-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "QA review Deliver the updated change",
+            description = "Old QA issue.",
+            status = IssueStatus.BLOCKED,
+            priority = 2,
+            kind = "review",
+            dependsOn = listOf(executionIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = 11,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = "CHANGES_REQUESTED",
+            qaFeedback = "The old PR still misses the requested interaction.",
+            sourceSignal = "qa-review:${executionIssue.id}",
+            createdAt = now - 19_000,
+            updatedAt = now - 19_000
+        )
+        val staleApprovalIssue = CompanyIssue(
+            id = "issue-approval-stale-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "CEO approve Deliver the updated change",
+            description = "Old CEO approval issue.",
+            status = IssueStatus.BLOCKED,
+            priority = 1,
+            kind = "approval",
+            dependsOn = listOf(staleReviewIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = 11,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = "CHANGES_REQUESTED",
+            qaFeedback = "Old QA verdict is still pending.",
+            sourceSignal = "ceo-approval:${executionIssue.id}",
+            createdAt = now - 18_000,
+            updatedAt = now - 18_000
+        )
+        val staleReviewTask = AgentTask(
+            id = "task-review-stale-lineage",
+            workspaceId = workspace.id,
+            title = staleReviewIssue.title,
+            prompt = staleReviewIssue.description,
+            agents = listOf("codex"),
+            issueId = staleReviewIssue.id,
+            status = DesktopTaskStatus.COMPLETED,
+            createdAt = now - 17_000,
+            updatedAt = now - 16_000
+        )
+        val staleReviewRun = AgentRun(
+            id = "run-review-stale-lineage",
+            taskId = staleReviewTask.id,
+            workspaceId = workspace.id,
+            repositoryId = company.repositoryId,
+            agentName = "codex",
+            repoRoot = repoRoot.toString(),
+            baseBranch = "master",
+            status = AgentRunStatus.COMPLETED,
+            output = "QA_VERDICT: CHANGES_REQUESTED\nThe old PR still only updates on submit.",
+            branchName = executionIssue.branchName!!,
+            worktreePath = executionIssue.worktreePath!!,
+            durationMs = 200,
+            createdAt = now - 17_000,
+            updatedAt = now - 16_000
+        )
+        val executionTask = AgentTask(
+            id = "task-execution-fresh-qa-lineage",
+            workspaceId = workspace.id,
+            title = executionIssue.title,
+            prompt = executionIssue.description,
+            agents = listOf("codex"),
+            issueId = executionIssue.id,
+            status = DesktopTaskStatus.COMPLETED,
+            createdAt = now - 5_000,
+            updatedAt = now - 4_000
+        )
+        val executionRun = AgentRun(
+            id = "run-execution-fresh-qa-lineage",
+            taskId = executionTask.id,
+            workspaceId = workspace.id,
+            repositoryId = company.repositoryId,
+            agentName = "codex",
+            repoRoot = repoRoot.toString(),
+            baseBranch = "master",
+            status = AgentRunStatus.COMPLETED,
+            output = "Published a new retry branch.",
+            branchName = "codex/cotor/new-pr/codex",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/new-pr/codex").toString(),
+            publish = PublishMetadata(
+                commitSha = "newretry",
+                pullRequestNumber = 22,
+                pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+                pullRequestState = "OPEN"
+            ),
+            durationMs = 250,
+            createdAt = now - 5_000,
+            updatedAt = now - 4_000
+        )
+        val staleQueueItem = ReviewQueueItem(
+            id = "rq-stale-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            issueId = executionIssue.id,
+            runId = staleReviewRun.id,
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = 11,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/11",
+            pullRequestState = "OPEN",
+            status = ReviewQueueStatus.CHANGES_REQUESTED,
+            checksSummary = "Old QA requested changes.",
+            qaVerdict = "CHANGES_REQUESTED",
+            qaFeedback = "The old PR still only updates on submit.",
+            qaReviewedAt = now - 16_500,
+            qaIssueId = staleReviewIssue.id,
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "Do not merge the superseded branch.",
+            ceoReviewedAt = now - 16_000,
+            approvalIssueId = staleApprovalIssue.id,
+            createdAt = now - 18_000,
+            updatedAt = now - 16_000
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + listOf(executionIssue, staleReviewIssue, staleApprovalIssue),
+                tasks = baseState.tasks + listOf(executionTask, staleReviewTask),
+                runs = baseState.runs + listOf(executionRun, staleReviewRun),
+                reviewQueue = baseState.reviewQueue + staleQueueItem,
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = company.id,
+                        status = CompanyRuntimeStatus.RUNNING,
+                        backendKind = ExecutionBackendKind.LOCAL_COTOR,
+                        backendHealth = "healthy",
+                        lastStartedAt = now
+                    )
+                )
+            )
+        )
+
+        service.runCompanyRuntimeTick(company.id)
+
+        val refreshed = stateStore.load()
+        val refreshedExecution = refreshed.issues.first { it.id == executionIssue.id }
+        refreshedExecution.status shouldBe IssueStatus.IN_REVIEW
+        refreshedExecution.pullRequestNumber shouldBe 22
+        refreshedExecution.pullRequestUrl shouldBe "https://github.com/heodongun/cotor-test/pull/22"
+        refreshedExecution.qaVerdict.shouldBeNull()
+        refreshedExecution.ceoVerdict.shouldBeNull()
+        refreshed.issues.any { it.id == staleReviewIssue.id } shouldBe false
+        refreshed.issues.any { it.id == staleApprovalIssue.id } shouldBe false
+        val newReviewIssue = refreshed.issues.first {
+            it.kind.equals("review", ignoreCase = true) && it.dependsOn == listOf(executionIssue.id)
+        }
+        newReviewIssue.id shouldNotBe staleReviewIssue.id
+        newReviewIssue.pullRequestNumber shouldBe 22
+        setOf(IssueStatus.PLANNED, IssueStatus.DELEGATED, IssueStatus.IN_PROGRESS).contains(newReviewIssue.status) shouldBe true
+        newReviewIssue.qaVerdict.shouldBeNull()
+        newReviewIssue.ceoVerdict.shouldBeNull()
+        val refreshedQueue = refreshed.reviewQueue.first { it.issueId == executionIssue.id }
+        refreshedQueue.id shouldNotBe staleQueueItem.id
+        refreshedQueue.pullRequestNumber shouldBe 22
+        refreshedQueue.qaIssueId shouldBe newReviewIssue.id
+        refreshedQueue.approvalIssueId.shouldBeNull()
+        refreshedQueue.qaVerdict.shouldBeNull()
+        refreshedQueue.ceoVerdict.shouldBeNull()
+        setOf(ReviewQueueStatus.AWAITING_QA, ReviewQueueStatus.READY_FOR_CEO).contains(refreshedQueue.status) shouldBe true
+        if (newReviewIssue.status in setOf(IssueStatus.DELEGATED, IssueStatus.IN_PROGRESS)) {
+            refreshed.tasks.any {
+                it.issueId == newReviewIssue.id &&
+                    it.status in setOf(DesktopTaskStatus.QUEUED, DesktopTaskStatus.RUNNING, DesktopTaskStatus.COMPLETED)
+            } shouldBe true
+        }
+        coVerify(exactly = 1) { gitWorkspaceService.closePullRequest(any(), 11, any()) }
+        coVerify(exactly = 0) { gitWorkspaceService.submitPullRequestReview(any(), any(), any(), any()) }
+    }
+
+    test("company dashboard heals a stale QA lineage while the runtime is stopped") {
+        val appHome = Files.createTempDirectory("desktop-app-service-heal-stale-qa-lineage")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-heal-stale-qa-lineage-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "Heal Stale QA Lineage Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-heal-stale-qa-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Heal stale QA lineage",
+            description = "Dashboard healing should rebuild QA review for the latest PR.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = true,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-heal-stale-qa-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Deliver the latest PR",
+            description = "The latest retry is published on PR #22.",
+            status = IssueStatus.PLANNED,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/current-pr/codex",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/current/codex").toString(),
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "OPEN",
+            qaVerdict = "CHANGES_REQUESTED",
+            qaFeedback = "Old QA result is still attached.",
+            createdAt = now - 10_000,
+            updatedAt = now - 9_000
+        )
+        val staleReviewIssue = CompanyIssue(
+            id = "issue-review-heal-stale-qa-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "QA review Deliver the latest PR",
+            description = "Old QA issue for a superseded review cycle.",
+            status = IssueStatus.BLOCKED,
+            priority = 2,
+            kind = "review",
+            dependsOn = listOf(executionIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = "CHANGES_REQUESTED",
+            qaFeedback = "The stale branch still only updates on submit.",
+            sourceSignal = "qa-review:${executionIssue.id}",
+            createdAt = now - 8_000,
+            updatedAt = now - 1_000
+        )
+        val staleReviewTask = AgentTask(
+            id = "task-review-heal-stale-qa-lineage",
+            workspaceId = workspace.id,
+            title = staleReviewIssue.title,
+            prompt = "Review the stale branch evidence.",
+            agents = listOf("codex"),
+            issueId = staleReviewIssue.id,
+            status = DesktopTaskStatus.COMPLETED,
+            createdAt = now - 8_000,
+            updatedAt = now - 7_000
+        )
+        val staleReviewRun = AgentRun(
+            id = "run-review-heal-stale-qa-lineage",
+            taskId = staleReviewTask.id,
+            workspaceId = workspace.id,
+            repositoryId = company.repositoryId,
+            agentName = "codex",
+            repoRoot = repoRoot.toString(),
+            baseBranch = "master",
+            status = AgentRunStatus.COMPLETED,
+            output = "QA_VERDICT: CHANGES_REQUESTED\nThe stale branch still only updates on submit.",
+            branchName = "codex/cotor/stale-pr/codex",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/stale/codex").toString(),
+            durationMs = 250,
+            createdAt = now - 8_000,
+            updatedAt = now - 7_000
+        )
+        val executionTask = AgentTask(
+            id = "task-execution-heal-stale-qa-lineage",
+            workspaceId = workspace.id,
+            title = executionIssue.title,
+            prompt = executionIssue.description,
+            agents = listOf("codex"),
+            issueId = executionIssue.id,
+            status = DesktopTaskStatus.COMPLETED,
+            createdAt = now - 6_000,
+            updatedAt = now - 5_000
+        )
+        val executionRun = AgentRun(
+            id = "run-execution-heal-stale-qa-lineage",
+            taskId = executionTask.id,
+            workspaceId = workspace.id,
+            repositoryId = company.repositoryId,
+            agentName = "codex",
+            repoRoot = repoRoot.toString(),
+            baseBranch = "master",
+            status = AgentRunStatus.COMPLETED,
+            output = "Published the latest PR retry with the requested interaction update.",
+            branchName = executionIssue.branchName!!,
+            worktreePath = executionIssue.worktreePath!!,
+            publish = PublishMetadata(
+                commitSha = "2222222",
+                pullRequestNumber = 22,
+                pullRequestUrl = executionIssue.pullRequestUrl,
+                pullRequestState = "OPEN"
+            ),
+            durationMs = 250,
+            createdAt = now - 6_000,
+            updatedAt = now - 5_000
+        )
+        val staleQueueItem = ReviewQueueItem(
+            id = "rq-heal-stale-qa-lineage",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            issueId = executionIssue.id,
+            runId = executionRun.id,
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = 22,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = "OPEN",
+            status = ReviewQueueStatus.CHANGES_REQUESTED,
+            checksSummary = "Stale QA verdict is still attached.",
+            qaVerdict = "CHANGES_REQUESTED",
+            qaFeedback = "The stale branch still only updates on submit.",
+            qaReviewedAt = now - 6_500,
+            qaIssueId = staleReviewIssue.id,
+            createdAt = now - 6_000,
+            updatedAt = now - 5_000
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + listOf(executionIssue, staleReviewIssue),
+                tasks = baseState.tasks + listOf(executionTask, staleReviewTask),
+                runs = baseState.runs + listOf(executionRun, staleReviewRun),
+                reviewQueue = baseState.reviewQueue + staleQueueItem,
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(
+                        companyId = company.id,
+                        status = CompanyRuntimeStatus.STOPPED,
+                        lastAction = "runtime-stopped",
+                        manuallyStoppedAt = now - 1000
+                    )
+                )
+            )
+        )
+
+        service.companyDashboard(company.id)
+
+        lateinit var healedState: DesktopAppState
+        withTimeout(5_000) {
+            while (true) {
+                service.companyDashboard(company.id)
+                healedState = stateStore.load()
+                val healedQueue = healedState.reviewQueue.firstOrNull { it.issueId == executionIssue.id }
+                val healedReviewIssue = healedQueue?.qaIssueId?.let { healedState.issues.firstOrNull { issue -> issue.id == it } }
+                if (
+                    healedQueue != null &&
+                    healedReviewIssue != null &&
+                    healedQueue.qaVerdict == null &&
+                    healedQueue.status == ReviewQueueStatus.AWAITING_QA &&
+                    healedReviewIssue.id != staleReviewIssue.id &&
+                    healedReviewIssue.workflowLineage != null
+                ) {
+                    break
+                }
+                delay(50)
+            }
+        }
+
+        val healedQueue = healedState.reviewQueue.first { it.issueId == executionIssue.id }
+        val healedExecution = healedState.issues.first { it.id == executionIssue.id }
+        val healedReviewIssue = healedState.issues.first { it.id == healedQueue.qaIssueId }
+        healedState.issues.any { it.id == staleReviewIssue.id } shouldBe false
+        healedExecution.status shouldBe IssueStatus.IN_REVIEW
+        healedExecution.qaVerdict.shouldBeNull()
+        healedQueue.status shouldBe ReviewQueueStatus.AWAITING_QA
+        healedQueue.qaVerdict.shouldBeNull()
+        healedQueue.workflowLineage.shouldNotBeNull()
+        healedReviewIssue.workflowLineage shouldBe healedQueue.workflowLineage
+    }
+
     test("runtime does not reopen QA review after the same PR already advanced to CEO review") {
         val appHome = Files.createTempDirectory("desktop-app-service-execution-resync-guard")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-execution-resync-guard-repo").resolve("repo"))
@@ -6341,6 +6996,7 @@ class DesktopAppServiceTest : FunSpec({
         updated.status shouldBe ReviewQueueStatus.CHANGES_REQUESTED
         updated.ceoVerdict shouldBe "CHANGES_REQUESTED"
         updated.ceoFeedback.shouldContain("GitHub could not merge this pull request cleanly.")
+        coVerify(exactly = 0) { gitWorkspaceService.mergePullRequest(any(), 22) }
         coVerify(exactly = 0) { gitWorkspaceService.syncBaseBranchAfterMerge(any(), any()) }
 
         val finalState = stateStore.load()
@@ -6498,6 +7154,261 @@ class DesktopAppServiceTest : FunSpec({
         coVerify(exactly = 1) {
             gitWorkspaceService.refreshPullRequestMetadata(worktreePath, 22)
         }
+    }
+
+    test("company runtime tick requeues legacy blocked execution issues for dirty CEO merge conflicts") {
+        val appHome = Files.createTempDirectory("desktop-app-service-legacy-merge-conflict-requeue")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-legacy-merge-conflict-requeue-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "Legacy Merge Conflict Requeue Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-legacy-merge-conflict-requeue",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Recover old merge conflict blockers",
+            description = "Normalize execution issues that stayed blocked after an old CEO merge conflict.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-legacy-merge-conflict-requeue",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Republish the conflicted PR",
+            description = "Execution branch work.",
+            status = IssueStatus.BLOCKED,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/legacy-merge-conflict-requeue/codex",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/legacy-merge-conflict-requeue/codex").toString(),
+            pullRequestNumber = 321,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/321",
+            pullRequestState = "OPEN",
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            transitionReason = "Execution failed and requires a recoverable retry or remediation.",
+            createdAt = now,
+            updatedAt = now
+        )
+        val approvalIssue = CompanyIssue(
+            id = "issue-approval-legacy-merge-conflict-requeue",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "CEO approve Republish the conflicted PR",
+            description = "CEO approval gate.",
+            status = IssueStatus.BLOCKED,
+            priority = 1,
+            kind = "approval",
+            dependsOn = listOf(executionIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            transitionReason = "Merge is blocked until the execution branch is rebased and conflicts are resolved.",
+            sourceSignal = "ceo-approval:${executionIssue.id}",
+            createdAt = now,
+            updatedAt = now
+        )
+        val reviewQueueItem = ReviewQueueItem(
+            id = "rq-legacy-merge-conflict-requeue",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            issueId = executionIssue.id,
+            runId = "run-legacy-merge-conflict-requeue",
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = 321,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = "OPEN",
+            status = ReviewQueueStatus.CHANGES_REQUESTED,
+            mergeability = "DIRTY",
+            qaVerdict = "PASS",
+            qaFeedback = "QA approved this PR.",
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            ceoReviewedAt = now - 500,
+            approvalIssueId = approvalIssue.id,
+            createdAt = now - 10_000,
+            updatedAt = now - 500
+        )
+        val runningRuntime = baseState.companyRuntimes.first { it.companyId == company.id }.copy(
+            status = CompanyRuntimeStatus.RUNNING,
+            lastStartedAt = now - 5_000,
+            lastAction = "runtime-started",
+            adaptiveTickMs = 15_000
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + listOf(executionIssue, approvalIssue),
+                reviewQueue = baseState.reviewQueue + reviewQueueItem,
+                companyRuntimes = baseState.companyRuntimes.map {
+                    if (it.companyId == company.id) runningRuntime else it
+                }
+            )
+        )
+
+        service.runCompanyRuntimeTick(company.id)
+
+        val refreshedState = stateStore.load()
+        val refreshedExecution = refreshedState.issues.first { it.id == executionIssue.id }
+        val refreshedApproval = refreshedState.issues.first { it.id == approvalIssue.id }
+        val refreshedQueue = refreshedState.reviewQueue.first { it.id == reviewQueueItem.id }
+
+        refreshedExecution.status shouldBe IssueStatus.PLANNED
+        refreshedExecution.transitionReason.shouldContain("legacy CEO merge-conflict blocker")
+        refreshedApproval.status shouldBe IssueStatus.BLOCKED
+        refreshedQueue.status shouldBe ReviewQueueStatus.CHANGES_REQUESTED
+    }
+
+    test("company dashboard read requeues legacy blocked execution issues for dirty CEO merge conflicts while stopped") {
+        val appHome = Files.createTempDirectory("desktop-app-service-dashboard-merge-conflict-requeue")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-app-service-dashboard-merge-conflict-requeue-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        coEvery { gitWorkspaceService.closeSupersededManagedPullRequests(any(), any()) } returns ManagedPullRequestCleanupResult()
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "Dashboard Merge Conflict Requeue Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val baseState = stateStore.load()
+        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+        val now = System.currentTimeMillis()
+        val goal = CompanyGoal(
+            id = "goal-dashboard-merge-conflict-requeue",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            title = "Requeue blocked execution from dashboard refresh",
+            description = "Normalize a merge-conflict blocker even if the runtime is manually stopped.",
+            status = GoalStatus.ACTIVE,
+            autonomyEnabled = false,
+            createdAt = now,
+            updatedAt = now
+        )
+        val executionIssue = CompanyIssue(
+            id = "issue-execution-dashboard-merge-conflict-requeue",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "Republish the conflicted PR from dashboard refresh",
+            description = "Execution branch work.",
+            status = IssueStatus.BLOCKED,
+            priority = 2,
+            kind = "execution",
+            branchName = "codex/cotor/dashboard-merge-conflict-requeue/codex",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/dashboard-merge-conflict-requeue/codex").toString(),
+            pullRequestNumber = 321,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/321",
+            pullRequestState = "OPEN",
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            transitionReason = "Execution failed and requires a recoverable retry or remediation.",
+            createdAt = now,
+            updatedAt = now
+        )
+        val approvalIssue = CompanyIssue(
+            id = "issue-approval-dashboard-merge-conflict-requeue",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = "CEO approve Republish the conflicted PR from dashboard refresh",
+            description = "CEO approval gate.",
+            status = IssueStatus.BLOCKED,
+            priority = 1,
+            kind = "approval",
+            dependsOn = listOf(executionIssue.id),
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            transitionReason = "Merge is blocked until the execution branch is rebased and conflicts are resolved.",
+            sourceSignal = "ceo-approval:${executionIssue.id}",
+            createdAt = now,
+            updatedAt = now
+        )
+        val reviewQueueItem = ReviewQueueItem(
+            id = "rq-dashboard-merge-conflict-requeue",
+            companyId = company.id,
+            projectContextId = projectContext.id,
+            issueId = executionIssue.id,
+            runId = "run-dashboard-merge-conflict-requeue",
+            branchName = executionIssue.branchName,
+            worktreePath = executionIssue.worktreePath,
+            pullRequestNumber = executionIssue.pullRequestNumber,
+            pullRequestUrl = executionIssue.pullRequestUrl,
+            pullRequestState = executionIssue.pullRequestState,
+            status = ReviewQueueStatus.CHANGES_REQUESTED,
+            mergeability = "DIRTY",
+            ceoVerdict = "CHANGES_REQUESTED",
+            ceoFeedback = "GitHub could not merge this pull request cleanly.",
+            approvalIssueId = approvalIssue.id,
+            createdAt = now,
+            updatedAt = now
+        )
+        stateStore.save(
+            baseState.copy(
+                goals = baseState.goals + goal,
+                issues = baseState.issues + listOf(executionIssue, approvalIssue),
+                reviewQueue = baseState.reviewQueue + reviewQueueItem
+            )
+        )
+
+        service.companyDashboard(company.id)
+        withTimeout(2_000) {
+            while (stateStore.load().issues.first { it.id == executionIssue.id }.status != IssueStatus.PLANNED) {
+                delay(25)
+            }
+        }
+
+        val refreshedState = stateStore.load()
+        val refreshedExecution = refreshedState.issues.first { it.id == executionIssue.id }
+        refreshedExecution.status shouldBe IssueStatus.PLANNED
+        refreshedExecution.transitionReason.shouldContain("legacy CEO merge-conflict blocker")
     }
 
     test("company runtime tick restores CEO approval when a remediation run reuses an existing clean PR without new diff") {

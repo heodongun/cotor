@@ -109,12 +109,18 @@ cotor delete
 - 회사 live update는 무거운 전체 refresh 대신 company event stream + 회사 전용 dashboard snapshot으로 상태를 반영
 - 회사 실시간 stream이 끊기면 마지막 snapshot은 유지한 채 `회사 실시간 업데이트 연결이 끊어졌습니다. 다시 동기화하는 중...` 메시지를 보여주며 복구
 - 런타임 건강도, 차단 워크플로우 수, 리뷰 주의 수, 최근 오류/동작을 한곳에 모아 둔 압축형 회사 요약 배너
+- 압축형 회사 요약과 회사 설정에서 선택한 런타임의 추정 비용과 일/월 비용 상한도 함께 표시
 - 고정된 보드 surface 안에서도 lane 내부 스크롤로 차단/리뷰 카드가 길게 쌓여도 읽을 수 있는 이슈 보드
+- stale한 Cotor retry PR은 배치 정리로 닫아서 리뷰 루프가 오래된 open PR을 계속 쌓아 두지 않게 함
 - 연결된 GitHub PR이 다시 clean 상태가 되면 stale CEO merge-conflict 차단도 자동으로 다시 열림
+- 예전 CEO merge-conflict 때문에 execution 이슈가 `BLOCKED`에 남아 있던 경우도 다시 `PLANNED`로 되돌려 rebase와 republish를 이어서 할 수 있게 함
 - PR이 이미 머지됐는데 stale execution sync 때문에 막혀 남은 execution 이슈도 다음 runtime tick에서 자동으로 닫힘
 - 런타임 시작/중지/상태
 - 회사 런타임을 명시적으로 중지하면 앱 재실행이나 회사 refresh 뒤에도 사용자가 다시 시작할 때까지 그대로 유지
 - 회사 모드 이벤트마다 전체 데스크톱 새로고침을 돌리지 않고, 회사 전용 dashboard snapshot으로 상태를 바로 패치
+- 한 wave의 goal work가 끝나면 CEO planning lane을 다시 열어서 첫 decomposition 이후 goal이 얼어붙지 않게 함
+- continuous improvement goal은 roster가 허용하면 여러 branchable issue와 병렬 slice를 만들도록 유도
+- 짧은 고수준 goal 설명도 더 넓은 execution portfolio로 보강해서, 큰 roster가 한두 개 이슈로만 줄어들지 않게 함
 
 ### `TUI`
 
@@ -170,6 +176,7 @@ cotor delete
 - 리뷰 큐 아이템 생성 및 머지 처리
 - 정상적인 회사 모드에서는 수동 새로고침 없이 회사 활동 조회
 - 압축형 회사 요약 배너에서 런타임 건강도, 차단/리뷰 주의, 최근 런타임 신호 조회
+- 회사 콘솔 안에서 추정 비용을 확인하고 일/월 비용 상한을 조정
 - GitHub PR 발행이 필요한데 `gh`/`origin` 준비가 안 된 저장소는 회사 생성 시 경고
 - 로컬 런타임 루프의 시작/중지/상태 확인
 - active autonomous goal이 남아 있어도, 수동으로 중지한 회사 런타임은 사용자가 다시 시작할 때까지 유지
@@ -182,6 +189,6 @@ cotor delete
 
 - macOS 셸만 지원합니다.
 - Linear sync는 회사 단위 outward mirror이며, 기존 Linear 이슈를 다시 Cotor로 가져오지는 않습니다.
-- 런타임 자동화에는 정책 엔진과 후속 이슈 생성이 아직 없습니다.
+- 런타임 자동화에는 아직 계획된 정책 엔진이 없습니다.
 - 리뷰/PR 동기화는 현재 로컬 상태 중심이며, 완전한 GitHub/CI live orchestration은 아닙니다.
 - `resume`은 여전히 체크포인트 조회 성격이고 전체 실행 재개는 아닙니다.

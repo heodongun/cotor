@@ -75,6 +75,15 @@ sequenceDiagram
 - **관측 가능성**
   - 동일한 모니터 이벤트를 CLI, TUI, Web이 공유해 일관된 상태 표시가 가능합니다.
 
+## 5) 회사 워크플로 불변 조건
+
+회사 자동화 레이어는 일반 파이프라인 런너보다 더 엄격한 workflow 불변 조건을 가집니다.
+
+- review queue 항목, QA 이슈, CEO approval 이슈, workflow task, workflow run은 한 번의 PR review cycle을 나타내는 explicit workflow lineage metadata로 묶입니다
+- 같은 execution 이슈에서 더 새로운 PR이 publish되면 예전 review lineage는 원자적으로 supersede 되어야 하며, stale QA/CEO verdict가 새 PR cycle에 흘러들어가면 안 됩니다
+- 예전 회사 상태는 startup healing, 회사 dashboard read, runtime tick에서 자동으로 복구되어야 하며, stale workflow 결과를 조용히 재사용하면 안 됩니다
+- merge conflict 복구와 stale PR 정리는 superseded lineage에 연결되어야 하며, 그래야 회사가 blocked review 흔적을 남기지 않고 계속 진행할 수 있습니다
+
 ## 관련 문서
 
 - [QUICK_START.md](QUICK_START.md)

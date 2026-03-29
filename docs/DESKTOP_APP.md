@@ -105,12 +105,18 @@ The current macOS shell has two top-level modes.
   - live company updates use the company event stream plus a focused company dashboard snapshot, not a heavyweight full refresh on every event
   - if the live company stream disconnects, the UI keeps the last company snapshot and shows `Live company updates disconnected. Re-syncing...` while it recovers
   - compact company summary banner that keeps runtime health, blocked workflows, review attention, and the latest error/action in one place
+  - compact company summary and company settings now surface estimated spend plus daily/monthly cost guardrails for the selected runtime
   - scrollable issue-board lanes so tall blocked/review queues stay readable inside the fixed board surface
+  - stale Cotor-managed retry PRs are reconciled and closed in batches so the review loop does not keep piling up obsolete open PRs
   - stale CEO merge-conflict blocks are reopened automatically once the linked GitHub PR reports a clean merge state again
+  - legacy CEO merge-conflict blockers that left execution stuck in `BLOCKED` are pushed back to `PLANNED` so the company can rebase and republish on the next wave
   - stale execution issues that were accidentally left blocked after a PR already merged are closed automatically on the next runtime tick
   - runtime start/stop/status
   - an explicit runtime stop remains sticky across app restarts and company refreshes until the user starts that company again
   - company mode uses a focused company dashboard snapshot instead of forcing a full desktop refresh on every event
+  - when one wave of goal work finishes, the CEO planning lane can reopen for the next wave instead of freezing the goal after the first decomposition
+  - continuous improvement goals now ask for multi-issue portfolios and parallel branchable work when the roster can support it
+  - short high-level goal descriptions are enriched into a broader execution portfolio so larger rosters do not collapse into only one or two issues
 - `TUI`
   - independent from company workflow state
   - folder or repository selection for launching standalone `cotor` sessions
@@ -164,6 +170,7 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - populate and merge review queue items
 - inspect company activity without manual refresh in normal company mode
 - inspect runtime health, blocked/review attention, and the latest runtime signal from the compact company summary banner
+- inspect estimated spend and adjust daily/monthly cost guardrails without leaving the company console
 - warn during company creation when GitHub PR publishing is required but the repository is not ready for `gh`/`origin` publishing
 - start, stop, and inspect the local runtime loop
 - keep an explicit company stop sticky until the user presses Start again, even if active autonomous goals still exist
@@ -176,6 +183,6 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 
 - macOS shell only
 - Linear sync is company-scoped and mirrors Cotor-managed issues outward; it does not yet import existing Linear issues back into Cotor
-- runtime automation does not yet include the planned policy engine or follow-up issue generation
+- runtime automation does not yet include the planned policy engine
 - review and PR sync are local-state driven in this build, not full live GitHub/CI orchestration
 - `resume` remains a checkpoint inspection flow, not full run resumption

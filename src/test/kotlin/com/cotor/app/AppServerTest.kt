@@ -705,6 +705,8 @@ class AppServerTest : FunSpec({
                     rootPath = "/tmp/cotor",
                     repositoryId = "repo-1",
                     defaultBaseBranch = "master",
+                    dailyBudgetCents = 1500,
+                    monthlyBudgetCents = 12000,
                     createdAt = 1L,
                     updatedAt = 1L
                 )
@@ -740,7 +742,11 @@ class AppServerTest : FunSpec({
             runtime = CompanyRuntimeSnapshot(
                 companyId = "company-1",
                 status = CompanyRuntimeStatus.RUNNING,
-                lastAction = "monitoring-active-runs"
+                lastAction = "monitoring-active-runs",
+                todaySpentCents = 245,
+                monthSpentCents = 1180,
+                budgetPausedAt = 5L,
+                budgetResetDate = "2026-03-28"
             )
         )
 
@@ -772,6 +778,55 @@ class AppServerTest : FunSpec({
             response.bodyAsText() shouldContain "\"backendKind\":\"LOCAL_COTOR\""
             response.bodyAsText() shouldContain "\"backendHealth\":\"unknown\""
             response.bodyAsText() shouldContain "\"backendLifecycleState\":\"STOPPED\""
+            response.bodyAsText() shouldContain "\"dailyBudgetCents\":1500"
+            response.bodyAsText() shouldContain "\"monthlyBudgetCents\":12000"
+            response.bodyAsText() shouldContain "\"todaySpentCents\":245"
+            response.bodyAsText() shouldContain "\"monthSpentCents\":1180"
+            response.bodyAsText() shouldContain "\"budgetPausedAt\":5"
+        }
+    }
+
+    test("company patch route accepts spend guardrails when authorized") {
+        coEvery {
+            desktopService.updateCompany(
+                companyId = "company-1",
+                name = null,
+                defaultBaseBranch = null,
+                autonomyEnabled = null,
+                backendKind = null,
+                dailyBudgetCents = 1500,
+                monthlyBudgetCents = 12000
+            )
+        } returns Company(
+            id = "company-1",
+            name = "Cotor",
+            rootPath = "/tmp/cotor",
+            repositoryId = "repo-1",
+            defaultBaseBranch = "master",
+            dailyBudgetCents = 1500,
+            monthlyBudgetCents = 12000,
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.patch("/api/app/companies/company-1") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody("""{"dailyBudgetCents":1500,"monthlyBudgetCents":12000}""")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"dailyBudgetCents\":1500"
+            response.bodyAsText() shouldContain "\"monthlyBudgetCents\":12000"
         }
     }
 

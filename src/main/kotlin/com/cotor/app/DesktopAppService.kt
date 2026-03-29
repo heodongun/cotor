@@ -122,6 +122,7 @@ class DesktopAppService(
         private const val RECOVERABLE_RETRY_BASE_DELAY_MS = 30_000L
         private const val RECOVERABLE_RETRY_MAX_DELAY_MS = 5L * 60_000L
         private const val RECOVERABLE_RETRY_MAX_ATTEMPTS = 3
+        private const val SUPERSEDED_PR_RECONCILIATION_INTERVAL_MS = 5L * 60_000L
         private const val CEO_PLANNING_SOURCE = "ceo-planning"
         private const val QA_REVIEW_SOURCE_PREFIX = "qa-review:"
         private const val CEO_APPROVAL_SOURCE_PREFIX = "ceo-approval:"
@@ -144,6 +145,7 @@ class DesktopAppService(
     private val activeTaskJobs: MutableMap<String, Job> = ConcurrentHashMap()
     private val intentionallyInterruptedTaskIds = ConcurrentHashMap.newKeySet<String>()
     private val recentCompanyAutomationTraceKeys = ConcurrentHashMap<String, Long>()
+    private val recentSupersededPullRequestCleanupAt = ConcurrentHashMap<String, Long>()
     private val companyEventStream = MutableSharedFlow<CompanyEventEnvelope>(replay = 0, extraBufferCapacity = 64)
     private val backendJson = Json { ignoreUnknownKeys = true }
     private val localExecutionBackend = LocalCotorBackend(agentExecutor)
@@ -297,6 +299,9 @@ class DesktopAppService(
     }
 
     private fun queueAutomationRefresh(companyId: String? = null) {
+        if (companyId != null && automationRefreshJobs["__all__"]?.isActive == true) {
+            return
+        }
         val key = companyId ?: "__all__"
         if (automationRefreshJobs[key]?.isActive == true) {
             return
@@ -327,10 +332,13 @@ class DesktopAppService(
             .filter { companyId == null || it == companyId }
         targetCompanyIds.forEach { activeCompanyId ->
             normalizeCompanyAutomationState(activeCompanyId)
+            repairWorkflowLineages(activeCompanyId)
             reconcileNonPublishingReviewRuns(activeCompanyId)
             reconcileTerminalIssueStates(activeCompanyId)
             archiveRecursiveFollowUpGoals(activeCompanyId)
             requeueRecoverableBlockedIssues(activeCompanyId)
+            requeueLegacyMergeConflictExecutionIssues(activeCompanyId)
+            reconcileSupersededManagedPullRequests(activeCompanyId)
         }
         stimulateAutonomousCompanyProgress(companyId)
     }
@@ -519,6 +527,7 @@ class DesktopAppService(
                 !hasActiveCompanyTasks(preResumeState, runningCompanyId)
             val queuedIssueCount = queuedCompanyIssueCount(preResumeState, runningCompanyId)
             val runtimeLoopActive = companyRuntimeJobs[runningCompanyId]?.isActive == true
+            val shouldRecordResume = queuedIssueCount > 0 && (!runtimeLoopActive || shouldForceResumeTick)
             if (!runtimeLoopActive) {
                 runCatching { startCompanyBackend(runningCompanyId) }
                     .onFailure { cause -> markCompanyRuntimeError(runningCompanyId, cause) }
@@ -530,7 +539,7 @@ class DesktopAppService(
             if (!runtimeLoopActive || shouldForceResumeTick) {
                 runCatching { runCompanyRuntimeTick(runningCompanyId) }
                     .onFailure { cause -> markCompanyRuntimeError(runningCompanyId, cause) }
-                if (shouldForceResumeTick && queuedIssueCount > 0) {
+                if (shouldRecordResume) {
                     recordCompanyRuntimeResume(runningCompanyId, queuedIssueCount)
                 }
             }
@@ -1020,7 +1029,9 @@ class DesktopAppService(
         name: String,
         rootPath: String,
         defaultBaseBranch: String? = null,
-        autonomyEnabled: Boolean = true
+        autonomyEnabled: Boolean = true,
+        dailyBudgetCents: Int? = null,
+        monthlyBudgetCents: Int? = null
     ): Company = stateMutex.withLock {
         // Company creation is the bridge from an arbitrary checkout on disk to the product's
         // higher-level operating model. The method normalizes the repo root, ensures a managed
@@ -1053,6 +1064,8 @@ class DesktopAppService(
                 repositoryId = repository.id,
                 defaultBaseBranch = resolvedBranch,
                 autonomyEnabled = autonomyEnabled,
+                dailyBudgetCents = normalizeBudgetOverride(dailyBudgetCents, existing.dailyBudgetCents),
+                monthlyBudgetCents = normalizeBudgetOverride(monthlyBudgetCents, existing.monthlyBudgetCents),
                 updatedAt = now
             )
             val refreshedState = loadedState.copy(
@@ -1085,6 +1098,8 @@ class DesktopAppService(
             defaultBaseBranch = resolvedBranch,
             backendKind = initialBackendKind,
             autonomyEnabled = autonomyEnabled,
+            dailyBudgetCents = dailyBudgetCents?.takeIf { it > 0 },
+            monthlyBudgetCents = monthlyBudgetCents?.takeIf { it > 0 },
             createdAt = now,
             updatedAt = now
         )
@@ -1141,7 +1156,9 @@ class DesktopAppService(
         name: String? = null,
         defaultBaseBranch: String? = null,
         autonomyEnabled: Boolean? = null,
-        backendKind: ExecutionBackendKind? = null
+        backendKind: ExecutionBackendKind? = null,
+        dailyBudgetCents: Int? = null,
+        monthlyBudgetCents: Int? = null
     ): Company = stateMutex.withLock {
         val state = stateStore.load()
         val company = state.companies.firstOrNull { it.id == companyId }
@@ -1151,6 +1168,8 @@ class DesktopAppService(
             defaultBaseBranch = defaultBaseBranch?.trim()?.takeIf { it.isNotBlank() } ?: company.defaultBaseBranch,
             backendKind = backendKind ?: company.backendKind,
             autonomyEnabled = autonomyEnabled ?: company.autonomyEnabled,
+            dailyBudgetCents = normalizeBudgetOverride(dailyBudgetCents, company.dailyBudgetCents),
+            monthlyBudgetCents = normalizeBudgetOverride(monthlyBudgetCents, company.monthlyBudgetCents),
             updatedAt = System.currentTimeMillis()
         )
         val nextState = state.copy(
@@ -2231,7 +2250,10 @@ class DesktopAppService(
             val state = stateStore.load()
             val existing = state.issues.filter { it.goalId == goalId }
             val existingNonPlanning = existing.filterNot { it.kind.equals("planning", ignoreCase = true) }
-            if (existingNonPlanning.isNotEmpty()) {
+            val unresolvedNonPlanning = existingNonPlanning.filterNot { issue ->
+                issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED
+            }
+            if (unresolvedNonPlanning.isNotEmpty()) {
                 return existing.sortedByDescending { it.updatedAt }
             }
             val existingPlanningIssue = existing.firstOrNull { it.kind.equals("planning", ignoreCase = true) }
@@ -2244,7 +2266,10 @@ class DesktopAppService(
             if (existingPlanningIssue != null && existingPlanningTaskRunning) {
                 return existing.sortedByDescending { it.updatedAt }
             }
-            if (existingPlanningIssue != null && existingPlanningIssue.status == IssueStatus.DONE) {
+            if (existingPlanningIssue != null &&
+                existingPlanningIssue.status == IssueStatus.DONE &&
+                unresolvedNonPlanning.isNotEmpty()
+            ) {
                 return existing.sortedByDescending { it.updatedAt }
             }
             val goal = state.goals.firstOrNull { it.id == goalId }
@@ -2267,7 +2292,7 @@ class DesktopAppService(
             )
             val planningIssue = existingPlanningIssue?.copy(
                 assigneeProfileId = chiefProfile?.id ?: existingPlanningIssue.assigneeProfileId,
-                status = if (existingPlanningIssue.status == IssueStatus.DONE) IssueStatus.DONE else IssueStatus.PLANNED,
+                status = IssueStatus.PLANNED,
                 transitionReason = "CEO planning lane is preparing explicit issue assignments for this goal.",
                 updatedAt = now
             ) ?: CompanyIssue(
@@ -2317,60 +2342,60 @@ class DesktopAppService(
                 goalId = goal.id,
                 issueId = planningIssue.id
             )
-            if (planningIssue.status == IssueStatus.DONE) null else planningIssue.id
+            planningIssue.id
         }
-        // Run the fallback planner synchronously so that downstream execution,
-        // review, and approval issues exist by the time decomposeGoal returns.
-        // This avoids going through the async task execution pipeline which creates
-        // race conditions with background runtime ticks.
-        if (planningIssueId != null) {
-            runCatching {
-                stateMutex.withLock {
-                    val state = stateStore.load()
-                    val planningIssue = state.issues.firstOrNull { it.id == planningIssueId } ?: return@withLock
-                    val existingNonPlanning = state.issues.filter {
-                        it.goalId == planningIssue.goalId && !it.kind.equals("planning", ignoreCase = true)
-                    }
-                    if (existingNonPlanning.isNotEmpty()) {
-                        // Already decomposed – just mark planning done.
-                        stateStore.save(
-                            state.copy(
-                                issues = state.issues.map {
-                                    if (it.id == planningIssueId) it.copy(status = IssueStatus.DONE, updatedAt = System.currentTimeMillis()) else it
-                                }
-                            ).withDerivedMetrics()
-                        )
-                        return@withLock
-                    }
-                    val goal = state.goals.firstOrNull { it.id == planningIssue.goalId } ?: return@withLock
-                    val workspace = state.workspaces.firstOrNull { it.id == planningIssue.workspaceId } ?: return@withLock
-                    val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
-                    val now = System.currentTimeMillis()
-                    val fallback = buildFallbackGoalIssues(
-                        goal = goal,
-                        workspace = workspace,
-                        profiles = profiles,
-                        definitions = state.companyAgentDefinitions,
-                        now = now
-                    )
-                    val updatedPlanningIssue = planningIssue.copy(
-                        status = IssueStatus.DONE,
-                        transitionReason = "CEO planning lane used the deterministic fallback planner.",
-                        updatedAt = now
-                    )
-                    val company = state.companies.firstOrNull { it.id == goal.companyId } ?: return@withLock
-                    val projectContext = state.projectContexts.firstOrNull { it.companyId == company.id } ?: return@withLock
-                    val nextState = state.copy(
-                        issues = state.issues.filterNot {
-                            it.id == planningIssueId || (it.goalId == goal.id && !it.kind.equals("planning", ignoreCase = true))
-                        } + updatedPlanningIssue + fallback.first,
-                        issueDependencies = state.issueDependencies.filterNot { dep ->
-                            dep.issueId == planningIssueId
-                        } + fallback.second
-                    ).withDerivedMetrics()
-                    stateStore.save(nextState)
-                    writeCompanyContextSnapshot(nextState, company, projectContext)
+        // Materialize a deterministic fallback plan immediately so the company
+        // loop can keep moving even before an explicit CEO planning run returns.
+        runCatching {
+            stateMutex.withLock {
+                val state = stateStore.load()
+                val planningIssue = state.issues.firstOrNull { it.id == planningIssueId } ?: return@withLock
+                val existingNonPlanning = state.issues.filter {
+                    it.goalId == planningIssue.goalId && !it.kind.equals("planning", ignoreCase = true)
                 }
+                val unresolvedNonPlanning = existingNonPlanning.filterNot { issue ->
+                    issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED
+                }
+                if (unresolvedNonPlanning.isNotEmpty()) {
+                    stateStore.save(
+                        state.copy(
+                            issues = state.issues.map {
+                                if (it.id == planningIssueId) {
+                                    it.copy(status = IssueStatus.DONE, updatedAt = System.currentTimeMillis())
+                                } else {
+                                    it
+                                }
+                            }
+                        ).withDerivedMetrics()
+                    )
+                    return@withLock
+                }
+                val goal = state.goals.firstOrNull { it.id == planningIssue.goalId } ?: return@withLock
+                val workspace = state.workspaces.firstOrNull { it.id == planningIssue.workspaceId } ?: return@withLock
+                val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                val now = System.currentTimeMillis()
+                val fallback = buildFallbackGoalIssues(
+                    goal = goal,
+                    workspace = workspace,
+                    profiles = profiles,
+                    definitions = state.companyAgentDefinitions,
+                    now = now
+                )
+                val updatedPlanningIssue = planningIssue.copy(
+                    status = IssueStatus.DONE,
+                    transitionReason = "CEO planning lane used the deterministic fallback planner.",
+                    updatedAt = now
+                )
+                val company = state.companies.firstOrNull { it.id == goal.companyId } ?: return@withLock
+                val projectContext = state.projectContexts.firstOrNull { it.companyId == company.id } ?: return@withLock
+                val nextState = state.copy(
+                    issues = state.issues.filterNot { it.id == planningIssueId } + updatedPlanningIssue + fallback.first,
+                    issueDependencies = state.issueDependencies.filterNot { dep ->
+                        dep.issueId == planningIssueId
+                    } + fallback.second
+                ).withDerivedMetrics()
+                stateStore.save(nextState)
+                writeCompanyContextSnapshot(nextState, company, projectContext)
             }
         }
         return stateStore.load().issues
@@ -2452,26 +2477,43 @@ class DesktopAppService(
         val latestTask = state.tasks
             .filter { it.issueId == executableIssue.id }
             .maxByOrNull { it.updatedAt }
+        val latestRun = latestTask?.let { latestRunForTask(state, it.id) }
+        val expectedWorkflowLineage = if (isWorkflowIssue(executableIssue)) {
+            expectedWorkflowLineageForIssue(state, executableIssue)
+        } else {
+            null
+        }
         val needsReworkRun =
             latestTask?.status == DesktopTaskStatus.COMPLETED &&
                 (
                     executableIssue.qaVerdict == "CHANGES_REQUESTED" ||
                         executableIssue.ceoVerdict == "CHANGES_REQUESTED"
                     )
+        val workflowNeedsFreshTask =
+            isWorkflowIssue(executableIssue) &&
+                latestTask != null &&
+                latestTask.status != DesktopTaskStatus.RUNNING &&
+                latestTask.status != DesktopTaskStatus.QUEUED &&
+                workflowIssueNeedsFreshTask(executableIssue, latestTask, latestRun, expectedWorkflowLineage)
         val shouldCreateFreshTask = latestTask == null ||
             latestTask.status == DesktopTaskStatus.FAILED ||
             latestTask.status == DesktopTaskStatus.PARTIAL ||
-            needsReworkRun
+            needsReworkRun ||
+            workflowNeedsFreshTask
         val task = if (shouldCreateFreshTask) {
             createTask(
                 workspaceId = executableIssue.workspaceId,
                 title = executableIssue.title,
                 prompt = buildIssueExecutionPrompt(state, executableIssue, profile),
                 agents = listOf(profile.executionAgentName),
-                issueId = executableIssue.id
+                issueId = executableIssue.id,
+                workflowLineage = expectedWorkflowLineage
             )
         } else {
             latestTask
+        }
+        if (!shouldCreateFreshTask && expectedWorkflowLineage != null) {
+            synchronizeWorkflowTaskLineage(executableIssue.id, task.id, expectedWorkflowLineage)
         }
         if (task.status == DesktopTaskStatus.QUEUED) {
             serviceScope.launch {
@@ -2663,6 +2705,13 @@ class DesktopAppService(
         }
     }
 
+    private fun runnableIssueStatusRank(status: IssueStatus): Int = when (status) {
+        IssueStatus.DELEGATED -> 0
+        IssueStatus.PLANNED -> 1
+        IssueStatus.BACKLOG -> 2
+        else -> 3
+    }
+
     private fun isSupersededCanceledDependency(
         dependency: CompanyIssue,
         state: DesktopAppState
@@ -2727,6 +2776,26 @@ class DesktopAppService(
         text.orEmpty()
             .trim()
             .replace(Regex("\\s+"), " ")
+
+    private fun reviewQueueMatchesPublishedRun(queueItem: ReviewQueueItem, run: AgentRun?): Boolean {
+        if (run == null) {
+            return false
+        }
+        val publish = run.publish
+        if (queueItem.pullRequestNumber != null && publish?.pullRequestNumber != null) {
+            return queueItem.pullRequestNumber == publish.pullRequestNumber
+        }
+        if (!queueItem.pullRequestUrl.isNullOrBlank() && !publish?.pullRequestUrl.isNullOrBlank()) {
+            return queueItem.pullRequestUrl == publish.pullRequestUrl
+        }
+        if (!queueItem.branchName.isNullOrBlank() && !run.branchName.isNullOrBlank()) {
+            return queueItem.branchName == run.branchName
+        }
+        if (!queueItem.worktreePath.isNullOrBlank() && !run.worktreePath.isNullOrBlank()) {
+            return queueItem.worktreePath == run.worktreePath
+        }
+        return false
+    }
 
     private fun reviewTaskAlreadyApplied(
         reviewIssue: CompanyIssue,
@@ -2859,6 +2928,18 @@ class DesktopAppService(
             verdict = PullRequestReviewVerdict.APPROVE,
             body = reviewBody
         )
+        if (approvedMetadata.mergeability.equals("DIRTY", ignoreCase = true)) {
+            return markReviewQueueMergeConflict(
+                itemId = itemId,
+                approvedMetadata = approvedMetadata,
+                mergeError = ProcessExecutionException(
+                    message = "GH command failed",
+                    exitCode = 1,
+                    stdout = "Pull request #$pullRequestNumber is not mergeable because the merge commit cannot be cleanly created.",
+                    stderr = ""
+                )
+            )
+        }
         val mergeResult = try {
             gitWorkspaceService.mergePullRequest(
                 worktreePath = Path.of(worktreePath),
@@ -3089,11 +3170,15 @@ class DesktopAppService(
             } else {
                 resolveLatestCompanyId(state) ?: companyId
             }
+            val existingRuntime = state.companyRuntimes
+                .firstOrNull { it.companyId == resolvedCompanyId }
+                ?.let(::runtimeWithinCurrentBudgetWindow)
+                ?: CompanyRuntimeSnapshot(companyId = resolvedCompanyId)
             val now = System.currentTimeMillis()
             val nextState = state.copy(
                 companyRuntimes = upsertCompanyRuntime(
                     state.companyRuntimes,
-                    CompanyRuntimeSnapshot(
+                    existingRuntime.copy(
                         companyId = resolvedCompanyId,
                         status = CompanyRuntimeStatus.RUNNING,
                         backendKind = state.companies.firstOrNull { it.id == resolvedCompanyId }?.backendKind
@@ -3112,6 +3197,7 @@ class DesktopAppService(
                         lastStartedAt = now,
                         lastAction = "runtime-started",
                         manuallyStoppedAt = null,
+                        budgetPausedAt = null,
                         lastError = null
                     )
                 )
@@ -3203,6 +3289,7 @@ class DesktopAppService(
             markRuntimeTickHeartbeat(companyId, "tick-started")
             reconcileStaleAgentRuns(companyId)
             reconcileNonPublishingReviewRuns(companyId)
+            val repairedWorkflowLineages = repairWorkflowLineages(companyId)
             val reopenedInterruptedIssues = reopenInterruptedBlockedIssues(companyId)
             val reconciledIssues = reconcileTerminalIssueStates(companyId)
             var normalizedStates = normalizeCompanyAutomationState(companyId)
@@ -3219,6 +3306,9 @@ class DesktopAppService(
             val actions = mutableListOf<String>()
             if (reopenedInterruptedIssues > 0) {
                 actions += "reopened-interrupted:$reopenedInterruptedIssues"
+            }
+            if (repairedWorkflowLineages > 0) {
+                actions += "repaired-workflow-lineages:$repairedWorkflowLineages"
             }
             if (reconciledIssues > 0) {
                 actions += "reconciled-issues:$reconciledIssues"
@@ -3241,6 +3331,10 @@ class DesktopAppService(
                 if (normalizedStates > 0) {
                     actions += "renormalized-after-merge-conflicts:$normalizedStates"
                 }
+            }
+            val requeuedLegacyMergeConflictIssues = requeueLegacyMergeConflictExecutionIssues(companyId)
+            if (requeuedLegacyMergeConflictIssues > 0) {
+                actions += "requeued-merge-conflicts:$requeuedLegacyMergeConflictIssues"
             }
             val reopenedNoOpPrIssues = reopenNoOpPullRequestExecutionIssues(companyId)
             if (reopenedNoOpPrIssues > 0) {
@@ -3278,7 +3372,13 @@ class DesktopAppService(
             }
 
             autonomousGoals.forEach { goal ->
-                if (current.issues.none { it.goalId == goal.id && !it.kind.equals("planning", ignoreCase = true) }) {
+                val hasOpenNonPlanningIssues = current.issues.any { issue ->
+                    issue.goalId == goal.id &&
+                        !issue.kind.equals("planning", ignoreCase = true) &&
+                        issue.status != IssueStatus.DONE &&
+                        issue.status != IssueStatus.CANCELED
+                }
+                if (!hasOpenNonPlanningIssues) {
                     decomposeGoal(goal.id)
                     actions += "decomposed:${goal.id}"
                 }
@@ -3317,7 +3417,11 @@ class DesktopAppService(
                 .filterNot { issue ->
                     issue.sourceSignal == "github-readiness"
                 }
-                .sortedWith(compareBy<CompanyIssue> { it.priority }.thenBy { it.createdAt })
+                .sortedWith(
+                    compareBy<CompanyIssue> { runnableIssueStatusRank(it.status) }
+                        .thenBy { it.priority }
+                        .thenBy { it.createdAt }
+                )
                 .filter { issue ->
                     val dependenciesSatisfied = issue.dependsOn.all { dependencyId ->
                         val dependency = executionSnapshot.issues.firstOrNull { it.id == dependencyId } ?: return@all false
@@ -3443,7 +3547,7 @@ class DesktopAppService(
     private suspend fun recordCompanyRuntimeResume(companyId: String, queuedIssueCount: Int) {
         stateMutex.withLock {
             val state = stateStore.load()
-            if (!hasActiveCompanyTasks(state, companyId)) {
+            if (queuedIssueCount <= 0) {
                 return@withLock
             }
             val detail = when (queuedIssueCount) {
@@ -3637,6 +3741,193 @@ class DesktopAppService(
                 }
             stateStore.save(nextState.withDerivedMetrics())
             changed
+        }
+    }
+
+    private suspend fun reconcileSupersededManagedPullRequests(
+        companyId: String,
+        force: Boolean = false
+    ): Int {
+        val now = System.currentTimeMillis()
+        if (!force) {
+            val lastCleanupAt = recentSupersededPullRequestCleanupAt[companyId]
+            if (lastCleanupAt != null && now - lastCleanupAt < SUPERSEDED_PR_RECONCILIATION_INTERVAL_MS) {
+                return 0
+            }
+        }
+
+        val snapshot = stateStore.load()
+        val company = snapshot.companies.firstOrNull { it.id == companyId } ?: return 0
+        val rootPath = company.rootPath.takeIf { it.isNotBlank() } ?: return 0
+        val companyIdsForRepository = snapshot.companies
+            .filter { it.rootPath == rootPath }
+            .map { it.id }
+            .toSet()
+        val preservePullRequestNumbers = buildSet {
+            snapshot.reviewQueue
+                .filter {
+                    it.companyId in companyIdsForRepository &&
+                        it.pullRequestNumber != null &&
+                        !it.pullRequestState.equals("MERGED", ignoreCase = true) &&
+                        !it.pullRequestState.equals("CLOSED", ignoreCase = true)
+                }
+                .mapNotNullTo(this) { it.pullRequestNumber }
+            snapshot.issues
+                .filter {
+                    it.companyId in companyIdsForRepository &&
+                        it.pullRequestNumber != null &&
+                        !it.pullRequestState.equals("MERGED", ignoreCase = true) &&
+                        !it.pullRequestState.equals("CLOSED", ignoreCase = true)
+                }
+                .mapNotNullTo(this) { it.pullRequestNumber }
+        }
+
+        val cleanupResult = runCatching {
+            gitWorkspaceService.closeSupersededManagedPullRequests(
+                worktreePath = Path.of(rootPath),
+                preservePullRequestNumbers = preservePullRequestNumbers
+            )
+        }.getOrElse {
+            if (it is CancellationException) {
+                throw it
+            }
+            appendCompanyRuntimeErrorLog(
+                companyId = companyId,
+                cause = IllegalStateException(
+                    "Failed to reconcile superseded PRs for ${company.name}: ${it.message ?: it::class.simpleName}",
+                    it
+                )
+            )
+            recentSupersededPullRequestCleanupAt[companyId] = now
+            return 0
+        }
+        val closedPullRequestNumbers = cleanupResult.closedPullRequestNumbers
+        recentSupersededPullRequestCleanupAt[companyId] = now
+        if (closedPullRequestNumbers.isEmpty()) {
+            return 0
+        }
+
+        stateMutex.withLock {
+            val state = stateStore.load()
+            var nextState = state.copy(
+                reviewQueue = state.reviewQueue.map { item ->
+                    if (item.companyId in companyIdsForRepository && item.pullRequestNumber in closedPullRequestNumbers) {
+                        item.copy(
+                            pullRequestState = "CLOSED",
+                            updatedAt = now
+                        )
+                    } else {
+                        item
+                    }
+                },
+                issues = state.issues.map { issue ->
+                    if (issue.companyId in companyIdsForRepository && issue.pullRequestNumber in closedPullRequestNumbers) {
+                        issue.copy(
+                            pullRequestState = "CLOSED",
+                            updatedAt = now
+                        )
+                    } else {
+                        issue
+                    }
+                }
+            )
+            nextState = nextState.recordCompanyActivity(
+                companyId = companyId,
+                source = "review-queue",
+                title = "Closed superseded pull requests",
+                detail = buildString {
+                    append("Closed ")
+                    append(closedPullRequestNumbers.size)
+                    append(" outdated Cotor-managed PR")
+                    if (closedPullRequestNumbers.size != 1) append('s')
+                    append(": ")
+                    append(closedPullRequestNumbers.joinToString(", ") { "#$it" })
+                }
+            ).recordSignal(
+                source = "review-queue",
+                message = "Closed ${closedPullRequestNumbers.size} superseded Cotor-managed PRs for ${company.name}.",
+                companyId = companyId
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+        }
+        return closedPullRequestNumbers.size
+    }
+
+    private suspend fun requeueLegacyMergeConflictExecutionIssues(companyId: String): Int {
+        return stateMutex.withLock {
+            val state = stateStore.load()
+            val issuesById = state.issues.associateBy { it.id }
+            val activeIssueIds = state.tasks
+                .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
+                .mapNotNull { it.issueId }
+                .toSet()
+            val now = System.currentTimeMillis()
+            val candidateExecutionIds = state.reviewQueue.mapNotNull { item ->
+                if (item.companyId != companyId || item.status != ReviewQueueStatus.CHANGES_REQUESTED) {
+                    return@mapNotNull null
+                }
+                if (!item.mergeability.equals("DIRTY", ignoreCase = true)) {
+                    return@mapNotNull null
+                }
+                val executionIssue = issuesById[item.issueId] ?: return@mapNotNull null
+                if (executionIssue.status != IssueStatus.BLOCKED || executionIssue.id in activeIssueIds) {
+                    return@mapNotNull null
+                }
+                val approvalIssue = item.approvalIssueId?.let(issuesById::get)
+                val blockedByMergeConflict =
+                    approvalIssue?.transitionReason?.contains(
+                        "Merge is blocked until the execution branch is rebased and conflicts are resolved.",
+                        ignoreCase = true
+                    ) == true ||
+                        item.ceoFeedback.orEmpty().contains("could not merge this pull request cleanly", ignoreCase = true) ||
+                        item.ceoFeedback.orEmpty().contains("merge conflict", ignoreCase = true) ||
+                        executionIssue.ceoFeedback.orEmpty().contains("could not merge this pull request cleanly", ignoreCase = true) ||
+                        executionIssue.ceoFeedback.orEmpty().contains("merge conflict", ignoreCase = true)
+                if (!blockedByMergeConflict) {
+                    return@mapNotNull null
+                }
+                executionIssue.id
+            }.toSet()
+            if (candidateExecutionIds.isEmpty()) {
+                return@withLock 0
+            }
+
+            var nextState = state.copy(
+                issues = state.issues.map { issue ->
+                    if (issue.id in candidateExecutionIds) {
+                        issue.copy(
+                            status = IssueStatus.PLANNED,
+                            transitionReason = "Detected a legacy CEO merge-conflict blocker and re-queued execution to rebase and republish the PR.",
+                            updatedAt = now
+                        )
+                    } else {
+                        issue
+                    }
+                }
+            )
+            candidateExecutionIds.forEach { issueId ->
+                val executionIssue = nextState.issues.firstOrNull { it.id == issueId } ?: return@forEach
+                nextState = nextState.recordCompanyActivity(
+                    companyId = executionIssue.companyId,
+                    projectContextId = executionIssue.projectContextId,
+                    goalId = executionIssue.goalId,
+                    issueId = executionIssue.id,
+                    source = "review-queue",
+                    title = "Re-queued merge-conflict remediation",
+                    detail = executionIssue.pullRequestUrl ?: executionIssue.title,
+                    severity = "warning"
+                ).recordSignal(
+                    source = "review-queue",
+                    message = "Re-queued ${executionIssue.title} to remediate a stale merge-conflict block.",
+                    companyId = executionIssue.companyId,
+                    projectContextId = executionIssue.projectContextId,
+                    goalId = executionIssue.goalId,
+                    issueId = executionIssue.id,
+                    severity = "warning"
+                )
+            }
+            stateStore.save(nextState.withDerivedMetrics())
+            candidateExecutionIds.size
         }
     }
 
@@ -4728,6 +5019,367 @@ class DesktopAppService(
         return changed
     }
 
+    private suspend fun repairWorkflowLineages(companyId: String): Int {
+        var changed = 0
+        val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val now = System.currentTimeMillis()
+            val companyProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                .filter { it.companyId == companyId }
+            val issuesById = state.issues.associateBy { it.id }.toMutableMap()
+            val reviewQueueById = state.reviewQueue.associateBy { it.id }.toMutableMap()
+            val tasksById = state.tasks.associateBy { it.id }.toMutableMap()
+            val runsById = state.runs.associateBy { it.id }.toMutableMap()
+
+            fun latestTask(issueId: String): AgentTask? =
+                tasksById.values.filter { it.issueId == issueId }.maxByOrNull { it.updatedAt }
+
+            fun latestRun(taskId: String): AgentRun? =
+                runsById.values.filter { it.taskId == taskId }.maxByOrNull { it.updatedAt }
+
+            fun removeWorkflowIssue(issueId: String?) {
+                if (issueId == null) return
+                val removedIssue = issuesById.remove(issueId) ?: return
+                val removedTaskIds = tasksById.values
+                    .filter { it.issueId == removedIssue.id }
+                    .map { it.id }
+                    .toSet()
+                removedTaskIds.forEach(tasksById::remove)
+                runsById.entries.removeIf { it.value.taskId in removedTaskIds }
+            }
+
+            state.reviewQueue
+                .filter { it.companyId == companyId && it.status != ReviewQueueStatus.MERGED }
+                .sortedByDescending { it.updatedAt }
+                .forEach { originalQueueItem ->
+                    val queueItem = reviewQueueById[originalQueueItem.id] ?: return@forEach
+                    val executionIssue = issuesById[queueItem.issueId] ?: return@forEach
+                    val latestExecutionTask = latestTask(executionIssue.id)
+                    val latestExecutionRun = latestExecutionTask?.let { latestRun(it.id) }
+                    val pendingExecutionLineageUpdate =
+                        latestExecutionTask != null &&
+                            latestExecutionTask.status == DesktopTaskStatus.COMPLETED &&
+                            latestExecutionRun?.publish != null &&
+                            !reviewQueueReflectsExecutionRun(queueItem, latestExecutionTask, latestExecutionRun)
+                    if (pendingExecutionLineageUpdate) {
+                        return@forEach
+                    }
+                    val lineageState = state.copy(
+                        issues = issuesById.values.toList(),
+                        tasks = tasksById.values.toList(),
+                        runs = runsById.values.toList(),
+                        reviewQueue = reviewQueueById.values.toList()
+                    )
+                    val expectedLineage = resolvedWorkflowLineageForQueueItem(lineageState, queueItem) ?: return@forEach
+                    val reviewIssue = queueItem.qaIssueId?.let(issuesById::get) ?: issuesById.values.firstOrNull {
+                        relatedExecutionIssueId(it) == executionIssue.id && it.kind.equals("review", ignoreCase = true)
+                    }
+                    val latestReviewTask = reviewIssue?.let { latestTask(it.id) }
+                    val latestReviewRun = latestReviewTask?.let { latestRun(it.id) }
+                    val reviewIssueReopenedAfterTask =
+                        reviewIssue != null &&
+                            latestReviewTask != null &&
+                            reviewIssue.updatedAt > latestReviewTask.updatedAt
+                    val reviewLineageExplicitMismatch =
+                        reviewIssue != null &&
+                            (
+                                (reviewIssue.workflowLineage != null && !workflowLineagesMatch(expectedLineage, reviewIssue.workflowLineage)) ||
+                                    (latestReviewTask?.workflowLineage != null && !workflowLineagesMatch(expectedLineage, latestReviewTask.workflowLineage)) ||
+                                    (latestReviewRun?.workflowLineage != null && !workflowLineagesMatch(expectedLineage, latestReviewRun.workflowLineage))
+                                )
+                    val reviewLineageCanBeAdopted =
+                        reviewIssue != null &&
+                            latestReviewTask != null &&
+                            canAdoptExpectedWorkflowLineage(
+                                issue = reviewIssue,
+                                task = latestReviewTask,
+                                run = latestReviewRun,
+                                expectedLineage = expectedLineage
+                            )
+                    val reviewIssueCanAdoptQueueStateWithoutTask =
+                        reviewIssue != null &&
+                            latestReviewTask == null &&
+                            (
+                                (
+                                    when (queueItem.status) {
+                                        ReviewQueueStatus.AWAITING_QA -> IssueStatus.PLANNED
+                                        ReviewQueueStatus.READY_FOR_CEO -> IssueStatus.DONE
+                                        ReviewQueueStatus.CHANGES_REQUESTED -> IssueStatus.BLOCKED
+                                        else -> reviewIssue.status
+                                    } == reviewIssue.status &&
+                                        (
+                                            queueItem.qaVerdict == null ||
+                                                reviewIssue.qaVerdict == null ||
+                                                queueItem.qaVerdict == reviewIssue.qaVerdict
+                                            )
+                                    ) ||
+                                    (
+                                        queueItem.status == ReviewQueueStatus.READY_FOR_CEO &&
+                                            queueItem.qaVerdict == null &&
+                                            reviewIssue.status in setOf(IssueStatus.PLANNED, IssueStatus.DELEGATED, IssueStatus.IN_PROGRESS)
+                                        )
+                                )
+                    val staleReviewLineage =
+                        reviewIssue != null &&
+                            (
+                                (!reviewIssueCanAdoptQueueStateWithoutTask && latestReviewTask == null) ||
+                                    (!reviewLineageCanBeAdopted && (reviewIssueReopenedAfterTask || reviewLineageExplicitMismatch))
+                                )
+
+                    if (reviewIssue == null || staleReviewLineage) {
+                        val qaProfile = findQaProfile(companyId, companyProfiles)
+                        if (qaProfile != null) {
+                            removeWorkflowIssue(reviewIssue?.id)
+                            removeWorkflowIssue(queueItem.approvalIssueId)
+                            val refreshedReviewIssue = CompanyIssue(
+                                id = UUID.randomUUID().toString(),
+                                companyId = executionIssue.companyId,
+                                projectContextId = executionIssue.projectContextId,
+                                goalId = executionIssue.goalId,
+                                workspaceId = executionIssue.workspaceId,
+                                title = "QA review ${executionIssue.title}",
+                                description = buildQaReviewIssueDescription(executionIssue, queueItem.copy(workflowLineage = expectedLineage)),
+                                status = IssueStatus.PLANNED,
+                                priority = 2,
+                                kind = "review",
+                                assigneeProfileId = qaProfile.id,
+                                blockedBy = emptyList(),
+                                dependsOn = listOf(executionIssue.id),
+                                acceptanceCriteria = listOf(
+                                    "Review the current PR and its changed files.",
+                                    "Return QA_VERDICT with concrete acceptance or requested changes."
+                                ),
+                                riskLevel = "low",
+                                codeProducing = false,
+                                branchName = executionIssue.branchName,
+                                worktreePath = executionIssue.worktreePath,
+                                pullRequestNumber = executionIssue.pullRequestNumber,
+                                pullRequestUrl = executionIssue.pullRequestUrl,
+                                pullRequestState = executionIssue.pullRequestState,
+                                transitionReason = "Rebuilt the QA lineage for the current pull request.",
+                                sourceSignal = qaReviewSource(executionIssue.id),
+                                createdAt = now,
+                                updatedAt = now,
+                                workflowLineage = expectedLineage
+                            )
+                            issuesById[executionIssue.id] = executionIssue.copy(
+                                status = IssueStatus.IN_REVIEW,
+                                qaVerdict = null,
+                                qaFeedback = null,
+                                ceoVerdict = null,
+                                ceoFeedback = null,
+                                updatedAt = now
+                            )
+                            issuesById[refreshedReviewIssue.id] = refreshedReviewIssue
+                            reviewQueueById[queueItem.id] = queueItem.copy(
+                                status = ReviewQueueStatus.AWAITING_QA,
+                                qaVerdict = null,
+                                qaFeedback = null,
+                                qaReviewedAt = null,
+                                qaIssueId = refreshedReviewIssue.id,
+                                ceoVerdict = null,
+                                ceoFeedback = null,
+                                ceoReviewedAt = null,
+                                approvalIssueId = null,
+                                workflowLineage = expectedLineage,
+                                updatedAt = now
+                            )
+                            changed += 1
+                            traceEvents += buildCompanyAutomationTraceEvent(
+                                issue = executionIssue,
+                                goal = state.goals.firstOrNull { it.id == executionIssue.goalId },
+                                oldStatus = executionIssue.status,
+                                newStatus = IssueStatus.IN_REVIEW,
+                                source = "repairWorkflowLineages",
+                                reason = "Rebuilt stale QA lineage so only the latest execution publish can be reviewed."
+                            )
+                            return@forEach
+                        }
+                    } else if (
+                        !workflowLineagesMatch(expectedLineage, queueItem.workflowLineage) ||
+                            !workflowLineagesMatch(expectedLineage, reviewIssue.workflowLineage) ||
+                            (latestReviewTask != null && !workflowLineagesMatch(expectedLineage, latestReviewTask.workflowLineage)) ||
+                            (latestReviewRun != null && !workflowLineagesMatch(expectedLineage, latestReviewRun.workflowLineage))
+                    ) {
+                        issuesById[reviewIssue.id] = reviewIssue.copy(workflowLineage = expectedLineage)
+                        latestReviewTask?.let { tasksById[it.id] = it.copy(workflowLineage = expectedLineage) }
+                        latestReviewRun?.let { runsById[it.id] = it.copy(workflowLineage = expectedLineage) }
+                        reviewQueueById[queueItem.id] = queueItem.copy(workflowLineage = expectedLineage)
+                        changed += 1
+                    }
+
+                    val refreshedQueue = reviewQueueById[queueItem.id] ?: return@forEach
+                    if (refreshedQueue.status != ReviewQueueStatus.READY_FOR_CEO && refreshedQueue.approvalIssueId == null) {
+                        return@forEach
+                    }
+                    val currentReviewIssue = refreshedQueue.qaIssueId?.let(issuesById::get)
+                    val approvalIssue = refreshedQueue.approvalIssueId?.let(issuesById::get) ?: issuesById.values.firstOrNull {
+                        relatedExecutionIssueId(it) == executionIssue.id && it.kind.equals("approval", ignoreCase = true)
+                    }
+                    val latestApprovalTask = approvalIssue?.let { latestTask(it.id) }
+                    val latestApprovalRun = latestApprovalTask?.let { latestRun(it.id) }
+                    val approvalIssueReopenedAfterTask =
+                        approvalIssue != null &&
+                            latestApprovalTask != null &&
+                            approvalIssue.updatedAt > latestApprovalTask.updatedAt
+                    val approvalLineageExplicitMismatch =
+                        approvalIssue != null &&
+                            (
+                                (approvalIssue.workflowLineage != null && !workflowLineagesMatch(expectedLineage, approvalIssue.workflowLineage)) ||
+                                    (latestApprovalTask?.workflowLineage != null && !workflowLineagesMatch(expectedLineage, latestApprovalTask.workflowLineage)) ||
+                                    (latestApprovalRun?.workflowLineage != null && !workflowLineagesMatch(expectedLineage, latestApprovalRun.workflowLineage))
+                                )
+                    val approvalLineageCanBeAdopted =
+                        approvalIssue != null &&
+                            latestApprovalTask != null &&
+                            canAdoptExpectedWorkflowLineage(
+                                issue = approvalIssue,
+                                task = latestApprovalTask,
+                                run = latestApprovalRun,
+                                expectedLineage = expectedLineage
+                            )
+                    val approvalIssueCanAdoptQueueStateWithoutTask =
+                        approvalIssue != null &&
+                            latestApprovalTask == null &&
+                            (
+                                (
+                                    refreshedQueue.ceoVerdict != null &&
+                                        approvalIssue.ceoVerdict != null &&
+                                        refreshedQueue.ceoVerdict == approvalIssue.ceoVerdict &&
+                                        approvalIssue.status ==
+                                        when (refreshedQueue.status) {
+                                            ReviewQueueStatus.CHANGES_REQUESTED -> IssueStatus.BLOCKED
+                                            ReviewQueueStatus.MERGED -> IssueStatus.DONE
+                                            else -> approvalIssue.status
+                                        }
+                                    ) ||
+                                    (
+                                        refreshedQueue.status == ReviewQueueStatus.READY_FOR_CEO &&
+                                            refreshedQueue.ceoVerdict == null &&
+                                            approvalIssue.status in setOf(IssueStatus.PLANNED, IssueStatus.DELEGATED, IssueStatus.IN_PROGRESS)
+                                        )
+                                )
+                    val staleApprovalLineage =
+                        approvalIssue != null &&
+                            (
+                                (!approvalIssueCanAdoptQueueStateWithoutTask && latestApprovalTask == null) ||
+                                    (!approvalLineageCanBeAdopted && (approvalIssueReopenedAfterTask || approvalLineageExplicitMismatch))
+                                )
+                    if (refreshedQueue.status == ReviewQueueStatus.READY_FOR_CEO && (approvalIssue == null || staleApprovalLineage)) {
+                        val chiefProfile = findChiefProfile(companyId, companyProfiles)
+                        if (chiefProfile != null) {
+                            removeWorkflowIssue(approvalIssue?.id)
+                            val refreshedApprovalIssue = CompanyIssue(
+                                id = UUID.randomUUID().toString(),
+                                companyId = executionIssue.companyId,
+                                projectContextId = executionIssue.projectContextId,
+                                goalId = executionIssue.goalId,
+                                workspaceId = executionIssue.workspaceId,
+                                title = "CEO approve ${executionIssue.title}",
+                                description = buildCeoApprovalIssueDescription(executionIssue, refreshedQueue.copy(workflowLineage = expectedLineage)),
+                                status = IssueStatus.PLANNED,
+                                priority = 3,
+                                kind = "approval",
+                                assigneeProfileId = chiefProfile.id,
+                                blockedBy = emptyList(),
+                                dependsOn = listOfNotNull(currentReviewIssue?.id).ifEmpty { listOf(executionIssue.id) },
+                                acceptanceCriteria = listOf(
+                                    "Review the current PR and QA verdict.",
+                                    "Emit CEO_VERDICT and approve merge only when the branch is ready."
+                                ),
+                                riskLevel = "medium",
+                                codeProducing = false,
+                                branchName = executionIssue.branchName,
+                                worktreePath = executionIssue.worktreePath,
+                                pullRequestNumber = executionIssue.pullRequestNumber,
+                                pullRequestUrl = executionIssue.pullRequestUrl,
+                                pullRequestState = executionIssue.pullRequestState,
+                                qaVerdict = refreshedQueue.qaVerdict,
+                                qaFeedback = refreshedQueue.qaFeedback,
+                                transitionReason = "Rebuilt the CEO approval lineage for the current pull request.",
+                                sourceSignal = ceoApprovalSource(executionIssue.id),
+                                createdAt = now,
+                                updatedAt = now,
+                                workflowLineage = expectedLineage
+                            )
+                            issuesById[executionIssue.id] = executionIssue.copy(
+                                status = IssueStatus.READY_FOR_CEO,
+                                ceoVerdict = null,
+                                ceoFeedback = null,
+                                updatedAt = now
+                            )
+                            issuesById[refreshedApprovalIssue.id] = refreshedApprovalIssue
+                            reviewQueueById[queueItem.id] = refreshedQueue.copy(
+                                ceoVerdict = null,
+                                ceoFeedback = null,
+                                ceoReviewedAt = null,
+                                approvalIssueId = refreshedApprovalIssue.id,
+                                workflowLineage = expectedLineage,
+                                updatedAt = now
+                            )
+                            changed += 1
+                            traceEvents += buildCompanyAutomationTraceEvent(
+                                issue = executionIssue,
+                                goal = state.goals.firstOrNull { it.id == executionIssue.goalId },
+                                oldStatus = executionIssue.status,
+                                newStatus = IssueStatus.READY_FOR_CEO,
+                                source = "repairWorkflowLineages",
+                                reason = "Rebuilt stale CEO approval lineage so only the latest QA result can advance the merge gate."
+                            )
+                        }
+                    } else if (
+                        approvalIssue != null &&
+                            (
+                                !workflowLineagesMatch(expectedLineage, approvalIssue.workflowLineage) ||
+                                    (latestApprovalTask != null && !workflowLineagesMatch(expectedLineage, latestApprovalTask.workflowLineage)) ||
+                                    (latestApprovalRun != null && !workflowLineagesMatch(expectedLineage, latestApprovalRun.workflowLineage))
+                                )
+                    ) {
+                        if (approvalIssueCanAdoptQueueStateWithoutTask || approvalLineageCanBeAdopted) {
+                            issuesById[approvalIssue.id] = approvalIssue.copy(workflowLineage = expectedLineage)
+                            latestApprovalTask?.let { tasksById[it.id] = it.copy(workflowLineage = expectedLineage) }
+                            latestApprovalRun?.let { runsById[it.id] = it.copy(workflowLineage = expectedLineage) }
+                            reviewQueueById[queueItem.id] = refreshedQueue.copy(
+                                approvalIssueId = approvalIssue.id,
+                                workflowLineage = expectedLineage,
+                                updatedAt = now
+                            )
+                        } else {
+                            removeWorkflowIssue(approvalIssue.id)
+                            reviewQueueById[queueItem.id] = refreshedQueue.copy(
+                                ceoVerdict = null,
+                                ceoFeedback = null,
+                                ceoReviewedAt = null,
+                                approvalIssueId = null,
+                                workflowLineage = expectedLineage,
+                                updatedAt = now
+                            )
+                        }
+                        changed += 1
+                    }
+                }
+
+            if (changed > 0) {
+                var nextState = state.copy(
+                    issues = issuesById.values.sortedBy { it.createdAt },
+                    tasks = tasksById.values.sortedBy { it.createdAt },
+                    runs = runsById.values.sortedBy { it.createdAt },
+                    reviewQueue = reviewQueueById.values.sortedBy { it.createdAt }
+                )
+                nextState = nextState.recordCompanyActivity(
+                    companyId = companyId,
+                    source = "workflow-lineage",
+                    title = "Healed workflow lineage",
+                    detail = "Repaired $changed stale QA/CEO review lineage entries."
+                ).withDerivedMetrics()
+                stateStore.save(nextState)
+            }
+        }
+        traceEvents.forEach(::appendCompanyAutomationTrace)
+        return changed
+    }
+
     private suspend fun archiveRecursiveFollowUpGoals(companyId: String): Int {
         var archivedCount = 0
         stateMutex.withLock {
@@ -5002,7 +5654,8 @@ class DesktopAppService(
         title: String?,
         prompt: String,
         agents: List<String>,
-        issueId: String? = null
+        issueId: String? = null,
+        workflowLineage: WorkflowLineageSnapshot? = null
     ): AgentTask = stateMutex.withLock {
         val now = System.currentTimeMillis()
         val loadedState = stateStore.load()
@@ -5090,7 +5743,8 @@ class DesktopAppService(
             plan = executionPlan,
             status = DesktopTaskStatus.QUEUED,
             createdAt = now,
-            updatedAt = now
+            updatedAt = now,
+            workflowLineage = workflowLineage
         )
 
         val nextState = state.copy(
@@ -6198,6 +6852,7 @@ class DesktopAppService(
                     "GitHub pull request was not created for required code work"
                 else -> null
             }
+            val estimatedCostCents = estimateRunCostCents(agent, assignedPrompt, result)
 
             replaceRun(
                 startedRun.copy(
@@ -6207,9 +6862,15 @@ class DesktopAppService(
                     error = finalError,
                     publish = publish,
                     durationMs = result.duration.takeIf { it > 0 },
+                    estimatedCostCents = estimatedCostCents.takeIf { it > 0 },
                     updatedAt = System.currentTimeMillis()
                 )
             )
+            company?.let {
+                if (estimatedCostCents > 0) {
+                    recordRunCost(it.id, estimatedCostCents)
+                }
+            }
             company?.let {
                 val successDetail = result.output
                     ?.lineSequence()
@@ -6294,7 +6955,8 @@ class DesktopAppService(
                 worktreePath = binding.worktreePath.toString(),
                 status = AgentRunStatus.QUEUED,
                 createdAt = now,
-                updatedAt = now
+                updatedAt = now,
+                workflowLineage = task.workflowLineage
             )
             stateStore.save(state.copy(runs = state.runs + run))
             run
@@ -6313,6 +6975,59 @@ class DesktopAppService(
                     }
                 )
             )
+        }
+    }
+
+    private suspend fun synchronizeWorkflowTaskLineage(
+        issueId: String,
+        taskId: String,
+        lineage: WorkflowLineageSnapshot
+    ) {
+        stateMutex.withLock {
+            val state = stateStore.load()
+            var changed = false
+            val nextIssues = state.issues.map { issue ->
+                if (issue.id == issueId && !workflowLineagesMatch(lineage, issue.workflowLineage)) {
+                    changed = true
+                    issue.copy(workflowLineage = lineage, updatedAt = issue.updatedAt)
+                } else {
+                    issue
+                }
+            }
+            val nextTasks = state.tasks.map { task ->
+                if (task.id == taskId && !workflowLineagesMatch(lineage, task.workflowLineage)) {
+                    changed = true
+                    task.copy(workflowLineage = lineage, updatedAt = task.updatedAt)
+                } else {
+                    task
+                }
+            }
+            val nextRuns = state.runs.map { run ->
+                if (run.taskId == taskId && !workflowLineagesMatch(lineage, run.workflowLineage)) {
+                    changed = true
+                    run.copy(workflowLineage = lineage, updatedAt = run.updatedAt)
+                } else {
+                    run
+                }
+            }
+            val nextReviewQueue = state.reviewQueue.map { item ->
+                if (item.id == lineage.reviewQueueItemId && !workflowLineagesMatch(lineage, item.workflowLineage)) {
+                    changed = true
+                    item.copy(workflowLineage = lineage, updatedAt = item.updatedAt)
+                } else {
+                    item
+                }
+            }
+            if (changed) {
+                stateStore.save(
+                    state.copy(
+                        issues = nextIssues,
+                        tasks = nextTasks,
+                        runs = nextRuns,
+                        reviewQueue = nextReviewQueue
+                    )
+                )
+            }
         }
     }
 
@@ -6641,6 +7356,8 @@ class DesktopAppService(
             appendLine("- Create only the concrete execution or research issues the company should do next.")
             appendLine("- Do not create QA review or CEO approval issues; Cotor creates PR gates separately.")
             appendLine("- Use one issue per branchable slice of work.")
+            appendLine("- Prefer a multi-issue execution graph over one giant issue.")
+            appendLine("- When the roster supports it, create 3 to 6 downstream issues and keep at least 2 implementation slices runnable in parallel.")
             appendLine("- Generic work should route to Builder-first unless the goal clearly needs a specialist.")
             appendLine("- Set codeProducing=true when the issue should end with a branch and GitHub PR.")
             appendLine("- For validation-only or residual-risk follow-up work, set codeProducing=false and do not manufacture placeholder repository artifacts just to force a diff.")
@@ -6804,6 +7521,235 @@ class DesktopAppService(
         else -> null
     }?.takeIf { it.isNotBlank() }
 
+    private fun isWorkflowIssue(issue: CompanyIssue): Boolean =
+        issue.kind.equals("review", ignoreCase = true) || issue.kind.equals("approval", ignoreCase = true)
+
+    private fun workflowLineagesMatch(
+        expected: WorkflowLineageSnapshot?,
+        actual: WorkflowLineageSnapshot?
+    ): Boolean {
+        if (expected == null || actual == null) {
+            return false
+        }
+        return expected.lineageId == actual.lineageId &&
+            expected.reviewQueueItemId == actual.reviewQueueItemId &&
+            expected.executionIssueId == actual.executionIssueId &&
+            expected.executionRunId == actual.executionRunId &&
+            expected.generation == actual.generation
+    }
+
+    private fun latestTaskForIssue(state: DesktopAppState, issueId: String): AgentTask? =
+        state.tasks
+            .filter { it.issueId == issueId }
+            .maxByOrNull { it.updatedAt }
+
+    private fun latestRunForTask(state: DesktopAppState, taskId: String): AgentRun? =
+        state.runs
+            .filter { it.taskId == taskId }
+            .maxByOrNull { it.updatedAt }
+
+    private fun nextWorkflowLineageGeneration(
+        state: DesktopAppState,
+        executionIssueId: String
+    ): Int {
+        val observedGenerations = buildList {
+            addAll(state.reviewQueue.filter { it.issueId == executionIssueId }.mapNotNull { it.workflowLineage?.generation })
+            addAll(
+                state.issues
+                    .filter {
+                        it.id == executionIssueId || relatedExecutionIssueId(it) == executionIssueId
+                    }
+                    .mapNotNull { it.workflowLineage?.generation }
+            )
+            addAll(state.tasks.mapNotNull { task ->
+                task.workflowLineage?.takeIf { it.executionIssueId == executionIssueId }?.generation
+            })
+            addAll(state.runs.mapNotNull { run ->
+                run.workflowLineage?.takeIf { it.executionIssueId == executionIssueId }?.generation
+            })
+        }
+        return (observedGenerations.maxOrNull() ?: 0) + 1
+    }
+
+    private fun buildWorkflowLineageSnapshot(
+        reviewQueueItemId: String,
+        executionIssueId: String,
+        executionTaskId: String,
+        executionRun: AgentRun,
+        generation: Int,
+        lineageId: String = UUID.randomUUID().toString()
+    ): WorkflowLineageSnapshot =
+        WorkflowLineageSnapshot(
+            lineageId = lineageId,
+            reviewQueueItemId = reviewQueueItemId,
+            executionIssueId = executionIssueId,
+            executionTaskId = executionTaskId,
+            executionRunId = executionRun.id,
+            pullRequestNumber = executionRun.publish?.pullRequestNumber,
+            pullRequestUrl = executionRun.publish?.pullRequestUrl,
+            branchName = executionRun.branchName,
+            worktreePath = executionRun.worktreePath,
+            generation = generation
+        )
+
+    private fun resolvedWorkflowLineageForQueueItem(
+        state: DesktopAppState,
+        queueItem: ReviewQueueItem
+    ): WorkflowLineageSnapshot? {
+        queueItem.workflowLineage?.let { return it }
+        val queuedRun = state.runs.firstOrNull { it.id == queueItem.runId }
+        val queuedTask = queuedRun?.let { run -> state.tasks.firstOrNull { it.id == run.taskId } }
+        val executionTaskAndRun =
+            if (queuedTask?.issueId == queueItem.issueId && queuedRun != null) {
+                queuedTask to queuedRun
+            } else {
+                val executionTasks = state.tasks
+                    .filter { it.issueId == queueItem.issueId }
+                    .sortedByDescending { it.updatedAt }
+                val executionRuns = executionTasks
+                    .flatMap { task ->
+                        state.runs
+                            .filter { it.taskId == task.id }
+                            .sortedByDescending { it.updatedAt }
+                            .map { run -> task to run }
+                    }
+                val matchedExecution = executionRuns.firstOrNull { (_, run) -> reviewQueueMatchesPublishedRun(queueItem, run) }
+                if (matchedExecution != null) {
+                    matchedExecution
+                } else {
+                    val queueHasExplicitExecutionIdentity =
+                        queueItem.pullRequestNumber != null ||
+                            !queueItem.pullRequestUrl.isNullOrBlank() ||
+                            !queueItem.branchName.isNullOrBlank() ||
+                            !queueItem.worktreePath.isNullOrBlank()
+                    if (!queueHasExplicitExecutionIdentity) {
+                        executionRuns.firstOrNull()
+                    } else {
+                        null
+                    }
+                }
+            }
+        val (executionTask, executionRun) = executionTaskAndRun ?: return null
+        return buildWorkflowLineageSnapshot(
+            reviewQueueItemId = queueItem.id,
+            executionIssueId = queueItem.issueId,
+            executionTaskId = executionTask.id,
+            executionRun = executionRun,
+            generation = 1,
+            lineageId = "legacy-${queueItem.id}"
+        )
+    }
+
+    private fun findQueueItemForWorkflowIssue(
+        state: DesktopAppState,
+        issue: CompanyIssue
+    ): ReviewQueueItem? {
+        val executionIssueId = relatedExecutionIssueId(issue) ?: return null
+        val candidates = state.reviewQueue
+            .filter { it.issueId == executionIssueId && it.status != ReviewQueueStatus.MERGED }
+            .sortedByDescending { it.updatedAt }
+        return when {
+            issue.kind.equals("review", ignoreCase = true) ->
+                candidates.firstOrNull { it.qaIssueId == issue.id } ?: candidates.firstOrNull()
+            issue.kind.equals("approval", ignoreCase = true) ->
+                candidates.firstOrNull { it.approvalIssueId == issue.id }
+                    ?: candidates.firstOrNull { it.status == ReviewQueueStatus.READY_FOR_CEO }
+                    ?: candidates.firstOrNull()
+            else -> null
+        }
+    }
+
+    private fun expectedWorkflowLineageForIssue(
+        state: DesktopAppState,
+        issue: CompanyIssue
+    ): WorkflowLineageSnapshot? =
+        issue.workflowLineage ?: findQueueItemForWorkflowIssue(state, issue)?.let { queueItem ->
+            resolvedWorkflowLineageForQueueItem(state, queueItem)
+        }
+
+    private fun workflowIssueNeedsFreshTask(
+        issue: CompanyIssue,
+        latestTask: AgentTask?,
+        latestRun: AgentRun?,
+        expectedLineage: WorkflowLineageSnapshot?
+    ): Boolean {
+        if (latestTask == null) {
+            return true
+        }
+        if (latestTask.status == DesktopTaskStatus.FAILED || latestTask.status == DesktopTaskStatus.PARTIAL) {
+            return true
+        }
+        if (issue.updatedAt > latestTask.updatedAt) {
+            return true
+        }
+        if (expectedLineage == null) {
+            return latestTask.workflowLineage != null || latestRun?.workflowLineage != null
+        }
+        if (
+            workflowLineagesMatch(expectedLineage, issue.workflowLineage) &&
+            workflowLineagesMatch(expectedLineage, latestTask.workflowLineage) &&
+            (latestRun == null || workflowLineagesMatch(expectedLineage, latestRun.workflowLineage))
+        ) {
+            return false
+        }
+        if (canAdoptExpectedWorkflowLineage(issue, latestTask, latestRun, expectedLineage)) {
+            return false
+        }
+        return true
+    }
+
+    private fun canAdoptExpectedWorkflowLineage(
+        issue: CompanyIssue,
+        task: AgentTask,
+        run: AgentRun?,
+        expectedLineage: WorkflowLineageSnapshot?
+    ): Boolean {
+        if (expectedLineage == null) {
+            return false
+        }
+        if (issue.updatedAt > task.updatedAt) {
+            return false
+        }
+        val explicitMismatch =
+            (issue.workflowLineage != null && !workflowLineagesMatch(expectedLineage, issue.workflowLineage)) ||
+                (task.workflowLineage != null && !workflowLineagesMatch(expectedLineage, task.workflowLineage)) ||
+                (run?.workflowLineage != null && !workflowLineagesMatch(expectedLineage, run.workflowLineage))
+        return !explicitMismatch
+    }
+
+    private fun synthesizeLegacyWorkflowLineageForCurrentTask(
+        queueItem: ReviewQueueItem,
+        task: AgentTask,
+        run: AgentRun?
+    ): WorkflowLineageSnapshot =
+        WorkflowLineageSnapshot(
+            lineageId = "legacy-workflow-${queueItem.id}",
+            reviewQueueItemId = queueItem.id,
+            executionIssueId = queueItem.issueId,
+            executionTaskId = task.id,
+            executionRunId = run?.id ?: queueItem.runId.ifBlank { "legacy-queue:${queueItem.id}" },
+            pullRequestNumber = queueItem.pullRequestNumber,
+            pullRequestUrl = queueItem.pullRequestUrl,
+            branchName = queueItem.branchName,
+            worktreePath = queueItem.worktreePath,
+            generation = 1
+        )
+
+    private fun reviewQueueReflectsExecutionRun(
+        queueItem: ReviewQueueItem,
+        task: AgentTask,
+        run: AgentRun?
+    ): Boolean {
+        if (run == null) {
+            return false
+        }
+        val queueLineage = queueItem.workflowLineage
+        if (queueLineage != null) {
+            return queueLineage.executionTaskId == task.id && queueLineage.executionRunId == run.id
+        }
+        return queueItem.runId == run.id
+    }
+
     private fun buildQaReviewIssueDescription(executionIssue: CompanyIssue, queueItem: ReviewQueueItem): String = buildString {
         appendLine("QA review issue for a concrete pull request.")
         appendLine()
@@ -6942,7 +7888,8 @@ class DesktopAppService(
                 appendLine("Required outcome:")
                 appendLine("- Unblock the affected work or satisfy the failed review signal.")
                 appendLine("- Re-run validation and capture any residual risk.")
-                appendLine("- Hand the result back to the CEO for another decision cycle.")
+                appendLine("- Summarize what the CEO should decide next once the remediation is complete.")
+                appendLine("- Create the next wave so the company can keep moving with multiple branchable issues when more work remains.")
             }
             return createGoal(
                 companyId = companyId,
@@ -6950,7 +7897,8 @@ class DesktopAppService(
                 description = description,
                 successMetrics = listOf(
                     "The triggering issue is no longer blocked or failed in review.",
-                    "Validation is re-run and residual risks are documented."
+                    "Validation is re-run and residual risks are documented.",
+                    "The CEO receives a concrete next-wave recommendation instead of a dead-end remediation note."
                 ),
                 autonomyEnabled = true,
                 priority = 1,
@@ -7021,9 +7969,10 @@ class DesktopAppService(
             }
             appendLine()
             appendLine("CEO directive:")
-            appendLine("- Review the current company state and identify the next highest-leverage improvement.")
-            appendLine("- Create the next set of implementation, review, and approval issues for the current roster.")
-            appendLine("- Keep the company moving with one validated, reviewable slice of progress.")
+            appendLine("- Review the current company state, recent wins, and unresolved product gaps.")
+            appendLine("- Create a portfolio of 3 to 5 branchable issues for the next cycle instead of one narrow slice.")
+            appendLine("- Use the current roster to run multiple compatible implementation and validation tracks in parallel when possible.")
+            appendLine("- End this cycle with reviewed work and an explicit CEO decision about the next wave.")
         }
         return createGoal(
             companyId = companyId,
@@ -7031,7 +7980,8 @@ class DesktopAppService(
             description = description,
             successMetrics = listOf(
                 "The CEO identifies the next improvement cycle and delegates it across the current roster.",
-                "At least one new reviewed execution slice is completed and residual risk is recorded."
+                "At least two branchable issues are opened when the roster can support concurrent work.",
+                "Reviewed execution slices complete and residual risk is recorded before the next CEO decision."
             ),
             autonomyEnabled = true,
             priority = 2,
@@ -7116,35 +8066,49 @@ class DesktopAppService(
                     (scopedExecutionIssueIds.isEmpty() || it.id in scopedExecutionIssueIds)
             }
             .sortedByDescending { it.updatedAt }
-        val completedExecutionRuns = scopedExecutionIssues
-            .mapNotNull { completedIssue ->
-                val completedTask = state.tasks
-                    .filter { it.issueId == completedIssue.id }
-                    .maxByOrNull { it.updatedAt }
+        val queueScopedExecutionEvidence = if (issue.kind.equals("review", ignoreCase = true) || issue.kind.equals("approval", ignoreCase = true)) {
+            scopedQueueItems.mapNotNull { reviewItem ->
+                val run = state.runs.firstOrNull { it.id == reviewItem.runId && it.status == AgentRunStatus.COMPLETED }
                     ?: return@mapNotNull null
-                val completedRun = state.runs
-                    .filter { it.taskId == completedTask.id && it.status == AgentRunStatus.COMPLETED }
-                    .maxByOrNull { it.updatedAt }
-                    ?: return@mapNotNull null
+                val executionIssue = state.issues.firstOrNull { it.id == reviewItem.issueId } ?: return@mapNotNull null
+                Triple(reviewItem, executionIssue, run)
+            }
+                .distinctBy { (_, _, run) -> run.id }
+                .take(3)
+        } else {
+            emptyList()
+        }
+        val completedExecutionRuns = if (queueScopedExecutionEvidence.isNotEmpty()) {
+            queueScopedExecutionEvidence.map { (_, executionIssue, completedRun) ->
                 buildString {
-                    append("- ${completedIssue.title}")
+                    append("- ${executionIssue.title}")
                     append(" [branch: ${completedRun.branchName}]")
                     completedRun.publish?.commitSha?.let { append(" [commit: ${it.take(7)}]") }
                 }
             }
-            .take(3)
-        val completedExecutionEvidence = scopedExecutionIssues
-            .mapNotNull { completedIssue ->
-                val completedTask = state.tasks
-                    .filter { it.issueId == completedIssue.id }
-                    .maxByOrNull { it.updatedAt }
-                    ?: return@mapNotNull null
-                val completedRun = state.runs
-                    .filter { it.taskId == completedTask.id && it.status == AgentRunStatus.COMPLETED }
-                    .maxByOrNull { it.updatedAt }
-                    ?: return@mapNotNull null
+        } else {
+            scopedExecutionIssues
+                .mapNotNull { completedIssue ->
+                    val completedTask = state.tasks
+                        .filter { it.issueId == completedIssue.id }
+                        .maxByOrNull { it.updatedAt }
+                        ?: return@mapNotNull null
+                    val completedRun = state.runs
+                        .filter { it.taskId == completedTask.id && it.status == AgentRunStatus.COMPLETED }
+                        .maxByOrNull { it.updatedAt }
+                        ?: return@mapNotNull null
+                    buildString {
+                        append("- ${completedIssue.title}")
+                        append(" [branch: ${completedRun.branchName}]")
+                        completedRun.publish?.commitSha?.let { append(" [commit: ${it.take(7)}]") }
+                    }
+                }
+                .take(3)
+        }
+        val completedExecutionEvidence = if (queueScopedExecutionEvidence.isNotEmpty()) {
+            queueScopedExecutionEvidence.map { (_, executionIssue, completedRun) ->
                 buildString {
-                    appendLine("- ${completedIssue.title}")
+                    appendLine("- ${executionIssue.title}")
                     appendLine("  branch: ${completedRun.branchName}")
                     completedRun.publish?.commitSha?.let { appendLine("  commit: ${it.take(7)}") }
                     completedRun.output?.takeIf { it.isNotBlank() }?.let { output ->
@@ -7152,7 +8116,28 @@ class DesktopAppService(
                     }
                 }.trimEnd()
             }
-            .take(3)
+        } else {
+            scopedExecutionIssues
+                .mapNotNull { completedIssue ->
+                    val completedTask = state.tasks
+                        .filter { it.issueId == completedIssue.id }
+                        .maxByOrNull { it.updatedAt }
+                        ?: return@mapNotNull null
+                    val completedRun = state.runs
+                        .filter { it.taskId == completedTask.id && it.status == AgentRunStatus.COMPLETED }
+                        .maxByOrNull { it.updatedAt }
+                        ?: return@mapNotNull null
+                    buildString {
+                        appendLine("- ${completedIssue.title}")
+                        appendLine("  branch: ${completedRun.branchName}")
+                        completedRun.publish?.commitSha?.let { appendLine("  commit: ${it.take(7)}") }
+                        completedRun.output?.takeIf { it.isNotBlank() }?.let { output ->
+                            appendLine("  execution summary: ${summarizeForPrompt(output, 280)}")
+                        }
+                    }.trimEnd()
+                }
+                .take(3)
+        }
         val completedReviewEvidence = when (issue.kind.lowercase()) {
             "approval" -> ceoReadyQueueItems.map { reviewItem ->
                 buildString {
@@ -7983,7 +8968,10 @@ class DesktopAppService(
             val existingNonPlanning = state.issues.filter {
                 it.goalId == goal.id && !it.kind.equals("planning", ignoreCase = true)
             }
-            if (existingNonPlanning.isNotEmpty()) {
+            val unresolvedNonPlanning = existingNonPlanning.filterNot {
+                it.status == IssueStatus.DONE || it.status == IssueStatus.CANCELED
+            }
+            if (unresolvedNonPlanning.isNotEmpty()) {
                 val updatedPlanningIssue = currentIssue.copy(
                     status = IssueStatus.DONE,
                     transitionReason = "CEO planning lane already produced downstream issues for this goal.",
@@ -8069,11 +9057,9 @@ class DesktopAppService(
                 createdAt = now
             )
             val nextState = state.copy(
-                issues = state.issues.filterNot {
-                    it.id == currentIssue.id || (it.goalId == goal.id && !it.kind.equals("planning", ignoreCase = true))
-                } + updatedPlanningIssue + decomposition.first,
+                issues = state.issues.filterNot { it.id == currentIssue.id } + updatedPlanningIssue + decomposition.first,
                 issueDependencies = state.issueDependencies.filterNot { dependency ->
-                    dependency.issueId == currentIssue.id || dependency.issueId in existingNonPlanning.map { it.id }.toSet()
+                    dependency.issueId == currentIssue.id
                 } + decomposition.second,
                 goalDecisions = state.goalDecisions + decision
             ).recordCompanyActivity(
@@ -8125,6 +9111,7 @@ class DesktopAppService(
             return
         }
         var runtimeContinuationCompanyId: String? = null
+        val supersededPullRequestClosures = mutableListOf<Triple<String, Int, String>>()
         val now = System.currentTimeMillis()
         val traceEvents = mutableListOf<CompanyAutomationTraceEvent>()
         val informationalTraceEvents = mutableListOf<CompanyAutomationTraceEvent>()
@@ -8254,10 +9241,70 @@ class DesktopAppService(
                 hasPublishMetadata -> ReviewQueueStatus.AWAITING_QA
                 else -> ReviewQueueStatus.AWAITING_QA
             }
+            val existingReviewQueueItem = state.reviewQueue
+                .lastOrNull { it.issueId == currentIssue.id && it.status != ReviewQueueStatus.MERGED }
+            val existingQaIssue = existingReviewQueueItem?.qaIssueId?.let { qaIssueId ->
+                state.issues.firstOrNull { it.id == qaIssueId }
+            } ?: state.issues.firstOrNull {
+                relatedExecutionIssueId(it) == currentIssue.id && it.kind.equals("review", ignoreCase = true)
+            }
+            val existingQaTask = existingQaIssue?.let { latestTaskForIssue(state, it.id) }
+            val existingQaRun = existingQaTask?.let { latestRunForTask(state, it.id) }
+            val existingQueueLineage = existingReviewQueueItem?.let { resolvedWorkflowLineageForQueueItem(state, it) }
+            val executionRunAdvanced =
+                pullRequestRequired &&
+                    hasPublishMetadata &&
+                    existingReviewQueueItem != null &&
+                    !reviewQueueReflectsExecutionRun(existingReviewQueueItem, task, primaryRun)
+            val downstreamQaLineageMismatch =
+                pullRequestRequired &&
+                    hasPublishMetadata &&
+                    existingQaIssue != null &&
+                    existingQueueLineage != null &&
+                    (
+                        (existingQaIssue.workflowLineage != null && !workflowLineagesMatch(existingQueueLineage, existingQaIssue.workflowLineage)) ||
+                            (existingQaTask?.workflowLineage != null && !workflowLineagesMatch(existingQueueLineage, existingQaTask.workflowLineage)) ||
+                            (existingQaRun?.workflowLineage != null && !workflowLineagesMatch(existingQueueLineage, existingQaRun.workflowLineage))
+                        )
+            val publishedReviewIdentityChanged =
+                pullRequestRequired &&
+                    hasPublishMetadata &&
+                    (
+                        existingReviewQueueItem == null ||
+                            executionRunAdvanced ||
+                            downstreamQaLineageMismatch
+                        )
+            val reviewQueueItemId = if (publishedReviewIdentityChanged || existingReviewQueueItem == null) {
+                UUID.randomUUID().toString()
+            } else {
+                existingReviewQueueItem.id
+            }
+            val workflowLineage = if (pullRequestRequired && hasPublishMetadata && primaryRun != null) {
+                if (publishedReviewIdentityChanged || existingQueueLineage == null) {
+                    buildWorkflowLineageSnapshot(
+                        reviewQueueItemId = reviewQueueItemId,
+                        executionIssueId = currentIssue.id,
+                        executionTaskId = task.id,
+                        executionRun = primaryRun,
+                        generation = nextWorkflowLineageGeneration(state, currentIssue.id)
+                    )
+                } else {
+                    buildWorkflowLineageSnapshot(
+                        reviewQueueItemId = reviewQueueItemId,
+                        executionIssueId = currentIssue.id,
+                        executionTaskId = task.id,
+                        executionRun = primaryRun,
+                        generation = existingQueueLineage.generation,
+                        lineageId = existingQueueLineage.lineageId
+                    )
+                }
+            } else {
+                null
+            }
             val nextReviewQueue = if (pullRequestRequired && hasPublishMetadata) {
-                val existing = state.reviewQueue.firstOrNull { it.issueId == currentIssue.id }
+                val existing = existingReviewQueueItem
                 val queueItem = ReviewQueueItem(
-                    id = existing?.id ?: UUID.randomUUID().toString(),
+                    id = reviewQueueItemId,
                     companyId = currentIssue.companyId,
                     projectContextId = currentIssue.projectContextId,
                     issueId = currentIssue.id,
@@ -8274,24 +9321,67 @@ class DesktopAppService(
                     qaVerdict = null,
                     qaFeedback = null,
                     qaReviewedAt = null,
-                    qaIssueId = existing?.qaIssueId,
+                    qaIssueId = if (publishedReviewIdentityChanged) null else existing?.qaIssueId,
                     ceoVerdict = null,
                     ceoFeedback = null,
                     ceoReviewedAt = null,
-                    approvalIssueId = existing?.approvalIssueId,
-                    createdAt = existing?.createdAt ?: now,
-                    updatedAt = now
+                    approvalIssueId = if (publishedReviewIdentityChanged) null else existing?.approvalIssueId,
+                    createdAt = if (publishedReviewIdentityChanged) now else existing?.createdAt ?: now,
+                    updatedAt = now,
+                    workflowLineage = workflowLineage
                 )
                 state.reviewQueue.filterNot { it.id == queueItem.id || it.issueId == currentIssue.id } + queueItem
             } else {
                 state.reviewQueue
             }
+            if (executionRunAdvanced) {
+                val stalePullRequestNumber = existingReviewQueueItem?.pullRequestNumber
+                val worktreeForClose = primaryRun?.worktreePath ?: currentIssue.worktreePath
+                if (
+                    stalePullRequestNumber != null &&
+                    worktreeForClose != null &&
+                    stalePullRequestNumber != primaryRun?.publish?.pullRequestNumber &&
+                    !existingReviewQueueItem?.pullRequestState.equals("MERGED", ignoreCase = true) &&
+                    !existingReviewQueueItem?.pullRequestState.equals("CLOSED", ignoreCase = true)
+                ) {
+                    val replacementRef =
+                        primaryRun?.publish?.pullRequestUrl
+                            ?: primaryRun?.publish?.pullRequestNumber?.let { "#$it" }
+                            ?: primaryRun?.branchName
+                            ?: "the latest retry branch"
+                    supersededPullRequestClosures += Triple(
+                        worktreeForClose,
+                        stalePullRequestNumber,
+                        "Superseded by newer retry $replacementRef. Closing this outdated PR to keep the review queue aligned with the latest execution branch."
+                    )
+                }
+            }
             val companyProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
                 .filter { it.companyId == currentIssue.companyId }
             val qaProfile = findQaProfile(currentIssue.companyId, companyProfiles)
-            val existingQaIssue = state.issues.firstOrNull { relatedExecutionIssueId(it) == currentIssue.id && it.kind.equals("review", ignoreCase = true) }
+            val reusableQaIssue = if (publishedReviewIdentityChanged) {
+                null
+            } else {
+                existingQaIssue
+            }
+            val staleWorkflowIssueIds = if (publishedReviewIdentityChanged) {
+                state.issues
+                    .filter {
+                        relatedExecutionIssueId(it) == currentIssue.id &&
+                            (
+                                it.kind.equals("review", ignoreCase = true) ||
+                                    it.kind.equals("approval", ignoreCase = true)
+                                )
+                    }
+                    .map { it.id }
+                    .toSet()
+            } else {
+                buildSet {
+                    reusableQaIssue?.id?.let(::add)
+                }
+            }
             val qaIssue = if (pullRequestRequired && hasPublishMetadata && qaProfile != null) {
-                existingQaIssue?.copy(
+                reusableQaIssue?.copy(
                     title = "QA review ${currentIssue.title}",
                     description = buildQaReviewIssueDescription(updatedIssue, nextReviewQueue.first { it.issueId == currentIssue.id }),
                     status = IssueStatus.PLANNED,
@@ -8307,7 +9397,8 @@ class DesktopAppService(
                     ceoVerdict = null,
                     ceoFeedback = null,
                     transitionReason = "Execution PR is ready for QA review.",
-                    updatedAt = now
+                    updatedAt = now,
+                    workflowLineage = workflowLineage
                 ) ?: CompanyIssue(
                     id = UUID.randomUUID().toString(),
                     companyId = currentIssue.companyId,
@@ -8336,15 +9427,24 @@ class DesktopAppService(
                     transitionReason = "Execution PR is ready for QA review.",
                     sourceSignal = qaReviewSource(currentIssue.id),
                     createdAt = now,
-                    updatedAt = now
+                    updatedAt = now,
+                    workflowLineage = workflowLineage
                 )
             } else {
-                existingQaIssue
+                reusableQaIssue
             }
             val queueForCurrentIssue = nextReviewQueue.firstOrNull { it.issueId == currentIssue.id }
             val queueWithQaBinding = if (qaIssue != null && queueForCurrentIssue != null) {
                 nextReviewQueue.map { item ->
-                    if (item.id == queueForCurrentIssue.id) item.copy(qaIssueId = qaIssue.id, updatedAt = now) else item
+                    if (item.id == queueForCurrentIssue.id) {
+                        item.copy(
+                            qaIssueId = qaIssue.id,
+                            workflowLineage = workflowLineage ?: item.workflowLineage,
+                            updatedAt = now
+                        )
+                    } else {
+                        item
+                    }
                 }
             } else {
                 nextReviewQueue
@@ -8365,7 +9465,7 @@ class DesktopAppService(
             }
             val nextState = state.copy(
                 issues = state.issues
-                    .filterNot { existing -> existing.id == currentIssue.id || existing.id == existingQaIssue?.id }
+                    .filterNot { existing -> existing.id == currentIssue.id || existing.id in staleWorkflowIssueIds }
                     .plus(updatedIssue)
                     .plus(listOfNotNull(qaIssue)),
                 reviewQueue = queueWithQaBinding,
@@ -8413,6 +9513,19 @@ class DesktopAppService(
         }
         traceEvents.forEach(::appendCompanyAutomationTrace)
         informationalTraceEvents.forEach(::appendCompanyAutomationTrace)
+        supersededPullRequestClosures.forEach { (worktreePath, pullRequestNumber, comment) ->
+            runCatching {
+                gitWorkspaceService.closePullRequest(
+                    worktreePath = Path.of(worktreePath),
+                    pullRequestNumber = pullRequestNumber,
+                    comment = comment
+                )
+            }.onFailure { error ->
+                if (error is CancellationException) {
+                    throw error
+                }
+            }
+        }
         val syncComment = buildString {
             append("Cotor finished task \"${task.title}\" with ${finalStatus.name}.")
             primaryRun?.publish?.pullRequestUrl?.let { append("\nPR: $it") }
@@ -8445,18 +9558,74 @@ class DesktopAppService(
             val executionIssueId = relatedExecutionIssueId(currentIssue) ?: return@withLock
             val executionIssue = state.issues.firstOrNull { it.id == executionIssueId } ?: return@withLock
             val targetQueueItem = state.reviewQueue
-                .firstOrNull { it.issueId == executionIssueId && it.status != ReviewQueueStatus.MERGED }
+                .firstOrNull {
+                    it.issueId == executionIssueId &&
+                        it.qaIssueId == currentIssue.id &&
+                        it.status != ReviewQueueStatus.MERGED
+                }
                 ?: return@withLock
+            var expectedLineage = resolvedWorkflowLineageForQueueItem(state, targetQueueItem)
+            if (
+                expectedLineage == null &&
+                    currentIssue.workflowLineage == null &&
+                    task.workflowLineage == null &&
+                    primaryRun?.workflowLineage == null &&
+                    currentIssue.updatedAt <= task.updatedAt
+            ) {
+                expectedLineage = synthesizeLegacyWorkflowLineageForCurrentTask(targetQueueItem, task, primaryRun)
+            }
+            val legacyLineageAdopted =
+                expectedLineage != null && canAdoptExpectedWorkflowLineage(currentIssue, task, primaryRun, expectedLineage)
+            if (
+                expectedLineage == null ||
+                    (
+                        !legacyLineageAdopted &&
+                            (
+                                !workflowLineagesMatch(expectedLineage, currentIssue.workflowLineage) ||
+                                    !workflowLineagesMatch(expectedLineage, task.workflowLineage) ||
+                                    (primaryRun != null && !workflowLineagesMatch(expectedLineage, primaryRun.workflowLineage))
+                                )
+                        )
+            ) {
+                informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                    issue = currentIssue,
+                    goal = state.goals.firstOrNull { it.id == currentIssue.goalId },
+                    oldStatus = currentIssue.status,
+                    newStatus = currentIssue.status,
+                    source = "syncReviewIssueFromTask",
+                    reason = "Ignored a stale QA task result because its workflow lineage no longer matches the current review queue item.",
+                    latestTask = task,
+                    latestRun = primaryRun
+                )
+                return@withLock
+            }
+            val effectiveIssue = if (!workflowLineagesMatch(expectedLineage, currentIssue.workflowLineage)) {
+                currentIssue.copy(workflowLineage = expectedLineage, updatedAt = currentIssue.updatedAt)
+            } else {
+                currentIssue
+            }
+            val effectiveTask = if (!workflowLineagesMatch(expectedLineage, task.workflowLineage)) {
+                task.copy(workflowLineage = expectedLineage, updatedAt = task.updatedAt)
+            } else {
+                task
+            }
+            val effectiveRun = primaryRun?.let { run ->
+                if (!workflowLineagesMatch(expectedLineage, run.workflowLineage)) {
+                    run.copy(workflowLineage = expectedLineage, updatedAt = run.updatedAt)
+                } else {
+                    run
+                }
+            }
             val reviewPassed = finalStatus == DesktopTaskStatus.COMPLETED && verdict.value == "PASS"
             val companyProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
                 .filter { it.companyId == currentIssue.companyId }
             val chiefProfile = findChiefProfile(currentIssue.companyId, companyProfiles)
-            val existingApprovalIssue = state.issues.firstOrNull {
-                relatedExecutionIssueId(it) == executionIssueId && it.kind.equals("approval", ignoreCase = true)
+            val existingApprovalIssue = targetQueueItem.approvalIssueId?.let { approvalIssueId ->
+                state.issues.firstOrNull { it.id == approvalIssueId }
             }
             if (
                 reviewTaskAlreadyApplied(
-                    reviewIssue = currentIssue,
+                    reviewIssue = effectiveIssue,
                     executionIssue = executionIssue,
                     approvalIssue = existingApprovalIssue,
                     queueItem = targetQueueItem,
@@ -8485,7 +9654,8 @@ class DesktopAppService(
                 } else {
                     "QA requested changes on ${targetQueueItem.pullRequestUrl ?: executionIssue.title}."
                 },
-                updatedAt = now
+                updatedAt = now,
+                workflowLineage = expectedLineage
             )
             val updatedExecutionIssue = executionIssue.copy(
                 status = if (reviewPassed) IssueStatus.READY_FOR_CEO else IssueStatus.PLANNED,
@@ -8517,7 +9687,8 @@ class DesktopAppService(
                     ceoVerdict = null,
                     ceoFeedback = null,
                     transitionReason = "QA approved the current PR and reopened CEO approval.",
-                    updatedAt = now
+                    updatedAt = now,
+                    workflowLineage = expectedLineage
                 ) ?: CompanyIssue(
                     id = UUID.randomUUID().toString(),
                     companyId = currentIssue.companyId,
@@ -8548,12 +9719,14 @@ class DesktopAppService(
                     transitionReason = "QA approved the current PR and opened CEO approval.",
                     sourceSignal = ceoApprovalSource(executionIssueId),
                     createdAt = now,
-                    updatedAt = now
+                    updatedAt = now,
+                    workflowLineage = expectedLineage
                 )
             } else {
                 existingApprovalIssue?.copy(
                     status = if (existingApprovalIssue.status == IssueStatus.DONE) IssueStatus.DONE else IssueStatus.BLOCKED,
-                    updatedAt = now
+                    updatedAt = now,
+                    workflowLineage = expectedLineage
                 )
             }
             val updatedReviewQueue = state.reviewQueue.map { item ->
@@ -8570,7 +9743,8 @@ class DesktopAppService(
                         ceoFeedback = null,
                         ceoReviewedAt = null,
                         approvalIssueId = approvalIssue?.id,
-                        updatedAt = now
+                        updatedAt = now,
+                        workflowLineage = expectedLineage
                     )
                     queueReviews += nextItem to if (reviewPassed) PullRequestReviewVerdict.APPROVE else PullRequestReviewVerdict.REQUEST_CHANGES
                     nextItem
@@ -8618,6 +9792,12 @@ class DesktopAppService(
                     .plus(updatedReviewIssue)
                     .plus(updatedExecutionIssue)
                     .plus(listOfNotNull(approvalIssue)),
+                tasks = state.tasks.map { existing ->
+                    if (existing.id == effectiveTask.id) effectiveTask else existing
+                },
+                runs = effectiveRun?.let { run ->
+                    state.runs.map { existing -> if (existing.id == run.id) run else existing }
+                } ?: state.runs,
                 reviewQueue = updatedReviewQueue
             ).recordCompanyActivity(
                 companyId = currentIssue.companyId,
@@ -8692,11 +9872,67 @@ class DesktopAppService(
             val executionIssueId = relatedExecutionIssueId(currentIssue) ?: return@withLock
             val executionIssue = state.issues.firstOrNull { it.id == executionIssueId } ?: return@withLock
             val targetQueueItem = state.reviewQueue
-                .firstOrNull { it.issueId == executionIssueId && it.status == ReviewQueueStatus.READY_FOR_CEO }
+                .firstOrNull {
+                    it.issueId == executionIssueId &&
+                        it.approvalIssueId == currentIssue.id &&
+                        it.status == ReviewQueueStatus.READY_FOR_CEO
+                }
                 ?: return@withLock
+            var expectedLineage = resolvedWorkflowLineageForQueueItem(state, targetQueueItem)
+            if (
+                expectedLineage == null &&
+                    currentIssue.workflowLineage == null &&
+                    task.workflowLineage == null &&
+                    primaryRun?.workflowLineage == null &&
+                    currentIssue.updatedAt <= task.updatedAt
+            ) {
+                expectedLineage = synthesizeLegacyWorkflowLineageForCurrentTask(targetQueueItem, task, primaryRun)
+            }
+            val legacyLineageAdopted =
+                expectedLineage != null && canAdoptExpectedWorkflowLineage(currentIssue, task, primaryRun, expectedLineage)
+            if (
+                expectedLineage == null ||
+                    (
+                        !legacyLineageAdopted &&
+                            (
+                                !workflowLineagesMatch(expectedLineage, currentIssue.workflowLineage) ||
+                                    !workflowLineagesMatch(expectedLineage, task.workflowLineage) ||
+                                    (primaryRun != null && !workflowLineagesMatch(expectedLineage, primaryRun.workflowLineage))
+                                )
+                        )
+            ) {
+                informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                    issue = currentIssue,
+                    goal = state.goals.firstOrNull { it.id == currentIssue.goalId },
+                    oldStatus = currentIssue.status,
+                    newStatus = currentIssue.status,
+                    source = "syncApprovalIssueFromTask",
+                    reason = "Ignored a stale CEO task result because its workflow lineage no longer matches the current approval queue item.",
+                    latestTask = task,
+                    latestRun = primaryRun
+                )
+                return@withLock
+            }
+            val effectiveIssue = if (!workflowLineagesMatch(expectedLineage, currentIssue.workflowLineage)) {
+                currentIssue.copy(workflowLineage = expectedLineage, updatedAt = currentIssue.updatedAt)
+            } else {
+                currentIssue
+            }
+            val effectiveTask = if (!workflowLineagesMatch(expectedLineage, task.workflowLineage)) {
+                task.copy(workflowLineage = expectedLineage, updatedAt = task.updatedAt)
+            } else {
+                task
+            }
+            val effectiveRun = primaryRun?.let { run ->
+                if (!workflowLineagesMatch(expectedLineage, run.workflowLineage)) {
+                    run.copy(workflowLineage = expectedLineage, updatedAt = run.updatedAt)
+                } else {
+                    run
+                }
+            }
             if (
                 approvalTaskAlreadyApplied(
-                    approvalIssue = currentIssue,
+                    approvalIssue = effectiveIssue,
                     executionIssue = executionIssue,
                     queueItem = targetQueueItem,
                     verdict = verdict,
@@ -8724,7 +9960,8 @@ class DesktopAppService(
                 } else {
                     "CEO requested changes on ${targetQueueItem.pullRequestUrl ?: executionIssue.title}."
                 },
-                updatedAt = now
+                updatedAt = now,
+                workflowLineage = expectedLineage
             )
             val updatedExecutionIssue = executionIssue.copy(
                 status = if (approvalGranted) IssueStatus.READY_FOR_CEO else IssueStatus.PLANNED,
@@ -8748,7 +9985,8 @@ class DesktopAppService(
                         ceoFeedback = verdict.feedback,
                         ceoReviewedAt = now,
                         approvalIssueId = currentIssue.id,
-                        updatedAt = now
+                        updatedAt = now,
+                        workflowLineage = expectedLineage
                     )
                     if (approvalGranted) {
                         mergeQueueIds += item.id
@@ -8780,6 +10018,12 @@ class DesktopAppService(
                         else -> existing
                     }
                 },
+                tasks = state.tasks.map { existing ->
+                    if (existing.id == effectiveTask.id) effectiveTask else existing
+                },
+                runs = effectiveRun?.let { run ->
+                    state.runs.map { existing -> if (existing.id == run.id) run else existing }
+                } ?: state.runs,
                 reviewQueue = updatedReviewQueue
             ).recordCompanyActivity(
                 companyId = currentIssue.companyId,
@@ -9033,8 +10277,8 @@ class DesktopAppService(
 
     private fun isBudgetExhausted(state: DesktopAppState, companyId: String, runtime: CompanyRuntimeSnapshot): Boolean {
         val company = state.companies.firstOrNull { it.id == companyId } ?: return false
-        val dailyLimit = company.dailyBudgetCents ?: return false
-        return runtime.todaySpentCents >= dailyLimit
+        val window = currentBudgetWindow(runtime)
+        return isBudgetExhausted(company, window.todaySpentCents, window.monthSpentCents)
     }
 
     suspend fun recordRunCost(companyId: String, costCents: Int) {
@@ -9042,18 +10286,137 @@ class DesktopAppService(
         stateMutex.withLock {
             val state = stateStore.load()
             val now = System.currentTimeMillis()
+            val company = state.companies.firstOrNull { it.id == companyId } ?: return@withLock
             val today = java.time.LocalDate.now().toString()
             val nextRuntimes = state.companyRuntimes.map {
                 if (it.companyId != companyId) return@map it
-                val resetToday = it.budgetResetDate != today
+                val window = currentBudgetWindow(it)
+                val nextTodaySpend = window.todaySpentCents + costCents
+                val nextMonthSpend = window.monthSpentCents + costCents
                 it.copy(
-                    todaySpentCents = if (resetToday) costCents else it.todaySpentCents + costCents,
-                    monthSpentCents = it.monthSpentCents + costCents,
+                    todaySpentCents = nextTodaySpend,
+                    monthSpentCents = nextMonthSpend,
+                    budgetPausedAt = if (isBudgetExhausted(company, nextTodaySpend, nextMonthSpend)) now else null,
                     budgetResetDate = today
                 )
             }
             stateStore.save(state.copy(companyRuntimes = nextRuntimes))
         }
+    }
+
+    private fun normalizeBudgetOverride(requestedBudgetCents: Int?, existingBudgetCents: Int?): Int? =
+        when (requestedBudgetCents) {
+            null -> existingBudgetCents
+            else -> requestedBudgetCents.takeIf { it > 0 }
+        }
+
+    private data class BudgetWindow(
+        val dayKey: String,
+        val monthKey: String,
+        val todaySpentCents: Int,
+        val monthSpentCents: Int
+    )
+
+    private fun currentBudgetWindow(
+        runtime: CompanyRuntimeSnapshot,
+        now: java.time.LocalDate = java.time.LocalDate.now()
+    ): BudgetWindow {
+        val todayKey = now.toString()
+        val monthKey = todayKey.take(7)
+        val savedDayKey = runtime.budgetResetDate
+        val savedMonthKey = savedDayKey?.take(7)
+        return BudgetWindow(
+            dayKey = todayKey,
+            monthKey = monthKey,
+            todaySpentCents = if (savedDayKey == todayKey) runtime.todaySpentCents else 0,
+            monthSpentCents = if (savedMonthKey == monthKey) runtime.monthSpentCents else 0
+        )
+    }
+
+    private fun runtimeWithinCurrentBudgetWindow(
+        runtime: CompanyRuntimeSnapshot,
+        now: java.time.LocalDate = java.time.LocalDate.now()
+    ): CompanyRuntimeSnapshot {
+        val window = currentBudgetWindow(runtime, now)
+        val resetOccurred = runtime.todaySpentCents != window.todaySpentCents || runtime.monthSpentCents != window.monthSpentCents
+        return if (!resetOccurred) {
+            runtime
+        } else {
+            runtime.copy(
+                todaySpentCents = window.todaySpentCents,
+                monthSpentCents = window.monthSpentCents,
+                budgetPausedAt = null
+            )
+        }
+    }
+
+    private fun isBudgetExhausted(company: Company, todaySpentCents: Int, monthSpentCents: Int): Boolean {
+        val dailyExceeded = company.dailyBudgetCents?.let { todaySpentCents >= it } ?: false
+        val monthlyExceeded = company.monthlyBudgetCents?.let { monthSpentCents >= it } ?: false
+        return dailyExceeded || monthlyExceeded
+    }
+
+    private fun estimateRunCostCents(
+        agent: AgentConfig,
+        prompt: String,
+        result: AgentResult
+    ): Int {
+        val explicitKeys = listOf("estimatedCostCents", "costCents")
+        for (key in explicitKeys) {
+            result.metadata[key]?.toIntOrNull()?.let { return it.coerceAtLeast(0) }
+        }
+        result.metadata["usdCost"]?.toDoubleOrNull()?.let { return kotlin.math.max(0, kotlin.math.ceil(it * 100.0).toInt()) }
+
+        val pricing = pricingForAgent(agent) ?: return 0
+        val explicitPromptTokens = result.metadata["promptTokens"]?.toIntOrNull()?.coerceAtLeast(0)
+        val explicitCompletionTokens = result.metadata["completionTokens"]?.toIntOrNull()?.coerceAtLeast(0)
+        val explicitTotalTokens = result.metadata["totalTokens"]?.toIntOrNull()?.coerceAtLeast(0)
+
+        if (!result.isSuccess && result.output.isNullOrBlank() && explicitPromptTokens == null && explicitCompletionTokens == null && explicitTotalTokens == null) {
+            return 0
+        }
+
+        val promptTokens = explicitPromptTokens ?: when {
+            explicitTotalTokens != null && explicitCompletionTokens != null ->
+                (explicitTotalTokens - explicitCompletionTokens).coerceAtLeast(0)
+            else -> estimateTokenCount(prompt)
+        }
+        val completionTokens = explicitCompletionTokens ?: when {
+            explicitTotalTokens != null && explicitPromptTokens != null ->
+                (explicitTotalTokens - explicitPromptTokens).coerceAtLeast(0)
+            else -> estimateTokenCount(result.output)
+        }
+        if (promptTokens + completionTokens <= 0) {
+            return 0
+        }
+        val estimatedCents =
+            (promptTokens / 1000.0) * pricing.promptCentsPer1k +
+                (completionTokens / 1000.0) * pricing.completionCentsPer1k
+        return kotlin.math.max(1, kotlin.math.ceil(estimatedCents).toInt())
+    }
+
+    private data class AgentPricing(
+        val promptCentsPer1k: Double,
+        val completionCentsPer1k: Double
+    )
+
+    private fun pricingForAgent(agent: AgentConfig): AgentPricing? {
+        val plugin = agent.pluginClass.lowercase()
+        val name = agent.name.lowercase()
+        return when {
+            "openai" in plugin || "codex" in plugin || name == "codex" || name == "openai" ->
+                AgentPricing(promptCentsPer1k = 0.30, completionCentsPer1k = 1.20)
+            "anthropic" in plugin || "claude" in plugin || name == "claude" ->
+                AgentPricing(promptCentsPer1k = 0.30, completionCentsPer1k = 1.50)
+            "gemini" in plugin || name == "gemini" ->
+                AgentPricing(promptCentsPer1k = 0.08, completionCentsPer1k = 0.24)
+            else -> null
+        }
+    }
+
+    private fun estimateTokenCount(text: String?): Int {
+        if (text.isNullOrBlank()) return 0
+        return kotlin.math.ceil(text.length / 4.0).toInt().coerceAtLeast(1)
     }
 
     // ── Generic Pipeline Stage Engine ───────────────────────────────────
@@ -9253,7 +10616,12 @@ class DesktopAppService(
                         tickIntervalSeconds = companyRuntimeTickIntervalMs / 1000,
                         lastTickAt = System.currentTimeMillis(),
                         lastAction = lastAction,
-                        lastError = null
+                        lastError = null,
+                        budgetPausedAt = if (lastAction.startsWith("budget-paused")) {
+                            current.budgetPausedAt ?: System.currentTimeMillis()
+                        } else {
+                            null
+                        }
                     )
                 )
             ).recordSignal(
@@ -9315,16 +10683,34 @@ class DesktopAppService(
 
     private fun DesktopAppState.computeCompanyRuntimes(): List<CompanyRuntimeSnapshot> =
         allKnownCompanyIds().map { companyId ->
-            val existing = companyRuntimes.firstOrNull { it.companyId == companyId } ?: CompanyRuntimeSnapshot(companyId = companyId)
+            val existing = runtimeWithinCurrentBudgetWindow(
+                (companyRuntimes.firstOrNull { it.companyId == companyId }
+                    ?: CompanyRuntimeSnapshot(companyId = companyId)).withNormalizedStopIntent()
+            )
             val company = companies.firstOrNull { it.id == companyId }
             val backendKind = company?.backendKind ?: backendSettings.defaultBackendKind
             val backendStatus = companyBackendStatus(companyId, this)
+            val runtimeStopped = existing.status == CompanyRuntimeStatus.STOPPED
+            val budgetWindow = currentBudgetWindow(existing)
+            val budgetPausedAt = if (company != null && isBudgetExhausted(company, budgetWindow.todaySpentCents, budgetWindow.monthSpentCents)) {
+                existing.budgetPausedAt
+            } else {
+                null
+            }
             existing.copy(
                 companyId = companyId,
                 backendKind = backendKind,
-                backendHealth = backendStatus?.health ?: "unknown",
-                backendMessage = backendStatus?.message,
-                backendLifecycleState = backendStatus.lifecycleState,
+                backendHealth = if (runtimeStopped) "stopped" else backendStatus?.health ?: "unknown",
+                backendMessage = if (runtimeStopped && existing.manuallyStoppedAt != null) {
+                    "Runtime stopped manually until the user presses Start."
+                } else {
+                    backendStatus?.message
+                },
+                backendLifecycleState = if (runtimeStopped) {
+                    BackendLifecycleState.STOPPED
+                } else {
+                    backendStatus.lifecycleState
+                },
                 backendPid = backendStatus.pid,
                 backendPort = backendStatus.port,
                 tickIntervalSeconds = companyRuntimeTickIntervalMs / 1000,
@@ -9337,9 +10723,12 @@ class DesktopAppService(
                                 it.status == IssueStatus.IN_PROGRESS ||
                                 it.status == IssueStatus.IN_REVIEW ||
                                 it.status == IssueStatus.READY_FOR_CEO
-                            )
+                        )
                 },
-                autonomyEnabledGoalCount = goals.count { it.companyId == companyId && it.autonomyEnabled }
+                autonomyEnabledGoalCount = goals.count { it.companyId == companyId && it.autonomyEnabled },
+                todaySpentCents = budgetWindow.todaySpentCents,
+                monthSpentCents = budgetWindow.monthSpentCents,
+                budgetPausedAt = budgetPausedAt
             )
         }
 

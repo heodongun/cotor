@@ -61,6 +61,7 @@ If the app-server cannot answer `/health`, solve that first. Many desktop and co
 | Clicking company `Start` / `Stop` makes the app look globally disconnected | benign request cancellation was misread as offline | `desktop-app.log` with `cancelled` refresh entries |
 | Company runtime keeps failing or the same issue keeps bouncing | permanent GitHub readiness failure, merge conflict, or blocked review state | `state.json`, `company-runtime-errors.log`, review queue |
 | Company runtime says `RUNNING` but the company looks stuck for a long time | dead or stale `RUNNING` task/run state combined with idle backoff | `state.json` runtime `lastAction`, `adaptiveTickMs`, task/run `processId` |
+| Company runtime is connected but no new work starts after spend climbs | the company hit its configured daily or monthly estimated spend cap and paused itself | company summary badges, `state.json` runtime `todaySpentCents` / `monthSpentCents` / `budgetPausedAt` |
 | Company mode shows `The data is missing.` and live updates stop | company dashboard/event payload was decoded too strictly, or the installed app/app-server is older than the current wire contract | desktop status pill, `desktop-app.log`, company dashboard/event responses |
 | Company issues start and immediately fall back to `BLOCKED` with Codex `model_not_found` | the runtime is still trying to call a retired Codex model id such as `gpt-5.3-codex-spark` | `state.json` run `error`, company automation trace, `ps` for live `codex exec --model ...` |
 | QA issue becomes `BLOCKED` | QA returned `CHANGES_REQUESTED`, usually because proof or validation output does not match the PR state | GitHub PR review, `state.json`, linked worktree files |
@@ -149,6 +150,8 @@ Current builds should:
 - re-queue issues that were interrupted by an app-server shutdown instead of leaving them blocked with a generic `Agent process exited before Cotor recorded a final result`
 - resume queued delegated work after the desktop app and bundled backend come back, and surface that recovery in the company activity feed
 - close stale execution issues that only look blocked because a no-op follow-up run replayed after the linked PR had already merged
+- close stale Cotor-managed retry PRs in batches so old retries do not keep accumulating as open PR noise for the same lineage
+- push legacy CEO merge-conflict blockers back into execution so the company can rebase and republish instead of leaving the work stranded in `BLOCKED`
 
 ### 5.5 If company mode shows `The data is missing.`
 
@@ -193,6 +196,24 @@ If live processes still show a retired model id after updating:
 - run `cotor update`
 - restart the desktop app or `cotor app-server`
 - confirm the new process command line now uses `--model gpt-5.4`
+
+### 5.7 If the company pauses because of the spend cap
+
+This is not the same as a dead runtime.
+
+When current builds estimate that the company has reached its configured daily or monthly AI spend cap, the runtime should pause new autonomous work and surface the pause explicitly in company mode.
+
+Confirm with:
+
+- the company summary badges in the desktop app
+- `todaySpentCents`, `monthSpentCents`, and `budgetPausedAt` in `~/Library/Application Support/CotorDesktop/state.json`
+- the selected company settings panel, which should show the current cap and the current estimated spend
+
+Recovery depends on intent:
+
+- if the pause is expected, raise or clear the cap in company settings and press `Save Guardrails`
+- if the company should stay paused, leave the cap as-is and do not press `Start`
+- if the numbers look wrong, update the app with `cotor update` and confirm the latest build is running before treating it as a regression
 
 ## 6. GitHub Readiness And Publish Failures
 
@@ -302,8 +323,24 @@ Current builds should:
 
 - skip self-approval when GitHub forbids it
 - continue into merge when appropriate
+- short-circuit obviously `DIRTY` PRs into remediation instead of pointlessly attempting the merge first
 - treat already-merged PRs as success instead of failure
+- reopen or re-queue merge-conflict work once the PR becomes clean or the old blocked execution state is detected
+- re-queue legacy CEO merge-conflict blockers during company-state healing even if the runtime is currently stopped
+- keep closing stale superseded retry PRs in the background and tolerate PRs that were already closed by an overlapping cleanup pass
 - sync the local base branch after merge when safe
+
+### 8.5 Review lineage safeguards
+
+Current builds also treat QA and CEO review state as an explicit workflow lineage, not as a loose match on issue ids or prompt text.
+
+- each PR review cycle gets its own workflow lineage metadata on the review queue item, QA issue, CEO issue, workflow tasks, and workflow runs
+- a stale QA or CEO result is ignored unless its lineage exactly matches the current review queue lineage
+- when execution republishes a newer PR for the same execution issue, Cotor supersedes the old lineage, clears stale verdict fields, rebuilds the downstream QA or CEO issue when needed, and closes superseded retry PRs opportunistically
+- startup healing, company dashboard reads, and company runtime ticks all repair legacy review state automatically, even if old tasks never recorded explicit lineage metadata
+- legacy QA or CEO tasks without lineage are only accepted when they still belong to the current queue item and were not reopened after that task finished
+
+If a current build still reapplies an old QA comment or an old CEO verdict to a newer PR, treat that as a fresh regression.
 
 ## 9. Interactive / TUI Does Not Feel Like A Normal Chat
 

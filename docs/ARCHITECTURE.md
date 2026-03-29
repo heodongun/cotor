@@ -64,6 +64,15 @@ sequenceDiagram
 - **Resilience**: checkpoint + resume로 중단 후 복구 가능
 - **Observability**: 모니터 이벤트를 통해 CLI/TUI/Web에서 동일한 실행 상태 표시
 
+## 5) Company workflow invariants
+
+The company automation layer has stricter workflow invariants than the generic pipeline runner.
+
+- review queue items, QA issues, CEO approval issues, workflow tasks, and workflow runs are bound by explicit workflow lineage metadata for one PR review cycle
+- a newer execution publish must supersede the older review lineage atomically; stale QA or CEO verdicts may not flow into the new PR cycle
+- legacy company state is repaired during startup healing, company dashboard reads, and runtime ticks instead of silently reusing stale workflow results
+- merge-conflict recovery and stale PR cleanup are tied to the superseded lineage so the company can continue without leaving blocked review artifacts behind
+
 ---
 
 관련 문서:

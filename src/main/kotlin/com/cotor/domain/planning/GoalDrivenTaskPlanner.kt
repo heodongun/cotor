@@ -70,7 +70,7 @@ class GoalDrivenTaskPlanner {
             .filter { it.agentName.isNotBlank() }
         val extractedWorkItems = extractWorkItems(normalizedPrompt)
         val workItems = when {
-            extractedWorkItems.isNotEmpty() -> extractedWorkItems
+            extractedWorkItems.isNotEmpty() -> enrichWorkItems(extractedWorkItems, defaultWorkItems(goalSummary))
             else -> defaultWorkItems(goalSummary)
         }
         val sharedChecklist = listOf(
@@ -301,9 +301,35 @@ class GoalDrivenTaskPlanner {
     }
 
     private fun defaultWorkItems(goalSummary: String): List<String> = listOf(
-        "Deliver the smallest complete repository change for \"$goalSummary\"",
-        "Validate \"$goalSummary\" and summarize any residual risks"
+        "Deliver the first implementation slice for \"$goalSummary\"",
+        "Advance a second branchable improvement slice for \"$goalSummary\"",
+        "Harden the integration and failure-handling path for \"$goalSummary\"",
+        "Prepare validation evidence and residual-risk callouts for \"$goalSummary\""
     )
+
+    private fun enrichWorkItems(
+        preferredItems: List<String>,
+        fallbackItems: List<String>,
+        minimumCount: Int = 3
+    ): List<String> {
+        val normalized = LinkedHashSet<String>()
+        preferredItems
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .forEach(normalized::add)
+        if (normalized.size >= minimumCount) {
+            return normalized.toList()
+        }
+        fallbackItems
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .forEach { item ->
+                if (normalized.size < minimumCount) {
+                    normalized += item
+                }
+            }
+        return normalized.toList()
+    }
 
     private fun fallbackWorkItem(goalSummary: String, focus: String): String =
         "Advance \"$goalSummary\" with extra emphasis on $focus"
@@ -443,7 +469,10 @@ class GoalDrivenTaskPlanner {
         }
         val genericBuilder = participants.firstOrNull { it.title.equals("Builder", ignoreCase = true) }
         if (genericBuilder != null) {
-            return listOf(genericBuilder)
+            val rankedPeers = participants
+                .filterNot { it.participantId == genericBuilder.participantId }
+                .sortedBy(::participantRank)
+            return (listOf(genericBuilder) + rankedPeers).take(targetCount)
         }
         val workItemText = workItems.joinToString(" ").lowercase()
         val workItemRelevant = participants.map { participant ->

@@ -693,7 +693,9 @@ internal fun Application.cotorAppModule(
                             name = request.name,
                             rootPath = request.rootPath,
                             defaultBaseBranch = request.defaultBaseBranch,
-                            autonomyEnabled = request.autonomyEnabled
+                            autonomyEnabled = request.autonomyEnabled,
+                            dailyBudgetCents = request.dailyBudgetCents,
+                            monthlyBudgetCents = request.monthlyBudgetCents
                         )
                         CreateCompanyResponse(
                             company = company,
@@ -729,7 +731,9 @@ internal fun Application.cotorAppModule(
                             name = request.name,
                             defaultBaseBranch = request.defaultBaseBranch,
                             autonomyEnabled = request.autonomyEnabled,
-                            backendKind = request.backendKind
+                            backendKind = request.backendKind,
+                            dailyBudgetCents = request.dailyBudgetCents,
+                            monthlyBudgetCents = request.monthlyBudgetCents
                         )
                     }
                 }
