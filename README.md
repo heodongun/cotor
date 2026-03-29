@@ -10,6 +10,7 @@ Smoke test: `cotor version`
 - Local web editor with YAML export and run support
 - macOS desktop shell backed by `cotor app-server`
 - Multi-company operations layer with companies, agent definitions, goals, issues, review queue, activity feed, and runtime start/stop/status
+- Estimated AI spend tracking per company with configurable daily and monthly cost guardrails
 - Per-agent git branch and worktree isolation for delegated execution
 
 ## Current Command Surface
@@ -115,7 +116,10 @@ Current desktop model:
 - top-level `Company` and `TUI` shell modes
 - `Company` mode for multi-company operations, agent roster, goals, issue board/canvas, activity feed, and runtime controls
 - `Company` summary keeps runtime health, blocked workflow count, review attention, and the latest error/action inside the main summary banner instead of a separate tall status card
+- `Company` summary now also shows estimated spend plus daily/monthly cost guardrails for the selected company runtime
 - `Company` mode now uses event-driven live updates as the primary path, so activity, issues, review state, and runtime status update without a manual refresh in normal operation
+- stale Cotor-managed retry PRs are reconciled and closed in batches so repeated review loops do not keep hundreds of obsolete open PRs around
+- legacy CEO merge-conflict blockers are pushed back into execution so the company can rebase, republish, and continue instead of staying stuck in a blocked approval lane
 - if the live company stream drops, the desktop shell keeps the current company snapshot on screen and shows a company-specific re-sync message instead of a generic decode error
 - the issue board keeps each lane scrollable inside a fixed board surface so long blocked/review lanes stay readable instead of clipping at the top
 - stale merge-conflict blocks are re-opened automatically when the linked GitHub PR becomes clean again, so resolved rebases flow back into the CEO lane without a manual reset
@@ -136,7 +140,11 @@ The current build includes a working local operations layer:
 - delegate and run issues
 - populate and merge ready review queue items
 - inspect compact runtime status, blocked/review attention, and recent company activity from the company summary page
+- inspect estimated company spend and adjust daily/monthly runtime guardrails without leaving the company console
 - start and stop a local autonomous runtime loop per company
+- let the CEO reopen planning after one wave finishes so active goals can generate the next wave instead of freezing after the first batch of issues
+- bias autonomous continuous-improvement goals toward multi-issue portfolios and parallel branchable slices instead of a single narrow follow-up
+- enrich short high-level goal descriptions into a broader execution portfolio so larger rosters do not collapse into only one or two issues
 - keep an explicit company stop sticky across app restarts, dashboard reads, and live reconnects until the user presses Start again
 - keep the company runtime in a fast monitoring cadence while active tasks/runs still exist, so dead or stale `RUNNING` runs reconcile sooner instead of looking idle for a long backoff window
 - when the app-server shuts down during active company work, current builds re-queue interrupted issues instead of leaving them permanently blocked by a generic process-exit failure
@@ -146,7 +154,7 @@ Current limits in this build:
 
 - the app uses a Linear-style board inside Cotor; it is not a live external Linear sync
 - runtime automation is intentionally minimal
-- policy engine, rich follow-up generation, and full PR/CI sync are not implemented yet
+- policy engine and full PR/CI sync are not implemented yet
 - company context persistence exists as local `.cotor/companies/...` snapshots, but it is still a lightweight knowledge layer
 - `resume` inspects checkpoints but does not resume execution yet
 

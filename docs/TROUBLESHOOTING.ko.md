@@ -61,6 +61,7 @@ curl http://127.0.0.1:8787/health
 | 회사 `시작` / `중지`를 누르면 앱 전체가 끊긴 것처럼 보임 | 정상 request cancellation을 오프라인으로 잘못 해석 | `desktop-app.log`의 `cancelled` refresh 기록 |
 | 회사 런타임이 계속 실패하거나 같은 이슈가 반복 흔들림 | 영구적인 GitHub readiness 실패, merge conflict, blocked review 상태 | `state.json`, `company-runtime-errors.log`, 리뷰 큐 |
 | 회사 런타임은 `RUNNING`인데 오래 멈춘 것처럼 보임 | 죽었거나 stale인 `RUNNING` task/run 상태와 느린 idle backoff가 겹침 | `state.json`의 runtime `lastAction`, `adaptiveTickMs`, task/run `processId` |
+| 회사는 연결돼 있는데 비용이 오른 뒤 새 작업이 시작되지 않음 | 설정한 일/월 예상 비용 상한에 도달해서 회사 런타임이 스스로 pause 됨 | 회사 요약 배지, `state.json`의 `todaySpentCents` / `monthSpentCents` / `budgetPausedAt` |
 | 회사 모드에 `The data is missing.`가 뜨고 live 업데이트가 멈춤 | 회사 dashboard/event payload를 너무 엄격하게 decode했거나, 설치된 앱/app-server가 현재 wire contract보다 오래됨 | 데스크톱 상태 배너, `desktop-app.log`, company dashboard/event 응답 |
 | 회사 이슈가 시작 직후 다시 `BLOCKED`로 떨어지고 Codex `model_not_found`가 보임 | 런타임이 `gpt-5.3-codex-spark` 같은 은퇴된 Codex 모델 id를 아직 호출하고 있음 | `state.json`의 run `error`, company automation trace, live `codex exec --model ...` 프로세스 |
 | QA 이슈가 `BLOCKED`가 됨 | QA가 `CHANGES_REQUESTED`를 반환했고, 보통 PR 증거/검증 문서가 실제 상태와 안 맞음 | GitHub PR review, `state.json`, 연결된 worktree 파일 |
@@ -149,6 +150,8 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 - app-server 종료로 끊긴 이슈는 일반 `Agent process exited before Cotor recorded a final result` 차단으로 남기지 않고 다시 큐에 올려 재개 가능하게 복구
 - 데스크톱 앱과 번들 backend가 다시 올라오면 queued delegated work를 다시 시작하고, 그 복구 흐름을 회사 활동 로그에도 남김
 - 연결된 PR이 이미 머지된 뒤 stale no-op 실행 동기화 때문에 잘못 `BLOCKED`로 남은 execution 이슈도 자동으로 닫음
+- stale한 Cotor retry PR은 배치 정리로 닫아서 같은 lineage에 오래된 open PR이 계속 쌓이지 않게 함
+- 예전 CEO merge-conflict 때문에 execution 이슈가 `BLOCKED`에 남아 있던 경우도 다시 `PLANNED`로 돌려 rebase와 republish를 이어갈 수 있게 함
 
 ### 5.5 회사 모드에 `The data is missing.`가 보이면
 
@@ -193,6 +196,24 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 - `cotor update` 실행
 - 데스크톱 앱 또는 `cotor app-server` 재시작
 - 새 프로세스 명령줄이 `--model gpt-5.4`를 쓰는지 확인
+
+### 5.7 비용 상한 때문에 회사가 pause 되는 경우
+
+이건 런타임이 죽은 경우와 다릅니다.
+
+현재 빌드는 회사의 일간 또는 월간 예상 AI 비용이 설정한 상한에 도달하면, 새 autonomous work를 멈추고 회사 모드에 그 상태를 명시적으로 보여줘야 합니다.
+
+아래에서 확인하세요.
+
+- 데스크톱 앱의 회사 요약 배지
+- `~/Library/Application Support/CotorDesktop/state.json`의 `todaySpentCents`, `monthSpentCents`, `budgetPausedAt`
+- 선택한 회사 설정 패널의 현재 상한과 현재 예상 비용 표시
+
+복구 방법은 의도에 따라 다릅니다.
+
+- pause가 예상된 것이라면 회사 설정에서 상한을 올리거나 비우고 `Save Guardrails`를 누릅니다
+- 회사를 계속 멈춰 두고 싶다면 상한을 그대로 두고 `Start`를 누르지 않습니다
+- 숫자가 이상해 보이면 먼저 `cotor update`로 최신 앱을 맞추고, 최신 빌드인지 확인한 뒤에 regression인지 판단합니다
 
 ## 6. GitHub readiness 와 publish 실패
 
@@ -302,8 +323,24 @@ git log --oneline --decorate -5
 
 - GitHub가 막는 self-approval은 건너뜀
 - 가능하면 그대로 merge 단계로 진행
+- `DIRTY`가 명확한 PR은 pointless한 merge 시도 대신 바로 remediation 상태로 내림
 - 이미 merge된 PR은 실패가 아니라 성공으로 취급
+- merge conflict가 clean으로 풀리거나 오래된 blocked execution 상태가 감지되면 CEO/실행 lane을 다시 이어서 복구
+- 런타임이 현재 중지 상태여도 회사 상태 정리 과정에서 legacy CEO merge-conflict blocker를 다시 `PLANNED`로 되돌림
+- stale retry PR 정리는 백그라운드에서 계속 진행되고, 겹치는 정리 때문에 이미 닫힌 PR을 다시 만나도 전체 배치를 죽이지 않음
 - 안전한 경우 merge 후 로컬 base branch sync
+
+### 8.5 Review lineage 보호 장치
+
+현재 빌드는 QA와 CEO review 상태를 issue id나 prompt text의 느슨한 재사용이 아니라 명시적인 workflow lineage로 다룹니다.
+
+- 각 PR review cycle은 review queue 항목, QA 이슈, CEO 이슈, workflow task, workflow run에 같은 lineage metadata를 가집니다
+- QA나 CEO 결과는 lineage가 현재 review queue lineage와 정확히 일치할 때만 다시 적용됩니다
+- 같은 execution 이슈에서 더 새로운 PR이 다시 publish되면, Cotor는 예전 lineage를 supersede 처리하고 stale verdict를 지우고 필요하면 downstream QA/CEO 이슈를 다시 만들며 오래된 retry PR도 opportunistic하게 닫습니다
+- startup healing, 회사 dashboard read, 회사 runtime tick은 예전 task에 explicit lineage metadata가 없던 legacy 상태도 자동으로 복구합니다
+- lineage가 없는 legacy QA/CEO task는 현재 queue 항목에 아직 속하고 그 task 완료 이후 이슈가 다시 열리지 않았을 때만 받아들입니다
+
+현재 빌드에서 옛 QA 코멘트나 옛 CEO verdict가 더 새로운 PR에 다시 적용된다면 새 regression으로 취급하세요.
 
 ## 9. 인터랙티브 / TUI가 일반 채팅처럼 안 느껴짐
 
