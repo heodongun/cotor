@@ -12,6 +12,7 @@ package com.cotor.app
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -58,6 +59,10 @@ data class BaseBranchSyncResult(
     val synced: Boolean = false,
     val workingTreeUpdated: Boolean = false,
     val skippedReason: String? = null
+)
+
+data class ManagedPullRequestCleanupResult(
+    val closedPullRequestNumbers: List<Int> = emptyList()
 )
 
 /**
@@ -500,6 +505,124 @@ class GitWorkspaceService(
         runCommand(
             worktreePath,
             listOf("gh", "pr", "comment", pullRequestNumber.toString(), "--body", body)
+        )
+    }
+
+    suspend fun closePullRequest(
+        worktreePath: Path,
+        pullRequestNumber: Int,
+        comment: String? = null
+    ): PublishMetadata {
+        if (!comment.isNullOrBlank()) {
+            try {
+                commentOnPullRequest(
+                    worktreePath = worktreePath,
+                    pullRequestNumber = pullRequestNumber,
+                    body = comment
+                )
+            } catch (error: ProcessExecutionException) {
+                if (isAlreadyClosed(error) || isAlreadyMerged(error)) {
+                    logger.info("Skipping comment on PR #$pullRequestNumber because it was already terminal before Cotor finished cleanup.")
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        try {
+            runCommand(
+                worktreePath,
+                listOf("gh", "pr", "close", pullRequestNumber.toString())
+            )
+        } catch (error: ProcessExecutionException) {
+            if (isAlreadyClosed(error) || isAlreadyMerged(error)) {
+                logger.info("PR #$pullRequestNumber was already closed before Cotor refreshed local state.")
+            } else {
+                throw error
+            }
+        }
+
+        val refreshed = viewPullRequest(worktreePath, pullRequestNumber)
+        return PublishMetadata(
+            pullRequestNumber = refreshed.number,
+            pullRequestUrl = refreshed.url,
+            pullRequestState = refreshed.state,
+            reviewState = refreshed.reviewDecision,
+            mergeability = refreshed.mergeStateStatus
+        )
+    }
+
+    suspend fun closeSupersededManagedPullRequests(
+        worktreePath: Path,
+        preservePullRequestNumbers: Set<Int> = emptySet()
+    ): ManagedPullRequestCleanupResult {
+        val currentLogin = currentGitHubLogin(worktreePath)
+        val openPullRequests = listOpenPullRequests(worktreePath)
+        if (openPullRequests.size <= 1) {
+            return ManagedPullRequestCleanupResult()
+        }
+
+        val closed = mutableListOf<Int>()
+        openPullRequests
+            .groupBy(::managedPullRequestLineageKey)
+            .filterKeys { it != null }
+            .values
+            .forEach { lineageGroup ->
+                val managedGroup = lineageGroup.filter { pullRequest ->
+                    isManagedCodexPullRequest(
+                        pullRequest = pullRequest,
+                        currentLogin = currentLogin
+                    )
+                }
+                if (managedGroup.size <= 1) {
+                    return@forEach
+                }
+
+                val preservedInGroup = managedGroup
+                    .map { it.number }
+                    .filterNotNull()
+                    .filter { it in preservePullRequestNumbers }
+                val keptPullRequest = when {
+                    preservedInGroup.isNotEmpty() ->
+                        managedGroup
+                            .filter { it.number in preservedInGroup }
+                            .maxByOrNull { it.number ?: Int.MIN_VALUE }
+                    else -> managedGroup.maxByOrNull { it.number ?: Int.MIN_VALUE }
+                } ?: return@forEach
+                val replacementRef =
+                    keptPullRequest.url
+                        ?: keptPullRequest.number?.let { "#$it" }
+                        ?: "the latest retry"
+
+                managedGroup
+                    .filter { candidate ->
+                        candidate.number != null &&
+                            candidate.number != keptPullRequest.number
+                    }
+                    .sortedBy { it.number ?: Int.MIN_VALUE }
+                    .forEach { superseded ->
+                        val pullRequestNumber = superseded.number ?: return@forEach
+                        val metadata = runCatching {
+                            closePullRequest(
+                                worktreePath = worktreePath,
+                                pullRequestNumber = pullRequestNumber,
+                                comment = "Superseded by newer retry $replacementRef. Closing this outdated Cotor-managed PR to keep the review queue aligned with the latest execution branch."
+                            )
+                        }.getOrElse { error ->
+                            if (error is CancellationException) {
+                                throw error
+                            }
+                            logger.warn("Could not close superseded Cotor-managed PR #$pullRequestNumber", error)
+                            return@forEach
+                        }
+                        if (metadata.pullRequestState.equals("CLOSED", ignoreCase = true) || metadata.pullRequestState.equals("MERGED", ignoreCase = true)) {
+                            closed += pullRequestNumber
+                        }
+                    }
+            }
+
+        return ManagedPullRequestCleanupResult(
+            closedPullRequestNumbers = closed.distinct().sorted()
         )
     }
 
@@ -1073,6 +1196,21 @@ class GitWorkspaceService(
         return pullRequests.firstOrNull()
     }
 
+    private suspend fun listOpenPullRequests(worktreePath: Path): List<PullRequestRef> {
+        val raw = ghOutput(
+            worktreePath,
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "500",
+            "--json",
+            "number,title,url,state,reviewDecision,mergeStateStatus,headRefName,author"
+        )
+        return json.decodeFromString(raw.ifBlank { "[]" })
+    }
+
     private suspend fun createPullRequest(
         worktreePath: Path,
         branchName: String,
@@ -1181,6 +1319,13 @@ class GitWorkspaceService(
         return combined.contains("already merged")
     }
 
+    private fun isAlreadyClosed(error: ProcessExecutionException): Boolean {
+        val combined = listOf(error.message, error.stdout, error.stderr)
+            .joinToString("\n")
+            .lowercase()
+        return combined.contains("already closed")
+    }
+
     private fun scanTree(root: Path, directory: Path, depthRemaining: Int): List<FileTreeNode> {
         Files.list(directory).use { stream ->
             return stream
@@ -1231,13 +1376,37 @@ class GitWorkspaceService(
             .trim('-')
     }
 
+    private fun managedPullRequestLineageKey(pullRequest: PullRequestRef): String? {
+        val headRefName = pullRequest.headRefName?.trim().takeUnless { it.isNullOrBlank() } ?: return null
+        if (!headRefName.startsWith("codex/cotor/")) {
+            return null
+        }
+        val trimmedHead = headRefName.removeSuffix("/codex")
+        val normalizedHead = trimmedHead.replace(Regex("-[0-9a-f]{8,}$"), "")
+        return "${pullRequest.title.orEmpty().trim()}|$normalizedHead"
+    }
+
+    private fun isManagedCodexPullRequest(
+        pullRequest: PullRequestRef,
+        currentLogin: String?
+    ): Boolean {
+        val headRefName = pullRequest.headRefName.orEmpty()
+        if (!headRefName.startsWith("codex/cotor/")) {
+            return false
+        }
+        val authorLogin = pullRequest.author?.login
+        return currentLogin.isNullOrBlank() || authorLogin.isNullOrBlank() || authorLogin.equals(currentLogin, ignoreCase = true)
+    }
+
     @Serializable
     private data class PullRequestRef(
         val number: Int? = null,
+        val title: String? = null,
         val url: String,
         val state: String? = null,
         val reviewDecision: String? = null,
         val mergeStateStatus: String? = null,
+        val headRefName: String? = null,
         val mergeCommit: MergeCommitRef? = null,
         val author: PullRequestAuthorRef? = null
     )

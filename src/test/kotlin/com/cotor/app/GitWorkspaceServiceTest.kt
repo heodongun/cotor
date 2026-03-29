@@ -11,11 +11,13 @@ package com.cotor.app
 
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.ProcessResult
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.Path
@@ -348,6 +350,203 @@ class GitWorkspaceServiceTest : FunSpec({
         result.url shouldBe "https://github.com/heodongun/cotor-test/pull/22"
         result.state shouldBe "MERGED"
         result.mergeCommitSha shouldBe "deadbeef"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("closePullRequest comments, closes, and refreshes the superseded PR state") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-close-superseded-pr")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "comment", "123", "--body", "Superseded by newer retry PR #124."),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "close", "123"),
+                    ProcessResult(0, "✓ Closed pull request\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "123", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    ProcessResult(
+                        0,
+                        """{"number":123,"url":"https://github.com/heodongun/cotor-test/pull/123","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","author":{"login":"heodongun"}}""",
+                        "",
+                        true
+                    )
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val metadata = service.closePullRequest(
+            worktreePath = repositoryRoot,
+            pullRequestNumber = 123,
+            comment = "Superseded by newer retry PR #124."
+        )
+
+        metadata.pullRequestNumber shouldBe 123
+        metadata.pullRequestUrl shouldBe "https://github.com/heodongun/cotor-test/pull/123"
+        metadata.pullRequestState shouldBe "CLOSED"
+        metadata.reviewState shouldBe "REVIEW_REQUIRED"
+        metadata.mergeability shouldBe "UNKNOWN"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("closeSupersededManagedPullRequests propagates cancellation instead of swallowing shutdown cleanup") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-close-superseded-cancelled")
+        val commands = mutableListOf<List<String>>()
+        val processManager = object : ProcessManager {
+            override suspend fun executeProcess(
+                command: List<String>,
+                input: String?,
+                environment: Map<String, String>,
+                timeout: Long,
+                workingDirectory: Path?,
+                onStart: ((Long) -> Unit)?
+            ): ProcessResult {
+                commands += command
+                return when (command) {
+                    listOf("gh", "api", "user", "--jq", ".login") ->
+                        ProcessResult(0, "heodongun\n", "", true)
+                    listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,headRefName,author") ->
+                        ProcessResult(
+                            0,
+                            """
+                            [
+                              {"number":123,"title":"Deliver the smallest complete repository change for \"test\"","url":"https://github.com/heodongun/cotor-test/pull/123","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-test-aaaaaaaa/codex","author":{"login":"heodongun"}},
+                              {"number":124,"title":"Deliver the smallest complete repository change for \"test\"","url":"https://github.com/heodongun/cotor-test/pull/124","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-test-bbbbbbbb/codex","author":{"login":"heodongun"}}
+                            ]
+                            """.trimIndent(),
+                            "",
+                            true
+                        )
+                    listOf("gh", "pr", "comment", "123", "--body", "Superseded by newer retry https://github.com/heodongun/cotor-test/pull/124. Closing this outdated Cotor-managed PR to keep the review queue aligned with the latest execution branch.") ->
+                        throw CancellationException("simulate app shutdown during stale PR cleanup")
+                    else -> error("Unexpected command: ${command.joinToString(" ")}")
+                }
+            }
+        }
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        shouldThrow<CancellationException> {
+            service.closeSupersededManagedPullRequests(
+                worktreePath = repositoryRoot,
+                preservePullRequestNumbers = setOf(124)
+            )
+        }
+
+        commands shouldBe listOf(
+            listOf("gh", "api", "user", "--jq", ".login"),
+            listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,headRefName,author"),
+            listOf("gh", "pr", "comment", "123", "--body", "Superseded by newer retry https://github.com/heodongun/cotor-test/pull/124. Closing this outdated Cotor-managed PR to keep the review queue aligned with the latest execution branch.")
+        )
+    }
+
+    test("closePullRequest tolerates comment failures after the PR was already closed elsewhere") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-close-already-closed-comment")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "comment", "285", "--body", "Superseded by newer retry PR #306."),
+                    ProcessResult(1, "", "pull request is already closed\n", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "close", "285"),
+                    ProcessResult(1, "", "pull request is already closed\n", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "285", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    ProcessResult(
+                        0,
+                        """{"number":285,"url":"https://github.com/heodongun/cotor-test/pull/285","state":"CLOSED","reviewDecision":"","mergeStateStatus":"DIRTY","author":{"login":"heodongun"}}""",
+                        "",
+                        true
+                    )
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val metadata = service.closePullRequest(
+            worktreePath = repositoryRoot,
+            pullRequestNumber = 285,
+            comment = "Superseded by newer retry PR #306."
+        )
+
+        metadata.pullRequestNumber shouldBe 285
+        metadata.pullRequestState shouldBe "CLOSED"
+        metadata.mergeability shouldBe "DIRTY"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("closeSupersededManagedPullRequests closes older codex-managed PRs in the same lineage and keeps the preserved latest PR") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-reconcile-superseded-prs")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("gh", "api", "user", "--jq", ".login"),
+                    ProcessResult(0, "heodongun\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,headRefName,author"),
+                    ProcessResult(
+                        0,
+                        """
+                        [
+                          {"number":122,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/122","state":"OPEN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-a1b2c3d4/codex","author":{"login":"heodongun"}},
+                          {"number":123,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/123","state":"OPEN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-b2c3d4e5/codex","author":{"login":"heodongun"}},
+                          {"number":124,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/124","state":"OPEN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-c3d4e5f6/codex","author":{"login":"heodongun"}},
+                          {"number":222,"title":"[codex] Review completed implementation work","url":"https://github.com/heodongun/cotor-test/pull/222","state":"OPEN","headRefName":"codex/cotor/review-completed-implementation-work-deadbeef/codex","author":{"login":"someone-else"}}
+                        ]
+                        """.trimIndent(),
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "comment", "122", "--body", "Superseded by newer retry https://github.com/heodongun/cotor-test/pull/124. Closing this outdated Cotor-managed PR to keep the review queue aligned with the latest execution branch."),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "close", "122"),
+                    ProcessResult(0, "✓ Closed pull request\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "122", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    ProcessResult(
+                        0,
+                        """{"number":122,"url":"https://github.com/heodongun/cotor-test/pull/122","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","author":{"login":"heodongun"}}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "comment", "123", "--body", "Superseded by newer retry https://github.com/heodongun/cotor-test/pull/124. Closing this outdated Cotor-managed PR to keep the review queue aligned with the latest execution branch."),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "close", "123"),
+                    ProcessResult(0, "✓ Closed pull request\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "123", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    ProcessResult(
+                        0,
+                        """{"number":123,"url":"https://github.com/heodongun/cotor-test/pull/123","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","author":{"login":"heodongun"}}""",
+                        "",
+                        true
+                    )
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val result = service.closeSupersededManagedPullRequests(
+            worktreePath = repositoryRoot,
+            preservePullRequestNumbers = setOf(124)
+        )
+
+        result.closedPullRequestNumbers shouldBe listOf(122, 123)
         processManager.remainingSteps() shouldBe 0
     }
 
