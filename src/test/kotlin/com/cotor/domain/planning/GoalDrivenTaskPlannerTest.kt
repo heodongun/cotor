@@ -223,4 +223,109 @@ class GoalDrivenTaskPlannerTest {
         assertTrue(executionAssignments.isNotEmpty())
         assertEquals("Builder", executionAssignments.first().role)
     }
+
+    @Test
+    fun `generic builder fallback still fans out when multiple work items are available`() {
+        val plan = planner.buildPlanForParticipants(
+            title = "Advance the next company cycle",
+            prompt = """
+                - Deliver the next reviewed product slice
+                - Harden the backend and integration path
+                - Improve the user-facing quality bar
+                - Validate the results and capture next-step guidance
+            """.trimIndent(),
+            participants = listOf(
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ceo-1",
+                    agentName = "codex",
+                    title = "CEO",
+                    roleSummary = "lead strategy, planning, triage, final merge",
+                    capabilities = listOf("planning", "triage"),
+                    mergeAuthority = true
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "builder-1",
+                    agentName = "codex",
+                    title = "Builder",
+                    roleSummary = "implement assigned product slices, integrate changes, and deliver reviewable work",
+                    capabilities = listOf("implementation", "integration", "delivery")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "backend-1",
+                    agentName = "codex",
+                    title = "Backend Builder",
+                    roleSummary = "implement backend behavior, orchestration logic, APIs, and integration reliability",
+                    capabilities = listOf("backend", "implementation", "integration")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ui-1",
+                    agentName = "codex",
+                    title = "UI Builder",
+                    roleSummary = "craft visual interface details, component polish, layout quality, and design fidelity",
+                    capabilities = listOf("frontend", "implementation")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "qa-1",
+                    agentName = "codex",
+                    title = "QA",
+                    roleSummary = "qa, review, verification",
+                    capabilities = listOf("qa", "review")
+                )
+            )
+        )
+
+        val executionAssignments = plan.assignments.filter { it.phase == "execution" }
+        assertTrue(executionAssignments.size >= 2)
+        assertEquals("Builder", executionAssignments.first().role)
+    }
+
+    @Test
+    fun `short natural language prompts are enriched into a larger execution portfolio`() {
+        val plan = planner.buildPlanForParticipants(
+            title = "Loop smoke goal",
+            prompt = "Keep the company moving like a real organization. Create multiple branchable issues, run them in parallel when safe, and hand reviewed results back to the CEO for the next wave.",
+            participants = listOf(
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "ceo-1",
+                    agentName = "codex",
+                    title = "CEO",
+                    roleSummary = "lead strategy, planning, triage, final merge",
+                    capabilities = listOf("planning", "triage"),
+                    mergeAuthority = true
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "product-1",
+                    agentName = "codex",
+                    title = "Product Strategist",
+                    roleSummary = "requirements clarity, product scope, and discovery",
+                    capabilities = listOf("product", "research")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "builder-1",
+                    agentName = "codex",
+                    title = "Builder",
+                    roleSummary = "implement assigned product slices, integrate changes, and deliver reviewable work",
+                    capabilities = listOf("implementation", "integration")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "backend-1",
+                    agentName = "codex",
+                    title = "Backend Builder",
+                    roleSummary = "implement backend behavior, orchestration logic, APIs, and integration reliability",
+                    capabilities = listOf("backend", "implementation", "integration")
+                ),
+                GoalDrivenTaskPlanner.PlanningParticipant(
+                    participantId = "qa-1",
+                    agentName = "codex",
+                    title = "QA",
+                    roleSummary = "qa, review, verification",
+                    capabilities = listOf("qa", "review")
+                )
+            )
+        )
+
+        val executionAssignments = plan.assignments.filter { it.phase == "execution" }
+        assertTrue(executionAssignments.size >= 3)
+        assertEquals("Builder", executionAssignments.first().role)
+    }
 }
