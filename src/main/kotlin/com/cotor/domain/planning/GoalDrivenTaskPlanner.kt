@@ -281,11 +281,25 @@ class GoalDrivenTaskPlanner {
     }
 
     private fun extractWorkItems(prompt: String): List<String> {
+        var checklistContextSection: String? = null
         val checklistItems = prompt.lineSequence()
             .map { it.trim() }
             .mapNotNull { line ->
+                if (line.isBlank()) {
+                    checklistContextSection = null
+                    return@mapNotNull null
+                }
+                if (line.endsWith(':')) {
+                    checklistContextSection = line.removeSuffix(":").trim().lowercase()
+                    return@mapNotNull null
+                }
                 val match = CHECKLIST_PATTERN.matchEntire(line) ?: return@mapNotNull null
-                match.groupValues[1].trim().takeIf { it.isNotBlank() }
+                if (checklistContextSection in CONTEXT_ONLY_CHECKLIST_HEADINGS) {
+                    return@mapNotNull null
+                }
+                match.groupValues[1].trim()
+                    .takeIf { it.isNotBlank() }
+                    ?.takeIf(::isActionableWorkItem)
             }
             .toList()
         if (checklistItems.isNotEmpty()) {
@@ -296,8 +310,17 @@ class GoalDrivenTaskPlanner {
             .split(SENTENCE_BOUNDARY)
             .map { it.trim().trimEnd('.', '!', '?') }
             .filter { it.length >= 20 }
+            .filter(::isActionableWorkItem)
             .distinct()
         return if (sentenceItems.size >= 2) sentenceItems.take(8) else emptyList()
+    }
+
+    private fun isActionableWorkItem(item: String): Boolean {
+        val normalized = item.trim().lowercase()
+        if (normalized.isBlank()) {
+            return false
+        }
+        return WORKFLOW_HISTORY_PREFIXES.none { normalized.startsWith(it) }
     }
 
     private fun defaultWorkItems(goalSummary: String): List<String> = listOf(
@@ -583,6 +606,21 @@ class GoalDrivenTaskPlanner {
     private companion object {
         val CHECKLIST_PATTERN = Regex("""(?:[-*]|\d+[.)])\s+(.+)""")
         val SENTENCE_BOUNDARY = Regex("""(?:\r?\n)+|(?<=[.!?])\s+""")
+        val CONTEXT_ONLY_CHECKLIST_HEADINGS = setOf(
+            "recently completed goals",
+            "recently completed issues",
+            "recent ceo decisions",
+            "follow-up context",
+            "available roster",
+            "roster"
+        )
+        val WORKFLOW_HISTORY_PREFIXES = setOf(
+            "qa review ",
+            "ceo approve ",
+            "ceo plan and delegate ",
+            "resolve follow-up for \"",
+            "ceo continuous improvement cycle #"
+        )
         val REVIEW_TAGS = setOf("qa", "review", "verification", "test", "testing")
         val EXECUTION_TAGS = setOf(
             "implementation", "integration", "backend", "frontend", "design", "product",

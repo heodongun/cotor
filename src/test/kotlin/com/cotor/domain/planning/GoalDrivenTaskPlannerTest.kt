@@ -56,6 +56,37 @@ class GoalDrivenTaskPlannerTest {
     }
 
     @Test
+    fun `buildPlan ignores workflow history bullets inside context sections`() {
+        val prompt = """
+            Recently completed goals:
+            - AI끼리 연애하는 웹을 만들어
+            Recently completed issues:
+            - QA review Deliver the smallest complete repository change for "AI끼리 연애하는 웹을 만들어"
+            - CEO approve Deliver the smallest complete repository change for "AI끼리 연애하는 웹을 만들어"
+
+            Next actions:
+            - Deliver the next reviewed product slice
+            - Harden the backend and integration path
+            - Validate the results and capture next-step guidance
+        """.trimIndent()
+
+        val plan = planner.buildPlan(
+            title = "Advance the next company cycle",
+            prompt = prompt,
+            agents = listOf("claude", "codex")
+        )
+
+        assertEquals("prompt-checklist", plan.decompositionSource)
+        val subtaskTitles = plan.assignments.flatMap { assignment -> assignment.subtasks.map { it.title } }
+        assertTrue(subtaskTitles.contains("Deliver the next reviewed product slice"))
+        assertTrue(subtaskTitles.contains("Harden the backend and integration path"))
+        assertTrue(subtaskTitles.contains("Validate the results and capture next-step guidance"))
+        assertTrue(subtaskTitles.none { it.startsWith("QA review ") })
+        assertTrue(subtaskTitles.none { it.startsWith("CEO approve ") })
+        assertTrue(subtaskTitles.none { it.contains("AI끼리 연애하는 웹을 만들어") })
+    }
+
+    @Test
     fun `buildPlan includes A2A collaboration metadata in assigned prompts`() {
         val plan = planner.buildPlanForParticipants(
             title = "Run an autonomous company loop",
