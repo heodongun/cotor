@@ -218,8 +218,12 @@ class DesktopAppService(
     }
 
     suspend fun companyDashboard(companyId: String? = null): CompanyDashboardResponse {
-        migrateLegacyCompanyRosters(companyId)
-        queueAutomationRefresh(companyId)
+        if (companyId == null) {
+            migrateLegacyCompanyRosters(companyId)
+            queueAutomationRefresh(companyId)
+        } else {
+            prepareCompanyAutomationState(companyId)
+        }
         val state = stateStore.load().withDerivedMetrics()
         return companyDashboardSnapshot(state, companyId)
     }
@@ -336,6 +340,8 @@ class DesktopAppService(
             reconcileNonPublishingReviewRuns(activeCompanyId)
             reconcileTerminalIssueStates(activeCompanyId)
             archiveRecursiveFollowUpGoals(activeCompanyId)
+            reopenResolvedMergeConflictIssues(activeCompanyId)
+            reopenNoOpPullRequestExecutionIssues(activeCompanyId)
             requeueRecoverableBlockedIssues(activeCompanyId)
             requeueLegacyMergeConflictExecutionIssues(activeCompanyId)
             reconcileSupersededManagedPullRequests(activeCompanyId)
@@ -403,13 +409,26 @@ class DesktopAppService(
                     ?.let(::canonicalFollowUpSubject)
                     ?.let { subject -> "Resolve follow-up for \"$subject\"" }
                     ?: goal.title
-                if (goal.operatingPolicy == canonicalPolicy && goal.title == canonicalTitle) {
+                val inferredFollowUpContext = goal.followUpContext ?: inferLegacyFollowUpContext(
+                    state = state,
+                    goal = goal,
+                    rootGoalId = rootGoalId,
+                    issuesById = issuesById,
+                    goalsById = goalsById,
+                    reviewQueueById = reviewQueueById
+                )
+                if (
+                    goal.operatingPolicy == canonicalPolicy &&
+                    goal.title == canonicalTitle &&
+                    goal.followUpContext == inferredFollowUpContext
+                ) {
                     return@map goal
                 }
                 changed = true
                 goal.copy(
                     operatingPolicy = canonicalPolicy,
                     title = canonicalTitle,
+                    followUpContext = inferredFollowUpContext,
                     updatedAt = now
                 )
             }
@@ -447,11 +466,43 @@ class DesktopAppService(
                 changed = true
             }
 
+            val nextIssues = state.issues.map { issue ->
+                if (companyId != null && issue.companyId != companyId) {
+                    return@map issue
+                }
+                val goal = canonicalGoalsById[issue.goalId]
+                val inferredExecutionIntent = if (issue.executionIntent == null) {
+                    inferExecutionIntent(
+                        kind = issue.kind,
+                        title = issue.title,
+                        description = issue.description,
+                        plannedCodeProducing = issue.codeProducing
+                    )
+                } else {
+                    issue.executionIntent
+                }
+                val normalizedCodeProducing = when (inferredExecutionIntent) {
+                    ExecutionIntent.VALIDATION_ONLY, ExecutionIntent.PR_REUSE_HANDOFF -> false
+                    ExecutionIntent.CODE_CHANGE, ExecutionIntent.MERGE_CONFLICT_REMEDIATION -> true
+                    null -> issue.codeProducing
+                }
+                val normalizedIssue = issue.copy(
+                    executionIntent = inferredExecutionIntent,
+                    codeProducing = normalizedCodeProducing
+                )
+                if (normalizedIssue == issue) {
+                    issue
+                } else {
+                    changed = true
+                    normalizedIssue.copy(updatedAt = now)
+                }
+            }
+
             if (!changed) {
                 return@withLock
             }
 
-            val nextIssues = state.issues.map { issue ->
+            val migratedIssues = nextIssues.map { issue ->
                 if (issue.goalId !in duplicateGoalIds || issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED) {
                     issue
                 } else {
@@ -489,16 +540,22 @@ class DesktopAppService(
                 .filter { goal ->
                     val previousGoal = goalsById[goal.id]
                     previousGoal != null &&
-                        (previousGoal.operatingPolicy != goal.operatingPolicy || previousGoal.title != goal.title || previousGoal.status != goal.status)
+                        (
+                            previousGoal.operatingPolicy != goal.operatingPolicy ||
+                                previousGoal.title != goal.title ||
+                                previousGoal.status != goal.status ||
+                                previousGoal.followUpContext != goal.followUpContext
+                            )
                 }
                 .map { it.companyId }
                 .distinct()
             var nextState = state.copy(
                 goals = nextGoals,
-                issues = nextIssues
+                issues = migratedIssues
             )
             val detailParts = buildList {
                 if (canonicalGoals != state.goals) add("canonicalized follow-up markers")
+                if (migratedIssues != state.issues) add("backfilled legacy follow-up execution metadata")
                 if (duplicateGoalIds.isNotEmpty()) add("collapsed ${duplicateGoalIds.size} duplicate follow-up goals")
             }
             changedCompanies.forEach { changedCompanyId ->
@@ -1954,6 +2011,7 @@ class DesktopAppService(
         autonomyEnabled: Boolean = true,
         priority: Int = 2,
         operatingPolicy: String? = null,
+        followUpContext: FollowUpContextSnapshot? = null,
         startRuntimeIfNeeded: Boolean = true
     ): CompanyGoal {
         // Goals are the top-level planning primitive for the company layer. Creation intentionally
@@ -1994,6 +2052,7 @@ class DesktopAppService(
                 priority = priority,
                 successMetrics = successMetrics.filter { it.isNotBlank() },
                 operatingPolicy = operatingPolicy?.trim()?.takeIf { it.isNotBlank() },
+                followUpContext = followUpContext,
                 autonomyEnabled = autonomyEnabled,
                 createdAt = now,
                 updatedAt = now
@@ -2375,6 +2434,7 @@ class DesktopAppService(
                 val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
                 val now = System.currentTimeMillis()
                 val fallback = buildFallbackGoalIssues(
+                    state = state,
                     goal = goal,
                     workspace = workspace,
                     profiles = profiles,
@@ -2398,6 +2458,7 @@ class DesktopAppService(
                 writeCompanyContextSnapshot(nextState, company, projectContext)
             }
         }
+        runCatching { mirrorGoalIssuesToLinear(goalId) }
         return stateStore.load().issues
             .filter { it.goalId == goalId }
             .sortedByDescending { it.updatedAt }
@@ -3097,6 +3158,7 @@ class DesktopAppService(
                 when (issue.id) {
                     executionIssue?.id -> issue.copy(
                         status = IssueStatus.PLANNED,
+                        executionIntent = ExecutionIntent.MERGE_CONFLICT_REMEDIATION,
                         pullRequestNumber = nextItem.pullRequestNumber ?: issue.pullRequestNumber,
                         pullRequestUrl = nextItem.pullRequestUrl ?: issue.pullRequestUrl,
                         pullRequestState = nextItem.pullRequestState ?: issue.pullRequestState,
@@ -3287,6 +3349,7 @@ class DesktopAppService(
             // then revive recoverable work, then synthesize any follow-up goals, and only after the
             // state is coherent decide which new issues are allowed to start.
             markRuntimeTickHeartbeat(companyId, "tick-started")
+            migrateLegacyFollowUpGoals(companyId)
             reconcileStaleAgentRuns(companyId)
             reconcileNonPublishingReviewRuns(companyId)
             val repairedWorkflowLineages = repairWorkflowLineages(companyId)
@@ -4086,42 +4149,22 @@ class DesktopAppService(
             val latestRunsByTaskId = state.runs
                 .groupBy { it.taskId }
                 .mapValues { (_, runs) -> runs.maxByOrNull { it.updatedAt }!! }
-            val activeReviewIssueIds = state.reviewQueue
-                .filter { it.companyId == companyId && it.status != ReviewQueueStatus.MERGED }
-                .map { it.issueId }
-                .toSet()
             state.issues.mapNotNull { issue ->
                 if (issue.companyId != companyId || issue.kind != "execution" || issue.status != IssueStatus.BLOCKED) {
-                    return@mapNotNull null
-                }
-                if (issue.id in activeReviewIssueIds) {
                     return@mapNotNull null
                 }
                 if (issue.pullRequestNumber == null || issue.worktreePath.isNullOrBlank()) {
                     return@mapNotNull null
                 }
-                if (!issue.qaVerdict.equals("PASS", ignoreCase = true)) {
-                    return@mapNotNull null
-                }
-                if (!issue.transitionReason.orEmpty().contains("required PR publication did not succeed", ignoreCase = true)) {
-                    return@mapNotNull null
-                }
                 val latestTask = latestTasksByIssueId[issue.id] ?: return@mapNotNull null
                 val latestRun = latestRunsByTaskId[latestTask.id] ?: return@mapNotNull null
-                if (latestTask.status != DesktopTaskStatus.COMPLETED || latestRun.status != AgentRunStatus.COMPLETED) {
+                if (
+                    latestTask.status !in setOf(DesktopTaskStatus.COMPLETED, DesktopTaskStatus.FAILED, DesktopTaskStatus.PARTIAL) ||
+                        latestRun.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED)
+                ) {
                     return@mapNotNull null
                 }
-                val reusedExistingPr = listOf(
-                    latestRun.publish?.error,
-                    latestRun.output
-                ).joinToString("\n").lowercase().let { signal ->
-                    signal.contains("no changes to publish") ||
-                        signal.contains("no legitimate local change to apply") ||
-                        signal.contains("already matches `master`") ||
-                        signal.contains("already matches master") ||
-                        signal.contains("nothing to rebase or merge")
-                }
-                if (!reusedExistingPr) {
+                if (!isExistingPrNoDiffReuseCandidate(issue, latestRun)) {
                     return@mapNotNull null
                 }
                 NoOpPullRequestRecoveryCandidate(
@@ -4141,10 +4184,12 @@ class DesktopAppService(
             val refreshed = runCatching {
                 gitWorkspaceService.refreshPullRequestMetadata(candidate.worktreePath, candidate.pullRequestNumber)
             }.getOrNull() ?: return@mapNotNull null
-            if (!refreshed.pullRequestState.equals("OPEN", ignoreCase = true)) {
-                return@mapNotNull null
-            }
-            if (!refreshed.mergeability.equals("CLEAN", ignoreCase = true)) {
+            val pullRequestState = refreshed.pullRequestState?.uppercase()
+            val mergeability = refreshed.mergeability?.uppercase()
+            if (
+                pullRequestState != "MERGED" &&
+                    !(pullRequestState == "OPEN" && mergeability in setOf("CLEAN", "DIRTY"))
+            ) {
                 return@mapNotNull null
             }
             candidate.executionIssueId to refreshed
@@ -4161,17 +4206,20 @@ class DesktopAppService(
             val chiefProfile = findChiefProfile(companyId, companyProfiles)
             val now = System.currentTimeMillis()
             var reopened = 0
-            val updatedItems = mutableListOf<ReviewQueueItem>()
-            val recreatedApprovalIssues = mutableListOf<CompanyIssue>()
+            val updatedItems = mutableMapOf<String, ReviewQueueItem>()
+            val approvalIssueUpdates = mutableMapOf<String, CompanyIssue>()
             val updatedIssues = state.issues.map { issue ->
                 val refreshed = recoveredByIssueId[issue.id] ?: return@map issue
                 val candidate = candidatesByIssueId[issue.id] ?: return@map issue
                 reopened += 1
+                val existingQueueItem = state.reviewQueue.firstOrNull { it.issueId == issue.id }
                 val existingApprovalIssue = state.issues.firstOrNull {
                     relatedExecutionIssueId(it) == issue.id && it.kind.equals("approval", ignoreCase = true)
                 }
+                val existingQaVerdict = existingQueueItem?.qaVerdict ?: issue.qaVerdict
+                val existingQaFeedback = existingQueueItem?.qaFeedback ?: issue.qaFeedback
                 val baseQueueItem = ReviewQueueItem(
-                    id = state.reviewQueue.firstOrNull { it.issueId == issue.id }?.id ?: UUID.randomUUID().toString(),
+                    id = existingQueueItem?.id ?: UUID.randomUUID().toString(),
                     companyId = issue.companyId,
                     projectContextId = issue.projectContextId,
                     issueId = issue.id,
@@ -4181,100 +4229,204 @@ class DesktopAppService(
                     pullRequestNumber = refreshed.pullRequestNumber ?: issue.pullRequestNumber,
                     pullRequestUrl = refreshed.pullRequestUrl ?: issue.pullRequestUrl,
                     pullRequestState = refreshed.pullRequestState ?: issue.pullRequestState,
-                    status = ReviewQueueStatus.READY_FOR_CEO,
+                    status = existingQueueItem?.status ?: ReviewQueueStatus.AWAITING_QA,
                     checksSummary = candidate.latestRun.error,
                     mergeability = refreshed.mergeability,
                     requestedReviewers = emptyList(),
-                    qaVerdict = issue.qaVerdict,
-                    qaFeedback = issue.qaFeedback,
-                    qaReviewedAt = state.reviewQueue.firstOrNull { it.issueId == issue.id }?.qaReviewedAt,
-                    qaIssueId = state.reviewQueue.firstOrNull { it.issueId == issue.id }?.qaIssueId,
-                    ceoVerdict = null,
-                    ceoFeedback = null,
-                    ceoReviewedAt = null,
-                    approvalIssueId = null,
-                    createdAt = state.reviewQueue.firstOrNull { it.issueId == issue.id }?.createdAt ?: now,
+                    qaVerdict = existingQaVerdict,
+                    qaFeedback = existingQaFeedback,
+                    qaReviewedAt = existingQueueItem?.qaReviewedAt,
+                    qaIssueId = existingQueueItem?.qaIssueId,
+                    ceoVerdict = existingQueueItem?.ceoVerdict,
+                    ceoFeedback = existingQueueItem?.ceoFeedback,
+                    ceoReviewedAt = existingQueueItem?.ceoReviewedAt,
+                    approvalIssueId = existingApprovalIssue?.id ?: existingQueueItem?.approvalIssueId,
+                    createdAt = existingQueueItem?.createdAt ?: now,
                     updatedAt = now
                 )
-                var queueItem = baseQueueItem
-                if (chiefProfile != null) {
-                    val approvalIssue = existingApprovalIssue?.copy(
-                        title = "CEO approve ${issue.title}",
-                        description = buildCeoApprovalIssueDescription(issue.copy(
-                            status = IssueStatus.READY_FOR_CEO,
-                            pullRequestNumber = queueItem.pullRequestNumber,
-                            pullRequestUrl = queueItem.pullRequestUrl,
-                            pullRequestState = queueItem.pullRequestState,
+                val refreshedState = refreshed.pullRequestState?.uppercase()
+                val refreshedMergeability = refreshed.mergeability?.uppercase()
+                when {
+                    refreshedState == "MERGED" -> {
+                        updatedItems[issue.id] = baseQueueItem.copy(
+                            status = ReviewQueueStatus.MERGED,
+                            mergeability = refreshed.mergeability ?: baseQueueItem.mergeability,
+                            ceoVerdict = baseQueueItem.ceoVerdict ?: issue.ceoVerdict ?: "APPROVE",
+                            ceoFeedback = baseQueueItem.ceoFeedback ?: issue.ceoFeedback,
+                            ceoReviewedAt = baseQueueItem.ceoReviewedAt ?: now,
+                            mergedAt = existingQueueItem?.mergedAt ?: now,
+                            approvalIssueId = existingApprovalIssue?.id ?: baseQueueItem.approvalIssueId,
+                            updatedAt = now
+                        )
+                        existingApprovalIssue?.let { approvalIssue ->
+                            approvalIssueUpdates[approvalIssue.id] = approvalIssue.copy(
+                                status = IssueStatus.DONE,
+                                pullRequestState = "MERGED",
+                                transitionReason = "Existing PR was already merged while resolving a no-diff remediation.",
+                                updatedAt = now
+                            )
+                        }
+                        issue.copy(
+                            status = IssueStatus.DONE,
+                            executionIntent = issue.executionIntent ?: inferExecutionIntent(
+                                kind = issue.kind,
+                                title = issue.title,
+                                description = issue.description,
+                                plannedCodeProducing = issue.codeProducing
+                            ),
+                            pullRequestNumber = baseQueueItem.pullRequestNumber ?: issue.pullRequestNumber,
+                            pullRequestUrl = baseQueueItem.pullRequestUrl ?: issue.pullRequestUrl,
+                            pullRequestState = "MERGED",
+                            mergeResult = "MERGED",
+                            ceoVerdict = baseQueueItem.ceoVerdict ?: issue.ceoVerdict,
+                            ceoFeedback = baseQueueItem.ceoFeedback ?: issue.ceoFeedback,
+                            transitionReason = "Existing PR ${baseQueueItem.pullRequestUrl ?: baseQueueItem.pullRequestNumber} already merged; closing the no-diff remediation path.",
+                            updatedAt = now
+                        )
+                    }
+                    refreshedState == "OPEN" && refreshedMergeability == "DIRTY" -> {
+                        val queueItem = baseQueueItem.copy(
+                            status = ReviewQueueStatus.CHANGES_REQUESTED,
+                            mergeability = refreshed.mergeability ?: baseQueueItem.mergeability ?: "DIRTY",
+                            ceoVerdict = baseQueueItem.ceoVerdict ?: issue.ceoVerdict ?: "CHANGES_REQUESTED",
+                            ceoFeedback = baseQueueItem.ceoFeedback
+                                ?: issue.ceoFeedback
+                                ?: "GitHub still reports a merge conflict on the existing PR lineage.",
+                            ceoReviewedAt = baseQueueItem.ceoReviewedAt ?: now,
+                            approvalIssueId = existingApprovalIssue?.id ?: baseQueueItem.approvalIssueId,
+                            updatedAt = now
+                        )
+                        updatedItems[issue.id] = queueItem
+                        existingApprovalIssue?.let { approvalIssue ->
+                            approvalIssueUpdates[approvalIssue.id] = approvalIssue.copy(
+                                status = IssueStatus.BLOCKED,
+                                pullRequestNumber = queueItem.pullRequestNumber ?: approvalIssue.pullRequestNumber,
+                                pullRequestUrl = queueItem.pullRequestUrl ?: approvalIssue.pullRequestUrl,
+                                pullRequestState = queueItem.pullRequestState ?: approvalIssue.pullRequestState,
+                                ceoVerdict = queueItem.ceoVerdict,
+                                ceoFeedback = queueItem.ceoFeedback,
+                                transitionReason = "Existing PR still has merge conflicts; keep remediation queued on the same PR lineage.",
+                                updatedAt = now
+                            )
+                        }
+                        issue.copy(
+                            status = IssueStatus.PLANNED,
+                            executionIntent = ExecutionIntent.MERGE_CONFLICT_REMEDIATION,
+                            pullRequestNumber = queueItem.pullRequestNumber ?: issue.pullRequestNumber,
+                            pullRequestUrl = queueItem.pullRequestUrl ?: issue.pullRequestUrl,
+                            pullRequestState = queueItem.pullRequestState ?: issue.pullRequestState,
+                            ceoVerdict = queueItem.ceoVerdict,
+                            ceoFeedback = queueItem.ceoFeedback,
+                            transitionReason = "Existing PR ${queueItem.pullRequestUrl ?: queueItem.pullRequestNumber} still has merge conflicts; keep remediation queued on the same PR lineage.",
+                            updatedAt = now
+                        )
+                    }
+                    else -> {
+                        val qaAlreadyPassed = existingQaVerdict.equals("PASS", ignoreCase = true)
+                        var queueItem = baseQueueItem.copy(
+                            status = if (qaAlreadyPassed) ReviewQueueStatus.READY_FOR_CEO else ReviewQueueStatus.AWAITING_QA,
+                            mergeability = refreshed.mergeability ?: baseQueueItem.mergeability ?: "CLEAN",
                             ceoVerdict = null,
-                            ceoFeedback = null
-                        ), queueItem),
-                        status = IssueStatus.PLANNED,
-                        assigneeProfileId = chiefProfile.id,
-                        dependsOn = listOfNotNull(baseQueueItem.qaIssueId).ifEmpty { listOf(issue.id) },
-                        branchName = queueItem.branchName,
-                        worktreePath = queueItem.worktreePath,
-                        pullRequestNumber = queueItem.pullRequestNumber,
-                        pullRequestUrl = queueItem.pullRequestUrl,
-                        pullRequestState = queueItem.pullRequestState,
-                        qaVerdict = issue.qaVerdict,
-                        qaFeedback = issue.qaFeedback,
-                        ceoVerdict = null,
-                        ceoFeedback = null,
-                        transitionReason = "Existing PR is still valid and ready for CEO approval.",
-                        updatedAt = now
-                    ) ?: CompanyIssue(
-                        id = UUID.randomUUID().toString(),
-                        companyId = issue.companyId,
-                        projectContextId = issue.projectContextId,
-                        goalId = issue.goalId,
-                        workspaceId = issue.workspaceId,
-                        title = "CEO approve ${issue.title}",
-                        description = buildCeoApprovalIssueDescription(issue.copy(
-                            status = IssueStatus.READY_FOR_CEO,
-                            pullRequestNumber = queueItem.pullRequestNumber,
-                            pullRequestUrl = queueItem.pullRequestUrl,
-                            pullRequestState = queueItem.pullRequestState,
+                            ceoFeedback = null,
+                            ceoReviewedAt = null,
+                            updatedAt = now
+                        )
+                        if (qaAlreadyPassed && chiefProfile != null) {
+                            val approvalIssue = existingApprovalIssue?.copy(
+                                title = "CEO approve ${issue.title}",
+                                description = buildCeoApprovalIssueDescription(
+                                    issue.copy(
+                                        status = IssueStatus.READY_FOR_CEO,
+                                        pullRequestNumber = queueItem.pullRequestNumber,
+                                        pullRequestUrl = queueItem.pullRequestUrl,
+                                        pullRequestState = queueItem.pullRequestState,
+                                        ceoVerdict = null,
+                                        ceoFeedback = null
+                                    ),
+                                    queueItem
+                                ),
+                                status = IssueStatus.PLANNED,
+                                assigneeProfileId = chiefProfile.id,
+                                dependsOn = listOfNotNull(queueItem.qaIssueId).ifEmpty { listOf(issue.id) },
+                                branchName = queueItem.branchName,
+                                worktreePath = queueItem.worktreePath,
+                                pullRequestNumber = queueItem.pullRequestNumber,
+                                pullRequestUrl = queueItem.pullRequestUrl,
+                                pullRequestState = queueItem.pullRequestState,
+                                qaVerdict = existingQaVerdict,
+                                qaFeedback = existingQaFeedback,
+                                ceoVerdict = null,
+                                ceoFeedback = null,
+                                transitionReason = "Existing PR is still valid and ready for CEO approval.",
+                                updatedAt = now
+                            ) ?: CompanyIssue(
+                                id = UUID.randomUUID().toString(),
+                                companyId = issue.companyId,
+                                projectContextId = issue.projectContextId,
+                                goalId = issue.goalId,
+                                workspaceId = issue.workspaceId,
+                                title = "CEO approve ${issue.title}",
+                                description = buildCeoApprovalIssueDescription(
+                                    issue.copy(
+                                        status = IssueStatus.READY_FOR_CEO,
+                                        pullRequestNumber = queueItem.pullRequestNumber,
+                                        pullRequestUrl = queueItem.pullRequestUrl,
+                                        pullRequestState = queueItem.pullRequestState,
+                                        ceoVerdict = null,
+                                        ceoFeedback = null
+                                    ),
+                                    queueItem
+                                ),
+                                status = IssueStatus.PLANNED,
+                                priority = 3,
+                                kind = "approval",
+                                assigneeProfileId = chiefProfile.id,
+                                blockedBy = emptyList(),
+                                dependsOn = listOf(issue.id),
+                                acceptanceCriteria = listOf(
+                                    "Review the current PR and QA verdict.",
+                                    "Emit CEO_VERDICT and approve merge only when the branch is ready."
+                                ),
+                                riskLevel = "medium",
+                                codeProducing = false,
+                                branchName = queueItem.branchName,
+                                worktreePath = queueItem.worktreePath,
+                                pullRequestNumber = queueItem.pullRequestNumber,
+                                pullRequestUrl = queueItem.pullRequestUrl,
+                                pullRequestState = queueItem.pullRequestState,
+                                qaVerdict = existingQaVerdict,
+                                qaFeedback = existingQaFeedback,
+                                transitionReason = "Existing PR is still valid and ready for CEO approval.",
+                                sourceSignal = ceoApprovalSource(issue.id),
+                                createdAt = now,
+                                updatedAt = now
+                            )
+                            approvalIssueUpdates[approvalIssue.id] = approvalIssue
+                            queueItem = queueItem.copy(approvalIssueId = approvalIssue.id)
+                        }
+                        updatedItems[issue.id] = queueItem
+                        issue.copy(
+                            status = if (qaAlreadyPassed) IssueStatus.READY_FOR_CEO else IssueStatus.IN_REVIEW,
+                            executionIntent = issue.executionIntent ?: inferExecutionIntent(
+                                kind = issue.kind,
+                                title = issue.title,
+                                description = issue.description,
+                                plannedCodeProducing = issue.codeProducing
+                            ),
+                            pullRequestNumber = queueItem.pullRequestNumber ?: issue.pullRequestNumber,
+                            pullRequestUrl = queueItem.pullRequestUrl ?: issue.pullRequestUrl,
+                            pullRequestState = queueItem.pullRequestState ?: issue.pullRequestState,
                             ceoVerdict = null,
-                            ceoFeedback = null
-                        ), queueItem),
-                        status = IssueStatus.PLANNED,
-                        priority = 3,
-                        kind = "approval",
-                        assigneeProfileId = chiefProfile.id,
-                        blockedBy = emptyList(),
-                        dependsOn = listOf(issue.id),
-                        acceptanceCriteria = listOf(
-                            "Review the current PR and QA verdict.",
-                            "Emit CEO_VERDICT and approve merge only when the branch is ready."
-                        ),
-                        riskLevel = "medium",
-                        codeProducing = false,
-                        branchName = queueItem.branchName,
-                        worktreePath = queueItem.worktreePath,
-                        pullRequestNumber = queueItem.pullRequestNumber,
-                        pullRequestUrl = queueItem.pullRequestUrl,
-                        pullRequestState = queueItem.pullRequestState,
-                        qaVerdict = issue.qaVerdict,
-                        qaFeedback = issue.qaFeedback,
-                        transitionReason = "Existing PR is still valid and ready for CEO approval.",
-                        sourceSignal = ceoApprovalSource(issue.id),
-                        createdAt = now,
-                        updatedAt = now
-                    )
-                    recreatedApprovalIssues += approvalIssue
-                    queueItem = queueItem.copy(approvalIssueId = approvalIssue.id)
+                            ceoFeedback = null,
+                            transitionReason = if (qaAlreadyPassed) {
+                                "Existing PR ${queueItem.pullRequestUrl ?: queueItem.pullRequestNumber} already contains the remediation; ready for CEO approval again."
+                            } else {
+                                "Existing PR ${queueItem.pullRequestUrl ?: queueItem.pullRequestNumber} still needs QA on the reused lineage."
+                            },
+                            updatedAt = now
+                        )
+                    }
                 }
-                updatedItems += queueItem
-                issue.copy(
-                    status = IssueStatus.READY_FOR_CEO,
-                    pullRequestNumber = queueItem.pullRequestNumber ?: issue.pullRequestNumber,
-                    pullRequestUrl = queueItem.pullRequestUrl ?: issue.pullRequestUrl,
-                    pullRequestState = queueItem.pullRequestState ?: issue.pullRequestState,
-                    ceoVerdict = null,
-                    ceoFeedback = null,
-                    transitionReason = "Existing PR ${queueItem.pullRequestUrl ?: queueItem.pullRequestNumber} already contains the remediation; ready for CEO approval again.",
-                    updatedAt = now
-                )
             }
 
             if (reopened == 0) {
@@ -4283,31 +4435,49 @@ class DesktopAppService(
 
             val updatedReviewQueue = state.reviewQueue
                 .filterNot { it.issueId in recoveredByIssueId.keys }
-                .plus(updatedItems)
+                .plus(updatedItems.values)
             val updatedIssueList = updatedIssues
-                .filterNot { issue -> recreatedApprovalIssues.any { it.id == issue.id } }
-                .plus(recreatedApprovalIssues)
+                .filterNot { issue -> issue.id in approvalIssueUpdates.keys }
+                .plus(approvalIssueUpdates.values)
             var nextState = state.copy(
                 issues = updatedIssueList,
                 reviewQueue = updatedReviewQueue
             )
             recoveredByIssueId.keys.forEach { issueId ->
                 val issue = updatedIssueList.firstOrNull { it.id == issueId } ?: return@forEach
+                val queueItem = updatedItems[issueId]
+                val title = when {
+                    issue.status == IssueStatus.DONE -> "Closed no-diff remediation after merge"
+                    issue.status == IssueStatus.PLANNED -> "Kept remediation queued on existing PR"
+                    issue.status == IssueStatus.READY_FOR_CEO -> "Recovered existing PR for CEO approval"
+                    else -> "Recovered existing PR lineage"
+                }
+                val signalMessage = when {
+                    issue.status == IssueStatus.DONE ->
+                        "PR ${issue.pullRequestUrl ?: issue.pullRequestNumber} already merged, so Cotor closed the no-diff remediation path."
+                    issue.status == IssueStatus.PLANNED ->
+                        "PR ${issue.pullRequestUrl ?: issue.pullRequestNumber} still has merge conflicts; remediation stays on the same PR lineage."
+                    issue.status == IssueStatus.READY_FOR_CEO ->
+                        "PR ${issue.pullRequestUrl ?: issue.pullRequestNumber} already contains the remediation and is back in the CEO lane."
+                    else ->
+                        "PR ${issue.pullRequestUrl ?: issue.pullRequestNumber} was refreshed on the existing lineage after a no-diff remediation run."
+                }
                 nextState = nextState.recordCompanyActivity(
                     companyId = issue.companyId,
                     projectContextId = issue.projectContextId,
                     goalId = issue.goalId,
                     issueId = issue.id,
                     source = "review-queue",
-                    title = "Recovered existing PR for CEO approval",
-                    detail = issue.pullRequestUrl ?: "PR #${issue.pullRequestNumber}"
+                    title = title,
+                    detail = queueItem?.pullRequestUrl ?: issue.pullRequestUrl ?: "PR #${issue.pullRequestNumber}"
                 ).recordSignal(
                     source = "review-queue",
-                    message = "PR ${issue.pullRequestUrl ?: issue.pullRequestNumber} already contains the remediation and is back in the CEO lane.",
+                    message = signalMessage,
                     companyId = issue.companyId,
                     projectContextId = issue.projectContextId,
                     goalId = issue.goalId,
-                    issueId = issue.id
+                    issueId = issue.id,
+                    severity = if (issue.status == IssueStatus.PLANNED) "warning" else "info"
                 )
             }
             stateStore.save(nextState.withDerivedMetrics())
@@ -4643,6 +4813,25 @@ class DesktopAppService(
                     if (latestTask.status == DesktopTaskStatus.RUNNING || latestTask.status == DesktopTaskStatus.QUEUED) {
                         return@forEach
                     }
+                    val existingPullRequestReusePending =
+                        issue.kind.equals("execution", ignoreCase = true) &&
+                            issue.status == IssueStatus.BLOCKED &&
+                            latestRun != null &&
+                            shouldReuseExecutionLineageBinding(issue) &&
+                            isExistingPrNoDiffReuseCandidate(issue, latestRun)
+                    if (existingPullRequestReusePending) {
+                        informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                            issue = issue,
+                            goal = state.goals.firstOrNull { it.id == issue.goalId },
+                            oldStatus = issue.status,
+                            newStatus = issue.status,
+                            source = "reconcileTerminalIssueStates",
+                            reason = "Skipped task-to-issue reconciliation because the latest run produced no new diff on an existing PR lineage and existing-PR recovery should run first.",
+                            latestTask = latestTask,
+                            latestRun = latestRun
+                        )
+                        return@forEach
+                    }
                     val recoverableRetryPending =
                         issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
                             retryDecision.canAutoRetry
@@ -4718,6 +4907,68 @@ class DesktopAppService(
                     if (parentGoal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) goal.id else null
                 }
                 .toSet()
+            fun resolvedRootGoalIdForFollowUp(goal: CompanyGoal): String? =
+                goal.followUpContext?.rootGoalId ?: when {
+                    goal.operatingPolicy?.startsWith("auto-follow-up:issue:") == true -> {
+                        val issueId = goal.operatingPolicy.removePrefix("auto-follow-up:issue:")
+                        issuesById[issueId]?.goalId
+                    }
+                    goal.operatingPolicy?.startsWith("auto-follow-up:review:") == true -> {
+                        val reviewId = goal.operatingPolicy.removePrefix("auto-follow-up:review:")
+                        reviewQueueById[reviewId]?.issueId?.let(issuesById::get)?.goalId
+                    }
+                    goal.operatingPolicy?.startsWith("auto-follow-up:goal:") == true -> {
+                        goal.operatingPolicy.removePrefix("auto-follow-up:goal:").ifBlank { null }
+                    }
+                    else -> null
+                }
+            fun isResolvedFollowUpRoot(goal: CompanyGoal): Boolean {
+                val rootGoalResolved = resolvedRootGoalIdForFollowUp(goal)
+                    ?.let(goalsById::get)
+                    ?.status == GoalStatus.COMPLETED
+                val triggerIssueResolved = goal.followUpContext?.triggerIssueId
+                    ?.let(issuesById::get)
+                    ?.let { triggerIssue ->
+                        triggerIssue.status == IssueStatus.DONE ||
+                            triggerIssue.status == IssueStatus.CANCELED ||
+                            triggerIssue.mergeResult.equals("MERGED", ignoreCase = true) ||
+                            triggerIssue.pullRequestState.equals("MERGED", ignoreCase = true)
+                    } == true
+                return rootGoalResolved || triggerIssueResolved
+            }
+            val duplicateFollowUpGoalIds = state.goals
+                .filter { goal ->
+                    goal.companyId == companyId &&
+                        goal.status != GoalStatus.COMPLETED &&
+                        goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
+                        goal.followUpContext != null
+                }
+                .groupBy { goal ->
+                    val context = requireNotNull(goal.followUpContext)
+                    listOf(
+                        context.rootGoalId,
+                        context.reviewQueueItemId ?: "",
+                        context.triggerIssueId ?: "",
+                        context.failureClass.name
+                    ).joinToString("|")
+                }
+                .values
+                .flatMap { groupedGoals ->
+                    groupedGoals
+                        .sortedByDescending { it.updatedAt }
+                        .drop(1)
+                }
+                .map { it.id }
+                .toSet()
+            val obsoleteFollowUpGoalIds = state.goals
+                .filter { goal ->
+                    goal.companyId == companyId &&
+                        goal.status != GoalStatus.COMPLETED &&
+                        goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
+                        (goal.id in duplicateFollowUpGoalIds || isResolvedFollowUpRoot(goal))
+                }
+                .map { it.id }
+                .toSet()
             val doneIssueSignatureLatestUpdatedAt = state.issues
                 .filter { it.companyId == companyId && it.status == IssueStatus.DONE }
                 .groupBy { issue -> issue.kind.lowercase() to issue.title.trim().lowercase() }
@@ -4764,7 +5015,7 @@ class DesktopAppService(
                         issue.status == IssueStatus.BLOCKED &&
                         goal?.autonomyEnabled == true &&
                         goal.status != GoalStatus.COMPLETED &&
-                        retryDecision.canAutoRetry
+                        retryDecision.mode == RecoverableRetryMode.READY
                 val supersededBySuccessfulRetry =
                     goal?.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
                         issue.status != IssueStatus.DONE &&
@@ -4792,11 +5043,20 @@ class DesktopAppService(
                                         issue.ceoVerdict.equals("APPROVE", ignoreCase = true)
                                     )
                             )
+                val existingPullRequestReusePending =
+                    issue.kind.equals("execution", ignoreCase = true) &&
+                        issue.status == IssueStatus.BLOCKED &&
+                        latestRun != null &&
+                        shouldReuseExecutionLineageBinding(issue) &&
+                        isExistingPrNoDiffReuseCandidate(issue, latestRun)
                 val nextStatus = when {
                     executionSatisfiedByMergedPullRequest -> IssueStatus.DONE
                     approvalSatisfiedByMergedExecution -> IssueStatus.DONE
                     supersededBySuccessfulRetry -> IssueStatus.CANCELED
+                    issue.goalId in obsoleteFollowUpGoalIds && issue.status != IssueStatus.DONE && issue.status != IssueStatus.CANCELED ->
+                        IssueStatus.CANCELED
                     issue.goalId in recursiveGoalIds && issue.status != IssueStatus.DONE && issue.status != IssueStatus.CANCELED -> IssueStatus.CANCELED
+                    existingPullRequestReusePending -> issue.status
                     recoverableBlockedIssueReadyForRetry -> IssueStatus.PLANNED
                     recoverableRetryPending -> issue.status
                     latestTask == null || issue.id in activeTaskIssueIds || issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED -> issue.status
@@ -4817,6 +5077,18 @@ class DesktopAppService(
                             latestTask = latestTask,
                             latestRun = latestRun,
                             retryEligible = true
+                        )
+                    } else if (existingPullRequestReusePending) {
+                        informationalTraceEvents += buildCompanyAutomationTraceEvent(
+                            issue = issue,
+                            goal = goal,
+                            oldStatus = issue.status,
+                            newStatus = issue.status,
+                            source = "normalizeCompanyAutomationState",
+                            reason = "Preserved the blocked issue because its latest run produced no new diff on an existing PR lineage; existing-PR recovery will refresh the PR state first.",
+                            latestTask = latestTask,
+                            latestRun = latestRun,
+                            retryEligible = false
                         )
                     } else if (
                         issue.status == IssueStatus.BLOCKED &&
@@ -4887,6 +5159,7 @@ class DesktopAppService(
                         executionSatisfiedByMergedPullRequest -> "Closed a stale execution issue because its linked pull request already merged successfully."
                         approvalSatisfiedByMergedExecution -> "Closed a stale approval issue because the linked execution issue already merged successfully."
                         supersededBySuccessfulRetry -> "A newer retry with the same title and kind already finished successfully."
+                        issue.goalId in obsoleteFollowUpGoalIds -> "Canceled stale follow-up work because the root issue or goal is already resolved."
                         issue.goalId in recursiveGoalIds -> "Canceled recursive nested follow-up work."
                         recoverableBlockedIssueReadyForRetry -> "Reopened a blocked issue because the latest task failed with a recoverable infrastructure error."
                         latestTask?.status == DesktopTaskStatus.COMPLETED -> "Latest task completed successfully."
@@ -4916,6 +5189,7 @@ class DesktopAppService(
                     return@map goal
                 }
                 val nextStatus = when {
+                    goal.id in obsoleteFollowUpGoalIds && goal.status != GoalStatus.COMPLETED -> GoalStatus.COMPLETED
                     goal.id in recursiveGoalIds && goal.status == GoalStatus.ACTIVE -> GoalStatus.COMPLETED
                     else -> {
                         val goalIssues = nextIssues.filter { it.goalId == goal.id }
@@ -4977,16 +5251,30 @@ class DesktopAppService(
                     issue
                 }
             }
-            if (changed == 0 && recursiveGoalIds.isEmpty()) {
+            val obsoleteFollowUpIssueIds = finalizedIssues
+                .filter { it.companyId == companyId && it.goalId in obsoleteFollowUpGoalIds }
+                .map { it.id }
+                .toSet()
+            val updatedReviewQueue = state.reviewQueue.filterNot { item ->
+                item.companyId == companyId &&
+                    (
+                        item.issueId in obsoleteFollowUpIssueIds ||
+                            item.qaIssueId in obsoleteFollowUpIssueIds ||
+                            item.approvalIssueId in obsoleteFollowUpIssueIds
+                        )
+            }
+            if (changed == 0 && recursiveGoalIds.isEmpty() && obsoleteFollowUpGoalIds.isEmpty() && updatedReviewQueue.size == state.reviewQueue.size) {
                 return@withLock
             }
             val detailParts = buildList {
                 if (changed > 0) add("reconciled $changed issue states")
+                if (obsoleteFollowUpGoalIds.isNotEmpty()) add("archived ${obsoleteFollowUpGoalIds.size} obsolete follow-up goals")
                 if (recursiveGoalIds.isNotEmpty()) add("archived ${recursiveGoalIds.size} recursive follow-up goals")
             }
             var nextState = state.copy(
                 issues = finalizedIssues,
-                goals = nextGoals
+                goals = nextGoals,
+                reviewQueue = updatedReviewQueue
             )
             nextState = nextState.recordCompanyActivity(
                 companyId = companyId,
@@ -5072,6 +5360,7 @@ class DesktopAppService(
                         reviewQueue = reviewQueueById.values.toList()
                     )
                     val expectedLineage = resolvedWorkflowLineageForQueueItem(lineageState, queueItem) ?: return@forEach
+                    val qaProfile = findQaProfile(companyId, companyProfiles)
                     val reviewIssue = queueItem.qaIssueId?.let(issuesById::get) ?: issuesById.values.firstOrNull {
                         relatedExecutionIssueId(it) == executionIssue.id && it.kind.equals("review", ignoreCase = true)
                     }
@@ -5100,35 +5389,43 @@ class DesktopAppService(
                     val reviewIssueCanAdoptQueueStateWithoutTask =
                         reviewIssue != null &&
                             latestReviewTask == null &&
-                            (
-                                (
-                                    when (queueItem.status) {
-                                        ReviewQueueStatus.AWAITING_QA -> IssueStatus.PLANNED
-                                        ReviewQueueStatus.READY_FOR_CEO -> IssueStatus.DONE
-                                        ReviewQueueStatus.CHANGES_REQUESTED -> IssueStatus.BLOCKED
-                                        else -> reviewIssue.status
-                                    } == reviewIssue.status &&
-                                        (
-                                            queueItem.qaVerdict == null ||
-                                                reviewIssue.qaVerdict == null ||
-                                                queueItem.qaVerdict == reviewIssue.qaVerdict
-                                            )
-                                    ) ||
+                            when (queueItem.status) {
+                                ReviewQueueStatus.AWAITING_QA ->
+                                    queueItem.qaVerdict == null &&
+                                        reviewIssue.status in setOf(IssueStatus.PLANNED, IssueStatus.DELEGATED, IssueStatus.IN_PROGRESS)
+                                ReviewQueueStatus.READY_FOR_CEO ->
                                     (
-                                        queueItem.status == ReviewQueueStatus.READY_FOR_CEO &&
-                                            queueItem.qaVerdict == null &&
+                                        queueItem.qaVerdict == null &&
                                             reviewIssue.status in setOf(IssueStatus.PLANNED, IssueStatus.DELEGATED, IssueStatus.IN_PROGRESS)
-                                        )
-                                )
+                                        ) ||
+                                        (
+                                            queueItem.qaVerdict != null &&
+                                                reviewIssue.qaVerdict != null &&
+                                                queueItem.qaVerdict == reviewIssue.qaVerdict &&
+                                                reviewIssue.status == IssueStatus.DONE
+                                            )
+                                ReviewQueueStatus.CHANGES_REQUESTED ->
+                                    queueItem.qaVerdict != null &&
+                                        reviewIssue.qaVerdict != null &&
+                                        queueItem.qaVerdict == reviewIssue.qaVerdict &&
+                                        reviewIssue.status == IssueStatus.BLOCKED
+                                ReviewQueueStatus.MERGED ->
+                                    reviewIssue.status == IssueStatus.DONE
+                                else -> false
+                            }
+                    val reviewAssigneeMismatch =
+                        reviewIssue != null &&
+                            qaProfile != null &&
+                            reviewIssue.assigneeProfileId != qaProfile.id
                     val staleReviewLineage =
                         reviewIssue != null &&
                             (
+                                reviewAssigneeMismatch ||
                                 (!reviewIssueCanAdoptQueueStateWithoutTask && latestReviewTask == null) ||
                                     (!reviewLineageCanBeAdopted && (reviewIssueReopenedAfterTask || reviewLineageExplicitMismatch))
                                 )
 
                     if (reviewIssue == null || staleReviewLineage) {
-                        val qaProfile = findQaProfile(companyId, companyProfiles)
                         if (qaProfile != null) {
                             removeWorkflowIssue(reviewIssue?.id)
                             removeWorkflowIssue(queueItem.approvalIssueId)
@@ -5214,6 +5511,7 @@ class DesktopAppService(
                         return@forEach
                     }
                     val currentReviewIssue = refreshedQueue.qaIssueId?.let(issuesById::get)
+                    val chiefProfile = findChiefProfile(companyId, companyProfiles)
                     val approvalIssue = refreshedQueue.approvalIssueId?.let(issuesById::get) ?: issuesById.values.firstOrNull {
                         relatedExecutionIssueId(it) == executionIssue.id && it.kind.equals("approval", ignoreCase = true)
                     }
@@ -5260,14 +5558,18 @@ class DesktopAppService(
                                             approvalIssue.status in setOf(IssueStatus.PLANNED, IssueStatus.DELEGATED, IssueStatus.IN_PROGRESS)
                                         )
                                 )
+                    val approvalAssigneeMismatch =
+                        approvalIssue != null &&
+                            chiefProfile != null &&
+                            approvalIssue.assigneeProfileId != chiefProfile.id
                     val staleApprovalLineage =
                         approvalIssue != null &&
                             (
+                                approvalAssigneeMismatch ||
                                 (!approvalIssueCanAdoptQueueStateWithoutTask && latestApprovalTask == null) ||
                                     (!approvalLineageCanBeAdopted && (approvalIssueReopenedAfterTask || approvalLineageExplicitMismatch))
                                 )
                     if (refreshedQueue.status == ReviewQueueStatus.READY_FOR_CEO && (approvalIssue == null || staleApprovalLineage)) {
-                        val chiefProfile = findChiefProfile(companyId, companyProfiles)
                         if (chiefProfile != null) {
                             removeWorkflowIssue(approvalIssue?.id)
                             val refreshedApprovalIssue = CompanyIssue(
@@ -5498,6 +5800,79 @@ class DesktopAppService(
         } else {
             null
         }
+    }
+
+    private fun followUpDescriptionValue(description: String, label: String): String? =
+        description.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.startsWith("$label:") }
+            ?.substringAfter(':')
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+    private fun inferLegacyFollowUpContext(
+        state: DesktopAppState,
+        goal: CompanyGoal,
+        rootGoalId: String,
+        issuesById: Map<String, CompanyIssue>,
+        goalsById: Map<String, CompanyGoal>,
+        reviewQueueById: Map<String, ReviewQueueItem>
+    ): FollowUpContextSnapshot? {
+        if (!goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) {
+            return null
+        }
+        val goalIssueIds = state.issues
+            .asSequence()
+            .filter { it.goalId == goal.id }
+            .map { it.id }
+            .toSet()
+        val reviewQueueItem = state.reviewQueue
+            .filter { queueItem ->
+                queueItem.issueId in goalIssueIds ||
+                    queueItem.qaIssueId in goalIssueIds ||
+                    queueItem.approvalIssueId in goalIssueIds
+            }
+            .maxByOrNull { it.updatedAt }
+        val triggerIssueTitle = followUpDescriptionValue(goal.description, "Trigger issue")
+        val triggerIssue = sequenceOf(
+            reviewQueueItem?.issueId?.let(issuesById::get),
+            state.issues
+                .filter { it.companyId == goal.companyId && it.goalId == rootGoalId }
+                .maxByOrNull { issue ->
+                    if (issue.title == triggerIssueTitle) {
+                        issue.updatedAt
+                    } else {
+                        Long.MIN_VALUE
+                    }
+                },
+            state.issues
+                .filter { it.companyId == goal.companyId && it.title == triggerIssueTitle }
+                .maxByOrNull { it.updatedAt },
+            followUpDescriptionValue(goal.description, "Pull request")
+                ?.let { pullRequestUrl ->
+                    state.issues
+                        .filter { it.companyId == goal.companyId && it.pullRequestUrl == pullRequestUrl }
+                        .maxByOrNull { it.updatedAt }
+                }
+        ).filterNotNull().firstOrNull()
+        val failureClass = when {
+            reviewQueueItem?.mergeability.equals("DIRTY", ignoreCase = true) -> FollowUpFailureClass.MERGE_CONFLICT
+            goal.description.contains("merge conflict", ignoreCase = true) -> FollowUpFailureClass.MERGE_CONFLICT
+            reviewQueueItem?.status == ReviewQueueStatus.FAILED_CHECKS -> FollowUpFailureClass.REVIEW_FAILED_CHECKS
+            reviewQueueItem?.status == ReviewQueueStatus.CHANGES_REQUESTED -> FollowUpFailureClass.REVIEW_CHANGES_REQUESTED
+            goal.description.contains("requested changes", ignoreCase = true) -> FollowUpFailureClass.REVIEW_CHANGES_REQUESTED
+            else -> FollowUpFailureClass.BLOCKED_EXECUTION
+        }
+        if (triggerIssue == null && reviewQueueItem == null && goalsById[rootGoalId] == null) {
+            return null
+        }
+        return FollowUpContextSnapshot(
+            rootGoalId = rootGoalId,
+            triggerIssueId = triggerIssue?.id,
+            reviewQueueItemId = reviewQueueItem?.id,
+            pullRequestNumber = reviewQueueItem?.pullRequestNumber ?: triggerIssue?.pullRequestNumber,
+            failureClass = failureClass
+        )
     }
 
     private fun resolveFollowUpRootGoalId(
@@ -6698,16 +7073,25 @@ class DesktopAppService(
         }
 
         try {
-            val binding = gitWorkspaceService.ensureWorktree(
-                repositoryRoot = Path.of(repository.localPath),
-                taskId = task.id,
-                taskTitle = task.title,
-                agentName = agent.name,
-                baseBranch = workspace.baseBranch
-            )
-            val run = upsertQueuedRun(task, workspace, repository, agent.name, binding)
             val currentState = stateStore.load()
             val issue = task.issueId?.let { issueId -> currentState.issues.firstOrNull { it.id == issueId } }
+            val binding = if (shouldReuseExecutionLineageBinding(issue)) {
+                gitWorkspaceService.ensureExistingWorktreeLineage(
+                    repositoryRoot = Path.of(repository.localPath),
+                    branchName = requireNotNull(issue?.branchName),
+                    worktreePath = Path.of(requireNotNull(issue?.worktreePath)),
+                    baseBranch = workspace.baseBranch
+                )
+            } else {
+                gitWorkspaceService.ensureWorktree(
+                    repositoryRoot = Path.of(repository.localPath),
+                    taskId = task.id,
+                    taskTitle = task.title,
+                    agentName = agent.name,
+                    baseBranch = workspace.baseBranch
+                )
+            }
+            val run = upsertQueuedRun(task, workspace, repository, agent.name, binding)
             val company = issue?.let { linkedIssue -> currentState.companies.firstOrNull { it.id == linkedIssue.companyId } }
                 ?: currentState.companies.firstOrNull { it.repositoryId == repository.id }
             val preferredBackendKind = company?.backendKind ?: currentState.backendSettings.defaultBackendKind
@@ -7120,11 +7504,24 @@ class DesktopAppService(
     }
 
     private fun isValidationOnlyExecutionFollowUpTitle(title: String): Boolean {
-        val normalized = title.trim().lowercase()
+        return isValidationOnlyExecutionFollowUpText(title)
+    }
+
+    private fun isValidationOnlyExecutionFollowUpText(
+        title: String,
+        description: String = ""
+    ): Boolean {
+        val normalized = listOf(title, description)
+            .joinToString("\n")
+            .trim()
+            .lowercase()
         if (normalized.isBlank()) return false
         val validationSignals = listOf(
             "re-run validation",
             "rerun validation",
+            "revalidate",
+            "validate",
+            "validation",
             "residual risk",
             "summarize any residual risk",
             "summarize any residual risks",
@@ -7150,8 +7547,89 @@ class DesktopAppService(
         return validationSignals.any(normalized::contains) && implementationSignals.none(normalized::contains)
     }
 
+    private fun isPrReuseHandoffExecutionText(
+        title: String,
+        description: String = ""
+    ): Boolean {
+        val normalized = listOf(title, description)
+            .joinToString("\n")
+            .trim()
+            .lowercase()
+        if (normalized.isBlank()) return false
+        val handoffSignals = listOf(
+            "hand the result back",
+            "hand back",
+            "report back",
+            "summarize what the ceo should decide next",
+            "summarize what ceo should decide next",
+            "decide next",
+            "decision cycle",
+            "next decision cycle",
+            "another decision cycle",
+            "summarize the current pr",
+            "report the current pr"
+        )
+        val implementationSignals = listOf(
+            "implement",
+            "implementation",
+            "fix ",
+            "patch",
+            "build ",
+            "create ",
+            "add ",
+            "deliver ",
+            "ship ",
+            "feature",
+            "page",
+            "screen",
+            "endpoint",
+            "component"
+        )
+        return handoffSignals.any(normalized::contains) && implementationSignals.none(normalized::contains)
+    }
+
+    private fun isMergeConflictRemediationText(
+        title: String,
+        description: String = ""
+    ): Boolean {
+        val normalized = listOf(title, description)
+            .joinToString("\n")
+            .trim()
+            .lowercase()
+        if (normalized.isBlank()) return false
+        return normalized.contains("merge conflict") ||
+            normalized.contains("merges cleanly") ||
+            normalized.contains("resolve the conflict") ||
+            normalized.contains("resolve conflicts") ||
+            normalized.contains("rebase")
+    }
+
+    private fun inferExecutionIntent(
+        kind: String,
+        title: String,
+        description: String = "",
+        plannedCodeProducing: Boolean? = null
+    ): ExecutionIntent? {
+        if (!kind.equals("execution", ignoreCase = true)) {
+            return null
+        }
+        return when {
+            isMergeConflictRemediationText(title, description) -> ExecutionIntent.MERGE_CONFLICT_REMEDIATION
+            isValidationOnlyExecutionFollowUpText(title, description) -> ExecutionIntent.VALIDATION_ONLY
+            isPrReuseHandoffExecutionText(title, description) -> ExecutionIntent.PR_REUSE_HANDOFF
+            plannedCodeProducing == false -> ExecutionIntent.PR_REUSE_HANDOFF
+            else -> ExecutionIntent.CODE_CHANGE
+        }
+    }
+
     private fun requiresCodePublish(issue: CompanyIssue?): Boolean {
         if (issue == null) return true
+        issue.executionIntent?.let { intent ->
+            return when (intent) {
+                ExecutionIntent.CODE_CHANGE, ExecutionIntent.MERGE_CONFLICT_REMEDIATION -> true
+                ExecutionIntent.VALIDATION_ONLY, ExecutionIntent.PR_REUSE_HANDOFF -> false
+            }
+        }
         if (issue.kind.equals("execution", ignoreCase = true) && isValidationOnlyExecutionFollowUpTitle(issue.title)) {
             return false
         }
@@ -7159,6 +7637,51 @@ class DesktopAppService(
         return when (issue.kind.lowercase()) {
             "review", "approval", "planning", "infra" -> false
             else -> true
+        }
+    }
+
+    private fun isExistingPrNoDiffReuseCandidate(
+        issue: CompanyIssue,
+        run: AgentRun?
+    ): Boolean {
+        if (issue.pullRequestNumber == null || issue.worktreePath.isNullOrBlank()) {
+            return false
+        }
+        val signal = listOf(
+            run?.publish?.error,
+            run?.error,
+            run?.output
+        ).filterNotNull().joinToString("\n").lowercase()
+        if (signal.isBlank()) {
+            return false
+        }
+        return signal.contains("no changes to publish") ||
+            signal.contains("no legitimate local change to apply") ||
+            signal.contains("already matches `master`") ||
+            signal.contains("already matches master") ||
+            signal.contains("nothing to rebase or merge")
+    }
+
+    private fun shouldReuseExecutionLineageBinding(issue: CompanyIssue?): Boolean {
+        if (issue == null) return false
+        if (issue.branchName.isNullOrBlank() || issue.worktreePath.isNullOrBlank()) {
+            return false
+        }
+        if (issue.pullRequestNumber == null && issue.pullRequestUrl.isNullOrBlank()) {
+            return false
+        }
+        return when (
+            issue.executionIntent ?: inferExecutionIntent(
+                kind = issue.kind,
+                title = issue.title,
+                description = issue.description,
+                plannedCodeProducing = issue.codeProducing
+            )
+        ) {
+            ExecutionIntent.MERGE_CONFLICT_REMEDIATION,
+            ExecutionIntent.VALIDATION_ONLY,
+            ExecutionIntent.PR_REUSE_HANDOFF -> true
+            else -> false
         }
     }
 
@@ -7220,12 +7743,23 @@ class DesktopAppService(
     }
 
     private fun buildFallbackGoalIssues(
+        state: DesktopAppState,
         goal: CompanyGoal,
         workspace: Workspace,
         profiles: List<OrgAgentProfile>,
         definitions: List<CompanyAgentDefinition>,
         now: Long
     ): Pair<List<CompanyIssue>, List<IssueDependency>> {
+        val deterministicFollowUp = buildDeterministicMergeConflictFollowUpIssues(
+            state = state,
+            goal = goal,
+            workspace = workspace,
+            profiles = profiles,
+            now = now
+        )
+        if (deterministicFollowUp != null) {
+            return deterministicFollowUp
+        }
         val participants = buildPlanningParticipants(goal.companyId, profiles, definitions)
         val plan = taskPlanner.buildPlanForParticipants(
             title = goal.title,
@@ -7244,8 +7778,13 @@ class DesktopAppService(
                         kind = "execution",
                         assigneeRole = assignment.role,
                         priority = 2,
-                        codeProducing = !isValidationOnlyExecutionFollowUpTitle(
-                            assignment.subtasks.firstOrNull()?.title ?: "${assignment.role}: ${assignment.focus}"
+                        codeProducing = inferExecutionIntent(
+                            kind = "execution",
+                            title = assignment.subtasks.firstOrNull()?.title ?: "${assignment.role}: ${assignment.focus}",
+                            description = assignment.subtasks.firstOrNull()?.details.orEmpty()
+                        ) in setOf(
+                            ExecutionIntent.CODE_CHANGE,
+                            ExecutionIntent.MERGE_CONFLICT_REMEDIATION
                         ),
                         dependsOn = emptyList(),
                         acceptanceCriteria = (plan.sharedChecklist + assignment.subtasks.map { it.title }).distinct(),
@@ -7272,6 +7811,143 @@ class DesktopAppService(
             }
         }
         return issues to dependencies
+    }
+
+    private fun buildDeterministicMergeConflictFollowUpIssues(
+        state: DesktopAppState,
+        goal: CompanyGoal,
+        workspace: Workspace,
+        profiles: List<OrgAgentProfile>,
+        now: Long
+    ): Pair<List<CompanyIssue>, List<IssueDependency>>? {
+        val context = goal.followUpContext ?: return null
+        if (context.failureClass != FollowUpFailureClass.MERGE_CONFLICT) {
+            return null
+        }
+        val triggerIssue = context.triggerIssueId?.let { triggerIssueId ->
+            state.issues.firstOrNull { it.id == triggerIssueId }
+        }
+        val reviewQueueItem = context.reviewQueueItemId?.let { reviewQueueItemId ->
+            state.reviewQueue.firstOrNull { it.id == reviewQueueItemId }
+        }
+        val branchName = reviewQueueItem?.branchName ?: triggerIssue?.branchName
+        val worktreePath = reviewQueueItem?.worktreePath ?: triggerIssue?.worktreePath
+        val pullRequestNumber = reviewQueueItem?.pullRequestNumber ?: triggerIssue?.pullRequestNumber ?: context.pullRequestNumber
+        val pullRequestUrl = reviewQueueItem?.pullRequestUrl ?: triggerIssue?.pullRequestUrl
+        val pullRequestState = reviewQueueItem?.pullRequestState ?: triggerIssue?.pullRequestState
+        val baseBranch = state.companies.firstOrNull { it.id == goal.companyId }?.defaultBaseBranch ?: workspace.baseBranch
+        val companyProfiles = profiles.filter { it.companyId == goal.companyId && it.enabled }
+        val remediationTitle = buildString {
+            append("Resolve merge conflict")
+            pullRequestNumber?.let { append(" for PR #$it") }
+            append(" against ")
+            append(baseBranch)
+        }
+        val remediationDescription = buildString {
+            appendLine("This remediation issue is synthesized automatically for an existing PR merge conflict.")
+            appendLine()
+            triggerIssue?.let { appendLine("Trigger issue: ${it.title}") }
+            pullRequestUrl?.let { appendLine("Pull request: $it") }
+            branchName?.let { appendLine("Branch: $it") }
+            worktreePath?.let { appendLine("Worktree: $it") }
+            appendLine("Base branch: $baseBranch")
+            appendLine()
+            appendLine("Responsibilities:")
+            appendLine("- Rebase or resolve conflicts on the existing PR lineage.")
+            appendLine("- Reuse the current branch and worktree instead of creating a handoff PR.")
+            appendLine("- Leave the PR ready for the existing QA/CEO lineage once it merges cleanly again.")
+        }.trim()
+        val validationTitle = "Re-run validation and summarize residual risk"
+        val validationDescription = buildString {
+            appendLine("This validation issue runs after merge-conflict remediation on the existing PR lineage.")
+            appendLine()
+            triggerIssue?.let { appendLine("Trigger issue: ${it.title}") }
+            pullRequestUrl?.let { appendLine("Pull request: $it") }
+            branchName?.let { appendLine("Branch: $it") }
+            appendLine()
+            appendLine("Responsibilities:")
+            appendLine("- Re-run validation against the remediated PR branch.")
+            appendLine("- Summarize any remaining residual risk without manufacturing a new diff.")
+            appendLine("- Hand the result back by reopening the existing CEO approval lane, not by creating a new PR.")
+        }.trim()
+        val remediationAssignee = suggestProfileForCustomIssue(
+            title = remediationTitle,
+            description = remediationDescription,
+            kind = "execution",
+            profiles = companyProfiles
+        )
+        val validationAssignee = findQaProfile(goal.companyId, companyProfiles) ?: suggestProfileForCustomIssue(
+            title = validationTitle,
+            description = validationDescription,
+            kind = "execution",
+            profiles = companyProfiles
+        )
+        val remediationIssue = CompanyIssue(
+            id = UUID.randomUUID().toString(),
+            companyId = goal.companyId,
+            projectContextId = goal.projectContextId,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = remediationTitle,
+            description = remediationDescription,
+            status = IssueStatus.PLANNED,
+            priority = 1,
+            kind = "execution",
+            assigneeProfileId = remediationAssignee?.id,
+            acceptanceCriteria = listOf(
+                "The existing PR branch merges cleanly with the latest base branch.",
+                "No replacement PR is created for the same remediation."
+            ),
+            riskLevel = "high",
+            codeProducing = true,
+            executionIntent = ExecutionIntent.MERGE_CONFLICT_REMEDIATION,
+            branchName = branchName,
+            worktreePath = worktreePath,
+            pullRequestNumber = pullRequestNumber,
+            pullRequestUrl = pullRequestUrl,
+            pullRequestState = pullRequestState,
+            transitionReason = "Merge-conflict follow-up synthesized a deterministic remediation issue on the existing PR lineage.",
+            sourceSignal = "merge-conflict-follow-up:${context.reviewQueueItemId ?: context.triggerIssueId ?: goal.id}",
+            createdAt = now,
+            updatedAt = now
+        )
+        val validationIssue = CompanyIssue(
+            id = UUID.randomUUID().toString(),
+            companyId = goal.companyId,
+            projectContextId = goal.projectContextId,
+            goalId = goal.id,
+            workspaceId = workspace.id,
+            title = validationTitle,
+            description = validationDescription,
+            status = IssueStatus.BACKLOG,
+            priority = 2,
+            kind = "execution",
+            assigneeProfileId = validationAssignee?.id,
+            dependsOn = listOf(remediationIssue.id),
+            acceptanceCriteria = listOf(
+                "Validation is re-run against the remediated PR.",
+                "Residual risk is summarized without creating a new PR."
+            ),
+            riskLevel = "medium",
+            codeProducing = false,
+            executionIntent = ExecutionIntent.VALIDATION_ONLY,
+            branchName = branchName,
+            worktreePath = worktreePath,
+            pullRequestNumber = pullRequestNumber,
+            pullRequestUrl = pullRequestUrl,
+            pullRequestState = pullRequestState,
+            transitionReason = "Merge-conflict follow-up synthesized a deterministic validation pass on the existing PR lineage.",
+            sourceSignal = "merge-conflict-follow-up:${context.reviewQueueItemId ?: context.triggerIssueId ?: goal.id}",
+            createdAt = now + 1,
+            updatedAt = now + 1
+        )
+        return listOf(remediationIssue, validationIssue) to listOf(
+            IssueDependency(
+                id = UUID.randomUUID().toString(),
+                issueId = validationIssue.id,
+                dependsOnIssueId = remediationIssue.id
+            )
+        )
     }
 
     private fun buildPlanningIssueDescription(
@@ -7335,6 +8011,15 @@ class DesktopAppService(
                 appendLine("Goal: ${it.title}")
                 appendLine("Goal description:")
                 appendLine(it.description.ifBlank { it.title })
+                it.followUpContext?.let { context ->
+                    appendLine()
+                    appendLine("Follow-up context:")
+                    appendLine("- Root goal id: ${context.rootGoalId}")
+                    context.triggerIssueId?.let { triggerIssueId -> appendLine("- Trigger issue id: $triggerIssueId") }
+                    context.reviewQueueItemId?.let { reviewQueueItemId -> appendLine("- Review queue item id: $reviewQueueItemId") }
+                    context.pullRequestNumber?.let { pullRequestNumber -> appendLine("- Pull request number: #$pullRequestNumber") }
+                    appendLine("- Failure class: ${context.failureClass.name}")
+                }
             }
             appendLine()
             appendLine("Available roster:")
@@ -7361,6 +8046,11 @@ class DesktopAppService(
             appendLine("- Generic work should route to Builder-first unless the goal clearly needs a specialist.")
             appendLine("- Set codeProducing=true when the issue should end with a branch and GitHub PR.")
             appendLine("- For validation-only or residual-risk follow-up work, set codeProducing=false and do not manufacture placeholder repository artifacts just to force a diff.")
+            appendLine("- For handoff, reporting, CEO decision, validation, or residual-risk tasks, default to codeProducing=false.")
+            if (goal?.followUpContext?.failureClass == FollowUpFailureClass.MERGE_CONFLICT) {
+                appendLine("- This goal exists to remediate an existing merge conflict on the current PR lineage.")
+                appendLine("- Reuse the existing PR branch/worktree instead of inventing a new handoff PR or a new review lineage.")
+            }
             appendLine("- Use dependsOn with refIds from earlier issues when ordering matters.")
             appendLine()
             appendLine("Return JSON only inside one ```json fenced block using this schema:")
@@ -7447,12 +8137,16 @@ class DesktopAppService(
                     profiles = companyProfiles
                 )
             val normalizedKind = plannedIssue.kind.trim().ifBlank { "execution" }.lowercase()
-            val validationOnlyFollowUp =
-                normalizedKind == "execution" && isValidationOnlyExecutionFollowUpTitle(plannedIssue.title.trim())
-            val codeProducing = if (validationOnlyFollowUp) {
-                false
-            } else {
-                plannedIssue.codeProducing ?: when (normalizedKind) {
+            val executionIntent = inferExecutionIntent(
+                kind = normalizedKind,
+                title = plannedIssue.title.trim(),
+                description = plannedIssue.description.trim(),
+                plannedCodeProducing = plannedIssue.codeProducing
+            )
+            val codeProducing = when (executionIntent) {
+                ExecutionIntent.VALIDATION_ONLY, ExecutionIntent.PR_REUSE_HANDOFF -> false
+                ExecutionIntent.MERGE_CONFLICT_REMEDIATION, ExecutionIntent.CODE_CHANGE -> true
+                null -> plannedIssue.codeProducing ?: when (normalizedKind) {
                     "planning", "review", "approval", "qa", "infra", "research" -> false
                     else -> true
                 }
@@ -7474,6 +8168,7 @@ class DesktopAppService(
                 acceptanceCriteria = plannedIssue.acceptanceCriteria.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
                 riskLevel = if (codeProducing) "medium" else "low",
                 codeProducing = codeProducing,
+                executionIntent = executionIntent,
                 transitionReason = if (planningSource == "ceo") {
                     "CEO planning run assigned this issue to ${assignee?.roleName ?: plannedIssue.assigneeRole}."
                 } else {
@@ -7498,17 +8193,31 @@ class DesktopAppService(
             it.companyId == companyId && it.enabled && (it.mergeAuthority || it.roleName.equals("CEO", ignoreCase = true))
         } ?: profiles.firstOrNull { it.companyId == companyId && it.enabled }
 
+    private fun isQaCapableProfile(profile: OrgAgentProfile): Boolean =
+        profile.reviewerPolicy != null ||
+            profile.roleName.equals("QA", ignoreCase = true) ||
+            profile.capabilities.any { capability ->
+                capability.equals("qa", ignoreCase = true) || capability.equals("review", ignoreCase = true)
+            }
+
     private fun findQaProfile(companyId: String, profiles: List<OrgAgentProfile>): OrgAgentProfile? =
         profiles.firstOrNull {
             it.companyId == companyId &&
                 it.enabled &&
+                !it.mergeAuthority &&
                 (
-                    it.reviewerPolicy != null ||
-                        it.roleName.equals("QA", ignoreCase = true) ||
-                        it.capabilities.any { capability ->
-                            capability.equals("qa", ignoreCase = true) || capability.equals("review", ignoreCase = true)
-                        }
+                    it.roleName.equals("QA", ignoreCase = true) ||
+                        it.capabilities.any { capability -> capability.equals("qa", ignoreCase = true) }
                     )
+        } ?: profiles.firstOrNull {
+            it.companyId == companyId &&
+                it.enabled &&
+                !it.mergeAuthority &&
+                isQaCapableProfile(it)
+        } ?: profiles.firstOrNull {
+            it.companyId == companyId &&
+                it.enabled &&
+                isQaCapableProfile(it)
         } ?: findChiefProfile(companyId, profiles)
 
     private fun qaReviewSource(issueId: String): String = "$QA_REVIEW_SOURCE_PREFIX$issueId"
@@ -7803,6 +8512,10 @@ class DesktopAppService(
 
         data class FollowUpCandidate(
             val issue: CompanyIssue,
+            val reviewQueueItem: ReviewQueueItem? = null,
+            val failureClass: FollowUpFailureClass,
+            val rootGoalId: String,
+            val followUpContext: FollowUpContextSnapshot,
             val reason: String,
             val marker: String,
             val subject: String
@@ -7810,6 +8523,21 @@ class DesktopAppService(
 
         fun hasOpenFollowUp(marker: String): Boolean =
             openGoals.any { it.operatingPolicy == marker }
+
+        fun hasOpenFollowUpForContext(context: FollowUpContextSnapshot): Boolean =
+            openGoals.any { openGoal ->
+                val existing = openGoal.followUpContext ?: return@any false
+                existing.rootGoalId == context.rootGoalId &&
+                    existing.failureClass == context.failureClass &&
+                    (
+                        existing.reviewQueueItemId != null && existing.reviewQueueItemId == context.reviewQueueItemId ||
+                            (
+                                existing.reviewQueueItemId == null &&
+                                    context.reviewQueueItemId == null &&
+                                    existing.triggerIssueId == context.triggerIssueId
+                                )
+                        )
+            }
 
         val openFollowUpSubjects = openGoals
             .filter { it.operatingPolicy.orEmpty().startsWith("auto-follow-up:") }
@@ -7831,15 +8559,42 @@ class DesktopAppService(
                 val rootGoalId = resolveFollowUpRootGoalId(issue.goalId, issuesById, goalsById, reviewQueueById)
                     ?: issue.goalId
                 val marker = "auto-follow-up:goal:$rootGoalId"
+                val failureClass = when {
+                    item.status == ReviewQueueStatus.CHANGES_REQUESTED && item.mergeability.equals("DIRTY", ignoreCase = true) ->
+                        FollowUpFailureClass.MERGE_CONFLICT
+                    item.status == ReviewQueueStatus.FAILED_CHECKS -> FollowUpFailureClass.REVIEW_FAILED_CHECKS
+                    else -> FollowUpFailureClass.REVIEW_CHANGES_REQUESTED
+                }
+                val followUpContext = FollowUpContextSnapshot(
+                    rootGoalId = rootGoalId,
+                    triggerIssueId = issue.id,
+                    reviewQueueItemId = item.id,
+                    pullRequestNumber = item.pullRequestNumber ?: issue.pullRequestNumber,
+                    failureClass = failureClass
+                )
+                if (hasOpenFollowUpForContext(followUpContext)) return@mapNotNull null
                 if (hasOpenFollowUp(marker)) return@mapNotNull null
                 val subject = canonicalFollowUpSubject(issue.title)
                 if (subject in openFollowUpSubjects) return@mapNotNull null
                 val reason = when (item.status) {
                     ReviewQueueStatus.FAILED_CHECKS -> "Review queue checks failed and require a remediation loop."
-                    ReviewQueueStatus.CHANGES_REQUESTED -> "Review requested changes and requires a remediation loop."
+                    ReviewQueueStatus.CHANGES_REQUESTED -> when (failureClass) {
+                        FollowUpFailureClass.MERGE_CONFLICT ->
+                            "The current PR no longer merges cleanly with the latest base branch and needs deterministic remediation on the existing PR lineage."
+                        else -> "Review requested changes and requires a remediation loop."
+                    }
                     else -> return@mapNotNull null
                 }
-                FollowUpCandidate(issue = issue, reason = reason, marker = marker, subject = subject)
+                FollowUpCandidate(
+                    issue = issue,
+                    reviewQueueItem = item,
+                    failureClass = failureClass,
+                    rootGoalId = rootGoalId,
+                    followUpContext = followUpContext,
+                    reason = reason,
+                    marker = marker,
+                    subject = subject
+                )
             }
             .firstOrNull()
 
@@ -7859,11 +8614,20 @@ class DesktopAppService(
                 val rootGoalId = resolveFollowUpRootGoalId(issue.goalId, issuesById, goalsById, reviewQueueById)
                     ?: issue.goalId
                 val marker = "auto-follow-up:goal:$rootGoalId"
+                val followUpContext = FollowUpContextSnapshot(
+                    rootGoalId = rootGoalId,
+                    triggerIssueId = issue.id,
+                    failureClass = FollowUpFailureClass.BLOCKED_EXECUTION
+                )
+                if (hasOpenFollowUpForContext(followUpContext)) return@mapNotNull null
                 if (hasOpenFollowUp(marker)) return@mapNotNull null
                 val subject = canonicalFollowUpSubject(issue.title)
                 if (subject in openFollowUpSubjects) return@mapNotNull null
                 FollowUpCandidate(
                     issue = issue,
+                    failureClass = FollowUpFailureClass.BLOCKED_EXECUTION,
+                    rootGoalId = rootGoalId,
+                    followUpContext = followUpContext,
                     reason = "Execution is blocked and needs a new CEO-managed remediation goal.",
                     marker = marker,
                     subject = subject
@@ -7883,13 +8647,23 @@ class DesktopAppService(
                     appendLine("Parent goal: ${it.title}")
                 }
                 appendLine("Trigger issue: ${candidate.issue.title}")
+                candidate.reviewQueueItem?.pullRequestUrl?.let { appendLine("Pull request: $it") }
                 appendLine("Reason: ${candidate.reason}")
                 appendLine()
                 appendLine("Required outcome:")
-                appendLine("- Unblock the affected work or satisfy the failed review signal.")
-                appendLine("- Re-run validation and capture any residual risk.")
-                appendLine("- Summarize what the CEO should decide next once the remediation is complete.")
-                appendLine("- Create the next wave so the company can keep moving with multiple branchable issues when more work remains.")
+                when (candidate.failureClass) {
+                    FollowUpFailureClass.MERGE_CONFLICT -> {
+                        appendLine("- Reuse the current PR branch and worktree to resolve the merge conflict.")
+                        appendLine("- Re-run validation and capture residual risk on the existing PR lineage.")
+                        appendLine("- Reopen the existing CEO approval lane instead of creating a handoff PR.")
+                    }
+                    else -> {
+                        appendLine("- Unblock the affected work or satisfy the failed review signal.")
+                        appendLine("- Re-run validation and capture any residual risk.")
+                        appendLine("- Summarize what the CEO should decide next once the remediation is complete.")
+                        appendLine("- Create the next wave so the company can keep moving with multiple branchable issues when more work remains.")
+                    }
+                }
             }
             return createGoal(
                 companyId = companyId,
@@ -7903,6 +8677,7 @@ class DesktopAppService(
                 autonomyEnabled = true,
                 priority = 1,
                 operatingPolicy = candidate.marker,
+                followUpContext = candidate.followUpContext,
                 startRuntimeIfNeeded = false
             )
         }
@@ -8530,7 +9305,10 @@ class DesktopAppService(
                 addIfMatch("triage", "triage", "coordination", "orchestr", "assign", "delegate")
                 addIfMatch("goal-decomposition", "plan", "roadmap", "spec", "product", "breakdown")
                 addIfMatch("review", "review", "approve", "approval")
-                addIfMatch("qa", "qa", "quality", "test", "verification", "validate")
+                addIfMatch("qa", "qa", "test", "verification", "validate")
+                if (role.equals("QA", ignoreCase = true) || descriptor.contains("quality assurance")) {
+                    capabilities += "qa"
+                }
                 addIfMatch("implementation", "build", "builder", "implement", "ship", "delivery", "developer", "engineer")
                 addIfMatch("backend", "backend", "server", "api", "kotlin", "infra", "platform")
                 addIfMatch("frontend", "frontend", "ui", "ux", "design", "desktop", "swift")
@@ -8988,6 +9766,7 @@ class DesktopAppService(
             val parsedPlan = if (finalStatus == DesktopTaskStatus.COMPLETED) parseCeoPlanningPayload(primaryRun?.output) else null
             val planningSource = if (parsedPlan != null) "ceo" else "fallback"
             val fallback = buildFallbackGoalIssues(
+                state = state,
                 goal = goal,
                 workspace = workspace,
                 profiles = profiles,
@@ -9182,8 +9961,17 @@ class DesktopAppService(
             if (publishAlreadyAdvanced) {
                 return@withLock
             }
+            val noDiffExistingPullRequestReuse =
+                finalStatus != DesktopTaskStatus.COMPLETED &&
+                    isExistingPrNoDiffReuseCandidate(currentIssue, primaryRun)
             val pullRequestRequired = requiresGitHubPullRequest(currentIssue, state)
+            val publishMergeConflict =
+                finalStatus == DesktopTaskStatus.COMPLETED &&
+                    pullRequestRequired &&
+                    hasPublishMetadata &&
+                    primaryRun?.publish?.mergeability.equals("DIRTY", ignoreCase = true)
             val nextIssueStatus = when {
+                publishMergeConflict -> IssueStatus.PLANNED
                 finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata -> IssueStatus.IN_REVIEW
                 finalStatus == DesktopTaskStatus.COMPLETED && !requiresCodePublish(currentIssue) -> IssueStatus.DONE
                 finalStatus == DesktopTaskStatus.COMPLETED && !pullRequestRequired -> IssueStatus.DONE
@@ -9195,6 +9983,16 @@ class DesktopAppService(
             }
             val updatedIssue = currentIssue.copy(
                 status = nextIssueStatus,
+                executionIntent = when {
+                    publishMergeConflict -> ExecutionIntent.MERGE_CONFLICT_REMEDIATION
+                    else -> currentIssue.executionIntent
+                        ?: inferExecutionIntent(
+                            kind = currentIssue.kind,
+                            title = currentIssue.title,
+                            description = currentIssue.description,
+                            plannedCodeProducing = currentIssue.codeProducing
+                        )
+                },
                 branchName = primaryRun?.branchName ?: currentIssue.branchName,
                 worktreePath = primaryRun?.worktreePath ?: currentIssue.worktreePath,
                 pullRequestNumber = if (completedWithoutPublish) null else primaryRun?.publish?.pullRequestNumber ?: currentIssue.pullRequestNumber,
@@ -9205,12 +10003,16 @@ class DesktopAppService(
                 ceoVerdict = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.ceoVerdict,
                 ceoFeedback = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.ceoFeedback,
                 transitionReason = when {
+                    publishMergeConflict ->
+                        "Execution completed on branch ${primaryRun?.branchName}, but PR ${primaryRun?.publish?.pullRequestUrl ?: primaryRun?.publish?.pullRequestNumber} does not merge cleanly with the latest base branch. Re-running on a refreshed base."
                     finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata ->
                         "Execution completed on branch ${primaryRun?.branchName} and opened PR ${primaryRun?.publish?.pullRequestUrl ?: primaryRun?.publish?.pullRequestNumber}."
                     finalStatus == DesktopTaskStatus.COMPLETED && !requiresCodePublish(currentIssue) ->
                         "Execution completed for non-code work."
                     finalStatus == DesktopTaskStatus.COMPLETED && !pullRequestRequired ->
                         "Execution completed with local git allowed by settings."
+                    noDiffExistingPullRequestReuse ->
+                        "Execution produced no new diff against ${currentIssue.pullRequestUrl ?: "the existing PR lineage"}; Cotor will refresh that PR state instead of opening another review cycle."
                     finalStatus == DesktopTaskStatus.COMPLETED ->
                         "Execution completed but required PR publication did not succeed."
                     else -> "Execution failed and requires a recoverable retry or remediation."
@@ -9219,9 +10021,11 @@ class DesktopAppService(
             )
             if (updatedIssue.status != currentIssue.status) {
                 val reason = when {
+                    publishMergeConflict -> "Task completed, but GitHub reported that the published PR no longer merges cleanly with the base branch."
                     finalStatus == DesktopTaskStatus.COMPLETED && pullRequestRequired && hasPublishMetadata -> "Task completed and published a pull request."
                     finalStatus == DesktopTaskStatus.COMPLETED && !requiresCodePublish(currentIssue) -> "Task completed without a required publish step."
                     finalStatus == DesktopTaskStatus.COMPLETED && !pullRequestRequired -> "Task completed and local git publishing is allowed by settings."
+                    noDiffExistingPullRequestReuse -> "Task produced no new diff and should reuse the existing PR lineage instead of creating another review cycle."
                     finalStatus == DesktopTaskStatus.COMPLETED -> "Task completed but no pull request was created for required code work."
                     else -> "Task finished with ${finalStatus.name}; issue is blocked until a recoverable retry is detected."
                 }
@@ -9237,6 +10041,7 @@ class DesktopAppService(
                 )
             }
             val queueStatus = when {
+                publishMergeConflict -> ReviewQueueStatus.CHANGES_REQUESTED
                 primaryRun?.publish?.error != null -> ReviewQueueStatus.FAILED_CHECKS
                 hasPublishMetadata -> ReviewQueueStatus.AWAITING_QA
                 else -> ReviewQueueStatus.AWAITING_QA
@@ -9274,6 +10079,7 @@ class DesktopAppService(
                             executionRunAdvanced ||
                             downstreamQaLineageMismatch
                         )
+            val clearWorkflowBindings = publishedReviewIdentityChanged || publishMergeConflict
             val reviewQueueItemId = if (publishedReviewIdentityChanged || existingReviewQueueItem == null) {
                 UUID.randomUUID().toString()
             } else {
@@ -9321,11 +10127,11 @@ class DesktopAppService(
                     qaVerdict = null,
                     qaFeedback = null,
                     qaReviewedAt = null,
-                    qaIssueId = if (publishedReviewIdentityChanged) null else existing?.qaIssueId,
+                    qaIssueId = if (clearWorkflowBindings) null else existing?.qaIssueId,
                     ceoVerdict = null,
                     ceoFeedback = null,
                     ceoReviewedAt = null,
-                    approvalIssueId = if (publishedReviewIdentityChanged) null else existing?.approvalIssueId,
+                    approvalIssueId = if (clearWorkflowBindings) null else existing?.approvalIssueId,
                     createdAt = if (publishedReviewIdentityChanged) now else existing?.createdAt ?: now,
                     updatedAt = now,
                     workflowLineage = workflowLineage
@@ -9359,12 +10165,12 @@ class DesktopAppService(
             val companyProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
                 .filter { it.companyId == currentIssue.companyId }
             val qaProfile = findQaProfile(currentIssue.companyId, companyProfiles)
-            val reusableQaIssue = if (publishedReviewIdentityChanged) {
+            val reusableQaIssue = if (clearWorkflowBindings) {
                 null
             } else {
                 existingQaIssue
             }
-            val staleWorkflowIssueIds = if (publishedReviewIdentityChanged) {
+            val staleWorkflowIssueIds = if (clearWorkflowBindings) {
                 state.issues
                     .filter {
                         relatedExecutionIssueId(it) == currentIssue.id &&
@@ -9380,7 +10186,13 @@ class DesktopAppService(
                     reusableQaIssue?.id?.let(::add)
                 }
             }
-            val qaIssue = if (pullRequestRequired && hasPublishMetadata && qaProfile != null) {
+            val qaIssue = if (
+                pullRequestRequired &&
+                hasPublishMetadata &&
+                !publishMergeConflict &&
+                queueStatus == ReviewQueueStatus.AWAITING_QA &&
+                qaProfile != null
+            ) {
                 reusableQaIssue?.copy(
                     title = "QA review ${currentIssue.title}",
                     description = buildQaReviewIssueDescription(updatedIssue, nextReviewQueue.first { it.issueId == currentIssue.id }),
@@ -9487,7 +10299,9 @@ class DesktopAppService(
                 goalId = updatedIssue.goalId,
                 issueId = qaIssue?.id ?: existingQaIssue?.id,
                 source = "qa-review",
-                title = if (qaIssue == null) {
+                title = if (publishMergeConflict) {
+                    "Skipped QA for dirty pull request"
+                } else if (qaIssue == null) {
                     "Waiting for QA"
                 } else if (existingQaIssue == null) {
                     "Created QA review issue"
@@ -9495,7 +10309,7 @@ class DesktopAppService(
                     "Reopened QA review issue"
                 },
                 detail = updatedIssue.pullRequestUrl ?: updatedIssue.title,
-                severity = "info"
+                severity = if (publishMergeConflict) "warning" else "info"
             ).recordSignal(
                 source = "task-run",
                 message = "Issue ${updatedIssue.title} moved to ${updatedIssue.status}",
