@@ -375,7 +375,37 @@ git log --oneline --decorate -5
 - transcript 옆에 `interactive.log` 기록
 - 인증된 AI CLI가 없으면 안전한 starter로 fallback
 
-## 10. Homebrew 첫 실행 문제
+## 10. 인터랙티브 에이전트 실패: "OpenCode execution failed"
+
+### 10.1 증상
+
+`:mode compare` 또는 단일 에이전트 모드에서 opencode 에이전트가 즉시 실패:
+
+```
+ERROR Cotor - Agent process execution failed: opencode
+com.cotor.model.ProcessExecutionException: OpenCode execution failed
+```
+
+### 10.2 근본 원인
+
+`OpenCodePlugin`이 존재하지 않는 서브커맨드(`opencode generate`)를 호출하고 있었습니다. `opencode run`을 사용하도록 수정되었습니다.
+
+### 10.3 확인
+
+```bash
+# 명령어가 수동으로 작동하는지 확인
+opencode run "say hello"
+```
+
+Exit code 0이면 CLI는 정상입니다. 모델 에러로 실패하면 Cotor 문제가 아닌 OpenCode의 provider 설정 문제입니다.
+
+### 10.4 해결
+
+- `opencode run`을 사용하는 최신 Cotor 버전으로 업데이트
+- OpenCode 설치 및 인증 확인: `opencode providers`
+- 전체 설정 참고: [OPENCODE_AGENT.ko.md](OPENCODE_AGENT.ko.md)
+
+## 11. Homebrew 첫 실행 문제
 
 전체 packaged install 모델은 [HOMEBREW_INSTALL.ko.md](HOMEBREW_INSTALL.ko.md)를 보십시오. 흔한 문제는 아래와 같습니다.
 
@@ -389,7 +419,7 @@ git log --oneline --decorate -5
 - 런타임 시점에 Gradle/Swift 재빌드 안 함
 - `cotor install` / `cotor update`로 packaged desktop bundle 사용
 
-## 11. 언제 새 regression으로 봐야 하나
+## 12. 언제 새 regression으로 봐야 하나
 
 현재 빌드에서 아래 중 하나가 다시 보이면 새 버그로 다뤄야 합니다.
 
