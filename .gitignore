@@ -40,6 +40,7 @@ out/
 .claude/
 .codex/
 .kiro/
+.omc/
 
 # macOS
 .DS_Store

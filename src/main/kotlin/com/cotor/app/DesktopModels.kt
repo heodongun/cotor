@@ -463,6 +463,31 @@ data class WorkflowLineageSnapshot(
     val generation: Int = 1
 )
 
+@Serializable
+enum class FollowUpFailureClass {
+    REVIEW_FAILED_CHECKS,
+    REVIEW_CHANGES_REQUESTED,
+    MERGE_CONFLICT,
+    BLOCKED_EXECUTION
+}
+
+@Serializable
+data class FollowUpContextSnapshot(
+    val rootGoalId: String,
+    val triggerIssueId: String? = null,
+    val reviewQueueItemId: String? = null,
+    val pullRequestNumber: Int? = null,
+    val failureClass: FollowUpFailureClass
+)
+
+@Serializable
+enum class ExecutionIntent {
+    CODE_CHANGE,
+    MERGE_CONFLICT_REMEDIATION,
+    VALIDATION_ONLY,
+    PR_REUSE_HANDOFF
+}
+
 /**
  * User-authored task that can be fanned out to multiple agents.
  */
@@ -563,6 +588,7 @@ data class CompanyGoal(
     val priority: Int = 2,
     val successMetrics: List<String> = emptyList(),
     val operatingPolicy: String? = null,
+    val followUpContext: FollowUpContextSnapshot? = null,
     val autonomyEnabled: Boolean = true,
     val createdAt: Long,
     val updatedAt: Long
@@ -593,6 +619,7 @@ data class CompanyIssue(
     val acceptanceCriteria: List<String> = emptyList(),
     val riskLevel: String = "medium",
     val codeProducing: Boolean? = null,
+    val executionIntent: ExecutionIntent? = null,
     val branchName: String? = null,
     val worktreePath: String? = null,
     val pullRequestNumber: Int? = null,

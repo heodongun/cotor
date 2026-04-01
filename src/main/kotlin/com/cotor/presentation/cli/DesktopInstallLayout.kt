@@ -89,7 +89,7 @@ internal fun runPackagedDesktopAction(
 
     return runCatching {
         when (action) {
-            DesktopInstallAction.INSTALL, DesktopInstallAction.UPDATE -> {
+            DesktopInstallAction.INSTALL -> {
                 val installRoot = resolveDesktopInstallRoot(environment, homeDirectoryProvider)
                 installRoot.createDirectories()
                 val targetBundle = installRoot.resolve(BUNDLED_DESKTOP_APP_NAME)
@@ -99,6 +99,52 @@ internal fun runPackagedDesktopAction(
                     exitCode = 0,
                     output = buildString {
                         appendLine("✅ Cotor Desktop is ready.")
+                        appendLine("   Source:    $desktopBundle")
+                        appendLine("   Installed: $targetBundle")
+                        appendLine("   Launch:    open \"$targetBundle\"")
+                    }
+                )
+            }
+
+            DesktopInstallAction.UPDATE -> {
+                // For packaged install, upgrade Homebrew package first
+                val brewUpgradeOutput = buildString {
+                    appendLine("🔄 Upgrading Cotor via Homebrew...")
+                }
+                
+                val brewUpgrade = ProcessBuilder("brew", "upgrade", "cotor")
+                    .redirectErrorStream(true)
+                    .start()
+                
+                val upgradeOutput = brewUpgrade.inputStream.bufferedReader().use { it.readText() }
+                val upgradeExitCode = brewUpgrade.waitFor()
+                
+                if (upgradeExitCode != 0) {
+                    return DesktopScriptResult(
+                        exitCode = upgradeExitCode,
+                        output = buildString {
+                            appendLine("❌ Failed to upgrade Cotor via Homebrew.")
+                            appendLine(upgradeOutput)
+                        }
+                    )
+                }
+                
+                // After upgrade, install the new bundle
+                val installRoot = resolveDesktopInstallRoot(environment, homeDirectoryProvider)
+                installRoot.createDirectories()
+                val targetBundle = installRoot.resolve(BUNDLED_DESKTOP_APP_NAME)
+                deleteRecursively(targetBundle)
+                copyRecursively(desktopBundle, targetBundle)
+                
+                DesktopScriptResult(
+                    exitCode = 0,
+                    output = buildString {
+                        appendLine("✅ Cotor Desktop updated.")
+                        if (upgradeOutput.contains("already installed")) {
+                            appendLine("   ℹ️  Already at latest version")
+                        } else {
+                            appendLine("   📦 Homebrew package upgraded")
+                        }
                         appendLine("   Source:    $desktopBundle")
                         appendLine("   Installed: $targetBundle")
                         appendLine("   Launch:    open \"$targetBundle\"")

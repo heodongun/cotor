@@ -65,6 +65,16 @@ data class ManagedPullRequestCleanupResult(
     val closedPullRequestNumbers: List<Int> = emptyList()
 )
 
+private data class ResolvedBaseReference(
+    val startPoint: String,
+    val comparisonRef: String
+)
+
+private data class BranchRestackResult(
+    val comparisonRef: String,
+    val error: String? = null
+)
+
 /**
  * Encapsulates every git-aware filesystem operation used by the desktop app.
  *
@@ -266,10 +276,50 @@ class GitWorkspaceService(
         if (hasBranch(repositoryRoot, branchName)) {
             runGit(repositoryRoot, "worktree", "add", worktreePath.toString(), branchName)
         } else {
-            runGit(repositoryRoot, "worktree", "add", "-b", branchName, worktreePath.toString(), baseBranch)
+            val baseReference = resolveLatestBaseReference(repositoryRoot, baseBranch)
+            runGit(
+                repositoryRoot,
+                "worktree",
+                "add",
+                "-b",
+                branchName,
+                worktreePath.toString(),
+                baseReference.startPoint
+            )
         }
 
         return WorktreeBinding(branchName = branchName, worktreePath = worktreePath)
+    }
+
+    suspend fun ensureExistingWorktreeLineage(
+        repositoryRoot: Path,
+        branchName: String,
+        worktreePath: Path,
+        baseBranch: String
+    ): WorktreeBinding {
+        ensureBootstrapCommit(repositoryRoot)
+        val normalizedPath = worktreePath.toAbsolutePath().normalize()
+        if (normalizedPath.exists()) {
+            return WorktreeBinding(branchName = branchName, worktreePath = normalizedPath)
+        }
+
+        normalizedPath.parent?.createDirectories()
+        if (hasBranch(repositoryRoot, branchName)) {
+            runGit(repositoryRoot, "worktree", "add", normalizedPath.toString(), branchName)
+        } else {
+            val baseReference = resolveLatestBaseReference(repositoryRoot, baseBranch)
+            runGit(
+                repositoryRoot,
+                "worktree",
+                "add",
+                "-b",
+                branchName,
+                normalizedPath.toString(),
+                baseReference.startPoint
+            )
+        }
+
+        return WorktreeBinding(branchName = branchName, worktreePath = normalizedPath)
     }
 
     /**
@@ -286,6 +336,7 @@ class GitWorkspaceService(
         var commitSha: String? = null
         var pushedBranch: String? = null
         var pullRequest: PullRequestRef? = null
+        var comparisonBaseRef = baseBranch
 
         return try {
             if (hasUncommittedChanges(worktreePath)) {
@@ -294,11 +345,11 @@ class GitWorkspaceService(
             }
 
             commitSha = gitOutput(worktreePath, "rev-parse", "HEAD").trim().takeIf { it.isNotBlank() }
-            val aheadCount = gitOutput(worktreePath, "rev-list", "--count", "$baseBranch..HEAD")
+            val localAheadCount = gitOutput(worktreePath, "rev-list", "--count", "$baseBranch..HEAD")
                 .trim()
                 .toIntOrNull()
                 ?: 0
-            if (aheadCount == 0) {
+            if (localAheadCount == 0) {
                 return PublishMetadata(
                     commitSha = commitSha,
                     error = "No changes to publish from $branchName against $baseBranch"
@@ -317,9 +368,6 @@ class GitWorkspaceService(
                 )
             }
 
-            runGit(worktreePath, "push", "--set-upstream", "origin", "HEAD:$branchName")
-            pushedBranch = branchName
-
             // Ensure the base branch exists on the remote before creating a PR.
             // Without this, GitHub rejects the PR with "no history in common".
             val remoteBaseBranchExists = runGit(
@@ -331,6 +379,34 @@ class GitWorkspaceService(
                 runGit(repoRoot, "push", "origin", "refs/heads/$baseBranch:refs/heads/$baseBranch",
                     failOnError = false, timeoutMs = 30_000)
             }
+
+            val restack = restackBranchOntoLatestBase(
+                worktreePath = worktreePath,
+                branchName = branchName,
+                baseBranch = baseBranch
+            )
+            if (restack.error != null) {
+                return PublishMetadata(
+                    commitSha = commitSha,
+                    error = restack.error
+                )
+            }
+            comparisonBaseRef = restack.comparisonRef
+            commitSha = gitOutput(worktreePath, "rev-parse", "HEAD").trim().takeIf { it.isNotBlank() }
+
+            val aheadCount = gitOutput(worktreePath, "rev-list", "--count", "$comparisonBaseRef..HEAD")
+                .trim()
+                .toIntOrNull()
+                ?: 0
+            if (aheadCount == 0) {
+                return PublishMetadata(
+                    commitSha = commitSha,
+                    error = "No changes to publish from $branchName against $baseBranch"
+                )
+            }
+
+            runGit(worktreePath, "push", "--force-with-lease", "--set-upstream", "origin", "HEAD:$branchName")
+            pushedBranch = branchName
 
             pullRequest = findOpenPullRequest(worktreePath, branchName) ?: createPullRequest(
                 worktreePath = worktreePath,
@@ -790,6 +866,106 @@ class GitWorkspaceService(
             timeoutMs = 10_000
         )
         return result.stdout.trim().takeIf { result.isSuccess && it.isNotBlank() }
+    }
+
+    private suspend fun resolveLatestBaseReference(
+        repositoryRoot: Path,
+        baseBranch: String
+    ): ResolvedBaseReference {
+        val normalizedBaseBranch = baseBranch.trim()
+        if (normalizedBaseBranch.isBlank()) {
+            return ResolvedBaseReference(
+                startPoint = baseBranch,
+                comparisonRef = baseBranch
+            )
+        }
+        if (!hasOriginRemote(repositoryRoot)) {
+            return ResolvedBaseReference(
+                startPoint = normalizedBaseBranch,
+                comparisonRef = normalizedBaseBranch
+            )
+        }
+
+        val remoteBaseBranchExists = runGit(
+            repositoryRoot,
+            "ls-remote",
+            "--heads",
+            "origin",
+            normalizedBaseBranch,
+            failOnError = false,
+            timeoutMs = 15_000
+        ).stdout.trim().isNotBlank()
+        if (!remoteBaseBranchExists) {
+            return ResolvedBaseReference(
+                startPoint = normalizedBaseBranch,
+                comparisonRef = normalizedBaseBranch
+            )
+        }
+
+        val remoteTrackingRef = "refs/remotes/origin/$normalizedBaseBranch"
+        val fetchResult = runGit(
+            repositoryRoot,
+            "fetch",
+            "--no-tags",
+            "origin",
+            "refs/heads/$normalizedBaseBranch:$remoteTrackingRef",
+            failOnError = false,
+            timeoutMs = 30_000
+        )
+        if (!fetchResult.isSuccess) {
+            logger.warn("Could not fetch origin/$normalizedBaseBranch while resolving execution base; falling back to local $normalizedBaseBranch.")
+            return ResolvedBaseReference(
+                startPoint = normalizedBaseBranch,
+                comparisonRef = normalizedBaseBranch
+            )
+        }
+
+        return ResolvedBaseReference(
+            startPoint = remoteTrackingRef,
+            comparisonRef = remoteTrackingRef
+        )
+    }
+
+    private suspend fun restackBranchOntoLatestBase(
+        worktreePath: Path,
+        branchName: String,
+        baseBranch: String
+    ): BranchRestackResult {
+        val baseReference = resolveLatestBaseReference(worktreePath, baseBranch)
+        val rebaseResult = runGit(
+            worktreePath,
+            "rebase",
+            baseReference.startPoint,
+            failOnError = false,
+            timeoutMs = 120_000
+        )
+        if (rebaseResult.isSuccess) {
+            return BranchRestackResult(comparisonRef = baseReference.comparisonRef)
+        }
+
+        runGit(
+            worktreePath,
+            "rebase",
+            "--abort",
+            failOnError = false,
+            timeoutMs = 30_000
+        )
+
+        val combinedOutput = listOf(rebaseResult.stdout.trim(), rebaseResult.stderr.trim())
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+        val message = if (looksLikeRebaseConflict(combinedOutput)) {
+            "Publish failed: execution branch $branchName no longer rebases cleanly onto ${baseReference.startPoint}. Re-run from the latest base or resolve the content conflicts first."
+        } else {
+            listOf(
+                "Publish failed: could not restack $branchName onto ${baseReference.startPoint}",
+                combinedOutput.ifBlank { "Unknown rebase error" }
+            ).joinToString(": ")
+        }
+        return BranchRestackResult(
+            comparisonRef = baseReference.comparisonRef,
+            error = message
+        )
     }
 
     private suspend fun ensureSharedHistoryWithRemoteBase(
@@ -1298,6 +1474,15 @@ class GitWorkspaceService(
             }
             else -> "Publish failed: ${t.message ?: "Unknown error"}"
         }
+    }
+
+    private fun looksLikeRebaseConflict(output: String): Boolean {
+        val normalized = output.lowercase()
+        return normalized.contains("could not apply") ||
+            normalized.contains("resolve all conflicts manually") ||
+            normalized.contains("after resolving the conflicts") ||
+            normalized.contains("merge conflict") ||
+            normalized.contains("conflict (")
     }
 
     private fun isSelfReviewBlocked(error: ProcessExecutionException): Boolean {

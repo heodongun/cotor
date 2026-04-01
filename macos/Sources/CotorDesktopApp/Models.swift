@@ -266,6 +266,14 @@ struct PublishMetadataRecord: Codable, Hashable {
     let error: String?
 }
 
+struct FollowUpContextRecord: Codable, Hashable {
+    let rootGoalId: String
+    let triggerIssueId: String?
+    let reviewQueueItemId: String?
+    let pullRequestNumber: Int?
+    let failureClass: String
+}
+
 struct GoalRecord: Codable, Identifiable, Hashable {
     let id: String
     let companyId: String
@@ -276,6 +284,7 @@ struct GoalRecord: Codable, Identifiable, Hashable {
     let priority: Int
     let successMetrics: [String]
     let operatingPolicy: String?
+    let followUpContext: FollowUpContextRecord?
     let autonomyEnabled: Bool
     let createdAt: Int64
     let updatedAt: Int64
@@ -302,6 +311,7 @@ struct IssueRecord: Codable, Identifiable, Hashable {
     let acceptanceCriteria: [String]
     let riskLevel: String
     let codeProducing: Bool?
+    let executionIntent: String?
     let branchName: String?
     let worktreePath: String?
     let pullRequestNumber: Int?
@@ -1142,6 +1152,7 @@ struct MockSeed {
                 priority: 1,
                 successMetrics: ["Issue board visible", "Review queue updates from PRs"],
                 operatingPolicy: nil,
+                followUpContext: nil,
                 autonomyEnabled: true,
                 createdAt: 0,
                 updatedAt: 0
@@ -1169,6 +1180,7 @@ struct MockSeed {
                 acceptanceCriteria: ["Goal decomposes into issues", "Roles are explicit"],
                 riskLevel: "medium",
                 codeProducing: false,
+                executionIntent: nil,
                 branchName: nil,
                 worktreePath: nil,
                 pullRequestNumber: nil,
@@ -1205,6 +1217,7 @@ struct MockSeed {
                 acceptanceCriteria: ["Goal sidebar exists", "Issue board is visible"],
                 riskLevel: "medium",
                 codeProducing: true,
+                executionIntent: "CODE_CHANGE",
                 branchName: "codex/cotor/demo-build",
                 worktreePath: "/Users/demo/cotor/.cotor/worktrees/issue-demo-build/codex",
                 pullRequestNumber: 77,
@@ -1241,6 +1254,7 @@ struct MockSeed {
                 acceptanceCriteria: ["Review queue item appears", "Merge action is visible"],
                 riskLevel: "low",
                 codeProducing: false,
+                executionIntent: nil,
                 branchName: "codex/cotor/demo-build",
                 worktreePath: "/Users/demo/cotor/.cotor/worktrees/issue-demo-build/codex",
                 pullRequestNumber: 77,

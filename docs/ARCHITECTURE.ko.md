@@ -83,6 +83,9 @@ sequenceDiagram
 - 같은 execution 이슈에서 더 새로운 PR이 publish되면 예전 review lineage는 원자적으로 supersede 되어야 하며, stale QA/CEO verdict가 새 PR cycle에 흘러들어가면 안 됩니다
 - 예전 회사 상태는 startup healing, 회사 dashboard read, runtime tick에서 자동으로 복구되어야 하며, stale workflow 결과를 조용히 재사용하면 안 됩니다
 - merge conflict 복구와 stale PR 정리는 superseded lineage에 연결되어야 하며, 그래야 회사가 blocked review 흔적을 남기지 않고 계속 진행할 수 있습니다
+- follow-up goal에는 explicit failure context가 있어야 하며, 그래야 일반 blocked work와 merge-conflict remediation 같은 후속 작업을 구분할 수 있습니다
+- merge conflict follow-up은 기존 PR branch/worktree를 재사용하는 deterministic remediation + validation graph여야 하며, 새로운 handoff PR cycle을 만들면 안 됩니다
+- 기존 PR lineage에서 no-diff retry가 나오면 generic publish failure로 막지 말고 현재 PR 상태를 다시 읽어 올바른 lane을 재개하도록 수렴시켜야 합니다
 
 ## 관련 문서
 

@@ -152,6 +152,9 @@ Current builds should:
 - close stale execution issues that only look blocked because a no-op follow-up run replayed after the linked PR had already merged
 - close stale Cotor-managed retry PRs in batches so old retries do not keep accumulating as open PR noise for the same lineage
 - push legacy CEO merge-conflict blockers back into execution so the company can rebase and republish instead of leaving the work stranded in `BLOCKED`
+- archive stale follow-up goals automatically once the root issue or root goal is already `DONE` / `MERGED`, even if the old follow-up was created by a legacy build
+- treat merge-conflict follow-up as deterministic remediation on the existing PR lineage instead of inventing a generic handoff execution issue
+- refresh existing PR metadata after a no-diff remediation run and either reopen CEO approval, keep merge-conflict remediation queued, or close the loop if the PR already merged
 
 ### 5.5 If company mode shows `The data is missing.`
 
