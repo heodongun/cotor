@@ -14,6 +14,12 @@ import com.cotor.model.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Claude AI Plugin (Anthropic)
@@ -399,7 +405,7 @@ class CursorPlugin : AgentPlugin {
 
 /**
  * OpenCode Agent Plugin
- * Executes: opencode run <prompt>
+ * Executes: opencode run --format json <prompt>
  * Default permission: "allow" for all methods (configured in opencode.json)
  */
 class OpenCodePlugin : AgentPlugin {
@@ -417,11 +423,12 @@ class OpenCodePlugin : AgentPlugin {
     ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
 
-        // OpenCode is treated as a standard CLI integration. The plugin does not try
-        // to interpret stdout beyond surfacing it back to the orchestration layer.
+        // OpenCode run with --format json produces a structured JSON event stream
+        // instead of launching an interactive TUI. Events include step_start, text,
+        // step_finish, etc. We parse text events to extract the response content.
         // Default permission is "allow" for all methods (configured via opencode yolo mode).
-        // Command: opencode run <prompt>
-        val command = listOf("opencode", "run", prompt)
+        // Command: opencode run --format json <prompt>
+        val command = listOf("opencode", "run", "--format", "json", prompt)
 
         val result = processManager.executeProcess(
             command = command,
@@ -441,7 +448,60 @@ class OpenCodePlugin : AgentPlugin {
             )
         }
 
-        return PluginExecutionOutput(result.stdout, result.processId)
+        val parsedText = parseOpenCodeJsonOutput(result.stdout)
+        return PluginExecutionOutput(parsedText, result.processId)
+    }
+
+    private fun parseOpenCodeJsonOutput(rawOutput: String): String {
+        if (rawOutput.isBlank()) return rawOutput
+
+        return try {
+            val json = Json { ignoreUnknownKeys = true }
+            val events = json.parseToJsonElement(rawOutput.trim())
+
+            val textParts = mutableListOf<String>()
+
+            val eventList = when (events) {
+                is JsonArray -> events
+                is JsonObject -> listOf(events)
+                else -> emptyList()
+            }
+
+            for (event in eventList) {
+                val type = (event as? JsonObject)?.get("type")?.jsonPrimitive?.content
+                when (type) {
+                    "text", "step_finish" -> {
+                        val content = extractTextFromEvent(event)
+                        if (content.isNotBlank()) {
+                            textParts.add(content)
+                        }
+                    }
+                }
+            }
+
+            if (textParts.isNotEmpty()) {
+                textParts.joinToString("\n")
+            } else {
+                rawOutput
+            }
+        } catch (e: Exception) {
+            rawOutput
+        }
+    }
+
+    private fun extractTextFromEvent(event: JsonObject): String {
+        val contentFields = listOf("content", "text", "message", "output")
+        for (field in contentFields) {
+            val value = event[field]
+            if (value is JsonPrimitive && value.isString) {
+                return value.content
+            }
+            if (value is JsonObject) {
+                val nested = extractTextFromEvent(value)
+                if (nested.isNotBlank()) return nested
+            }
+        }
+        return ""
     }
 
     override fun validateInput(input: String?): ValidationResult {

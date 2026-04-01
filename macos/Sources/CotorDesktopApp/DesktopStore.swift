@@ -105,6 +105,9 @@ final class DesktopStore: ObservableObject {
     @Published var newTaskTitle = ""
     @Published var newTaskPrompt = ""
     @Published var agentSelection: Set<String> = ["claude", "codex"]
+    @Published var selectedOrgProfileIDs: Set<String> = []
+    @Published var showingOrgProfileBatchEdit = false
+    @Published var lastSelectedOrgProfileID: String?
     @Published var workflowLeadAgent: String
     @Published var showingOpenSheet = false
     @Published var showingCloneSheet = false
@@ -411,6 +414,50 @@ final class DesktopStore: ObservableObject {
                 workflowLeadAgent = agent
             }
         }
+    }
+
+    // MARK: - Org Chart Profile Selection
+
+    /// Returns org profiles matching the current multi-selection set.
+    var selectedOrgProfiles: [OrgAgentProfileRecord] {
+        guard !selectedOrgProfileIDs.isEmpty else { return [] }
+        return orgProfiles.filter { selectedOrgProfileIDs.contains($0.id) }
+    }
+
+    /// Toggle or range-select org chart profiles for multi-selection.
+    ///
+    /// When shiftKey is true and a previous selection anchor exists, selects all
+    /// profiles between the last selected and the current one (range selection).
+    /// When shiftKey is false, toggles single selection and clears others.
+    func toggleOrgProfileSelection(id: String, shiftKey: Bool) {
+        lastSelectedOrgProfileID = id
+
+        if shiftKey, let lastID = lastSelectedOrgProfileID, lastID != id {
+            // Range selection: find indices and select everything between them
+            let profileIDs = orgProfiles.map(\.id)
+            guard let lastIndex = profileIDs.firstIndex(of: lastID),
+                  let currentIndex = profileIDs.firstIndex(of: id) else {
+                selectedOrgProfileIDs = [id]
+                return
+            }
+            let lower = min(lastIndex, currentIndex)
+            let upper = max(lastIndex, currentIndex)
+            let rangeIDs = Set(profileIDs[lower...upper])
+            selectedOrgProfileIDs.formUnion(rangeIDs)
+        } else {
+            // Single toggle: clear others first
+            if selectedOrgProfileIDs.contains(id) {
+                selectedOrgProfileIDs.remove(id)
+            } else {
+                selectedOrgProfileIDs = [id]
+            }
+        }
+    }
+
+    /// Clear all org profile selection state.
+    func clearOrgProfileSelection() {
+        selectedOrgProfileIDs = []
+        lastSelectedOrgProfileID = nil
     }
 
     func statusLabel(_ status: String) -> String {
