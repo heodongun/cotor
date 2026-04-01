@@ -36,6 +36,10 @@ class GitWorkspaceServiceTest : FunSpec({
                     ProcessResult(1, "", "", false)
                 ),
                 FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(1, "", "", false)
+                ),
+                FakeProcessManager.Step(
                     listOf(
                         "git",
                         "worktree",
@@ -53,6 +57,10 @@ class GitWorkspaceServiceTest : FunSpec({
                 ),
                 FakeProcessManager.Step(
                     listOf("git", "show-ref", "--verify", "--quiet", "refs/heads/codex/cotor/re-run-validation-and-capture-any-residual-risk-task-b-2/codex"),
+                    ProcessResult(1, "", "", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
                     ProcessResult(1, "", "", false)
                 ),
                 FakeProcessManager.Step(
@@ -90,6 +98,99 @@ class GitWorkspaceServiceTest : FunSpec({
         second.branchName shouldBe "codex/cotor/re-run-validation-and-capture-any-residual-risk-task-b-2/codex"
         first.branchName shouldContain "task-a-1"
         second.branchName shouldContain "task-b-2"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("ensureWorktree creates new execution branches from origin when the remote base is newer") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-origin-base")
+        val worktreePath = repositoryRoot.resolve(".cotor").resolve("worktrees").resolve("task-origin").resolve("codex").toString()
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--verify", "HEAD"),
+                    ProcessResult(0, "abc1234567890\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "show-ref", "--verify", "--quiet", "refs/heads/codex/cotor/ship-from-origin-task-ori/codex"),
+                    ProcessResult(1, "", "", false)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "ls-remote", "--heads", "origin", "master"),
+                    ProcessResult(0, "abc123\trefs/heads/master\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf(
+                        "git",
+                        "worktree",
+                        "add",
+                        "-b",
+                        "codex/cotor/ship-from-origin-task-ori/codex",
+                        worktreePath,
+                        "refs/remotes/origin/master"
+                    ),
+                    ProcessResult(0, "", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val binding = service.ensureWorktree(
+            repositoryRoot = repositoryRoot,
+            taskId = "task-origin",
+            taskTitle = "Ship from origin",
+            agentName = "codex",
+            baseBranch = "master"
+        )
+
+        binding.branchName shouldBe "codex/cotor/ship-from-origin-task-ori/codex"
+        binding.worktreePath.toString() shouldBe worktreePath
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("ensureExistingWorktreeLineage reuses the recorded PR branch and worktree path") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-existing-lineage")
+        val worktreePath = repositoryRoot.resolve(".cotor").resolve("worktrees").resolve("existing-pr").resolve("codex")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--verify", "HEAD"),
+                    ProcessResult(0, "abc1234567890\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "show-ref", "--verify", "--quiet", "refs/heads/codex/cotor/existing-pr/codex"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf(
+                        "git",
+                        "worktree",
+                        "add",
+                        worktreePath.toString(),
+                        "codex/cotor/existing-pr/codex"
+                    ),
+                    ProcessResult(0, "", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val binding = service.ensureExistingWorktreeLineage(
+            repositoryRoot = repositoryRoot,
+            branchName = "codex/cotor/existing-pr/codex",
+            worktreePath = worktreePath,
+            baseBranch = "master"
+        )
+
+        binding.branchName shouldBe "codex/cotor/existing-pr/codex"
+        binding.worktreePath shouldBe worktreePath
         processManager.remainingSteps() shouldBe 0
     }
 
@@ -637,8 +738,14 @@ class GitWorkspaceServiceTest : FunSpec({
                 FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
-                FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "HEAD:codex/cotor/ship-flow/codex"), ProcessResult(0, "", "", true)),
                 FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "rebase", "refs/remotes/origin/master"), ProcessResult(0, "Current branch codex/cotor/ship-flow/codex is up to date.\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-list", "--count", "refs/remotes/origin/master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "push", "--force-with-lease", "--set-upstream", "origin", "HEAD:codex/cotor/ship-flow/codex"), ProcessResult(0, "", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/ship-flow/codex", "--state", "open", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, "[]", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "create", "--base", "master", "--head", "codex/cotor/ship-flow/codex", "--title", "[codex] Ship desktop publish flow", "--body", expectedPullRequestBody()), ProcessResult(0, "https://github.com/heodongun/cotor/pull/123\n", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/ship-flow/codex", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, """{"number":123,"url":"https://github.com/heodongun/cotor/pull/123","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN"}""", "", true))
@@ -707,6 +814,49 @@ class GitWorkspaceServiceTest : FunSpec({
         processManager.remainingSteps() shouldBe 0
     }
 
+    test("publishRun stops before opening a PR when the execution branch no longer rebases onto origin") {
+        val worktree = Files.createTempDirectory("git-workspace-service-rebase-conflict")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(listOf("git", "status", "--porcelain"), ProcessResult(0, " M index.html\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "add", "-A"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "commit", "-m", "Retry conflicted publish (codex)"), ProcessResult(0, "[branch abc1234] Retry conflicted publish\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "rebase", "refs/remotes/origin/master"), ProcessResult(1, "Auto-merging index.html\nCONFLICT (content): Merge conflict in index.html\n", "", false)),
+                FakeProcessManager.Step(listOf("git", "rebase", "--abort"), ProcessResult(0, "", "", true))
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val publish = service.publishRun(
+            task = AgentTask(
+                id = "task-rebase-conflict",
+                workspaceId = "ws-1",
+                title = "Retry conflicted publish",
+                prompt = "Retry the conflicted publish.",
+                agents = listOf("codex"),
+                status = DesktopTaskStatus.RUNNING,
+                createdAt = 0,
+                updatedAt = 0
+            ),
+            agentName = "codex",
+            worktreePath = worktree,
+            branchName = "codex/cotor/retry-conflicted-publish/codex",
+            baseBranch = "master"
+        )
+
+        publish.error shouldContain "no longer rebases cleanly"
+        publish.pullRequestNumber.shouldBeNull()
+        publish.pushedBranch.shouldBeNull()
+        processManager.remainingSteps() shouldBe 0
+    }
+
     test("publishRun succeeds locally when no origin remote is configured") {
         val worktree = Files.createTempDirectory("git-workspace-service-local-only")
         val processManager = FakeProcessManager(
@@ -763,8 +913,14 @@ class GitWorkspaceServiceTest : FunSpec({
                 FakeProcessManager.Step(listOf("gh", "repo", "create", repoName, "--private", "--source", ".", "--remote", "origin"), ProcessResult(0, "created", "", true)),
                 FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "refs/heads/master:refs/heads/master"), ProcessResult(0, "", "", true)),
                 FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/$repoName.git\n", "", true)),
-                FakeProcessManager.Step(listOf("git", "push", "--set-upstream", "origin", "HEAD:codex/cotor/auto-publish/codex"), ProcessResult(0, "", "", true)),
                 FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/$repoName.git\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "rebase", "refs/remotes/origin/master"), ProcessResult(0, "Current branch codex/cotor/auto-publish/codex is up to date.\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-list", "--count", "refs/remotes/origin/master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "push", "--force-with-lease", "--set-upstream", "origin", "HEAD:codex/cotor/auto-publish/codex"), ProcessResult(0, "", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/auto-publish/codex", "--state", "open", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, "[]", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "create", "--base", "master", "--head", "codex/cotor/auto-publish/codex", "--title", "[codex] Auto publish to GitHub", "--body", expectedPullRequestBody("Auto publish to GitHub", "Ship this change to GitHub.", "codex/cotor/auto-publish/codex")), ProcessResult(0, "https://github.com/heodongun/cotor/pull/124\n", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/auto-publish/codex", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, """{"number":124,"url":"https://github.com/heodongun/cotor/pull/124","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN"}""", "", true))

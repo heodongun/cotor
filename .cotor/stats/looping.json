@@ -2136,10 +2136,4154 @@
                     "retries": 0
                 }
             ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:39:15.754255Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:40:37.135607Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:41:24.774805Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:42:04.731026Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:42:39.195506Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:43:12.859530Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:43:46.576664Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:44:20.373834Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:45:07.944168Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:46:53.350799Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:47:18.863706Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:47:44.534851Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:48:24.052405Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:49:05.173235Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:49:41.372504Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:50:17.750903Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:50:52.979895Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:51:28.070961Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:52:04.413907Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:52:41.912429Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:53:17.376603Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:53:49.712071Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:55:16.987922Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:55:44.387151Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:56:10.712561Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:56:37.175081Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:57:12.998962Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:57:45.364875Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:58:22.684529Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:58:49.116438Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:59:14.166464Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T13:59:39.779053Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:00:05.187061Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:01:21.823936Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:01:55.979562Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:02:36.369988Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:03:11.955137Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:03:47.037975Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:04:27.134768Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:05:18.672383Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:05:53.842484Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:06:30.994620Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:07:08.286142Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:07:45.998772Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:08:24.248479Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:08:59.075675Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:09:34.117008Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:10:10.583608Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:10:46.981483Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:11:25.297790Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:12:03.073839Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:12:41.882879Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:13:19.307860Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:15:38.634824Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:16:05.385393Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:16:33.629792Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:17:00.484930Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:17:28.703764Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:17:55.580145Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:18:21.648543Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:18:48.955701Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:19:15.334145Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:19:42.637726Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:20:57.458067Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:32:38.060900Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:44:30.767876Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:44:56.335648Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:45:22.350689Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:45:49.391992Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:46:15.766505Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:46:41.426468Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:47:06.745695Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:47:32.722261Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:47:58.321876Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T14:48:24.024981Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T15:34:32.004729Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T15:38:23.659197Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T22:59:19.698583Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-18T23:24:48.782004Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-19T00:29:47.728190Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-19T00:31:23.105165Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-19T00:33:41.539414Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-19T00:47:19.984750Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-19T01:03:39.409802Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-19T01:10:24.189279Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-19T06:02:09.833183Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-19T06:09:51.757142Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-21T16:53:39.852780Z",
+            "totalDuration": 1,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-21T16:58:19.271550Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-21T17:21:06.011550Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-21T17:23:01.899267Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-21T17:23:42.458442Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-21T17:26:51.596984Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-21T17:35:23.854382Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-23T00:31:19.062351Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T01:10:55.994333Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T02:04:40.306517Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T02:24:10.385985Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T02:29:11.520481Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T03:06:16.494028Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T03:27:14.180465Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T03:42:19.445118Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T05:17:25.663816Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T08:09:30.074719Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T08:19:05.223014Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T08:30:39.683674Z",
+            "totalDuration": 5,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-25T08:33:12.575215Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T03:18:00.053429Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T03:34:37.799956Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T03:48:11.477561Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T03:58:03.098666Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T04:10:02.447240Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T04:35:05.913169Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T05:03:56.885227Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T05:35:21.015693Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T09:18:23.840085Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-26T15:37:24.081178Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T00:15:41.072791Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T00:20:48.418131Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T00:27:16.801779Z",
+            "totalDuration": 4,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T00:30:02.920075Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T00:43:49.554012Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T00:54:35.934614Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T02:40:33.860611Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T03:37:35.204578Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T03:55:43.623561Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T03:56:57.543300Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-27T03:59:02.597426Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-28T16:04:20.869950Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-28T16:05:16.189876Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-28T16:05:53.014944Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-29T04:27:26.703795Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-29T06:14:18.704733Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-29T06:16:13.949110Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-29T15:29:57.283023Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-29T15:32:12.621690Z",
+            "totalDuration": 4,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-29T15:44:40.234857Z",
+            "totalDuration": 4,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-29T16:24:53.791817Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:23:57.147276Z",
+            "totalDuration": 4,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:26:04.204348Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:29:29.909327Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:32:35.714611Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:36:25.221388Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:38:37.781412Z",
+            "totalDuration": 6,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:39:36.864616Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:41:40.748884Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-03-30T00:43:17.170828Z",
+            "totalDuration": 3,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
+        },
+        {
+            "pipelineName": "looping",
+            "timestamp": "2026-04-01T06:59:13.777655Z",
+            "totalDuration": 2,
+            "successCount": 7,
+            "failureCount": 0,
+            "totalAgents": 7,
+            "stages": [
+                {
+                    "name": "loop:loop-controller",
+                    "duration": 0,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                },
+                {
+                    "name": "alpha",
+                    "duration": 5,
+                    "status": "SUCCESS",
+                    "retries": 0
+                }
+            ]
         }
     ],
-    "totalExecutions": 82,
-    "totalSuccesses": 574,
-    "totalDuration": 341,
-    "lastExecuted": "2026-03-18T13:31:57.532687Z"
+    "totalExecutions": 230,
+    "totalSuccesses": 1610,
+    "totalDuration": 662,
+    "lastExecuted": "2026-04-01T06:59:13.777655Z"
 }

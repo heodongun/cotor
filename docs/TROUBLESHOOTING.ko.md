@@ -152,6 +152,9 @@ open "/Applications/Cotor Desktop.app" || open "$HOME/Applications/Cotor Desktop
 - 연결된 PR이 이미 머지된 뒤 stale no-op 실행 동기화 때문에 잘못 `BLOCKED`로 남은 execution 이슈도 자동으로 닫음
 - stale한 Cotor retry PR은 배치 정리로 닫아서 같은 lineage에 오래된 open PR이 계속 쌓이지 않게 함
 - 예전 CEO merge-conflict 때문에 execution 이슈가 `BLOCKED`에 남아 있던 경우도 다시 `PLANNED`로 돌려 rebase와 republish를 이어갈 수 있게 함
+- root issue 또는 root goal이 이미 `DONE` / `MERGED`인 stale follow-up goal은 legacy 상태라도 자동으로 archive 됨
+- merge conflict follow-up은 기존 PR lineage 위의 deterministic remediation으로 처리되고, generic handoff execution issue를 새로 만들지 않음
+- no-diff remediation run 뒤에는 기존 PR metadata를 다시 읽어서 CEO approval 재개, merge-conflict remediation 유지, 이미 merge된 PR의 loop 종료 중 하나로 바로 정규화함
 
 ### 5.5 회사 모드에 `The data is missing.`가 보이면
 

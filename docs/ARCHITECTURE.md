@@ -72,6 +72,9 @@ The company automation layer has stricter workflow invariants than the generic p
 - a newer execution publish must supersede the older review lineage atomically; stale QA or CEO verdicts may not flow into the new PR cycle
 - legacy company state is repaired during startup healing, company dashboard reads, and runtime ticks instead of silently reusing stale workflow results
 - merge-conflict recovery and stale PR cleanup are tied to the superseded lineage so the company can continue without leaving blocked review artifacts behind
+- follow-up goals carry explicit failure context so the company can distinguish generic blocked work from merge-conflict remediation and other review follow-up
+- merge-conflict follow-up must reuse the existing PR branch/worktree and synthesize remediation plus validation work, not invent a new handoff PR cycle
+- no-diff retries on an existing PR lineage must converge by refreshing the current PR state and reopening the right lane instead of dead-ending as a generic publish failure
 
 ---
 
