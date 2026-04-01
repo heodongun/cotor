@@ -3,7 +3,7 @@ class Cotor < Formula
   homepage "https://github.com/bssm-oss/cotor"
   url "https://github.com/bssm-oss/cotor.git",
       branch: "master"
-  version "1.0.0"
+  version "1.0.1"
   license "MIT"
   head "https://github.com/bssm-oss/cotor.git", branch: "master"
 
