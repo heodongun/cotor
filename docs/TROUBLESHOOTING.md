@@ -381,7 +381,7 @@ Current builds should:
 
 In `:mode compare` or single-agent mode, the opencode agent fails immediately:
 
-```
+```text
 ERROR Cotor - Agent process execution failed: opencode
 com.cotor.model.ProcessExecutionException: OpenCode execution failed
 ```

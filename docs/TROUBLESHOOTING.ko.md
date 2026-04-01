@@ -381,7 +381,7 @@ git log --oneline --decorate -5
 
 `:mode compare` 또는 단일 에이전트 모드에서 opencode 에이전트가 즉시 실패:
 
-```
+```text
 ERROR Cotor - Agent process execution failed: opencode
 com.cotor.model.ProcessExecutionException: OpenCode execution failed
 ```
