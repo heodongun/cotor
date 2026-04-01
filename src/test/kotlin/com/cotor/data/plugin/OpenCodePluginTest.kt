@@ -38,7 +38,7 @@ class OpenCodePluginTest : FunSpec({
             ): ProcessResult {
                 // Assert the wrapper builds the expected argv and then simulate
                 // a non-zero child process result without launching the real CLI.
-                command shouldBe listOf("opencode", "generate", "hello")
+                command shouldBe listOf("opencode", "run", "hello")
                 return ProcessResult(
                     exitCode = 2,
                     stdout = "partial output",

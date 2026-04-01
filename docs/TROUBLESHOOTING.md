@@ -375,7 +375,37 @@ Current builds should:
 - write `interactive.log` beside transcript files
 - fall back to a safe starter when no authenticated AI CLI is ready
 
-## 10. Homebrew First-Run Problems
+## 10. Interactive Agent Fails: "OpenCode execution failed"
+
+### 10.1 Symptom
+
+In `:mode compare` or single-agent mode, the opencode agent fails immediately:
+
+```text
+ERROR Cotor - Agent process execution failed: opencode
+com.cotor.model.ProcessExecutionException: OpenCode execution failed
+```
+
+### 10.2 Root cause
+
+The `OpenCodePlugin` was calling a non-existent subcommand (`opencode generate`). This has been fixed to use `opencode run`.
+
+### 10.3 Confirm
+
+```bash
+# Verify the command works manually
+opencode run "say hello"
+```
+
+If this exits with code 0, the CLI works. If it fails with a model error, the issue is OpenCode's provider configuration, not Cotor.
+
+### 10.4 Fix
+
+- Update to the latest Cotor version that uses `opencode run`
+- Ensure OpenCode is installed and authenticated: `opencode providers`
+- See [OPENCODE_AGENT.md](OPENCODE_AGENT.md) for full configuration reference
+
+## 11. Homebrew First-Run Problems
 
 See [HOMEBREW_INSTALL.md](HOMEBREW_INSTALL.md) for the full packaged-install model. The common issues are:
 
@@ -389,7 +419,7 @@ Current packaged installs should:
 - avoid rebuilding Gradle/Swift assets at runtime
 - use the packaged desktop bundle through `cotor install` / `cotor update`
 
-## 11. When To Treat It As A Real Regression
+## 12. When To Treat It As A Real Regression
 
 Treat the problem as a fresh bug if a current build still shows any of these:
 

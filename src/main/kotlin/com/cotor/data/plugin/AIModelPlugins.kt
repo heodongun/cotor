@@ -399,8 +399,8 @@ class CursorPlugin : AgentPlugin {
 
 /**
  * OpenCode Agent Plugin
- * Executes: opencode generate <prompt>
- * Default permission: "allow" for all methods (bash, file operations, etc)
+ * Executes: opencode run <prompt>
+ * Default permission: "allow" for all methods (configured in opencode.json)
  */
 class OpenCodePlugin : AgentPlugin {
     override val metadata = AgentMetadata(
@@ -419,9 +419,9 @@ class OpenCodePlugin : AgentPlugin {
 
         // OpenCode is treated as a standard CLI integration. The plugin does not try
         // to interpret stdout beyond surfacing it back to the orchestration layer.
-        // Default permission is "allow" for all methods (configured in opencode.json)
-        // Example config: { "permission": { "bash": "allow", "file": "allow" } }
-        val command = listOf("opencode", "generate", prompt)
+        // Default permission is "allow" for all methods (configured via opencode yolo mode).
+        // Command: opencode run <prompt>
+        val command = listOf("opencode", "run", prompt)
 
         val result = processManager.executeProcess(
             command = command,

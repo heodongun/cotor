@@ -20,6 +20,7 @@ Korean companion docs use the same path with `.ko.md` when available.
 - `docs/CONDITION_DSL.md` / `docs/CONDITION_DSL.ko.md`: condition DSL reference
 - `docs/cookbook.md`: scenario patterns and example workflows
 - `docs/CLAUDE_SETUP.md`: Claude integration setup
+- `docs/OPENCODE_AGENT.md` / `docs/OPENCODE_AGENT.ko.md`: OpenCode agent reference, configuration, and troubleshooting
 - `docs/team-ops/README.md` / `docs/team-ops/README.ko.md`: onboarding and delivery operations
 - `docs/templates/temp-cotor-template.md`: template note
 
