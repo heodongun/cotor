@@ -52,7 +52,7 @@ Current template types:
 ### Homebrew (Recommended)
 
 ```bash
-brew tap bssm-oss/cotor https://github.com/bssm-oss/cotor.git
+brew tap bssm-oss/cotor
 brew install cotor
 ```
 
@@ -60,19 +60,20 @@ This installs JDK 17 + the CLI and packages a bundled desktop app asset.
 Run `cotor install` after `brew install` to copy `Cotor Desktop.app` into Applications.
 `cotor install` / `cotor update` reuse the packaged app instead of rebuilding from the Homebrew prefix.
 `cotor install` prints the exact installed app path and falls back to `~/Applications` when `/Applications` is not writable.
-For the full packaged-install behavior, first-run paths, and troubleshooting flow, see [docs/HOMEBREW_INSTALL.md](docs/HOMEBREW_INSTALL.md).
-
-Or use the one-liner:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/bssm-oss/cotor/master/shell/brew-install.sh | bash
-```
 
 Update:
 
 ```bash
 brew upgrade cotor
 ```
+
+### Direct DMG Download
+
+Download the latest DMG from [GitHub Releases](https://github.com/bssm-oss/cotor/releases/latest):
+
+1. Download `Cotor-<version>.dmg`
+2. Open the DMG file
+3. Drag `Cotor Desktop.app` to `/Applications`
 
 ### From Source
 
