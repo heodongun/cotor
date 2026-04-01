@@ -1220,12 +1220,27 @@ private struct SidebarView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
-                    .background(ShellPalette.panelAlt)
+                    .background(
+                        store.selectedOrgProfileIDs.contains(profile.id)
+                            ? ShellPalette.accent.opacity(0.08)
+                            : ShellPalette.panelAlt
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(ShellPalette.line, lineWidth: 1)
+                            .stroke(
+                                store.selectedOrgProfileIDs.contains(profile.id)
+                                    ? ShellPalette.accent
+                                    : ShellPalette.line,
+                                lineWidth: 1
+                            )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .onTapGesture {
+                        store.toggleOrgProfileSelection(
+                            id: profile.id,
+                            shiftKey: NSEvent.modifierFlags.contains(.shift)
+                        )
+                    }
                 }
             }
         }
@@ -1907,6 +1922,8 @@ private struct OrgChartNode: View {
     let profile: OrgAgentProfileRecord
     let language: AppLanguage
     var isLeader: Bool = false
+    var isSelected: Bool = false
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .center, spacing: 8) {
@@ -1936,12 +1953,18 @@ private struct OrgChartNode: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 132)
-        .background(ShellPalette.panelAlt)
+        .background(isSelected ? ShellPalette.accent.opacity(0.08) : ShellPalette.panelAlt)
         .overlay(
             RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
-                .stroke(isLeader ? ShellPalette.success.opacity(0.6) : ShellPalette.line, lineWidth: 1)
+                .stroke(
+                    isSelected ? ShellPalette.accent : (isLeader ? ShellPalette.success.opacity(0.6) : ShellPalette.line),
+                    lineWidth: isSelected ? 2 : 1
+                )
         )
         .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous))
+        .onTapGesture {
+            onTap?()
+        }
     }
 }
 
@@ -3188,6 +3211,37 @@ private struct CenterPaneView: View {
         .shellInset()
     }
 
+    private var orgSelectionToolbar: some View {
+        HStack(spacing: 12) {
+            Text("\(store.selectedOrgProfileIDs.count) selected")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(ShellPalette.muted)
+
+            Spacer()
+
+            Button(action: {
+                store.clearOrgProfileSelection()
+            }) {
+                Text(l("Clear", "해제"))
+            }
+            .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+
+            Button(action: {
+                store.showingOrgProfileBatchEdit = true
+            }) {
+                Text(l("Edit", "편집"))
+            }
+            .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(ShellPalette.panelAlt)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+    }
+
     private var organizationChartPanel: some View {
         let leader = store.orgProfiles.first(where: { $0.mergeAuthority }) ?? store.orgProfiles.first
         let others = store.orgProfiles.filter { $0.id != leader?.id }
@@ -3198,6 +3252,10 @@ private struct CenterPaneView: View {
         let executionProfiles = others.filter { profile in !qaProfiles.contains(profile) }
 
         return VStack(alignment: .leading, spacing: 14) {
+            if !store.selectedOrgProfileIDs.isEmpty {
+                orgSelectionToolbar
+            }
+
             Text(l("Org Chart", "조직도"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(ShellPalette.text)
@@ -3206,14 +3264,25 @@ private struct CenterPaneView: View {
                 VStack(spacing: 14) {
                     HStack {
                         Spacer()
-                        OrgChartNode(profile: leader, language: l, isLeader: true)
+                        OrgChartNode(
+                            profile: leader,
+                            language: l,
+                            isLeader: true,
+                            isSelected: store.selectedOrgProfileIDs.contains(leader.id),
+                            onTap: { store.toggleOrgProfileSelection(id: leader.id, shiftKey: NSEvent.modifierFlags.contains(.shift)) }
+                        )
                         Spacer()
                     }
 
                     if !qaProfiles.isEmpty {
                         HStack(alignment: .top, spacing: 12) {
                             ForEach(qaProfiles) { profile in
-                                OrgChartNode(profile: profile, language: l)
+                                OrgChartNode(
+                                    profile: profile,
+                                    language: l,
+                                    isSelected: store.selectedOrgProfileIDs.contains(profile.id),
+                                    onTap: { store.toggleOrgProfileSelection(id: profile.id, shiftKey: NSEvent.modifierFlags.contains(.shift)) }
+                                )
                             }
                         }
                     }
@@ -3221,7 +3290,12 @@ private struct CenterPaneView: View {
                     if !executionProfiles.isEmpty {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
                             ForEach(executionProfiles) { profile in
-                                OrgChartNode(profile: profile, language: l)
+                                OrgChartNode(
+                                    profile: profile,
+                                    language: l,
+                                    isSelected: store.selectedOrgProfileIDs.contains(profile.id),
+                                    onTap: { store.toggleOrgProfileSelection(id: profile.id, shiftKey: NSEvent.modifierFlags.contains(.shift)) }
+                                )
                             }
                         }
                     }
@@ -3230,6 +3304,9 @@ private struct CenterPaneView: View {
         }
         .padding(16)
         .shellInset()
+        .sheet(isPresented: $store.showingOrgProfileBatchEdit) {
+            OrgProfileBatchEditSheet()
+        }
     }
 
     private var organizationWorkPanel: some View {
@@ -4832,6 +4909,150 @@ private struct CloneRepositorySheet: View {
             .shellCard()
             .padding(24)
         }
+    }
+}
+
+private struct OrgProfileBatchEditSheet: View {
+    @EnvironmentObject private var store: DesktopStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var batchAgent: String = ""
+    @State private var batchCapabilities: String = ""
+    @State private var batchEnabled: Bool? = nil
+    private var l: AppLanguage { store.language }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Selected profiles summary
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("\(store.selectedOrgProfiles.count) \(l("profiles selected", "개 프로필 선택됨"))")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ShellPalette.muted)
+
+                        ForEach(store.selectedOrgProfiles) { profile in
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(profile.enabled ? ShellPalette.success : ShellPalette.warning)
+                                    .frame(width: 8, height: 8)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(profile.roleName)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(ShellPalette.text)
+                                    Text("\(profile.executionAgentName) · \(profile.capabilities.joined(separator: " · "))")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(ShellPalette.muted)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                ShellTag(
+                                    text: profile.enabled ? l("ON", "활성") : l("OFF", "비활성"),
+                                    tint: profile.enabled ? ShellPalette.success : ShellPalette.warning
+                                )
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(ShellPalette.panelAlt)
+                            .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+                        }
+                    }
+
+                    Divider()
+
+                    // Batch actions
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(l("Batch Actions", "일괄 작업"))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+
+                        // Enable / Disable All
+                        HStack(spacing: 8) {
+                            Button {
+                                batchEnabled = true
+                            } label: {
+                                Label(l("Enable All", "전체 활성화"), systemImage: "checkmark.circle.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+
+                            Button {
+                                batchEnabled = false
+                            } label: {
+                                Label(l("Disable All", "전체 비활성화"), systemImage: "xmark.circle.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                        }
+
+                        // Agent picker
+                        if !store.availableCliAgents.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(l("Change Execution Agent", "실행 에이전트 변경"))
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(ShellPalette.muted)
+
+                                Picker(l("Execution Agent", "실행 에이전트"), selection: $batchAgent) {
+                                    Text(l("No change", "변경 없음")).tag("")
+                                    ForEach(store.availableCliAgents, id: \.self) { agent in
+                                        Text(agent).tag(agent)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                            }
+                        }
+
+                        // Capabilities
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(l("Capabilities (comma separated)", "역량 (쉼표로 구분)"))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(ShellPalette.muted)
+
+                            TextField(l("e.g. qa, review, deploy", "예: qa, review, deploy"), text: $batchCapabilities)
+                                .textFieldStyle(.roundedBorder)
+
+                            HStack(spacing: 8) {
+                                Button {
+                                    batchCapabilities = ""
+                                } label: {
+                                    Label(l("Clear", "지우기"), systemImage: "xmark")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    // Apply button
+                    Button {
+                        applyBatchChanges()
+                    } label: {
+                        Label(l("Apply Changes", "변경 적용"), systemImage: "checkmark.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(20)
+            }
+            .navigationTitle(l("Batch Edit Profiles", "프로필 일괄 수정"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l("Close", "닫기")) { dismiss() }
+                }
+            }
+        }
+        .frame(minWidth: 480, minHeight: 420)
+        .onAppear {
+            batchAgent = ""
+            batchCapabilities = ""
+            batchEnabled = nil
+        }
+    }
+
+    private func applyBatchChanges() {
+        store.clearOrgProfileSelection()
+        dismiss()
     }
 }
 
