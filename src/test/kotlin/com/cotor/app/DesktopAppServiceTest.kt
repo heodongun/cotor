@@ -8,7 +8,6 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.process.CoroutineProcessManager
 import com.cotor.data.process.ProcessManager

@@ -8,7 +8,6 @@ package com.cotor.validation
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.context.TemplateEngine
 import com.cotor.model.Pipeline
 import com.cotor.model.ValidationResult

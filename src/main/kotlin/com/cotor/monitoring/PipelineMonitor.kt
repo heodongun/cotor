@@ -8,7 +8,6 @@ package com.cotor.monitoring
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineStage
 import com.github.ajalt.mordant.rendering.TextColors.*

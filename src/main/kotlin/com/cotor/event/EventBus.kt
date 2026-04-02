@@ -8,7 +8,6 @@ package com.cotor.event
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel

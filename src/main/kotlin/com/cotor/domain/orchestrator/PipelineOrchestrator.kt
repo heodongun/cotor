@@ -8,7 +8,6 @@ package com.cotor.domain.orchestrator
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.checkpoint.toCheckpoint
 import com.cotor.context.TemplateEngine

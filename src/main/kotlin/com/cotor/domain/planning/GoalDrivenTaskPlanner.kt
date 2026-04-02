@@ -8,7 +8,6 @@ package com.cotor.domain.planning
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.app.AgentAssignmentPlan
 import com.cotor.app.TaskExecutionPlan
 import com.cotor.app.TaskSubtask

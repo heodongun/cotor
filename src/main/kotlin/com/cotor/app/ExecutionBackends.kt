@@ -8,7 +8,6 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.model.AgentConfig
 import com.cotor.model.AgentExecutionMetadata

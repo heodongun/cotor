@@ -8,7 +8,6 @@ package com.cotor.presentation
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.ExecutionMode
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineStage

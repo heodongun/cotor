@@ -8,7 +8,6 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

@@ -8,7 +8,6 @@ package com.cotor.data.config
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import java.util.Properties
 
 object CotorProperties {

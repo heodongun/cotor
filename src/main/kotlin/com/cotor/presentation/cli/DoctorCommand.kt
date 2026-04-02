@@ -8,7 +8,6 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*

@@ -8,7 +8,6 @@ package com.cotor.stats
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.AggregatedResult
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.doubles.plusOrMinus

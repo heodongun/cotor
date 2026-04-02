@@ -8,7 +8,6 @@ package com.cotor.domain.condition
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.AgentResult
 import com.cotor.model.PipelineContext
 import io.kotest.core.spec.style.FunSpec

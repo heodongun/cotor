@@ -8,7 +8,6 @@ package com.cotor.data.plugin
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.PluginLoadException
 import org.slf4j.Logger
 import java.util.ServiceLoader

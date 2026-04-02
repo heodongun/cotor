@@ -8,7 +8,6 @@ package com.cotor.presentation.timeline
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import java.time.Instant
 
 enum class StageTimelineState {

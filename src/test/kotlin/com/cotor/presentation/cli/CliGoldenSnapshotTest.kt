@@ -8,7 +8,6 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.model.AgentConfig

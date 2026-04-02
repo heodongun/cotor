@@ -8,7 +8,6 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
@@ -87,6 +86,7 @@ class GitWorkspaceService(
     private val logger: Logger
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+
     @Volatile private var cachedGitHubLogin: String? = null
 
     companion object {
@@ -371,13 +371,24 @@ class GitWorkspaceService(
             // Ensure the base branch exists on the remote before creating a PR.
             // Without this, GitHub rejects the PR with "no history in common".
             val remoteBaseBranchExists = runGit(
-                worktreePath, "ls-remote", "--heads", "origin", baseBranch,
-                failOnError = false, timeoutMs = 15_000
+                worktreePath,
+                "ls-remote",
+                "--heads",
+                "origin",
+                baseBranch,
+                failOnError = false,
+                timeoutMs = 15_000
             ).stdout.trim().isNotBlank()
             if (!remoteBaseBranchExists) {
                 val repoRoot = repositoryCommonRoot(worktreePath)
-                runGit(repoRoot, "push", "origin", "refs/heads/$baseBranch:refs/heads/$baseBranch",
-                    failOnError = false, timeoutMs = 30_000)
+                runGit(
+                    repoRoot,
+                    "push",
+                    "origin",
+                    "refs/heads/$baseBranch:refs/heads/$baseBranch",
+                    failOnError = false,
+                    timeoutMs = 30_000
+                )
             }
 
             val restack = restackBranchOntoLatestBase(

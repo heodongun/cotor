@@ -8,7 +8,6 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.stats.PerformanceTrend
 import com.cotor.stats.StatsManager
 import com.cotor.stats.StatsSummary

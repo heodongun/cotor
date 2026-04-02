@@ -8,7 +8,6 @@ package com.cotor.monitoring
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.event.*
 import com.cotor.presentation.timeline.StageTimelineEntry
 import com.cotor.presentation.timeline.StageTimelineState

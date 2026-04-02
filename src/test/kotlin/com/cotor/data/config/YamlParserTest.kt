@@ -8,7 +8,6 @@ package com.cotor.data.config
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.YamlParsingException
 import io.kotest.assertions.throwables.shouldThrowUnit
 import io.kotest.core.spec.style.StringSpec

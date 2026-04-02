@@ -8,7 +8,6 @@ package com.cotor
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.di.initializeCotor
 import com.cotor.error.UserFriendlyError
 import com.cotor.presentation.cli.*

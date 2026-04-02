@@ -8,7 +8,6 @@ package com.cotor.reliability
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
@@ -32,10 +31,12 @@ class ProductionReliabilityBaselineTest {
     }
 
     @Test
-    fun `docker publish workflow tracks master branch`() {
-        val workflow = Files.readString(Path.of(".github/workflows/docker-image.yml"))
+    fun `release workflow tracks master branch and publishes artifacts`() {
+        val workflow = Files.readString(Path.of(".github/workflows/release.yml"))
 
-        assertTrue(workflow.contains("- master"), "Docker publish workflow should trigger on pushes to master")
+        assertTrue(workflow.contains("- master"), "Release workflow should trigger on pushes to master")
+        assertTrue(workflow.contains("build/release/cotor-"), "Release workflow should publish the shaded jar artifact")
+        assertTrue(workflow.contains("build/release/Cotor-"), "Release workflow should publish the desktop DMG artifact")
     }
 
     @Test

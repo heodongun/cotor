@@ -1,17 +1,17 @@
 class Cotor < Formula
   desc "AI company orchestration platform - CLI and desktop app"
   homepage "https://github.com/bssm-oss/cotor"
-  version "1.0.3"
-  url "https://github.com/bssm-oss/cotor/releases/download/v1.0.3/cotor-1.0.3-all.jar"
-  sha256 "ae92be286ac0c12ae54fe4dce22bf5bbbfe6aeef09e0764215a3a59bdac1aa70"
+  version "1.0.4"
+  url "https://github.com/bssm-oss/cotor/releases/download/v1.0.4/cotor-1.0.4-all.jar"
+  sha256 "7b941eb00f348596a8d9dbec90fed3f041ec02bd11f5c8229f0802bf1b0d1815"
   license "MIT"
   head "https://github.com/bssm-oss/cotor.git", branch: "master"
 
   depends_on "openjdk@17"
 
   resource "desktop-dmg" do
-    url "https://github.com/bssm-oss/cotor/releases/download/v1.0.3/Cotor-1.0.3.dmg"
-    sha256 "74a289c20653e1bd2ae40ba6e1fc57d7a047134bc91aba7119ecfe6b4823eaa4"
+    url "https://github.com/bssm-oss/cotor/releases/download/v1.0.4/Cotor-1.0.4.dmg"
+    sha256 "0dbda3ce68ab9c1cd1a18aed3163a64893314fa18550b04b4140df465804bad0"
   end
 
   def install
@@ -31,7 +31,7 @@ class Cotor < Formula
       end
     end
 
-    libexec.install "cotor-1.0.3-all.jar" => "cotor.jar"
+    libexec.install "cotor-1.0.4-all.jar" => "cotor.jar"
 
     (bin/"cotor").write <<~EOS
       #!/bin/bash

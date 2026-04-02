@@ -8,7 +8,6 @@ package com.cotor.data.config
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.AgentConfig
 import com.cotor.model.ConfigurationException
 import com.cotor.model.CotorConfig

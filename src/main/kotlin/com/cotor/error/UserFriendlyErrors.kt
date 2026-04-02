@@ -8,7 +8,6 @@ package com.cotor.error
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 /**
  * User-friendly error with solutions and documentation links
  */

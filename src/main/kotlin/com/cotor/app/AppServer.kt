@@ -8,7 +8,6 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -87,11 +86,13 @@ class AppServer : KoinComponent {
             desktopService.shutdown()
             desktopAppServerInstanceGuard.release()
         }
-        Runtime.getRuntime().addShutdownHook(Thread {
-            tuiSessionService.shutdown()
-            desktopService.shutdown()
-            desktopAppServerInstanceGuard.release()
-        })
+        Runtime.getRuntime().addShutdownHook(
+            Thread {
+                tuiSessionService.shutdown()
+                desktopService.shutdown()
+                desktopAppServerInstanceGuard.release()
+            }
+        )
         try {
             server.start(wait = wait)
         } catch (error: Throwable) {
