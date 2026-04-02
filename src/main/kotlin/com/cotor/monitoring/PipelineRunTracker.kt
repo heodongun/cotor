@@ -8,7 +8,6 @@ package com.cotor.monitoring
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.event.EventBus
 import com.cotor.event.EventSubscription
 import com.cotor.event.PipelineCompletedEvent

@@ -8,7 +8,6 @@ package com.cotor.presentation.formatter
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.AggregatedResult
 import kotlinx.serialization.json.Json
 

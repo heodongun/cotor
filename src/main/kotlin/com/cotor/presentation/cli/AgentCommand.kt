@@ -8,14 +8,13 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.data.config.FileConfigRepository
 import com.cotor.data.config.JsonParser
 import com.cotor.data.config.YamlParser
 import com.cotor.model.AgentConfig
 import com.cotor.model.CodexDefaults
-import com.cotor.model.OpenCodeDefaults
 import com.cotor.model.CotorConfig
+import com.cotor.model.OpenCodeDefaults
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.core.subcommands

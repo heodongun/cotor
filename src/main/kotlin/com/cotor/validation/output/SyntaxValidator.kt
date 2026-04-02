@@ -8,7 +8,6 @@ package com.cotor.validation.output
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import org.slf4j.LoggerFactory
 
 data class SyntaxValidationResult(

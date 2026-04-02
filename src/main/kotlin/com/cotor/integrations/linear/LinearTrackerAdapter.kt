@@ -8,7 +8,6 @@ package com.cotor.integrations.linear
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.app.CompanyIssue
 import com.cotor.app.LinearConnectionConfig
 import io.ktor.http.HttpHeaders

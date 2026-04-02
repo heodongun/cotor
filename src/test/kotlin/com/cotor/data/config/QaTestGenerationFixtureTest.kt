@@ -8,7 +8,6 @@ package com.cotor.data.config
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.ExecutionMode
 import com.cotor.model.StageType
 import io.kotest.core.spec.style.FunSpec

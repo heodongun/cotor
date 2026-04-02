@@ -8,7 +8,6 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.checkpoint.CheckpointConfig
 import com.cotor.checkpoint.CheckpointManager
 import com.github.ajalt.clikt.core.CliktCommand

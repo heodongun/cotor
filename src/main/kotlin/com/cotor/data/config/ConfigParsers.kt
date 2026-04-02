@@ -8,7 +8,6 @@ package com.cotor.data.config
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlConfiguration
 import com.charleskorn.kaml.YamlException

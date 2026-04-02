@@ -8,7 +8,6 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.analysis.DefaultResultAnalyzer
 import com.cotor.analysis.ResultAnalyzer
 import com.cotor.data.config.ConfigRepository
@@ -130,10 +129,13 @@ class InteractiveCommandTest : FunSpec({
         )
 
         val result = InteractiveCommand().test(
-            "--config", configPath.toString(),
+            "--config",
+            configPath.toString(),
             "--no-context",
-            "--save-dir", saveDir.toString(),
-            "--prompt", "hello"
+            "--save-dir",
+            saveDir.toString(),
+            "--prompt",
+            "hello"
         )
 
         result.statusCode shouldBe 0
@@ -224,10 +226,13 @@ class InteractiveCommandTest : FunSpec({
 
         val failure = runCatching {
             InteractiveCommand().test(
-                "--config", configPath.toString(),
+                "--config",
+                configPath.toString(),
                 "--no-context",
-                "--save-dir", saveDir.toString(),
-                "--prompt", "hello"
+                "--save-dir",
+                saveDir.toString(),
+                "--prompt",
+                "hello"
             )
         }.exceptionOrNull()
 

@@ -8,7 +8,6 @@ package com.cotor.di
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.analysis.DefaultResultAnalyzer
 import com.cotor.analysis.ResultAnalyzer
 import com.cotor.app.DesktopAppService

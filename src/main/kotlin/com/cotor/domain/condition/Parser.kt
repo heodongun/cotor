@@ -8,7 +8,6 @@ package com.cotor.domain.condition
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 class Parser(private val tokens: List<Token>) {
     private var current = 0
 

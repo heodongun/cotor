@@ -8,7 +8,6 @@ package com.cotor.domain.condition
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 class Scanner(private val source: String) {
     private val tokens = mutableListOf<Token>()
     private var start = 0

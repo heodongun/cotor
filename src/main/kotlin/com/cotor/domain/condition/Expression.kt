@@ -8,7 +8,6 @@ package com.cotor.domain.condition
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 enum class TokenType {
     // Single-character tokens.
     LEFT_PAREN,

@@ -8,19 +8,17 @@ package com.cotor.data.plugin
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
 import com.cotor.model.OpenCodeDefaults
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 
 /**
  * Claude AI Plugin (Anthropic)
@@ -219,14 +217,14 @@ class CodexPlugin : AgentPlugin {
         if (!Files.exists(configPath)) return null
         return CodexDefaults.normalizeModel(
             Files.readAllLines(configPath)
-            .firstOrNull { line ->
-                val trimmed = line.trim()
-                trimmed.startsWith("model = ") && !trimmed.startsWith("model_reasoning_effort")
-            }
-            ?.substringAfter("=")
-            ?.trim()
-            ?.removeSurrounding("\"")
-            ?.takeIf { it.isNotBlank() }
+                .firstOrNull { line ->
+                    val trimmed = line.trim()
+                    trimmed.startsWith("model = ") && !trimmed.startsWith("model_reasoning_effort")
+                }
+                ?.substringAfter("=")
+                ?.trim()
+                ?.removeSurrounding("\"")
+                ?.takeIf { it.isNotBlank() }
         )
     }
 

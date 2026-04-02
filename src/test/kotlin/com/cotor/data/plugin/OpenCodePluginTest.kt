@@ -8,7 +8,6 @@ package com.cotor.data.plugin
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.ExecutionContext
 import com.cotor.model.OpenCodeDefaults

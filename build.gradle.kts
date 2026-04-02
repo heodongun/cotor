@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.cotor"
-version = "1.0.3"
+version = "1.0.4"
 
 repositories {
     mavenCentral()
@@ -99,6 +99,7 @@ tasks.register("formatCheck") {
 
 tasks.test {
     useJUnitPlatform()
+    maxParallelForks = 1
     finalizedBy(tasks.jacocoTestReport, tasks.jacocoTestCoverageVerification)
 }
 

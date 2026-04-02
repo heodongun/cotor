@@ -8,7 +8,6 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.chat.ChatMode
 import com.cotor.chat.ChatSession
 import com.cotor.chat.ChatTranscriptWriter

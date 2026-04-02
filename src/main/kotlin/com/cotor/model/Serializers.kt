@@ -8,7 +8,6 @@ package com.cotor.model
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer

@@ -10,7 +10,6 @@ package com.cotor.app
  * goals, issues, tasks, runs, and long-lived company runtime loops.
  */
 
-
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.process.resolveExecutablePath
 import com.cotor.domain.executor.AgentExecutor
@@ -28,8 +27,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -1597,14 +1596,22 @@ class DesktopAppService(
             stages = listOf(
                 WorkflowStageDefinition(id = "execution", kind = "execution", title = "Execution", order = 0),
                 WorkflowStageDefinition(
-                    id = "qa-review", kind = "review", title = "QA Review",
-                    assigneeRoleName = "QA", verdictKey = "QA_VERDICT",
-                    skipWhen = "!codeProducing", order = 1
+                    id = "qa-review",
+                    kind = "review",
+                    title = "QA Review",
+                    assigneeRoleName = "QA",
+                    verdictKey = "QA_VERDICT",
+                    skipWhen = "!codeProducing",
+                    order = 1
                 ),
                 WorkflowStageDefinition(
-                    id = "ceo-approval", kind = "approval", title = "CEO Approval",
-                    assigneeRoleName = "CEO", verdictKey = "CEO_VERDICT",
-                    skipWhen = "!codeProducing", order = 2
+                    id = "ceo-approval",
+                    kind = "approval",
+                    title = "CEO Approval",
+                    assigneeRoleName = "CEO",
+                    verdictKey = "CEO_VERDICT",
+                    skipWhen = "!codeProducing",
+                    order = 2
                 )
             ),
             isDefault = true,
@@ -1676,8 +1683,11 @@ class DesktopAppService(
             ?: throw IllegalArgumentException("Pipeline not found: $pipelineId")
         val now = System.currentTimeMillis()
         val nextPipelines = state.workflowPipelines.map {
-            if (it.companyId != companyId) it
-            else it.copy(isDefault = it.id == pipelineId, updatedAt = now)
+            if (it.companyId != companyId) {
+                it
+            } else {
+                it.copy(isDefault = it.id == pipelineId, updatedAt = now)
+            }
         }
         val nextCompanies = state.companies.map {
             if (it.id == companyId) it.copy(defaultPipelineId = pipelineId, updatedAt = now) else it
@@ -3616,17 +3626,21 @@ class DesktopAppService(
     private fun hasQueuedCompanyIssues(state: DesktopAppState, companyId: String): Boolean =
         state.issues.any { issue ->
             issue.companyId == companyId &&
-                (issue.status == IssueStatus.PLANNED ||
-                    issue.status == IssueStatus.BACKLOG ||
-                    issue.status == IssueStatus.DELEGATED)
+                (
+                    issue.status == IssueStatus.PLANNED ||
+                        issue.status == IssueStatus.BACKLOG ||
+                        issue.status == IssueStatus.DELEGATED
+                    )
         }
 
     private fun queuedCompanyIssueCount(state: DesktopAppState, companyId: String): Int =
         state.issues.count { issue ->
             issue.companyId == companyId &&
-                (issue.status == IssueStatus.PLANNED ||
-                    issue.status == IssueStatus.BACKLOG ||
-                    issue.status == IssueStatus.DELEGATED)
+                (
+                    issue.status == IssueStatus.PLANNED ||
+                        issue.status == IssueStatus.BACKLOG ||
+                        issue.status == IssueStatus.DELEGATED
+                    )
         }
 
     private fun hasPendingCompanyIssues(state: DesktopAppState, companyId: String): Boolean =
@@ -4217,7 +4231,7 @@ class DesktopAppService(
                 val latestRun = latestRunsByTaskId[latestTask.id] ?: return@mapNotNull null
                 if (
                     latestTask.status !in setOf(DesktopTaskStatus.COMPLETED, DesktopTaskStatus.FAILED, DesktopTaskStatus.PARTIAL) ||
-                        latestRun.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED)
+                    latestRun.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED)
                 ) {
                     return@mapNotNull null
                 }
@@ -4245,7 +4259,7 @@ class DesktopAppService(
             val mergeability = refreshed.mergeability?.uppercase()
             if (
                 pullRequestState != "MERGED" &&
-                    !(pullRequestState == "OPEN" && mergeability in setOf("CLEAN", "DIRTY"))
+                !(pullRequestState == "OPEN" && mergeability in setOf("CLEAN", "DIRTY"))
             ) {
                 return@mapNotNull null
             }
@@ -5478,7 +5492,7 @@ class DesktopAppService(
                         reviewIssue != null &&
                             (
                                 reviewAssigneeMismatch ||
-                                (!reviewIssueCanAdoptQueueStateWithoutTask && latestReviewTask == null) ||
+                                    (!reviewIssueCanAdoptQueueStateWithoutTask && latestReviewTask == null) ||
                                     (!reviewLineageCanBeAdopted && (reviewIssueReopenedAfterTask || reviewLineageExplicitMismatch))
                                 )
 
@@ -5552,9 +5566,9 @@ class DesktopAppService(
                         }
                     } else if (
                         !workflowLineagesMatch(expectedLineage, queueItem.workflowLineage) ||
-                            !workflowLineagesMatch(expectedLineage, reviewIssue.workflowLineage) ||
-                            (latestReviewTask != null && !workflowLineagesMatch(expectedLineage, latestReviewTask.workflowLineage)) ||
-                            (latestReviewRun != null && !workflowLineagesMatch(expectedLineage, latestReviewRun.workflowLineage))
+                        !workflowLineagesMatch(expectedLineage, reviewIssue.workflowLineage) ||
+                        (latestReviewTask != null && !workflowLineagesMatch(expectedLineage, latestReviewTask.workflowLineage)) ||
+                        (latestReviewRun != null && !workflowLineagesMatch(expectedLineage, latestReviewRun.workflowLineage))
                     ) {
                         issuesById[reviewIssue.id] = reviewIssue.copy(workflowLineage = expectedLineage)
                         latestReviewTask?.let { tasksById[it.id] = it.copy(workflowLineage = expectedLineage) }
@@ -5623,7 +5637,7 @@ class DesktopAppService(
                         approvalIssue != null &&
                             (
                                 approvalAssigneeMismatch ||
-                                (!approvalIssueCanAdoptQueueStateWithoutTask && latestApprovalTask == null) ||
+                                    (!approvalIssueCanAdoptQueueStateWithoutTask && latestApprovalTask == null) ||
                                     (!approvalLineageCanBeAdopted && (approvalIssueReopenedAfterTask || approvalLineageExplicitMismatch))
                                 )
                     if (refreshedQueue.status == ReviewQueueStatus.READY_FOR_CEO && (approvalIssue == null || staleApprovalLineage)) {
@@ -5689,11 +5703,11 @@ class DesktopAppService(
                         }
                     } else if (
                         approvalIssue != null &&
-                            (
-                                !workflowLineagesMatch(expectedLineage, approvalIssue.workflowLineage) ||
-                                    (latestApprovalTask != null && !workflowLineagesMatch(expectedLineage, latestApprovalTask.workflowLineage)) ||
-                                    (latestApprovalRun != null && !workflowLineagesMatch(expectedLineage, latestApprovalRun.workflowLineage))
-                                )
+                        (
+                            !workflowLineagesMatch(expectedLineage, approvalIssue.workflowLineage) ||
+                                (latestApprovalTask != null && !workflowLineagesMatch(expectedLineage, latestApprovalTask.workflowLineage)) ||
+                                (latestApprovalRun != null && !workflowLineagesMatch(expectedLineage, latestApprovalRun.workflowLineage))
+                            )
                     ) {
                         if (approvalIssueCanAdoptQueueStateWithoutTask || approvalLineageCanBeAdopted) {
                             issuesById[approvalIssue.id] = approvalIssue.copy(workflowLineage = expectedLineage)
@@ -8327,12 +8341,16 @@ class DesktopAppService(
                     }
                     .mapNotNull { it.workflowLineage?.generation }
             )
-            addAll(state.tasks.mapNotNull { task ->
-                task.workflowLineage?.takeIf { it.executionIssueId == executionIssueId }?.generation
-            })
-            addAll(state.runs.mapNotNull { run ->
-                run.workflowLineage?.takeIf { it.executionIssueId == executionIssueId }?.generation
-            })
+            addAll(
+                state.tasks.mapNotNull { task ->
+                    task.workflowLineage?.takeIf { it.executionIssueId == executionIssueId }?.generation
+                }
+            )
+            addAll(
+                state.runs.mapNotNull { run ->
+                    run.workflowLineage?.takeIf { it.executionIssueId == executionIssueId }?.generation
+                }
+            )
         }
         return (observedGenerations.maxOrNull() ?: 0) + 1
     }
@@ -9778,9 +9796,12 @@ class DesktopAppService(
             }
             messages.forEach { msg ->
                 publishCompanyEvent(
-                    companyId = msg.companyId, type = "agent.message",
+                    companyId = msg.companyId,
+                    type = "agent.message",
                     title = "${msg.fromAgentName} -> ${msg.toAgentName ?: "all"}: ${msg.subject}",
-                    detail = msg.body.take(200), goalId = msg.goalId, issueId = msg.issueId
+                    detail = msg.body.take(200),
+                    goalId = msg.goalId,
+                    issueId = msg.issueId
                 )
             }
         }
@@ -10044,13 +10065,14 @@ class DesktopAppService(
                 status = nextIssueStatus,
                 executionIntent = when {
                     publishMergeConflict -> ExecutionIntent.MERGE_CONFLICT_REMEDIATION
-                    else -> currentIssue.executionIntent
-                        ?: inferExecutionIntent(
-                            kind = currentIssue.kind,
-                            title = currentIssue.title,
-                            description = currentIssue.description,
-                            plannedCodeProducing = currentIssue.codeProducing
-                        )
+                    else ->
+                        currentIssue.executionIntent
+                            ?: inferExecutionIntent(
+                                kind = currentIssue.kind,
+                                title = currentIssue.title,
+                                description = currentIssue.description,
+                                plannedCodeProducing = currentIssue.codeProducing
+                            )
                 },
                 branchName = primaryRun?.branchName ?: currentIssue.branchName,
                 worktreePath = primaryRun?.worktreePath ?: currentIssue.worktreePath,
@@ -10440,10 +10462,10 @@ class DesktopAppService(
             var expectedLineage = resolvedWorkflowLineageForQueueItem(state, targetQueueItem)
             if (
                 expectedLineage == null &&
-                    currentIssue.workflowLineage == null &&
-                    task.workflowLineage == null &&
-                    primaryRun?.workflowLineage == null &&
-                    currentIssue.updatedAt <= task.updatedAt
+                currentIssue.workflowLineage == null &&
+                task.workflowLineage == null &&
+                primaryRun?.workflowLineage == null &&
+                currentIssue.updatedAt <= task.updatedAt
             ) {
                 expectedLineage = synthesizeLegacyWorkflowLineageForCurrentTask(targetQueueItem, task, primaryRun)
             }
@@ -10451,14 +10473,14 @@ class DesktopAppService(
                 expectedLineage != null && canAdoptExpectedWorkflowLineage(currentIssue, task, primaryRun, expectedLineage)
             if (
                 expectedLineage == null ||
-                    (
-                        !legacyLineageAdopted &&
-                            (
-                                !workflowLineagesMatch(expectedLineage, currentIssue.workflowLineage) ||
-                                    !workflowLineagesMatch(expectedLineage, task.workflowLineage) ||
-                                    (primaryRun != null && !workflowLineagesMatch(expectedLineage, primaryRun.workflowLineage))
-                                )
-                        )
+                (
+                    !legacyLineageAdopted &&
+                        (
+                            !workflowLineagesMatch(expectedLineage, currentIssue.workflowLineage) ||
+                                !workflowLineagesMatch(expectedLineage, task.workflowLineage) ||
+                                (primaryRun != null && !workflowLineagesMatch(expectedLineage, primaryRun.workflowLineage))
+                            )
+                    )
             ) {
                 informationalTraceEvents += buildCompanyAutomationTraceEvent(
                     issue = currentIssue,
@@ -10754,10 +10776,10 @@ class DesktopAppService(
             var expectedLineage = resolvedWorkflowLineageForQueueItem(state, targetQueueItem)
             if (
                 expectedLineage == null &&
-                    currentIssue.workflowLineage == null &&
-                    task.workflowLineage == null &&
-                    primaryRun?.workflowLineage == null &&
-                    currentIssue.updatedAt <= task.updatedAt
+                currentIssue.workflowLineage == null &&
+                task.workflowLineage == null &&
+                primaryRun?.workflowLineage == null &&
+                currentIssue.updatedAt <= task.updatedAt
             ) {
                 expectedLineage = synthesizeLegacyWorkflowLineageForCurrentTask(targetQueueItem, task, primaryRun)
             }
@@ -10765,14 +10787,14 @@ class DesktopAppService(
                 expectedLineage != null && canAdoptExpectedWorkflowLineage(currentIssue, task, primaryRun, expectedLineage)
             if (
                 expectedLineage == null ||
-                    (
-                        !legacyLineageAdopted &&
-                            (
-                                !workflowLineagesMatch(expectedLineage, currentIssue.workflowLineage) ||
-                                    !workflowLineagesMatch(expectedLineage, task.workflowLineage) ||
-                                    (primaryRun != null && !workflowLineagesMatch(expectedLineage, primaryRun.workflowLineage))
-                                )
-                        )
+                (
+                    !legacyLineageAdopted &&
+                        (
+                            !workflowLineagesMatch(expectedLineage, currentIssue.workflowLineage) ||
+                                !workflowLineagesMatch(expectedLineage, task.workflowLineage) ||
+                                (primaryRun != null && !workflowLineagesMatch(expectedLineage, primaryRun.workflowLineage))
+                            )
+                    )
             ) {
                 informationalTraceEvents += buildCompanyAutomationTraceEvent(
                     issue = currentIssue,
@@ -11557,8 +11579,10 @@ class DesktopAppService(
     private fun DesktopAppState.computeCompanyRuntimes(): List<CompanyRuntimeSnapshot> =
         allKnownCompanyIds().map { companyId ->
             val existing = runtimeWithinCurrentBudgetWindow(
-                (companyRuntimes.firstOrNull { it.companyId == companyId }
-                    ?: CompanyRuntimeSnapshot(companyId = companyId)).withNormalizedStopIntent()
+                (
+                    companyRuntimes.firstOrNull { it.companyId == companyId }
+                        ?: CompanyRuntimeSnapshot(companyId = companyId)
+                    ).withNormalizedStopIntent()
             )
             val company = companies.firstOrNull { it.id == companyId }
             val backendKind = company?.backendKind ?: backendSettings.defaultBackendKind
@@ -11596,7 +11620,7 @@ class DesktopAppService(
                                 it.status == IssueStatus.IN_PROGRESS ||
                                 it.status == IssueStatus.IN_REVIEW ||
                                 it.status == IssueStatus.READY_FOR_CEO
-                        )
+                            )
                 },
                 autonomyEnabledGoalCount = goals.count { it.companyId == companyId && it.autonomyEnabled },
                 todaySpentCents = budgetWindow.todaySpentCents,

@@ -8,7 +8,6 @@ package com.cotor.integration
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.domain.aggregator.ResultAggregator
 import com.cotor.domain.executor.AgentExecutor

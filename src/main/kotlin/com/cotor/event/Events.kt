@@ -8,7 +8,6 @@ package com.cotor.event
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import com.cotor.model.AgentResult
 import com.cotor.model.AggregatedResult
 import java.time.Instant

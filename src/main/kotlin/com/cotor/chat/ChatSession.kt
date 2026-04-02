@@ -8,7 +8,6 @@ package com.cotor.chat
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 /**
  * Chat session state with simple long-context controls:
  * - Head/Tail preservation with middle summarization

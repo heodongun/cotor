@@ -8,7 +8,6 @@ package com.cotor.domain.planning
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

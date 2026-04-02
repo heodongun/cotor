@@ -150,7 +150,8 @@ internal fun isGeminiReadyForStarter(
         return false
     }
     if (listOf("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA")
-            .any { !environment[it].isNullOrBlank() }) {
+            .any { !environment[it].isNullOrBlank() }
+    ) {
         return true
     }
 

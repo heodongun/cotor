@@ -111,14 +111,14 @@ internal fun runPackagedDesktopAction(
                 val brewUpgradeOutput = buildString {
                     appendLine("🔄 Upgrading Cotor via Homebrew...")
                 }
-                
+
                 val brewUpgrade = ProcessBuilder("brew", "upgrade", "cotor")
                     .redirectErrorStream(true)
                     .start()
-                
+
                 val upgradeOutput = brewUpgrade.inputStream.bufferedReader().use { it.readText() }
                 val upgradeExitCode = brewUpgrade.waitFor()
-                
+
                 if (upgradeExitCode != 0) {
                     return DesktopScriptResult(
                         exitCode = upgradeExitCode,
@@ -128,14 +128,14 @@ internal fun runPackagedDesktopAction(
                         }
                     )
                 }
-                
+
                 // After upgrade, install the new bundle
                 val installRoot = resolveDesktopInstallRoot(environment, homeDirectoryProvider)
                 installRoot.createDirectories()
                 val targetBundle = installRoot.resolve(BUNDLED_DESKTOP_APP_NAME)
                 deleteRecursively(targetBundle)
                 copyRecursively(desktopBundle, targetBundle)
-                
+
                 DesktopScriptResult(
                     exitCode = 0,
                     output = buildString {
@@ -287,25 +287,28 @@ private fun isSourceProjectRoot(path: Path): Boolean =
         Files.exists(path.resolve("macos/Package.swift"))
 
 private fun copyRecursively(source: Path, target: Path) {
-    Files.walkFileTree(source, object : SimpleFileVisitor<Path>() {
-        override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
-            val relative = source.relativize(dir)
-            Files.createDirectories(target.resolve(relative))
-            return FileVisitResult.CONTINUE
-        }
-
-        override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-            val destination = target.resolve(source.relativize(file))
-            if (file.isSymbolicLink()) {
-                Files.createDirectories(destination.parent)
-                Files.deleteIfExists(destination)
-                Files.createSymbolicLink(destination, file.readSymbolicLink())
-            } else {
-                Files.copy(file, destination, REPLACE_EXISTING, COPY_ATTRIBUTES)
+    Files.walkFileTree(
+        source,
+        object : SimpleFileVisitor<Path>() {
+            override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                val relative = source.relativize(dir)
+                Files.createDirectories(target.resolve(relative))
+                return FileVisitResult.CONTINUE
             }
-            return FileVisitResult.CONTINUE
+
+            override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                val destination = target.resolve(source.relativize(file))
+                if (file.isSymbolicLink()) {
+                    Files.createDirectories(destination.parent)
+                    Files.deleteIfExists(destination)
+                    Files.createSymbolicLink(destination, file.readSymbolicLink())
+                } else {
+                    Files.copy(file, destination, REPLACE_EXISTING, COPY_ATTRIBUTES)
+                }
+                return FileVisitResult.CONTINUE
+            }
         }
-    })
+    )
 }
 
 private fun deleteRecursively(path: Path) {
@@ -313,17 +316,20 @@ private fun deleteRecursively(path: Path) {
         return
     }
 
-    Files.walkFileTree(path, object : SimpleFileVisitor<Path>() {
-        override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-            Files.deleteIfExists(file)
-            return FileVisitResult.CONTINUE
-        }
+    Files.walkFileTree(
+        path,
+        object : SimpleFileVisitor<Path>() {
+            override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                Files.deleteIfExists(file)
+                return FileVisitResult.CONTINUE
+            }
 
-        override fun postVisitDirectory(dir: Path, exc: IOException?): FileVisitResult {
-            Files.deleteIfExists(dir)
-            return FileVisitResult.CONTINUE
+            override fun postVisitDirectory(dir: Path, exc: IOException?): FileVisitResult {
+                Files.deleteIfExists(dir)
+                return FileVisitResult.CONTINUE
+            }
         }
-    })
+    )
 }
 
 internal const val BUNDLED_DESKTOP_APP_NAME = "Cotor Desktop.app"

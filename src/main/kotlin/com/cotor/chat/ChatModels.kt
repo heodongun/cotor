@@ -8,7 +8,6 @@ package com.cotor.chat
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
 import kotlinx.serialization.Serializable
 import java.time.Instant
 
