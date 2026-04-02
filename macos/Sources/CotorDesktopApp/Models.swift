@@ -944,6 +944,13 @@ struct UpdateCompanyAgentPayload: Codable {
     let displayOrder: Int?
 }
 
+struct BatchUpdateCompanyAgentsPayload: Codable {
+    let agentIds: [String]
+    let agentCli: String?
+    let specialties: [String]?
+    let enabled: Bool?
+}
+
 /// Request body for opening or reusing the TUI session tied to a workspace.
 struct OpenTuiSessionPayload: Codable {
     let workspaceId: String

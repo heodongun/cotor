@@ -145,6 +145,14 @@ data class UpdateCompanyAgentDefinitionRequest(
 )
 
 @Serializable
+data class BatchUpdateCompanyAgentDefinitionsRequest(
+    val agentIds: List<String>,
+    val agentCli: String? = null,
+    val specialties: List<String>? = null,
+    val enabled: Boolean? = null
+)
+
+@Serializable
 data class UpdateBackendSettingsRequest(
     val defaultBackendKind: ExecutionBackendKind,
     val codePublishMode: CodePublishMode? = null,

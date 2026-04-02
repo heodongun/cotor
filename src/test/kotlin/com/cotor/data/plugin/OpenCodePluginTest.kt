@@ -11,6 +11,7 @@ package com.cotor.data.plugin
 
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.ExecutionContext
+import com.cotor.model.OpenCodeDefaults
 import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
 import io.kotest.assertions.throwables.shouldThrow
@@ -25,6 +26,39 @@ import java.nio.file.Path
  * and captured streams when translated into a ProcessExecutionException.
  */
 class OpenCodePluginTest : FunSpec({
+    test("passes explicit model to opencode run") {
+        val plugin = OpenCodePlugin()
+        val processManager = object : ProcessManager {
+            override suspend fun executeProcess(
+                command: List<String>,
+                input: String?,
+                environment: Map<String, String>,
+                timeout: Long,
+                workingDirectory: Path?,
+                onStart: ((Long) -> Unit)?
+            ): ProcessResult {
+                command shouldBe listOf("opencode", "run", "--model", "opencode/qwen3.6-plus-free", "--format", "json", "hello")
+                return ProcessResult(
+                    exitCode = 0,
+                    stdout = "",
+                    stderr = "",
+                    isSuccess = true
+                )
+            }
+        }
+
+        plugin.execute(
+            ExecutionContext(
+                agentName = "opencode",
+                input = "hello",
+                timeout = 1_000,
+                parameters = mapOf("model" to "opencode/qwen3.6-plus-free"),
+                environment = emptyMap()
+            ),
+            processManager
+        )
+    }
+
     test("throws ProcessExecutionException with exit code and streams on failure") {
         val plugin = OpenCodePlugin()
         val processManager = object : ProcessManager {
@@ -38,7 +72,7 @@ class OpenCodePluginTest : FunSpec({
             ): ProcessResult {
                 // Assert the wrapper builds the expected argv and then simulate
                 // a non-zero child process result without launching the real CLI.
-                command shouldBe listOf("opencode", "run", "--format", "json", "hello")
+                command shouldBe listOf("opencode", "run", "--model", OpenCodeDefaults.DEFAULT_MODEL, "--format", "json", "hello")
                 return ProcessResult(
                     exitCode = 2,
                     stdout = "partial output",
@@ -56,7 +90,7 @@ class OpenCodePluginTest : FunSpec({
                     agentName = "opencode",
                     input = "hello",
                     timeout = 1_000,
-                    parameters = emptyMap(),
+                    parameters = mapOf("model" to OpenCodeDefaults.DEFAULT_MODEL),
                     environment = emptyMap()
                 ),
                 processManager

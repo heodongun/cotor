@@ -263,6 +263,73 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("company agent batch update route applies changes when authorized") {
+        coEvery {
+            desktopService.batchUpdateCompanyAgentDefinitions(
+                companyId = "company-1",
+                agentIds = listOf("agent-1", "agent-2"),
+                agentCli = "opencode",
+                specialties = listOf("qa", "verification"),
+                enabled = false
+            )
+        } returns listOf(
+            CompanyAgentDefinition(
+                id = "agent-1",
+                companyId = "company-1",
+                title = "Builder",
+                agentCli = "opencode",
+                roleSummary = "builds features",
+                specialties = listOf("qa", "verification"),
+                enabled = false,
+                displayOrder = 0,
+                createdAt = 1L,
+                updatedAt = 2L
+            ),
+            CompanyAgentDefinition(
+                id = "agent-2",
+                companyId = "company-1",
+                title = "QA",
+                agentCli = "opencode",
+                roleSummary = "reviews work",
+                specialties = listOf("qa", "verification"),
+                enabled = false,
+                displayOrder = 1,
+                createdAt = 1L,
+                updatedAt = 2L
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.patch("/api/app/companies/company-1/agents/batch") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "agentIds": ["agent-1", "agent-2"],
+                      "agentCli": "opencode",
+                      "specialties": ["qa", "verification"],
+                      "enabled": false
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"id\":\"agent-1\""
+            response.bodyAsText() shouldContain "\"agentCli\":\"opencode\""
+            response.bodyAsText() shouldContain "\"enabled\":false"
+        }
+    }
+
     test("goal and issue delete routes remove scoped records when authorized") {
         coEvery { desktopService.listGoals() } returns listOf(
             CompanyGoal(

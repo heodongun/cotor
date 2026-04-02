@@ -94,6 +94,9 @@ final class DesktopStore: ObservableObject {
     @Published var codexStartupTimeoutSeconds = "15"
     @Published var codexAppServerBaseURL = ""
     @Published var codexBackendStatus: ExecutionBackendStatusPayload?
+    @Published var codexOAuthAuthenticated = false
+    @Published var codexOAuthHomePath = ""
+    @Published var codexOAuthStatusMessage: String?
     @Published var companyLinearSyncEnabled = false
     @Published var companyLinearEndpoint = ""
     @Published var companyLinearTeamID = ""
@@ -820,6 +823,12 @@ final class DesktopStore: ObservableObject {
 
     private func preferredAgent(from agents: [String]) -> String? {
         let normalized = agents.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if let opencode = normalized.first(where: { $0.caseInsensitiveCompare("opencode") == .orderedSame }) {
+            return opencode
+        }
+        if let qwen = normalized.first(where: { $0.caseInsensitiveCompare("qwen") == .orderedSame }) {
+            return qwen
+        }
         if let codex = normalized.first(where: { $0.caseInsensitiveCompare("codex") == .orderedSame }) {
             return codex
         }
@@ -847,6 +856,7 @@ final class DesktopStore: ObservableObject {
             codexAppServerBaseURL = ""
         }
         codexBackendStatus = dashboard.backendStatuses.first(where: { $0.kind == "CODEX_APP_SERVER" })
+        syncCodexOAuthState()
         syncSelectedCompanyLinearFormState()
     }
 
@@ -1381,6 +1391,61 @@ final class DesktopStore: ObservableObject {
         }
     }
 
+    func batchUpdateSelectedOrgProfiles(
+        agentCli: String?,
+        specialties: [String]?,
+        enabled: Bool?
+    ) async -> Bool {
+        let selectedProfiles = selectedOrgProfiles
+        guard !selectedProfiles.isEmpty else { return false }
+        let companyIds = Set(selectedProfiles.map(\.companyId))
+        guard companyIds.count == 1, let companyId = companyIds.first else {
+            actionErrorMessage = language(
+                "Batch edit requires profiles from a single company.",
+                "일괄 수정은 같은 회사의 프로필만 선택해야 합니다."
+            )
+            return false
+        }
+
+        let matchingAgents = companyAgentDefinitions.filter { definition in
+            definition.companyId == companyId &&
+                selectedProfiles.contains {
+                    $0.companyId == definition.companyId &&
+                        $0.roleName == definition.title &&
+                        $0.executionAgentName == definition.agentCli
+                }
+        }
+        guard !matchingAgents.isEmpty else {
+            actionErrorMessage = language(
+                "No matching company agents were found for the selected org profiles.",
+                "선택한 조직도 프로필에 대응하는 회사 에이전트를 찾지 못했습니다."
+            )
+            return false
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            _ = try await runWithEmbeddedBackendRecovery {
+                try await api.batchUpdateCompanyAgents(
+                    companyId: companyId,
+                    agentIds: matchingAgents.map(\.id),
+                    agentCli: agentCli,
+                    specialties: specialties,
+                    enabled: enabled
+                )
+            }
+            await refreshDashboard()
+            clearOrgProfileSelection()
+            showingOrgProfileBatchEdit = false
+            return true
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     func beginEditingCompanyAgent(_ agent: CompanyAgentDefinitionRecord) {
         editingCompanyAgentID = agent.id
         editingCompanyAgentCompanyID = agent.companyId
@@ -1849,6 +1914,52 @@ final class DesktopStore: ObservableObject {
         }
     }
 
+    func refreshCodexOAuthStatus() {
+        syncCodexOAuthState()
+    }
+
+    func launchCodexOAuthLogin() {
+        let home = codexOAuthHome()
+        do {
+            try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+            let command = "export CODEX_HOME='\(home.path.replacingOccurrences(of: "'", with: "'\\''"))'; codex login"
+            let script = """
+            tell application "Terminal"
+                activate
+                do script "\(command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))"
+            end tell
+            """
+            var error: NSDictionary?
+            if let appleScript = NSAppleScript(source: script) {
+                appleScript.executeAndReturnError(&error)
+            }
+            if let error {
+                codexOAuthStatusMessage = error.description
+            } else {
+                codexOAuthStatusMessage = self.language == .korean
+                    ? "Codex OAuth 로그인을 위해 터미널을 열었습니다."
+                    : "Opened Terminal for Codex OAuth login."
+            }
+        } catch {
+            codexOAuthStatusMessage = error.localizedDescription
+        }
+    }
+
+    func logoutCodexOAuth() {
+        do {
+            let authFile = codexOAuthHome().appendingPathComponent("auth.json")
+            if FileManager.default.fileExists(atPath: authFile.path) {
+                try FileManager.default.removeItem(at: authFile)
+            }
+            syncCodexOAuthState()
+            codexOAuthStatusMessage = self.language == .korean
+                ? "관리되는 Codex OAuth 인증 파일을 삭제했습니다."
+                : "Removed managed Codex OAuth auth file."
+        } catch {
+            codexOAuthStatusMessage = error.localizedDescription
+        }
+    }
+
     func updateSelectedCompanyBackend(kind: String) async {
         guard let company = selectedCompany else { return }
         do {
@@ -2218,6 +2329,25 @@ final class DesktopStore: ObservableObject {
         }
 
         return false
+    }
+
+    private func syncCodexOAuthState() {
+        let home = codexOAuthHome()
+        codexOAuthHomePath = home.path
+        let authFile = home.appendingPathComponent("auth.json")
+        codexOAuthAuthenticated = FileManager.default.fileExists(atPath: authFile.path)
+    }
+
+    private func codexOAuthHome() -> URL {
+        if let override = ProcessInfo.processInfo.environment["COTOR_CODEX_OAUTH_HOME"],
+           !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home
+            .appendingPathComponent(".cotor", isDirectory: true)
+            .appendingPathComponent("auth", isDirectory: true)
+            .appendingPathComponent("codex-oauth", isDirectory: true)
     }
 
     private func ensureWorkspaceForTuiSelection() async -> WorkspaceRecord? {

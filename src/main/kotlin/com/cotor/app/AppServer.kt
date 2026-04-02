@@ -863,6 +863,22 @@ internal fun Application.cotorAppModule(
                         }
                     }
 
+                    patch("/batch") {
+                        if (!requireToken(token)) return@patch
+                        val companyId = call.parameters["companyId"]
+                            ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                        val request = call.receive<BatchUpdateCompanyAgentDefinitionsRequest>()
+                        respondDesktopRequest {
+                            desktopService.batchUpdateCompanyAgentDefinitions(
+                                companyId = companyId,
+                                agentIds = request.agentIds,
+                                agentCli = request.agentCli,
+                                specialties = request.specialties,
+                                enabled = request.enabled
+                            )
+                        }
+                    }
+
                     patch("/{agentId}") {
                         if (!requireToken(token)) return@patch
                         val companyId = call.parameters["companyId"]

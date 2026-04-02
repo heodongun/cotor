@@ -11,6 +11,7 @@ package com.cotor.data.plugin
 
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
+import com.cotor.model.OpenCodeDefaults
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -112,12 +113,18 @@ class CodexPlugin : AgentPlugin {
         processManager: ProcessManager
     ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
+        val authMode = context.parameters["auth_mode"]?.trim()?.lowercase()
+        val baseEnvironment = if (authMode == "oauth") {
+            context.environment + mapOf("CODEX_HOME" to managedCodexOAuthHome(context.environment).toString())
+        } else {
+            context.environment
+        }
         val reasoningEffort = normalizeCodexReasoningEffort(
             context.parameters["model_reasoning_effort"] ?: context.parameters["reasoning_effort"]
         )
         val model = CodexDefaults.normalizeModel(
             context.parameters["model"]?.trim()?.takeIf { it.isNotEmpty() }
-                ?: resolveConfiguredCodexModel(context.environment)
+                ?: resolveConfiguredCodexModel(baseEnvironment)
         )
         val isolateCodexHome = shouldIsolateCodexMcpConfig(context)
 
@@ -126,7 +133,7 @@ class CodexPlugin : AgentPlugin {
         val outputFile = kotlin.io.path.createTempFile("cotor-codex-", ".txt")
         val isolatedCodexHome = if (isolateCodexHome) {
             kotlin.io.path.createTempDirectory("cotor-codex-home-").also {
-                prepareIsolatedCodexHome(it, context.environment)
+                prepareIsolatedCodexHome(it, baseEnvironment)
             }
         } else {
             null
@@ -156,9 +163,9 @@ class CodexPlugin : AgentPlugin {
                 command = command,
                 input = null,
                 environment = if (isolatedCodexHome != null) {
-                    context.environment + mapOf("CODEX_HOME" to isolatedCodexHome.toString())
+                    baseEnvironment + mapOf("CODEX_HOME" to isolatedCodexHome.toString())
                 } else {
-                    context.environment
+                    baseEnvironment
                 },
                 timeout = context.timeout,
                 workingDirectory = context.workingDirectory,
@@ -241,6 +248,18 @@ class CodexPlugin : AgentPlugin {
             ?: System.getenv("HOME")?.takeIf { it.isNotBlank() }
             ?: System.getProperty("user.home")?.takeIf { it.isNotBlank() }
         return home?.let { Path.of(it).resolve(".codex") }
+    }
+
+    private fun managedCodexOAuthHome(environment: Map<String, String>): Path {
+        val explicit = environment["COTOR_CODEX_OAUTH_HOME"]?.trim()?.takeIf { it.isNotBlank() }
+        if (explicit != null) {
+            return Path.of(explicit)
+        }
+        val home = environment["HOME"]
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: System.getProperty("user.home")
+        return Path.of(home).resolve(".cotor").resolve("auth").resolve("codex-oauth")
     }
 
     private fun buildIsolatedCodexConfig(): String = """
@@ -422,13 +441,26 @@ class OpenCodePlugin : AgentPlugin {
         processManager: ProcessManager
     ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
+        val model = OpenCodeDefaults.normalizeModel(
+            context.parameters["model"] ?: context.environment["OPENCODE_MODEL"]
+        )
 
         // OpenCode run with --format json produces a structured JSON event stream
         // instead of launching an interactive TUI. Events include step_start, text,
         // step_finish, etc. We parse text events to extract the response content.
         // Default permission is "allow" for all methods (configured via opencode yolo mode).
-        // Command: opencode run --format json <prompt>
-        val command = listOf("opencode", "run", "--format", "json", prompt)
+        // Command: opencode run --model <model> --format json <prompt>
+        val command = buildList {
+            add("opencode")
+            add("run")
+            model?.let {
+                add("--model")
+                add(it)
+            }
+            add("--format")
+            add("json")
+            add(prompt)
+        }
 
         val result = processManager.executeProcess(
             command = command,

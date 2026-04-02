@@ -5051,8 +5051,24 @@ private struct OrgProfileBatchEditSheet: View {
     }
 
     private func applyBatchChanges() {
-        store.clearOrgProfileSelection()
-        dismiss()
+        let agentCli = batchAgent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : batchAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let specialties: [String]? = {
+            let parsed = batchCapabilities
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return batchCapabilities.isEmpty ? nil : parsed
+        }()
+        Task {
+            let didApply = await store.batchUpdateSelectedOrgProfiles(
+                agentCli: agentCli,
+                specialties: specialties,
+                enabled: batchEnabled
+            )
+            if didApply {
+                dismiss()
+            }
+        }
     }
 }
 

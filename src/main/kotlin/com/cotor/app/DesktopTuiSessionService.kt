@@ -339,6 +339,7 @@ class DesktopTuiSessionService(
             return true
         }
         val executable = when (agentName.lowercase()) {
+            "codex-exec", "codex-oauth" -> "codex"
             "cursor" -> "cursor-cli"
             else -> agentName.lowercase()
         }
