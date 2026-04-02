@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.version.outputs.should_release }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version and tag state
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -E '^[[:space:]]*version[[:space:]]*=' build.gradle.kts | head -n 1 | cut -d '"' -f 2)
+          if [[ -z "${VERSION}" ]]; then
+            echo "Unable to resolve version from build.gradle.kts" >&2
+            exit 1
+          fi
+          TAG="v${VERSION}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            SHOULD_RELEASE=false
+          else
+            SHOULD_RELEASE=true
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "should_release=${SHOULD_RELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${TAG} (should_release=${SHOULD_RELEASE})"
+
+  verify:
+    needs: detect-version
+    if: ${{ needs.detect-version.outputs.should_release == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Format check
+        run: ./gradlew --no-daemon formatCheck
+
+      - name: Test
+        run: ./gradlew --no-daemon test
+
+  build-jar:
+    needs: [detect-version, verify]
+    if: ${{ needs.detect-version.outputs.should_release == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build shaded jar
+        run: ./gradlew --no-daemon clean shadowJar
+
+      - name: Stage jar artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/release
+          cp "build/libs/cotor-${{ needs.detect-version.outputs.version }}-all.jar" "build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar"
+
+      - name: Upload jar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-jar
+          path: build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar
+          if-no-files-found: error
+
+  build-dmg:
+    needs: [detect-version, verify]
+    if: ${{ needs.detect-version.outputs.should_release == 'true' }}
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build release artifacts
+        run: /bin/bash shell/build-release.sh ${{ needs.detect-version.outputs.version }}
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dmg
+          path: build/release/Cotor-${{ needs.detect-version.outputs.version }}.dmg
+          if-no-files-found: error
+
+  publish-release:
+    needs: [detect-version, build-jar, build-dmg]
+    if: ${{ needs.detect-version.outputs.should_release == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build/release
+
+      - name: Flatten artifact layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          find build/release -mindepth 2 -type f -exec mv {} build/release/ \;
+          find build/release -mindepth 1 -type d -empty -delete
+          ls -lh build/release
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ needs.detect-version.outputs.tag }}" \
+            "build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar" \
+            "build/release/Cotor-${{ needs.detect-version.outputs.version }}.dmg" \
+            --target "${{ github.sha }}" \
+            --title "${{ needs.detect-version.outputs.tag }}" \
+            --notes "Automated release for ${{ needs.detect-version.outputs.tag }}"
