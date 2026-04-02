@@ -27,6 +27,7 @@ struct SettingsView: View {
                         languageCard
                         themeCard
                         executionBackendCard
+                        codexOAuthCard
                         logsCard
                         localPathsCard
                         availableAgentsCard
@@ -294,6 +295,56 @@ struct SettingsView: View {
 
                 if let status = store.codexBackendStatus?.message, !status.isEmpty {
                     Text(status)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+                }
+            }
+        }
+    }
+
+    private var codexOAuthCard: some View {
+        settingsCard(
+            eyebrow: store.language("Codex OAuth", "Codex OAuth"),
+            title: store.language("Codex OAuth", "Codex OAuth"),
+            subtitle: store.language(
+                "Manage the dedicated Codex OAuth home used by Cotor when you choose codex-oauth agents.",
+                "codex-oauth 에이전트를 쓸 때 Cotor가 사용하는 전용 Codex OAuth 홈을 관리합니다."
+            )
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                valueRow(store.language("Home", "홈"), store.codexOAuthHomePath)
+                valueRow(
+                    store.language("Auth status", "인증 상태"),
+                    store.codexOAuthAuthenticated
+                    ? store.language("Authenticated", "인증됨")
+                    : store.language("Not authenticated", "인증 안 됨")
+                )
+
+                HStack(spacing: 8) {
+                    Button {
+                        store.launchCodexOAuthLogin()
+                    } label: {
+                        Label(store.language("Login In Terminal", "터미널에서 로그인"), systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        store.refreshCodexOAuthStatus()
+                    } label: {
+                        Label(store.language("Refresh", "새로고침"), systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button(role: .destructive) {
+                        store.logoutCodexOAuth()
+                    } label: {
+                        Label(store.language("Logout", "로그아웃"), systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if let message = store.codexOAuthStatusMessage, !message.isEmpty {
+                    Text(message)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(ShellPalette.muted)
                 }

@@ -1981,6 +1981,63 @@ class DesktopAppService(
         updated
     }
 
+    suspend fun batchUpdateCompanyAgentDefinitions(
+        companyId: String,
+        agentIds: List<String>,
+        agentCli: String? = null,
+        specialties: List<String>? = null,
+        enabled: Boolean? = null
+    ): List<CompanyAgentDefinition> {
+        val ids = agentIds
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        require(ids.isNotEmpty()) { "At least one company agent is required" }
+
+        val normalizedSpecialties = specialties
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?.distinct()
+
+        return stateMutex.withLock {
+            val state = stateStore.load()
+            val targetDefinitions = state.companyAgentDefinitions.filter { it.companyId == companyId && it.id in ids }
+            require(targetDefinitions.isNotEmpty()) { "No matching company agents found" }
+
+            val updatedAt = System.currentTimeMillis()
+            val updatedIds = targetDefinitions.mapTo(linkedSetOf()) { it.id }
+            val nextDefinitions = state.companyAgentDefinitions.map { definition ->
+                if (definition.companyId != companyId || definition.id !in updatedIds) {
+                    definition
+                } else {
+                    definition.copy(
+                        agentCli = agentCli?.trim()?.takeIf { it.isNotBlank() } ?: definition.agentCli,
+                        specialties = normalizedSpecialties ?: definition.specialties,
+                        enabled = enabled ?: definition.enabled,
+                        updatedAt = updatedAt
+                    )
+                }
+            }
+            val updatedDefinitions = nextDefinitions.filter { it.companyId == companyId && it.id in updatedIds }
+            val nextState = state.copy(
+                companyAgentDefinitions = nextDefinitions,
+                orgProfiles = deriveProfiles(nextDefinitions, state.companies)
+            ).recordCompanyActivity(
+                companyId = companyId,
+                source = "agent-roster",
+                title = "Batch updated agents",
+                detail = "${updatedDefinitions.size} agents"
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            nextState.companies.firstOrNull { it.id == companyId }?.let { company ->
+                nextState.projectContexts.firstOrNull { it.companyId == companyId }?.let { context ->
+                    writeCompanyContextSnapshot(nextState, company, context)
+                }
+            }
+            updatedDefinitions
+        }
+    }
+
     suspend fun updateWorkspaceBaseBranch(workspaceId: String, baseBranch: String): Workspace = stateMutex.withLock {
         val state = stateStore.load()
         val workspace = state.workspaces.firstOrNull { it.id == workspaceId }
@@ -9333,14 +9390,16 @@ class DesktopAppService(
 
     private fun seedCompanyAgentDefinitions(companyId: String, now: Long): List<CompanyAgentDefinition> {
         val builtins = BuiltinAgentCatalog.names()
-        val preferredAgent = listOf("codex", "claude", "gemini", "opencode", "qwen")
+        val preferredAgent = listOf("opencode", "qwen", "codex", "claude", "gemini")
             .firstOrNull { candidate ->
                 builtins.any { it.equals(candidate, ignoreCase = true) } && isExecutableAvailable(candidate)
             }
+            ?: builtins.firstOrNull { it.equals("opencode", ignoreCase = true) }
+            ?: builtins.firstOrNull { it.equals("qwen", ignoreCase = true) }
             ?: builtins.firstOrNull { it.equals("codex", ignoreCase = true) }
             ?: builtins.firstOrNull { isExecutableAvailable(it) }
             ?: builtins.firstOrNull()
-            ?: "codex"
+            ?: "opencode"
         data class SeededRole(
             val title: String,
             val roleSummary: String,
@@ -9530,7 +9589,7 @@ class DesktopAppService(
         if (command.equals("echo", ignoreCase = true)) {
             return true
         }
-        return commandAvailability(command)
+        return commandAvailability(resolveBuiltinExecutableAlias(command))
     }
 
     private fun preferredExecutableAgent(): String {
@@ -11659,5 +11718,12 @@ class DesktopAppService(
 }
 
 private fun defaultCommandAvailability(command: String): Boolean {
-    return resolveExecutablePath(command) != null
+    return resolveExecutablePath(resolveBuiltinExecutableAlias(command)) != null
 }
+
+private fun resolveBuiltinExecutableAlias(command: String): String =
+    when (command.trim().lowercase()) {
+        "codex-exec", "codex-oauth" -> "codex"
+        "cursor" -> "cursor-cli"
+        else -> command
+    }

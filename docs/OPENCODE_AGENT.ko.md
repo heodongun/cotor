@@ -43,7 +43,7 @@ agents:
 `OpenCodePlugin`은 다음을 실행합니다:
 
 ```bash
-opencode run "<prompt>"
+opencode run --model <model> --format json "<prompt>"
 ```
 
 이는 주어진 프롬프트로 OpenCode를 논인터랙티브 모드로 실행합니다. 플러그인은 stdout을 캡처하여 Cotor의 오케스트레이션 레이어에 반환합니다.
@@ -51,7 +51,7 @@ opencode run "<prompt>"
 ### 명령 흐름
 
 1. Cotor가 프롬프트 수신 (파이프라인, 인터랙티브 세션, 또는 회사 워크플로우에서)
-2. `OpenCodePlugin.execute()`가 명령어 빌드: `["opencode", "run", "<prompt>"]`
+2. `OpenCodePlugin.execute()`가 명령어 빌드: `["opencode", "run", "--model", "<model>", "--format", "json", "<prompt>"]`
 3. `ProcessManager`가 설정된 env/작업 디렉토리로 자식 프로세스 생성
 4. 프로세스 출력이 캡처되어 `PluginExecutionOutput`으로 반환
 5. 프로세스가 0이 아닌 종료 코드로 종료되면 캡처된 stdout/stderr와 함께 `ProcessExecutionException` 발생
@@ -60,7 +60,9 @@ opencode run "<prompt>"
 
 ### 에이전트 파라미터
 
-OpenCode는 프롬프트 외에 추가 파라미터가 필요하지 않습니다. 모델 선택은 OpenCode 자체 설정(`~/.opencode/`)을 통해 처리됩니다.
+OpenCode는 선택적 `model` 파라미터를 받습니다. 지정하지 않으면 Cotor는 기본값 `opencode/qwen3.6-plus-free`를 사용합니다.
+
+회사 생성 시 시드되는 기본 에이전트도 실행 파일이 존재하면 OpenCode를 우선 사용하도록 바뀌었기 때문에, 사용자가 명시적으로 바꾸지 않는 한 회사 워크플로우는 이 저비용 기본 모델을 우선 사용합니다.
 
 ### 타임아웃
 

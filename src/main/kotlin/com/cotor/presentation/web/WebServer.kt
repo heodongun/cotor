@@ -8,7 +8,7 @@ package com.cotor.presentation.web
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
-
+import com.cotor.app.*
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
@@ -132,6 +132,7 @@ class WebServer : KoinComponent {
     private val configRepository: ConfigRepository by inject()
     private val agentRegistry: AgentRegistry by inject()
     private val orchestrator: PipelineOrchestrator by inject()
+    private val desktopService: DesktopAppService by inject()
 
     private val editorDir = Path(".cotor/web")
     private val pluginClassMap = mapOf(
@@ -169,6 +170,10 @@ class WebServer : KoinComponent {
 
                 get("/editor") {
                     call.respondText(editorHtml, ContentType.Text.Html)
+                }
+
+                get("/company") {
+                    call.respondText(companyHtml, ContentType.Text.Html)
                 }
 
                 get("/api/editor/config") {
@@ -250,6 +255,159 @@ class WebServer : KoinComponent {
                         call.respond(response)
                     } catch (e: Exception) {
                         call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
+                    }
+                }
+
+                route("/api/company") {
+                    get("/dashboard") {
+                        call.respond(desktopService.companyDashboard())
+                    }
+
+                    route("/companies") {
+                        get {
+                            call.respond(desktopService.listCompanies())
+                        }
+
+                        post {
+                            val request = call.receive<CreateCompanyRequest>()
+                            call.respond(
+                                desktopService.createCompany(
+                                    name = request.name,
+                                    rootPath = request.rootPath,
+                                    defaultBaseBranch = request.defaultBaseBranch,
+                                    autonomyEnabled = request.autonomyEnabled,
+                                    dailyBudgetCents = request.dailyBudgetCents,
+                                    monthlyBudgetCents = request.monthlyBudgetCents
+                                )
+                            )
+                        }
+
+                        get("/{companyId}") {
+                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                            val company = desktopService.getCompany(companyId)
+                                ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Company not found"))
+                            call.respond(company)
+                        }
+
+                        get("/{companyId}/dashboard") {
+                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                            call.respond(desktopService.companyDashboard(companyId))
+                        }
+
+                        patch("/{companyId}") {
+                            val companyId = call.parameters["companyId"] ?: return@patch call.respond(HttpStatusCode.BadRequest)
+                            val request = call.receive<UpdateCompanyRequest>()
+                            call.respond(
+                                desktopService.updateCompany(
+                                    companyId = companyId,
+                                    name = request.name,
+                                    defaultBaseBranch = request.defaultBaseBranch,
+                                    autonomyEnabled = request.autonomyEnabled,
+                                    backendKind = request.backendKind,
+                                    dailyBudgetCents = request.dailyBudgetCents,
+                                    monthlyBudgetCents = request.monthlyBudgetCents
+                                )
+                            )
+                        }
+
+                        delete("/{companyId}") {
+                            val companyId = call.parameters["companyId"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
+                            call.respond(desktopService.deleteCompany(companyId))
+                        }
+
+                        get("/{companyId}/agents") {
+                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                            call.respond(desktopService.listCompanyAgentDefinitions(companyId))
+                        }
+
+                        patch("/{companyId}/agents/batch") {
+                            val companyId = call.parameters["companyId"] ?: return@patch call.respond(HttpStatusCode.BadRequest)
+                            val request = call.receive<BatchUpdateCompanyAgentDefinitionsRequest>()
+                            call.respond(
+                                desktopService.batchUpdateCompanyAgentDefinitions(
+                                    companyId = companyId,
+                                    agentIds = request.agentIds,
+                                    agentCli = request.agentCli,
+                                    specialties = request.specialties,
+                                    enabled = request.enabled
+                                )
+                            )
+                        }
+
+                        get("/{companyId}/goals") {
+                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                            call.respond(desktopService.listGoals().filter { it.companyId == companyId })
+                        }
+
+                        post("/{companyId}/goals") {
+                            val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                            val request = call.receive<CreateGoalRequest>()
+                            call.respond(
+                                desktopService.createGoal(
+                                    companyId = companyId,
+                                    title = request.title,
+                                    description = request.description,
+                                    successMetrics = request.successMetrics,
+                                    autonomyEnabled = request.autonomyEnabled
+                                )
+                            )
+                        }
+
+                        get("/{companyId}/issues") {
+                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                            val goalId = call.request.queryParameters["goalId"]
+                            call.respond(desktopService.listIssues(goalId, companyId))
+                        }
+
+                        post("/{companyId}/issues") {
+                            val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                            val request = call.receive<CreateIssueRequest>()
+                            call.respond(
+                                desktopService.createIssue(
+                                    companyId = companyId,
+                                    goalId = request.goalId,
+                                    title = request.title,
+                                    description = request.description,
+                                    priority = request.priority,
+                                    kind = request.kind
+                                )
+                            )
+                        }
+
+                        get("/{companyId}/review-queue") {
+                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                            call.respond(desktopService.listReviewQueue(companyId))
+                        }
+
+                        get("/{companyId}/runtime") {
+                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                            call.respond(desktopService.runtimeStatus(companyId))
+                        }
+
+                        post("/{companyId}/runtime/start") {
+                            val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                            call.respond(desktopService.startCompanyRuntime(companyId))
+                        }
+
+                        post("/{companyId}/runtime/stop") {
+                            val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                            call.respond(desktopService.stopCompanyRuntime(companyId))
+                        }
+                    }
+
+                    post("/issues/{issueId}/delegate") {
+                        val issueId = call.parameters["issueId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                        call.respond(desktopService.delegateIssue(issueId))
+                    }
+
+                    post("/issues/{issueId}/run") {
+                        val issueId = call.parameters["issueId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                        call.respond(desktopService.runIssue(issueId))
+                    }
+
+                    post("/review/{itemId}/merge") {
+                        val itemId = call.parameters["itemId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                        call.respond(desktopService.mergeReviewQueueItem(itemId))
                     }
                 }
             }
@@ -549,6 +707,7 @@ private val landingHtml = """
       </p>
       <div class="actions">
         <a class="btn primary" href="/editor">웹 에디터 시작하기</a>
+        <a class="btn" href="/company">회사 콘솔</a>
         <a class="btn" href="https://github.com/heodongun/cotor" target="_blank" rel="noreferrer">GitHub 보기</a>
       </div>
     </section>
@@ -576,11 +735,63 @@ private val landingHtml = """
     <h2 class="section-title">처음 사용하는 경우</h2>
     <ol>
       <li><code>cotor web --open</code> 실행 후 이 페이지에서 에디터로 이동하세요.</li>
+      <li>회사 상태/JSON 콘솔은 <code>/company</code> 에서 확인할 수 있습니다.</li>
       <li>파이프라인 이름과 스테이지를 구성하고 저장합니다.</li>
       <li>실행 후 결과 패널에서 성공/실패와 출력 미리보기를 확인하세요.</li>
     </ol>
-    <p class="footer-note">로컬 기본 경로: 소개 페이지 <code>/</code>, 에디터 <code>/editor</code></p>
+    <p class="footer-note">로컬 기본 경로: 소개 페이지 <code>/</code>, 에디터 <code>/editor</code>, 회사 콘솔 <code>/company</code></p>
   </div>
+</body>
+</html>
+""".trimIndent()
+
+private val companyHtml = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cotor Company Console</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; background: #f3f6fb; color: #172033; margin: 0; padding: 24px; }
+    .card { background: #fff; border: 1px solid #dbe3ef; border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+    button { background: #2563eb; color: white; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+    pre { background: #0f172a; color: #dbeafe; padding: 12px; border-radius: 12px; overflow: auto; }
+    code { background: #e7eef8; padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>Cotor Company Console</h1>
+  <div class="card">
+    <p>This page exposes company APIs from the same service layer used by the desktop app and CLI.</p>
+    <button onclick="loadDashboard()">Load Dashboard</button>
+  </div>
+  <div class="card">
+    <strong>Available endpoints</strong>
+    <pre>/api/company/dashboard
+/api/company/companies
+/api/company/companies/{companyId}
+/api/company/companies/{companyId}/dashboard
+/api/company/companies/{companyId}/agents
+/api/company/companies/{companyId}/agents/batch
+/api/company/companies/{companyId}/goals
+/api/company/companies/{companyId}/issues
+/api/company/companies/{companyId}/review-queue
+/api/company/companies/{companyId}/runtime
+/api/company/issues/{issueId}/delegate
+/api/company/issues/{issueId}/run
+/api/company/review/{itemId}/merge</pre>
+  </div>
+  <div class="card">
+    <pre id="output">Press "Load Dashboard" to fetch /api/company/dashboard</pre>
+  </div>
+  <script>
+    async function loadDashboard() {
+      const response = await fetch('/api/company/dashboard');
+      const data = await response.json();
+      document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+    }
+  </script>
 </body>
 </html>
 """.trimIndent()

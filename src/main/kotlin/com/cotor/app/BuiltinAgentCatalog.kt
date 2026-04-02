@@ -11,6 +11,7 @@ package com.cotor.app
 
 import com.cotor.model.AgentConfig
 import com.cotor.model.CodexDefaults
+import com.cotor.model.OpenCodeDefaults
 
 /**
  * Internal template used to synthesize AgentConfig values for the built-in agent roster.
@@ -39,6 +40,22 @@ object BuiltinAgentCatalog {
             defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
             defaultParameters = mapOf("model" to CodexDefaults.DEFAULT_MODEL)
         ),
+        "codex-exec" to BuiltinAgentSpec(
+            pluginClass = "com.cotor.data.plugin.CodexPlugin",
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
+            defaultParameters = mapOf(
+                "model" to CodexDefaults.DEFAULT_MODEL,
+                "auth_mode" to "exec"
+            )
+        ),
+        "codex-oauth" to BuiltinAgentSpec(
+            pluginClass = "com.cotor.data.plugin.CodexPlugin",
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
+            defaultParameters = mapOf(
+                "model" to CodexDefaults.DEFAULT_MODEL,
+                "auth_mode" to "oauth"
+            )
+        ),
         "gemini" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.GeminiPlugin",
             defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
@@ -54,7 +71,8 @@ object BuiltinAgentCatalog {
         ),
         "opencode" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.OpenCodePlugin",
-            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS
+            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
+            defaultParameters = mapOf("model" to OpenCodeDefaults.DEFAULT_MODEL)
         ),
         "qwen" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.CommandPlugin",

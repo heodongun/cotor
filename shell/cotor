@@ -41,8 +41,8 @@ fi
 
 JAVA_CMD="${JAVA_HOME:+$JAVA_HOME/bin/}java"
 
-# Determine project version from gradle.properties
-APP_VERSION=$(/usr/bin/grep -E '^version=' "$PROJECT_ROOT/gradle.properties" | /usr/bin/head -n 1 | /usr/bin/cut -d'=' -f2 | /usr/bin/tr -d '\r')
+# Determine project version from build.gradle.kts and fall back to the newest shaded jar.
+APP_VERSION=$(/usr/bin/grep -E '^[[:space:]]*version[[:space:]]*=' "$PROJECT_ROOT/build.gradle.kts" | /usr/bin/head -n 1 | /usr/bin/cut -d '"' -f2 | /usr/bin/tr -d '\r')
 [ -z "$APP_VERSION" ] && APP_VERSION="1.0.0"
 
 # Path to the shaded JAR file (built via shadowJar)
@@ -55,6 +55,16 @@ if [ ! -f "$JAR_PATH" ]; then
         (cd "$PROJECT_ROOT" && ./gradlew shadowJar) || exit 1
     else
         echo "Error: gradlew not found in $PROJECT_ROOT"
+        exit 1
+    fi
+fi
+
+if [ ! -f "$JAR_PATH" ]; then
+    LATEST_JAR=$(/bin/ls -1t "$PROJECT_ROOT"/build/libs/cotor-*-all.jar 2>/dev/null | /usr/bin/head -n 1)
+    if [ -n "$LATEST_JAR" ] && [ -f "$LATEST_JAR" ]; then
+        JAR_PATH="$LATEST_JAR"
+    else
+        echo "Error: unable to locate shaded CLI jar under $PROJECT_ROOT/build/libs"
         exit 1
     fi
 fi

@@ -15,7 +15,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 
 class CompletionCommandTest : FunSpec({
-    test("completion includes tui alias, test command, and plugin command") {
+    test("completion includes tui alias, test command, plugin command, company command, and auth command") {
         val result = CompletionCommand().test("bash")
 
         result.statusCode shouldBe 0
@@ -23,5 +23,7 @@ class CompletionCommandTest : FunSpec({
         result.stdout.shouldContain("tui")
         result.stdout.shouldContain("test")
         result.stdout.shouldContain("plugin")
+        result.stdout.shouldContain("company")
+        result.stdout.shouldContain("auth")
     }
 })

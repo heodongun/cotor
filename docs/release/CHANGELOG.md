@@ -9,10 +9,21 @@
 - Repository registration, workspace creation, task execution, diff/file inspection, and embedded browser flows for the desktop client.
 - Per-agent git isolation with `codex/cotor/<task-slug>/<agent-name>` branches and `.cotor/worktrees/<task-id>/<agent-name>` worktrees.
 - `shell/install-desktop-app.sh` for building a proper `.app` bundle, installing it into Applications, and refreshing the Downloads archive.
+- `cotor company ...` CLI tree for company/agent/goal/issue/review/runtime/backend/linear/context/message operations.
+- `cotor auth codex-oauth login|status|logout` for the dedicated Codex OAuth home used by Cotor.
+- Company web JSON API and `/company` console route on the local web server.
+- Company-specific terminal surface via `cotor company tui` while preserving the default independent interactive TUI.
 
 ### Documentation
 - Updated `README.md` and `README.ko.md` with desktop download instructions.
 - Updated docs landing pages, quick start, features, and desktop guide to reflect the current macOS app workflow.
+- Updated OpenCode docs and implementation notes for the default `opencode/qwen3.6-plus-free` model and lower-cost company defaults.
+
+### Changed
+- OpenCode now forwards `--model` when configured and defaults to `opencode/qwen3.6-plus-free`.
+- Company-seeded agents now prefer `opencode` over `codex` when the executable is available.
+- Org chart multi-select batch edit now persists `enabled`, `agentCli`, and `specialties`.
+- Homebrew formula now consumes GitHub release artifacts instead of building from source during install.
 
 ## [1.1.0] - 2025-11-20
 

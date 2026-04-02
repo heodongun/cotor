@@ -17,7 +17,7 @@ Smoke test: `cotor version`
 
 Top-level commands registered in `Main.kt`:
 
-`init`, `run`, `dash`, `interactive`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `list`, `web`, `app-server`, `lint`, `explain`, `plugin`, `agent`, `version`, `completion`
+`init`, `run`, `dash`, `interactive`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `list`, `web`, `app-server`, `lint`, `explain`, `plugin`, `agent`, `company`, `auth`, `version`, `completion`
 
 Important entry behavior:
 
@@ -32,6 +32,8 @@ Important entry behavior:
 Current subcommand support:
 
 - `agent add`, `agent list`
+- `auth codex-oauth login|status|logout`
+- `company ...` for company/agent/goal/issue/review/runtime/backend/linear/context/message operations
 - `plugin init`
 - `checkpoint gc`
 

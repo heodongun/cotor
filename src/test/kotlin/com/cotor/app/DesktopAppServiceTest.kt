@@ -880,6 +880,46 @@ class DesktopAppServiceTest : FunSpec({
         plan.assignments.single().subtasks.size shouldBe issue.acceptanceCriteria.size
     }
 
+    test("batchUpdateCompanyAgentDefinitions updates enabled state and specialties for selected agents") {
+        val appHome = Files.createTempDirectory("desktop-batch-agent-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-batch-agent-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = mockk(relaxed = true),
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = mockk(relaxed = true)
+        )
+
+        val company = service.createCompany(
+            name = "Batch Agent Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val definitions = service.listCompanyAgentDefinitions(company.id)
+        val qa = definitions.first { it.title == "QA" }
+        val builder = definitions.first { it.title == "Builder" }
+
+        val updated = service.batchUpdateCompanyAgentDefinitions(
+            companyId = company.id,
+            agentIds = listOf(qa.id, builder.id),
+            agentCli = "opencode",
+            specialties = listOf("qa", "review"),
+            enabled = false
+        )
+
+        updated.map { it.id }.toSet() shouldBe setOf(qa.id, builder.id)
+        updated.all { it.agentCli == "opencode" } shouldBe true
+        updated.all { !it.enabled } shouldBe true
+        updated.all { it.specialties == listOf("qa", "review") } shouldBe true
+
+        val persisted = service.listCompanyAgentDefinitions(company.id).filter { it.id == qa.id || it.id == builder.id }
+        persisted.all { it.agentCli == "opencode" } shouldBe true
+        persisted.all { !it.enabled } shouldBe true
+        service.listOrgProfiles().none { it.companyId == company.id && it.id in setOf(qa.id, builder.id) } shouldBe true
+    }
+
     test("decomposeGoal creates a CEO planning issue before downstream execution issues") {
         val appHome = Files.createTempDirectory("desktop-ceo-planning-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-ceo-planning-test").resolve("repo"))
@@ -1735,7 +1775,7 @@ class DesktopAppServiceTest : FunSpec({
         runtime.manuallyStoppedAt shouldNotBe null
     }
 
-    test("default org profiles prefer installed agent CLIs over missing claude") {
+    test("default org profiles prefer installed OpenCode CLIs over missing claude") {
         val appHome = Files.createTempDirectory("desktop-runtime-agents-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-agents-test").resolve("repo"))
         val stateStore = DesktopStateStore { appHome }
@@ -1745,7 +1785,7 @@ class DesktopAppServiceTest : FunSpec({
             gitWorkspaceService = mockk(),
             configRepository = mockk<ConfigRepository>(relaxed = true),
             agentExecutor = mockk(relaxed = true),
-            commandAvailability = { command -> command in setOf("codex", "gemini") }
+            commandAvailability = { command -> command in setOf("opencode", "codex", "gemini") }
         )
 
         val goal = service.createGoal(
@@ -1757,14 +1797,14 @@ class DesktopAppServiceTest : FunSpec({
         val profiles = service.listOrgProfiles()
         val issues = service.listIssues(goal.id)
 
-        profiles.map { it.executionAgentName }.distinct() shouldBe listOf("codex")
+        profiles.map { it.executionAgentName }.distinct() shouldBe listOf("opencode")
         profiles shouldHaveSize 9
         val assignedProfileIds = issues.mapNotNull { it.assigneeProfileId }.toSet()
         assignedProfileIds.shouldNotBeEmpty()
         assignedProfileIds.subtract(profiles.map { it.id }.toSet()).shouldBeEmpty()
     }
 
-    test("company dashboard backfills legacy companies with a codex-first seeded roster") {
+    test("company dashboard backfills legacy companies with an OpenCode-first seeded roster") {
         val appHome = Files.createTempDirectory("desktop-legacy-company-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-legacy-company-test").resolve("repo"))
         val stateStore = DesktopStateStore { appHome }
@@ -1800,13 +1840,13 @@ class DesktopAppServiceTest : FunSpec({
             gitWorkspaceService = mockk(relaxed = true),
             configRepository = mockk<ConfigRepository>(relaxed = true),
             agentExecutor = mockk(relaxed = true),
-            commandAvailability = { command -> command == "codex" }
+            commandAvailability = { command -> command == "opencode" || command == "codex" }
         )
 
         service.companyDashboard(company.id)
 
         val definitions = service.listCompanyAgentDefinitions(company.id)
-        definitions.map { it.agentCli }.distinct() shouldBe listOf("codex")
+        definitions.map { it.agentCli }.distinct() shouldBe listOf("opencode")
         definitions.map { it.title } shouldBe listOf(
             "CEO",
             "Product Strategist",
@@ -1818,6 +1858,51 @@ class DesktopAppServiceTest : FunSpec({
             "QA",
             "Release Manager"
         )
+    }
+
+    test("batch update company agent definitions updates execution agent, capabilities, and enabled state") {
+        val appHome = Files.createTempDirectory("desktop-batch-agent-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-batch-agent-test").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedWorkspace(stateStore, repoRoot)
+        val service = testService(
+            processManager = FakeGitProcessManager(
+                repoRoot = repoRoot,
+                remoteUrl = "https://github.com/heodongun/cotor.git",
+                defaultBranch = "master"
+            ),
+            stateStore = stateStore
+        )
+
+        val company = service.createCompany(
+            name = "Batch Agent Co",
+            rootPath = repoRoot.toString(),
+            defaultBaseBranch = "master"
+        )
+        val targets = service.listCompanyAgentDefinitions(company.id)
+            .filter { it.title in setOf("Builder", "QA") }
+
+        val updated = service.batchUpdateCompanyAgentDefinitions(
+            companyId = company.id,
+            agentIds = targets.map { it.id },
+            agentCli = "opencode",
+            specialties = listOf("qa", "verification"),
+            enabled = false
+        )
+
+        updated shouldHaveSize 2
+        updated.forEach { definition ->
+            definition.agentCli shouldBe "opencode"
+            definition.specialties shouldBe listOf("qa", "verification")
+            definition.enabled shouldBe false
+        }
+        service.listCompanyAgentDefinitions(company.id)
+            .filter { it.id in targets.map { target -> target.id }.toSet() }
+            .forEach { definition ->
+                definition.agentCli shouldBe "opencode"
+                definition.specialties shouldBe listOf("qa", "verification")
+                definition.enabled shouldBe false
+            }
     }
 
     test("company dashboard keeps manually stopped autonomous runtimes stopped") {
@@ -2972,7 +3057,7 @@ class DesktopAppServiceTest : FunSpec({
         executionIssues.all { it.dependsOn.isEmpty() && it.status == IssueStatus.PLANNED } shouldBe true
     }
 
-    test("new companies seed a codex-first enterprise roster with CEO as the sole merge authority") {
+    test("new companies seed an OpenCode-first enterprise roster with CEO as the sole merge authority") {
         val appHome = Files.createTempDirectory("desktop-enterprise-roster-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-enterprise-roster-test").resolve("repo"))
         val stateStore = DesktopStateStore { appHome }
@@ -3004,7 +3089,7 @@ class DesktopAppServiceTest : FunSpec({
             "QA",
             "Release Manager"
         )
-        definitions.all { it.agentCli == "codex" } shouldBe true
+        definitions.all { it.agentCli == "opencode" } shouldBe true
 
         val mergeAuthorities = service.companyDashboard().orgProfiles
             .filter { it.companyId == company.id && it.mergeAuthority }

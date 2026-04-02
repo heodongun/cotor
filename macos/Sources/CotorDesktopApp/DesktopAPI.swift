@@ -430,6 +430,24 @@ struct DesktopAPI {
         )
     }
 
+    func batchUpdateCompanyAgents(
+        companyId: String,
+        agentIds: [String],
+        agentCli: String?,
+        specialties: [String]?,
+        enabled: Bool?
+    ) async throws -> [CompanyAgentDefinitionRecord] {
+        try await patch(
+            path: "api/app/companies/\(companyId)/agents/batch",
+            body: BatchUpdateCompanyAgentsPayload(
+                agentIds: agentIds,
+                agentCli: agentCli,
+                specialties: specialties,
+                enabled: enabled
+            )
+        )
+    }
+
     func startCompanyRuntime(companyId: String) async throws -> CompanyRuntimeSnapshotRecord {
         try await post(path: "api/app/companies/\(companyId)/runtime/start", body: EmptyPayload())
     }

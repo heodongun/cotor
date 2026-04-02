@@ -17,6 +17,7 @@
 - `docs/USAGE_TIPS.md` / `docs/USAGE_TIPS.ko.md`: 운영 팁과 복구 습관
 - `docs/WEB_EDITOR.md` / `docs/WEB_EDITOR.ko.md`: 웹 에디터 사용법
 - `docs/ARCHITECTURE.md` / `docs/ARCHITECTURE.ko.md`: 공용 런타임 아키텍처
+- `docs/CODEBASE_DEEP_DIVE.ko.md`: CLI, app-server, desktop, company runtime를 코드 기준으로 해부한 정밀 분석 문서
 - `docs/CONDITION_DSL.md` / `docs/CONDITION_DSL.ko.md`: 조건 DSL 참조
 - `docs/cookbook.md`: 시나리오 패턴과 예제 워크플로우
 - `docs/CLAUDE_SETUP.md`: Claude 연동 설정

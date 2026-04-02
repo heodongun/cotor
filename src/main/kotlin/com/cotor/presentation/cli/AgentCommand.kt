@@ -14,6 +14,7 @@ import com.cotor.data.config.JsonParser
 import com.cotor.data.config.YamlParser
 import com.cotor.model.AgentConfig
 import com.cotor.model.CodexDefaults
+import com.cotor.model.OpenCodeDefaults
 import com.cotor.model.CotorConfig
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.UsageError
@@ -71,8 +72,10 @@ private val builtinPresets = listOf(
     AgentPreset("gemini", "com.cotor.data.plugin.GeminiPlugin", "gemini", 60000, "gemini-3.0-flash"),
     AgentPreset("claude", "com.cotor.data.plugin.ClaudePlugin", "claude", 60000, "claude-sonnet-4-20250514"),
     AgentPreset("codex", "com.cotor.data.plugin.CodexPlugin", "codex", 60000, CodexDefaults.DEFAULT_MODEL),
+    AgentPreset("codex-exec", "com.cotor.data.plugin.CodexPlugin", "codex", 60000, CodexDefaults.DEFAULT_MODEL),
+    AgentPreset("codex-oauth", "com.cotor.data.plugin.CodexPlugin", "codex", 60000, CodexDefaults.DEFAULT_MODEL),
     AgentPreset("copilot", "com.cotor.data.plugin.CopilotPlugin", "copilot", 60000, "copilot"),
-    AgentPreset("opencode", "com.cotor.data.plugin.OpenCodePlugin", "opencode", 60000, "opencode-default"),
+    AgentPreset("opencode", "com.cotor.data.plugin.OpenCodePlugin", "opencode", 60000, OpenCodeDefaults.DEFAULT_MODEL),
     AgentPreset("qwen", "com.cotor.data.plugin.CommandPlugin", "qwen", 60000, "qwen3-coder"),
     AgentPreset("qa", "com.cotor.data.plugin.QaVerificationPlugin", "project test tool", 600000)
 )
@@ -185,6 +188,14 @@ class AgentAddCommand(
 
     private fun presetParameters(preset: String, model: String): Map<String, String> {
         return when (preset) {
+            "codex-exec" -> mapOf(
+                "model" to model,
+                "auth_mode" to "exec"
+            )
+            "codex-oauth" -> mapOf(
+                "model" to model,
+                "auth_mode" to "oauth"
+            )
             "qwen" -> mapOf(
                 "model" to model,
                 "argvJson" to "[\"qwen\",\"--model\",\"$model\",\"{input}\"]"
