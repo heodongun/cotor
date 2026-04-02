@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 import PackageDescription
 
 // A plain Swift Package keeps the first macOS client easy to build from the repo
@@ -9,6 +9,9 @@ let package = Package(
     products: [
         .executable(name: "CotorDesktopApp", targets: ["CotorDesktopApp"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-testing.git", from: "0.6.0")
+    ],
     targets: [
         .executableTarget(
             name: "CotorDesktopApp",
@@ -16,6 +19,14 @@ let package = Package(
             resources: [
                 .copy("Resources/Terminal")
             ]
+        ),
+        .testTarget(
+            name: "CotorDesktopAppTests",
+            dependencies: [
+                "CotorDesktopApp",
+                .product(name: "Testing", package: "swift-testing")
+            ],
+            path: "Tests/CotorDesktopAppTests"
         )
     ]
 )
