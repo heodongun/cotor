@@ -433,14 +433,15 @@ final class DesktopStore: ObservableObject {
     /// profiles between the last selected and the current one (range selection).
     /// When shiftKey is false, toggles single selection and clears others.
     func toggleOrgProfileSelection(id: String, shiftKey: Bool) {
-        lastSelectedOrgProfileID = id
+        let previousAnchor = lastSelectedOrgProfileID
 
-        if shiftKey, let lastID = lastSelectedOrgProfileID, lastID != id {
+        if shiftKey, let lastID = previousAnchor, lastID != id {
             // Range selection: find indices and select everything between them
             let profileIDs = orgProfiles.map(\.id)
             guard let lastIndex = profileIDs.firstIndex(of: lastID),
                   let currentIndex = profileIDs.firstIndex(of: id) else {
                 selectedOrgProfileIDs = [id]
+                lastSelectedOrgProfileID = id
                 return
             }
             let lower = min(lastIndex, currentIndex)
@@ -455,6 +456,7 @@ final class DesktopStore: ObservableObject {
                 selectedOrgProfileIDs = [id]
             }
         }
+        lastSelectedOrgProfileID = id
     }
 
     /// Clear all org profile selection state.

@@ -7,12 +7,6 @@ import Foundation
 // Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
 
 enum AppLogger {
-    private static let formatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
     private static let logURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
@@ -36,6 +30,8 @@ enum AppLogger {
     }
 
     private static func write(level: String, message: String) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let line = "[\(formatter.string(from: Date()))] [\(level)] \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
         if FileManager.default.fileExists(atPath: logURL.path) == false {

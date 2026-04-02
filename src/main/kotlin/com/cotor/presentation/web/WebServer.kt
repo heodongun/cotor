@@ -156,261 +156,19 @@ class WebServer : KoinComponent {
         }
 
         embeddedServer(Netty, port = port) {
-            install(ContentNegotiation) {
-                json()
-            }
-            install(CORS) {
-                anyHost()
-            }
-
-            routing {
-                get("/") {
-                    call.respondText(landingHtml, ContentType.Text.Html)
-                }
-
-                get("/editor") {
-                    call.respondText(editorHtml, ContentType.Text.Html)
-                }
-
-                get("/company") {
-                    call.respondText(companyHtml, ContentType.Text.Html)
-                }
-
-                get("/api/editor/config") {
-                    call.respond(ConfigResponse(readOnly = readOnly))
-                }
-
-                get("/api/editor/templates") {
-                    call.respond(buildTemplates())
-                }
-
-                get("/api/editor/pipelines") {
-                    call.respond(listSavedPipelines())
-                }
-
-                get("/api/editor/pipelines/{name}") {
-                    val name = call.parameters["name"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                    val detail = loadPipelineDetail(name)
-                    if (detail == null) {
-                        call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pipeline not found"))
-                    } else {
-                        call.respond(detail)
-                    }
-                }
-
-                post("/api/editor/save") {
-                    if (readOnly) {
-                        return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Read-only mode"))
-                    }
-                    val request = call.receive<EditorPipelineRequest>()
-                    if (request.name.isBlank()) {
-                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Pipeline name is required"))
-                    }
-                    if (request.stages.isEmpty()) {
-                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "At least one stage is required"))
-                    }
-
-                    val path = savePipeline(request)
-                    call.respond(SaveResponse(ok = true, path = path.toString()))
-                }
-
-                post("/api/editor/run") {
-                    if (readOnly) {
-                        return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Read-only mode"))
-                    }
-                    val request = call.receive<EditorPipelineRequest>()
-                    val configPath = request.path?.let { Path(it) } ?: editorDir.resolve("${sanitizeName(request.name)}.yaml")
-                    if (!configPath.exists()) {
-                        return@post call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pipeline not saved yet"))
-                    }
-
-                    try {
-                        val config = configRepository.loadConfig(configPath)
-                        val pipeline = config.pipelines.firstOrNull { it.name == request.name }
-                            ?: return@post call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pipeline not found in config"))
-
-                        config.agents.forEach { agentRegistry.registerAgent(it) }
-                        val result = orchestrator.executePipeline(pipeline)
-                        val timeline = buildTimelinePayload(pipeline, result)
-                        val agentResults = result.results.map {
-                            AgentResultPayload(
-                                agentName = it.agentName,
-                                isSuccess = it.isSuccess,
-                                duration = it.duration,
-                                output = it.output,
-                                error = it.error
-                            )
-                        }
-
-                        val response = RunResponse(
-                            name = pipeline.name,
-                            executionMode = pipeline.executionMode.name,
-                            totalAgents = result.totalAgents,
-                            successCount = result.successCount,
-                            failureCount = result.failureCount,
-                            totalDuration = result.totalDuration,
-                            results = agentResults,
-                            timeline = timeline
-                        )
-                        call.respond(response)
-                    } catch (e: Exception) {
-                        call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
-                    }
-                }
-
-                route("/api/company") {
-                    get("/dashboard") {
-                        call.respond(desktopService.companyDashboard())
-                    }
-
-                    route("/companies") {
-                        get {
-                            call.respond(desktopService.listCompanies())
-                        }
-
-                        post {
-                            val request = call.receive<CreateCompanyRequest>()
-                            call.respond(
-                                desktopService.createCompany(
-                                    name = request.name,
-                                    rootPath = request.rootPath,
-                                    defaultBaseBranch = request.defaultBaseBranch,
-                                    autonomyEnabled = request.autonomyEnabled,
-                                    dailyBudgetCents = request.dailyBudgetCents,
-                                    monthlyBudgetCents = request.monthlyBudgetCents
-                                )
-                            )
-                        }
-
-                        get("/{companyId}") {
-                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                            val company = desktopService.getCompany(companyId)
-                                ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Company not found"))
-                            call.respond(company)
-                        }
-
-                        get("/{companyId}/dashboard") {
-                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                            call.respond(desktopService.companyDashboard(companyId))
-                        }
-
-                        patch("/{companyId}") {
-                            val companyId = call.parameters["companyId"] ?: return@patch call.respond(HttpStatusCode.BadRequest)
-                            val request = call.receive<UpdateCompanyRequest>()
-                            call.respond(
-                                desktopService.updateCompany(
-                                    companyId = companyId,
-                                    name = request.name,
-                                    defaultBaseBranch = request.defaultBaseBranch,
-                                    autonomyEnabled = request.autonomyEnabled,
-                                    backendKind = request.backendKind,
-                                    dailyBudgetCents = request.dailyBudgetCents,
-                                    monthlyBudgetCents = request.monthlyBudgetCents
-                                )
-                            )
-                        }
-
-                        delete("/{companyId}") {
-                            val companyId = call.parameters["companyId"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
-                            call.respond(desktopService.deleteCompany(companyId))
-                        }
-
-                        get("/{companyId}/agents") {
-                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                            call.respond(desktopService.listCompanyAgentDefinitions(companyId))
-                        }
-
-                        patch("/{companyId}/agents/batch") {
-                            val companyId = call.parameters["companyId"] ?: return@patch call.respond(HttpStatusCode.BadRequest)
-                            val request = call.receive<BatchUpdateCompanyAgentDefinitionsRequest>()
-                            call.respond(
-                                desktopService.batchUpdateCompanyAgentDefinitions(
-                                    companyId = companyId,
-                                    agentIds = request.agentIds,
-                                    agentCli = request.agentCli,
-                                    specialties = request.specialties,
-                                    enabled = request.enabled
-                                )
-                            )
-                        }
-
-                        get("/{companyId}/goals") {
-                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                            call.respond(desktopService.listGoals().filter { it.companyId == companyId })
-                        }
-
-                        post("/{companyId}/goals") {
-                            val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                            val request = call.receive<CreateGoalRequest>()
-                            call.respond(
-                                desktopService.createGoal(
-                                    companyId = companyId,
-                                    title = request.title,
-                                    description = request.description,
-                                    successMetrics = request.successMetrics,
-                                    autonomyEnabled = request.autonomyEnabled
-                                )
-                            )
-                        }
-
-                        get("/{companyId}/issues") {
-                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                            val goalId = call.request.queryParameters["goalId"]
-                            call.respond(desktopService.listIssues(goalId, companyId))
-                        }
-
-                        post("/{companyId}/issues") {
-                            val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                            val request = call.receive<CreateIssueRequest>()
-                            call.respond(
-                                desktopService.createIssue(
-                                    companyId = companyId,
-                                    goalId = request.goalId,
-                                    title = request.title,
-                                    description = request.description,
-                                    priority = request.priority,
-                                    kind = request.kind
-                                )
-                            )
-                        }
-
-                        get("/{companyId}/review-queue") {
-                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                            call.respond(desktopService.listReviewQueue(companyId))
-                        }
-
-                        get("/{companyId}/runtime") {
-                            val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                            call.respond(desktopService.runtimeStatus(companyId))
-                        }
-
-                        post("/{companyId}/runtime/start") {
-                            val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                            call.respond(desktopService.startCompanyRuntime(companyId))
-                        }
-
-                        post("/{companyId}/runtime/stop") {
-                            val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                            call.respond(desktopService.stopCompanyRuntime(companyId))
-                        }
-                    }
-
-                    post("/issues/{issueId}/delegate") {
-                        val issueId = call.parameters["issueId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                        call.respond(desktopService.delegateIssue(issueId))
-                    }
-
-                    post("/issues/{issueId}/run") {
-                        val issueId = call.parameters["issueId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                        call.respond(desktopService.runIssue(issueId))
-                    }
-
-                    post("/review/{itemId}/merge") {
-                        val itemId = call.parameters["itemId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-                        call.respond(desktopService.mergeReviewQueueItem(itemId))
-                    }
-                }
-            }
+            cotorWebModule(
+                configRepository = configRepository,
+                agentRegistry = agentRegistry,
+                orchestrator = orchestrator,
+                desktopService = desktopService,
+                editorDir = editorDir,
+                readOnly = readOnly,
+                buildTemplates = ::buildTemplates,
+                listSavedPipelines = ::listSavedPipelines,
+                loadPipelineDetail = ::loadPipelineDetail,
+                savePipeline = ::savePipeline,
+                buildTimelinePayload = ::buildTimelinePayload
+            )
         }.start(wait = true)
     }
 
@@ -632,6 +390,277 @@ class WebServer : KoinComponent {
                 message = message,
                 outputPreview = preview
             )
+        }
+    }
+}
+
+internal fun Application.cotorWebModule(
+    configRepository: ConfigRepository,
+    agentRegistry: AgentRegistry,
+    orchestrator: PipelineOrchestrator,
+    desktopService: DesktopAppService,
+    editorDir: java.nio.file.Path,
+    readOnly: Boolean,
+    buildTemplates: () -> List<EditorTemplatePayload>,
+    listSavedPipelines: suspend () -> List<EditorPipelineSummary>,
+    loadPipelineDetail: suspend (String) -> EditorPipelineDetail?,
+    savePipeline: suspend (EditorPipelineRequest) -> java.nio.file.Path,
+    buildTimelinePayload: (Pipeline, AggregatedResult) -> List<TimelineEntryPayload>
+) {
+    install(ContentNegotiation) {
+        json()
+    }
+    install(CORS) {
+        anyHost()
+    }
+
+    routing {
+        get("/") {
+            call.respondText(landingHtml, ContentType.Text.Html)
+        }
+
+        get("/editor") {
+            call.respondText(editorHtml, ContentType.Text.Html)
+        }
+
+        get("/company") {
+            call.respondText(companyHtml, ContentType.Text.Html)
+        }
+
+        get("/api/editor/config") {
+            call.respond(ConfigResponse(readOnly = readOnly))
+        }
+
+        get("/api/editor/templates") {
+            call.respond(buildTemplates())
+        }
+
+        get("/api/editor/pipelines") {
+            call.respond(listSavedPipelines())
+        }
+
+        get("/api/editor/pipelines/{name}") {
+            val name = call.parameters["name"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+            val detail = loadPipelineDetail(name)
+            if (detail == null) {
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pipeline not found"))
+            } else {
+                call.respond(detail)
+            }
+        }
+
+        post("/api/editor/save") {
+            if (readOnly) {
+                return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Read-only mode"))
+            }
+            val request = call.receive<EditorPipelineRequest>()
+            if (request.name.isBlank()) {
+                return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Pipeline name is required"))
+            }
+            if (request.stages.isEmpty()) {
+                return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "At least one stage is required"))
+            }
+
+            val path = savePipeline(request)
+            call.respond(SaveResponse(ok = true, path = path.toString()))
+        }
+
+        post("/api/editor/run") {
+            if (readOnly) {
+                return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Read-only mode"))
+            }
+            val request = call.receive<EditorPipelineRequest>()
+            val configPath = request.path?.let { Path(it) }
+                ?: editorDir.resolve("${request.name.trim().lowercase().replace("[^a-z0-9-_]".toRegex(), "-")}.yaml")
+            if (!configPath.exists()) {
+                return@post call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pipeline not saved yet"))
+            }
+
+            try {
+                val config = configRepository.loadConfig(configPath)
+                val pipeline = config.pipelines.firstOrNull { it.name == request.name }
+                    ?: return@post call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pipeline not found in config"))
+
+                config.agents.forEach { agentRegistry.registerAgent(it) }
+                val result = orchestrator.executePipeline(pipeline)
+                val timeline = buildTimelinePayload(pipeline, result)
+                val agentResults = result.results.map {
+                    AgentResultPayload(
+                        agentName = it.agentName,
+                        isSuccess = it.isSuccess,
+                        duration = it.duration,
+                        output = it.output,
+                        error = it.error
+                    )
+                }
+
+                val response = RunResponse(
+                    name = pipeline.name,
+                    executionMode = pipeline.executionMode.name,
+                    totalAgents = result.totalAgents,
+                    successCount = result.successCount,
+                    failureCount = result.failureCount,
+                    totalDuration = result.totalDuration,
+                    results = agentResults,
+                    timeline = timeline
+                )
+                call.respond(response)
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
+            }
+        }
+
+        route("/api/company") {
+            get("/dashboard") {
+                call.respond(desktopService.companyDashboard())
+            }
+
+            route("/companies") {
+                get {
+                    call.respond(desktopService.listCompanies())
+                }
+
+                post {
+                    val request = call.receive<CreateCompanyRequest>()
+                    call.respond(
+                        desktopService.createCompany(
+                            name = request.name,
+                            rootPath = request.rootPath,
+                            defaultBaseBranch = request.defaultBaseBranch,
+                            autonomyEnabled = request.autonomyEnabled,
+                            dailyBudgetCents = request.dailyBudgetCents,
+                            monthlyBudgetCents = request.monthlyBudgetCents
+                        )
+                    )
+                }
+
+                get("/{companyId}") {
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    val company = desktopService.getCompany(companyId)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Company not found"))
+                    call.respond(company)
+                }
+
+                get("/{companyId}/dashboard") {
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.companyDashboard(companyId))
+                }
+
+                patch("/{companyId}") {
+                    val companyId = call.parameters["companyId"] ?: return@patch call.respond(HttpStatusCode.BadRequest)
+                    val request = call.receive<UpdateCompanyRequest>()
+                    call.respond(
+                        desktopService.updateCompany(
+                            companyId = companyId,
+                            name = request.name,
+                            defaultBaseBranch = request.defaultBaseBranch,
+                            autonomyEnabled = request.autonomyEnabled,
+                            backendKind = request.backendKind,
+                            dailyBudgetCents = request.dailyBudgetCents,
+                            monthlyBudgetCents = request.monthlyBudgetCents
+                        )
+                    )
+                }
+
+                delete("/{companyId}") {
+                    val companyId = call.parameters["companyId"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.deleteCompany(companyId))
+                }
+
+                get("/{companyId}/agents") {
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.listCompanyAgentDefinitions(companyId))
+                }
+
+                patch("/{companyId}/agents/batch") {
+                    val companyId = call.parameters["companyId"] ?: return@patch call.respond(HttpStatusCode.BadRequest)
+                    val request = call.receive<BatchUpdateCompanyAgentDefinitionsRequest>()
+                    call.respond(
+                        desktopService.batchUpdateCompanyAgentDefinitions(
+                            companyId = companyId,
+                            agentIds = request.agentIds,
+                            agentCli = request.agentCli,
+                            specialties = request.specialties,
+                            enabled = request.enabled
+                        )
+                    )
+                }
+
+                get("/{companyId}/goals") {
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.listGoals().filter { it.companyId == companyId })
+                }
+
+                post("/{companyId}/goals") {
+                    val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    val request = call.receive<CreateGoalRequest>()
+                    call.respond(
+                        desktopService.createGoal(
+                            companyId = companyId,
+                            title = request.title,
+                            description = request.description,
+                            successMetrics = request.successMetrics,
+                            autonomyEnabled = request.autonomyEnabled
+                        )
+                    )
+                }
+
+                get("/{companyId}/issues") {
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    val goalId = call.request.queryParameters["goalId"]
+                    call.respond(desktopService.listIssues(goalId, companyId))
+                }
+
+                post("/{companyId}/issues") {
+                    val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    val request = call.receive<CreateIssueRequest>()
+                    call.respond(
+                        desktopService.createIssue(
+                            companyId = companyId,
+                            goalId = request.goalId,
+                            title = request.title,
+                            description = request.description,
+                            priority = request.priority,
+                            kind = request.kind
+                        )
+                    )
+                }
+
+                get("/{companyId}/review-queue") {
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.listReviewQueue(companyId))
+                }
+
+                get("/{companyId}/runtime") {
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.runtimeStatus(companyId))
+                }
+
+                post("/{companyId}/runtime/start") {
+                    val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.startCompanyRuntime(companyId))
+                }
+
+                post("/{companyId}/runtime/stop") {
+                    val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.stopCompanyRuntime(companyId))
+                }
+            }
+
+            post("/issues/{issueId}/delegate") {
+                val issueId = call.parameters["issueId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                call.respond(desktopService.delegateIssue(issueId))
+            }
+
+            post("/issues/{issueId}/run") {
+                val issueId = call.parameters["issueId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                call.respond(desktopService.runIssue(issueId))
+            }
+
+            post("/review/{itemId}/merge") {
+                val itemId = call.parameters["itemId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                call.respond(desktopService.mergeReviewQueueItem(itemId))
+            }
         }
     }
 }

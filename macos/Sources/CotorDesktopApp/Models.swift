@@ -715,7 +715,7 @@ struct ChangeSummaryPayload: Codable, Hashable {
 }
 
 /// Recursive file tree node used by the inspector's outline view.
-struct FileTreeNodePayload: Codable, Hashable, Identifiable {
+struct FileTreeNodePayload: Codable, Hashable, Identifiable, Sendable {
     var id: String { relativePath }
     /// `OutlineGroup` expects `nil` for leaf nodes, not an empty array.
     var optionalChildren: [FileTreeNodePayload]? { children.isEmpty ? nil : children }
@@ -997,6 +997,7 @@ enum InspectorTab: CaseIterable, Identifiable {
 }
 
 /// Curated fallback content used when the localhost backend is unavailable.
+@MainActor
 struct MockSeed {
     static let dashboard = DashboardPayload(
         repositories: [
