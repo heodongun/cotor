@@ -1,32 +1,38 @@
 class Cotor < Formula
   desc "AI company orchestration platform - CLI and desktop app"
   homepage "https://github.com/bssm-oss/cotor"
-  url "https://github.com/bssm-oss/cotor.git",
-      branch: "master"
-  version "1.0.2"
+  version "1.0.3"
+  url "https://github.com/bssm-oss/cotor/releases/download/v1.0.3/cotor-1.0.3-all.jar"
+  sha256 "ae92be286ac0c12ae54fe4dce22bf5bbbfe6aeef09e0764215a3a59bdac1aa70"
   license "MIT"
   head "https://github.com/bssm-oss/cotor.git", branch: "master"
 
   depends_on "openjdk@17"
 
+  resource "desktop-dmg" do
+    url "https://github.com/bssm-oss/cotor/releases/download/v1.0.3/Cotor-1.0.3.dmg"
+    sha256 "74a289c20653e1bd2ae40ba6e1fc57d7a047134bc91aba7119ecfe6b4823eaa4"
+  end
+
   def install
     ENV["JAVA_HOME"] = Formula["openjdk@17"].opt_prefix
 
-    # Build the shadow JAR (CLI backend)
-    system "./gradlew", "shadowJar", "--no-daemon"
-
     if OS.mac?
-      desktop_output = buildpath/"build/homebrew-desktop"
-      ENV["COTOR_PROJECT_ROOT"] = buildpath.to_s
-      ENV["COTOR_DESKTOP_BUILD_OUTPUT_ROOT"] = desktop_output.to_s
-      system "bash", "shell/build-desktop-app-bundle.sh"
-      (pkgshare/"desktop").install desktop_output/"Cotor Desktop.app"
+      resource("desktop-dmg").fetch
+      dmg_path = resource("desktop-dmg").cached_download
+      mountpoint = buildpath/"cotor-dmg"
+      mountpoint.mkpath
+      system "hdiutil", "attach", dmg_path, "-mountpoint", mountpoint.to_s, "-nobrowse"
+      begin
+        (pkgshare/"desktop").mkpath
+        cp_r mountpoint/"Cotor Desktop.app", pkgshare/"desktop"
+      ensure
+        system "hdiutil", "detach", mountpoint.to_s
+      end
     end
 
-    # Install the JAR built from the current Gradle project version.
-    libexec.install Dir["build/libs/cotor-*-all.jar"].fetch(0) => "cotor.jar"
+    libexec.install "cotor-1.0.3-all.jar" => "cotor.jar"
 
-    # Create CLI wrapper with JDK 17 pinned.
     (bin/"cotor").write <<~EOS
       #!/bin/bash
       export JAVA_HOME="#{Formula["openjdk@17"].opt_prefix}"
@@ -43,7 +49,7 @@ class Cotor < Formula
         cotor
         cotor app-server
 
-      First desktop install:
+      Desktop app install:
         cotor install
       `cotor install` prints the final app path and installs into `/Applications`
       when writable, otherwise `~/Applications`.

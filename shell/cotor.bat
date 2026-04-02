@@ -5,9 +5,9 @@ REM Get the directory where this script is located
 set SCRIPT_DIR=%~dp0
 for %%I in ("%SCRIPT_DIR%..") do set PROJECT_ROOT=%%~fI
 
-REM Resolve version (default to 1.0.0)
+REM Resolve version from build.gradle.kts (default to 1.0.0)
 set APP_VERSION=1.0.0
-for /f "tokens=2 delims==" %%v in ('findstr /B "version=" "%PROJECT_ROOT%\gradle.properties" 2^>NUL') do set APP_VERSION=%%v
+for /f "tokens=2 delims=\" %%v in ('findstr /R /C:"^[ ]*version[ ]*=" "%PROJECT_ROOT%\build.gradle.kts" 2^>NUL') do set APP_VERSION=%%v
 
 REM Path to the shaded JAR file
 set JAR_PATH=%PROJECT_ROOT%\build\libs\cotor-%APP_VERSION%-all.jar
@@ -25,6 +25,15 @@ if not exist "%JAR_PATH%" (
     )
     popd
 )
+
+if not exist "%JAR_PATH%" (
+    for /f "delims=" %%f in ('dir /b /o-d "%PROJECT_ROOT%\build\libs\cotor-*-all.jar" 2^>NUL') do (
+        set JAR_PATH=%PROJECT_ROOT%\build\libs\%%f
+        goto jar_found
+    )
+)
+
+:jar_found
 
 REM Check if Java is installed
 java -version >nul 2>&1

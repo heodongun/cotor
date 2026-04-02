@@ -17,6 +17,7 @@ Korean companion docs use the same path with `.ko.md` when available.
 - `docs/USAGE_TIPS.md` / `docs/USAGE_TIPS.ko.md`: operator shortcuts and recovery habits
 - `docs/WEB_EDITOR.md` / `docs/WEB_EDITOR.ko.md`: web editor usage
 - `docs/ARCHITECTURE.md` / `docs/ARCHITECTURE.ko.md`: shared runtime architecture
+- `docs/CODEBASE_DEEP_DIVE.ko.md`: Korean code-grounded deep dive across CLI, app-server, desktop, and company runtime
 - `docs/CONDITION_DSL.md` / `docs/CONDITION_DSL.ko.md`: condition DSL reference
 - `docs/cookbook.md`: scenario patterns and example workflows
 - `docs/CLAUDE_SETUP.md`: Claude integration setup

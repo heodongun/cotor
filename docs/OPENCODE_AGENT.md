@@ -43,7 +43,7 @@ agents:
 The `OpenCodePlugin` executes:
 
 ```bash
-opencode run "<prompt>"
+opencode run --model <model> --format json "<prompt>"
 ```
 
 This runs OpenCode in non-interactive mode with the given prompt. The plugin captures stdout and returns it to Cotor's orchestration layer.
@@ -51,7 +51,7 @@ This runs OpenCode in non-interactive mode with the given prompt. The plugin cap
 ### Command Flow
 
 1. Cotor receives a prompt (from pipeline, interactive session, or company workflow)
-2. `OpenCodePlugin.execute()` builds the command: `["opencode", "run", "<prompt>"]`
+2. `OpenCodePlugin.execute()` builds the command: `["opencode", "run", "--model", "<model>", "--format", "json", "<prompt>"]`
 3. `ProcessManager` spawns the child process with configured env/working directory
 4. Process output is captured and returned as `PluginExecutionOutput`
 5. If the process exits with a non-zero code, a `ProcessExecutionException` is thrown with captured stdout/stderr
@@ -60,7 +60,9 @@ This runs OpenCode in non-interactive mode with the given prompt. The plugin cap
 
 ### Agent Parameters
 
-OpenCode does not require additional parameters beyond the prompt. Model selection is handled through OpenCode's own configuration (`~/.opencode/`).
+OpenCode accepts an optional `model` parameter. If omitted, Cotor uses the built-in default `opencode/qwen3.6-plus-free`.
+
+Company-seeded agents now prefer OpenCode by default when the executable is available so autonomous company workflows can run on the lower-cost default model unless the user explicitly switches agents.
 
 ### Timeout
 

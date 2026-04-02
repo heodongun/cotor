@@ -8,6 +8,14 @@
 
 - 문서와 설치 흐름 정리
 - 현재 제품 표면에 맞춘 도움말과 안내 강화
+- `cotor company ...` 회사 CLI 트리 추가
+- `cotor auth codex-oauth login|status|logout` 추가
+- 로컬 web 서버에 회사 JSON API와 `/company` 콘솔 추가
+- 기본 interactive와 분리된 `cotor company tui` 표면 추가
+- OpenCode가 `--model`을 전달하고 기본 모델을 `opencode/qwen3.6-plus-free`로 정리
+- 새 회사 시드 에이전트 기본값을 `opencode` 우선으로 조정
+- 조직도 다중선택 배치 편집이 실제 저장되도록 연결
+- Homebrew Formula를 GitHub 릴리스 아티팩트 소비 방식으로 전환
 
 ## 1.1.0 (2025-11-20)
 
