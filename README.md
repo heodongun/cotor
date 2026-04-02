@@ -54,8 +54,8 @@ Current template types:
 ### Homebrew (Recommended)
 
 ```bash
-brew tap bssm-oss/cotor
-brew install cotor
+brew tap bssm-oss/cotor https://github.com/bssm-oss/cotor.git
+brew install bssm-oss/cotor/cotor
 ```
 
 This installs JDK 17 + the CLI and packages a bundled desktop app asset.
@@ -66,7 +66,7 @@ Run `cotor install` after `brew install` to copy `Cotor Desktop.app` into Applic
 Update:
 
 ```bash
-brew upgrade cotor
+brew upgrade bssm-oss/cotor/cotor
 ```
 
 ### Direct DMG Download

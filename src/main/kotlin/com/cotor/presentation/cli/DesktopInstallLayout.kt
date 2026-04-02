@@ -107,12 +107,22 @@ internal fun runPackagedDesktopAction(
             }
 
             DesktopInstallAction.UPDATE -> {
-                // For packaged install, upgrade Homebrew package first
-                val brewUpgradeOutput = buildString {
-                    appendLine("🔄 Upgrading Cotor via Homebrew...")
+                val tapBootstrap = runHomebrewCommand(
+                    "tap",
+                    COTOR_BREW_TAP,
+                    COTOR_BREW_TAP_URL
+                )
+                if (tapBootstrap.exitCode != 0) {
+                    return DesktopScriptResult(
+                        exitCode = tapBootstrap.exitCode,
+                        output = buildString {
+                            appendLine("❌ Failed to configure the Cotor Homebrew tap.")
+                            appendLine(tapBootstrap.output)
+                        }
+                    )
                 }
 
-                val brewUpgrade = ProcessBuilder("brew", "upgrade", "cotor")
+                val brewUpgrade = ProcessBuilder("brew", "upgrade", COTOR_BREW_FORMULA)
                     .redirectErrorStream(true)
                     .start()
 
@@ -205,6 +215,15 @@ internal fun runPackagedDesktopAction(
             output = "${error.message ?: error::class.java.simpleName}\n"
         )
     }
+}
+
+private fun runHomebrewCommand(vararg args: String): DesktopScriptResult {
+    val process = ProcessBuilder(listOf("brew") + args)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().use { it.readText() }
+    val exitCode = process.waitFor()
+    return DesktopScriptResult(exitCode = exitCode, output = output)
 }
 
 internal fun resolveDesktopInstallRoot(
@@ -334,3 +353,6 @@ private fun deleteRecursively(path: Path) {
 
 internal const val BUNDLED_DESKTOP_APP_NAME = "Cotor Desktop.app"
 internal const val BUNDLED_DESKTOP_ZIP_NAME = "Cotor-Desktop-macOS.zip"
+internal const val COTOR_BREW_TAP = "bssm-oss/cotor"
+internal const val COTOR_BREW_FORMULA = "bssm-oss/cotor/cotor"
+internal const val COTOR_BREW_TAP_URL = "https://github.com/bssm-oss/cotor.git"

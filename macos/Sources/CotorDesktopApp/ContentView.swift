@@ -1338,7 +1338,7 @@ private struct SidebarView: View {
                                             .lineLimit(1)
                                         Text(collaborator.agentCli)
                                             .font(.system(size: 10, weight: .medium))
-                                            .foregroundStyle(ShellPalette.muted)
+                                            .foregroundStyle(ShellPalette.text.opacity(0.72))
                                             .lineLimit(1)
                                     }
                                     Spacer(minLength: 0)
@@ -1395,6 +1395,37 @@ private struct SidebarView: View {
             }
 
             if !store.companyAgentDefinitions.isEmpty {
+                if !store.selectedCompanyAgentDefinitionIDs.isEmpty {
+                    HStack(spacing: 12) {
+                        Text("\(store.selectedCompanyAgentDefinitionIDs.count) selected")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(ShellPalette.text.opacity(0.9))
+
+                        Spacer()
+
+                        Button(action: {
+                            store.clearCompanyAgentSelection()
+                        }) {
+                            Text(l("Clear", "해제"))
+                        }
+                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+
+                        Button(action: {
+                            store.showingOrgProfileBatchEdit = true
+                        }) {
+                            Text(l("Edit", "편집"))
+                        }
+                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(ShellPalette.panelAlt)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(ShellPalette.line, lineWidth: 1)
+                    )
+                }
+
                 VStack(spacing: 8) {
                     ForEach(store.companyAgentDefinitions) { agent in
                         HStack(spacing: 10) {
@@ -1414,12 +1445,12 @@ private struct SidebarView: View {
                                 }
                                 Text(agent.roleSummary)
                                     .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(ShellPalette.muted)
+                                    .foregroundStyle(ShellPalette.text.opacity(0.84))
                                     .lineLimit(2)
                                 if !agent.specialties.isEmpty {
                                     Text(agent.specialties.joined(separator: " · "))
                                         .font(.system(size: 10, weight: .medium))
-                                        .foregroundStyle(ShellPalette.accentSoft)
+                                        .foregroundStyle(ShellPalette.text.opacity(0.78))
                                         .lineLimit(2)
                                 }
                                 if !agent.preferredCollaboratorIds.isEmpty {
@@ -1427,7 +1458,7 @@ private struct SidebarView: View {
                                         store.companyAgentDefinitions.first(where: { $0.id == collaboratorId })?.title
                                     }.joined(separator: ", "))
                                     .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(ShellPalette.muted)
+                                    .foregroundStyle(ShellPalette.text.opacity(0.8))
                                     .lineLimit(2)
                                 }
                             }
@@ -1448,12 +1479,19 @@ private struct SidebarView: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
-                        .background(ShellPalette.panelAlt)
+                        .background(store.selectedCompanyAgentDefinitionIDs.contains(agent.id) ? ShellPalette.accent.opacity(0.18) : ShellPalette.panelAlt)
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(ShellPalette.line, lineWidth: 1)
+                                .stroke(store.selectedCompanyAgentDefinitionIDs.contains(agent.id) ? ShellPalette.accent : ShellPalette.line, lineWidth: store.selectedCompanyAgentDefinitionIDs.contains(agent.id) ? 2.5 : 1)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            store.toggleCompanyAgentSelection(
+                                id: agent.id,
+                                shiftKey: NSEvent.modifierFlags.contains(.shift)
+                            )
+                        }
                     }
                 }
             }
@@ -1944,15 +1982,23 @@ private struct OrgChartNode: View {
 
             Text(profile.executionAgentName)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(ShellPalette.muted)
+                .foregroundStyle(ShellPalette.text.opacity(0.9))
 
             StatusSummaryPill(
                 text: profile.mergeAuthority ? language("CEO", "CEO") : "\(profile.capabilities.count) \(language("skills", "역량"))",
                 tint: profile.mergeAuthority ? ShellPalette.success : ShellPalette.accent
             )
+
+            if !profile.capabilities.isEmpty {
+                Text(profile.capabilities.joined(separator: " · "))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ShellPalette.text.opacity(0.84))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 132)
+        .frame(maxWidth: .infinity, minHeight: 150)
         .background(isSelected ? ShellPalette.accent.opacity(0.08) : ShellPalette.panelAlt)
         .overlay(
             RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
@@ -4926,22 +4972,22 @@ private struct OrgProfileBatchEditSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // Selected profiles summary
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("\(store.selectedOrgProfiles.count) \(l("profiles selected", "개 프로필 선택됨"))")
+                        Text("\(store.selectedBatchEditableAgents.count) \(l("profiles selected", "개 프로필 선택됨"))")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(ShellPalette.muted)
+                            .foregroundStyle(ShellPalette.text.opacity(0.84))
 
-                        ForEach(store.selectedOrgProfiles) { profile in
+                        ForEach(store.selectedBatchEditableAgents) { profile in
                             HStack(spacing: 8) {
                                 Circle()
                                     .fill(profile.enabled ? ShellPalette.success : ShellPalette.warning)
                                     .frame(width: 8, height: 8)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(profile.roleName)
+                                    Text(profile.title)
                                         .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(ShellPalette.text)
-                                    Text("\(profile.executionAgentName) · \(profile.capabilities.joined(separator: " · "))")
+                                    Text("\(profile.agentCli) · \(profile.specialties.joined(separator: " · "))")
                                         .font(.system(size: 10, weight: .medium))
-                                        .foregroundStyle(ShellPalette.muted)
+                                        .foregroundStyle(ShellPalette.text.opacity(0.8))
                                         .lineLimit(1)
                                 }
                                 Spacer()
@@ -5060,7 +5106,7 @@ private struct OrgProfileBatchEditSheet: View {
             return batchCapabilities.isEmpty ? nil : parsed
         }()
         Task {
-            let didApply = await store.batchUpdateSelectedOrgProfiles(
+            let didApply = await store.batchUpdateSelectedCompanyAgents(
                 agentCli: agentCli,
                 specialties: specialties,
                 enabled: batchEnabled

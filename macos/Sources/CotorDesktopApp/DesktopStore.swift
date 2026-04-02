@@ -109,6 +109,7 @@ final class DesktopStore: ObservableObject {
     @Published var newTaskPrompt = ""
     @Published var agentSelection: Set<String> = ["claude", "codex"]
     @Published var selectedOrgProfileIDs: Set<String> = []
+    @Published var selectedCompanyAgentDefinitionIDs: Set<String> = []
     @Published var showingOrgProfileBatchEdit = false
     @Published var lastSelectedOrgProfileID: String?
     @Published var workflowLeadAgent: String
@@ -427,11 +428,28 @@ final class DesktopStore: ObservableObject {
         return orgProfiles.filter { selectedOrgProfileIDs.contains($0.id) }
     }
 
+    var selectedCompanyAgentDefinitions: [CompanyAgentDefinitionRecord] {
+        guard !selectedCompanyAgentDefinitionIDs.isEmpty else { return [] }
+        return companyAgentDefinitions.filter { selectedCompanyAgentDefinitionIDs.contains($0.id) }
+    }
+
+    var selectedBatchEditableAgents: [CompanyAgentDefinitionRecord] {
+        if !selectedCompanyAgentDefinitionIDs.isEmpty {
+            return selectedCompanyAgentDefinitions
+        }
+        if !selectedOrgProfileIDs.isEmpty {
+            return companyAgentDefinitions.filter { selectedOrgProfileIDs.contains($0.id) }
+        }
+        return []
+    }
+
     /// Toggle or range-select org chart profiles for multi-selection.
     ///
     /// When shiftKey is true and a previous selection anchor exists, selects all
     /// profiles between the last selected and the current one (range selection).
-    /// When shiftKey is false, toggles single selection and clears others.
+    /// When shiftKey is false, toggles the clicked profile while preserving any
+    /// existing selection so the org chart behaves like the preferred-collaborator
+    /// picker and supports additive multi-select without modifier keys.
     func toggleOrgProfileSelection(id: String, shiftKey: Bool) {
         let previousAnchor = lastSelectedOrgProfileID
 
@@ -449,11 +467,12 @@ final class DesktopStore: ObservableObject {
             let rangeIDs = Set(profileIDs[lower...upper])
             selectedOrgProfileIDs.formUnion(rangeIDs)
         } else {
-            // Single toggle: clear others first
+            // Default interaction is additive toggle so multiple org nodes can be
+            // selected the same way collaborator chips are selected.
             if selectedOrgProfileIDs.contains(id) {
                 selectedOrgProfileIDs.remove(id)
             } else {
-                selectedOrgProfileIDs = [id]
+                selectedOrgProfileIDs.insert(id)
             }
         }
         lastSelectedOrgProfileID = id
@@ -463,6 +482,35 @@ final class DesktopStore: ObservableObject {
     func clearOrgProfileSelection() {
         selectedOrgProfileIDs = []
         lastSelectedOrgProfileID = nil
+    }
+
+    func toggleCompanyAgentSelection(id: String, shiftKey: Bool) {
+        let previousAnchor = lastSelectedOrgProfileID
+
+        if shiftKey, let lastID = previousAnchor, lastID != id {
+            let agentIDs = companyAgentDefinitions.map(\.id)
+            guard let lastIndex = agentIDs.firstIndex(of: lastID),
+                  let currentIndex = agentIDs.firstIndex(of: id) else {
+                selectedCompanyAgentDefinitionIDs = [id]
+                lastSelectedOrgProfileID = id
+                return
+            }
+            let lower = min(lastIndex, currentIndex)
+            let upper = max(lastIndex, currentIndex)
+            let rangeIDs = Set(agentIDs[lower...upper])
+            selectedCompanyAgentDefinitionIDs.formUnion(rangeIDs)
+        } else {
+            if selectedCompanyAgentDefinitionIDs.contains(id) {
+                selectedCompanyAgentDefinitionIDs.remove(id)
+            } else {
+                selectedCompanyAgentDefinitionIDs.insert(id)
+            }
+        }
+        lastSelectedOrgProfileID = id
+    }
+
+    func clearCompanyAgentSelection() {
+        selectedCompanyAgentDefinitionIDs = []
     }
 
     func statusLabel(_ status: String) -> String {
@@ -1393,34 +1441,18 @@ final class DesktopStore: ObservableObject {
         }
     }
 
-    func batchUpdateSelectedOrgProfiles(
+    func batchUpdateSelectedCompanyAgents(
         agentCli: String?,
         specialties: [String]?,
         enabled: Bool?
     ) async -> Bool {
-        let selectedProfiles = selectedOrgProfiles
-        guard !selectedProfiles.isEmpty else { return false }
-        let companyIds = Set(selectedProfiles.map(\.companyId))
+        let selectedAgents = selectedBatchEditableAgents
+        guard !selectedAgents.isEmpty else { return false }
+        let companyIds = Set(selectedAgents.map(\.companyId))
         guard companyIds.count == 1, let companyId = companyIds.first else {
             actionErrorMessage = language(
-                "Batch edit requires profiles from a single company.",
-                "일괄 수정은 같은 회사의 프로필만 선택해야 합니다."
-            )
-            return false
-        }
-
-        let matchingAgents = companyAgentDefinitions.filter { definition in
-            definition.companyId == companyId &&
-                selectedProfiles.contains {
-                    $0.companyId == definition.companyId &&
-                        $0.roleName == definition.title &&
-                        $0.executionAgentName == definition.agentCli
-                }
-        }
-        guard !matchingAgents.isEmpty else {
-            actionErrorMessage = language(
-                "No matching company agents were found for the selected org profiles.",
-                "선택한 조직도 프로필에 대응하는 회사 에이전트를 찾지 못했습니다."
+                "Batch edit requires agents from a single company.",
+                "일괄 수정은 같은 회사의 에이전트만 선택해야 합니다."
             )
             return false
         }
@@ -1431,13 +1463,14 @@ final class DesktopStore: ObservableObject {
             _ = try await runWithEmbeddedBackendRecovery {
                 try await api.batchUpdateCompanyAgents(
                     companyId: companyId,
-                    agentIds: matchingAgents.map(\.id),
+                    agentIds: selectedAgents.map(\.id),
                     agentCli: agentCli,
                     specialties: specialties,
                     enabled: enabled
                 )
             }
             await refreshDashboard()
+            clearCompanyAgentSelection()
             clearOrgProfileSelection()
             showingOrgProfileBatchEdit = false
             return true
