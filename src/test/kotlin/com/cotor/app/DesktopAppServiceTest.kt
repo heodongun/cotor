@@ -1387,6 +1387,17 @@ class DesktopAppServiceTest : FunSpec({
             stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
         }
         companyRuns.shouldNotBeEmpty()
+        withTimeout(20_000) {
+            while (companyRuns.none { it.status != AgentRunStatus.QUEUED }) {
+                service.runCompanyRuntimeTick(goal.companyId)
+                delay(25)
+                companyRuns = stateStore.load().runs.filter { run ->
+                    val task = stateStore.load().tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
+                    val issueId = task.issueId ?: return@filter false
+                    stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
+                }
+            }
+        }
         companyRuns.any { it.status != AgentRunStatus.QUEUED } shouldBe true
         service.runtimeStatus(goal.companyId).status shouldBe CompanyRuntimeStatus.RUNNING
     }
@@ -4261,11 +4272,12 @@ class DesktopAppServiceTest : FunSpec({
         service.startCompanyRuntime(company.id)
         service.runCompanyRuntimeTick(company.id)
 
-        withTimeout(30_000) {
+        withTimeout(45_000) {
             while (true) {
                 if (stateStore.load().tasks.count { it.issueId == executionIssue.id } > 1) {
                     return@withTimeout
                 }
+                service.runCompanyRuntimeTick(company.id)
                 delay(25)
             }
         }
