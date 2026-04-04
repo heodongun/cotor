@@ -10,6 +10,9 @@ package com.cotor.app
  * goals, issues, tasks, runs, and long-lived company runtime loops.
  */
 
+import com.cotor.app.runtime.CompanyRuntimeMachine
+import com.cotor.app.runtime.RuntimeCommand
+import com.cotor.app.runtime.WorkQueue
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.process.resolveExecutablePath
 import com.cotor.domain.executor.AgentExecutor
@@ -3509,16 +3512,19 @@ class DesktopAppService(
                 )
             }
 
-            autonomousGoals.forEach { goal ->
-                val hasOpenNonPlanningIssues = current.issues.any { issue ->
-                    issue.goalId == goal.id &&
-                        !issue.kind.equals("planning", ignoreCase = true) &&
-                        issue.status != IssueStatus.DONE &&
-                        issue.status != IssueStatus.CANCELED
-                }
-                if (!hasOpenNonPlanningIssues) {
-                    decomposeGoal(goal.id)
-                    actions += "decomposed:${goal.id}"
+            val workQueue = WorkQueue()
+            CompanyRuntimeMachine.planGoalDecomposition(
+                companyId = companyId,
+                goals = autonomousGoals,
+                issues = current.issues
+            ).forEach(workQueue::enqueue)
+            workQueue.drain { command ->
+                when (command) {
+                    is RuntimeCommand.EnsurePlanningIssue -> {
+                        decomposeGoal(command.goalId)
+                        actions += "decomposed:${command.goalId}"
+                    }
+                    is RuntimeCommand.StartIssue -> Unit
                 }
             }
 
@@ -3528,6 +3534,7 @@ class DesktopAppService(
                 executionSnapshot.companyAgentDefinitions,
                 executionSnapshot.companies
             ).filter { it.companyId == companyId && it.enabled }
+            val companyProfilesById = companyProfiles.associateBy { it.id }
             val occupiedProfileIds = executionSnapshot.tasks
                 .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
                 .mapNotNull { task ->
@@ -3535,6 +3542,19 @@ class DesktopAppService(
                     if (issue.companyId != companyId) return@mapNotNull null
                     issue.assigneeProfileId
                 }
+                .toMutableSet()
+            val occupiedExecutionAgents = executionSnapshot.tasks
+                .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
+                .mapNotNull { task ->
+                    val issue = executionSnapshot.issues.firstOrNull { it.id == task.issueId } ?: return@mapNotNull null
+                    if (issue.companyId != companyId) return@mapNotNull null
+                    issue.assigneeProfileId
+                        ?.let(companyProfilesById::get)
+                        ?.executionAgentName
+                        ?.trim()
+                        ?.lowercase()
+                }
+                .filter { it.isNotBlank() }
                 .toMutableSet()
             val tasksByIssueId = executionSnapshot.tasks
                 .filter { it.issueId != null }
@@ -3579,32 +3599,39 @@ class DesktopAppService(
                             retryDecision.mode == RecoverableRetryMode.WAITING
                     dependenciesSatisfied && !alreadyStarted && !waitingForRetryCooldown
                 }
-            val startableIssues = mutableListOf<CompanyIssue>()
-            runnableIssues.forEach { candidate ->
+            val delegatedRunnableIssues = runnableIssues.map { candidate ->
                 val delegated = if (candidate.assigneeProfileId == null || candidate.status != IssueStatus.DELEGATED) {
                     delegateIssue(candidate.id)
                 } else {
                     candidate
                 }
-                if (companyProfiles.isEmpty()) {
-                    if (startableIssues.isEmpty()) {
-                        startableIssues += delegated
-                    }
-                    return@forEach
-                }
-                val profileId = delegated.assigneeProfileId
-                if (profileId == null || occupiedProfileIds.add(profileId)) {
-                    startableIssues += delegated
-                }
+                delegated
+            }
+            val startQueue = WorkQueue()
+            if (companyProfiles.isEmpty()) {
+                delegatedRunnableIssues.firstOrNull()?.let { startQueue.enqueue(RuntimeCommand.StartIssue(it.id)) }
+            } else {
+                CompanyRuntimeMachine.planIssueStarts(
+                    runnableIssues = delegatedRunnableIssues,
+                    companyProfiles = companyProfiles,
+                    occupiedProfileIds = occupiedProfileIds,
+                    occupiedExecutionAgents = occupiedExecutionAgents
+                ).forEach(startQueue::enqueue)
             }
 
-            for (runnableIssue in startableIssues) {
-                val startedIssue = runCatching { startDelegatedIssue(runnableIssue) }
-                    .getOrElse { cause -> handleDelegatedIssueStartFailure(runnableIssue, cause) }
-                actions += if (startedIssue.status == IssueStatus.BLOCKED) {
-                    "start-blocked:${startedIssue.id}"
-                } else {
-                    "started:${startedIssue.id}"
+            startQueue.drain { command ->
+                when (command) {
+                    is RuntimeCommand.StartIssue -> {
+                        val runnableIssue = stateStore.load().issues.firstOrNull { it.id == command.issueId } ?: return@drain
+                        val startedIssue = runCatching { startDelegatedIssue(runnableIssue) }
+                            .getOrElse { cause -> handleDelegatedIssueStartFailure(runnableIssue, cause) }
+                        actions += if (startedIssue.status == IssueStatus.BLOCKED) {
+                            "start-blocked:${startedIssue.id}"
+                        } else {
+                            "started:${startedIssue.id}"
+                        }
+                    }
+                    is RuntimeCommand.EnsurePlanningIssue -> Unit
                 }
             }
 
