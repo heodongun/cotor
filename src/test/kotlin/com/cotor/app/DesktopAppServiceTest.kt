@@ -18,6 +18,7 @@ import com.cotor.model.AgentConfig
 import com.cotor.model.AgentResult
 import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
+import io.kotest.core.annotation.Isolate
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
@@ -42,6 +43,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
 
+@Isolate
 class DesktopAppServiceTest : FunSpec({
     test("runTask stores publish metadata on a completed run") {
         val fixture = DesktopAppServiceFixture.create()
