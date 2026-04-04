@@ -78,7 +78,7 @@ class DesktopStateStore(
 
     fun managedReposRoot(): Path = appHome().resolve("ManagedRepos")
 
-    suspend fun load(): DesktopAppState = withContext(Dispatchers.IO) {
+    override suspend fun load(): DesktopAppState = withContext(Dispatchers.IO) {
         val stateFile = stateFile()
         if (!stateFile.exists()) {
             return@withContext DesktopAppState()
@@ -124,7 +124,7 @@ class DesktopStateStore(
         }
     }
 
-    suspend fun save(state: DesktopAppState) {
+    override suspend fun save(state: DesktopAppState) {
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 withStateFileLock {
@@ -296,10 +296,10 @@ class DesktopStateStore(
                 while (true) {
                     val lock = channel.tryLock()
                     if (lock != null) {
-                        lock.use {
+                        return@use lock.use {
                             writeLockMetadata(metadataPath)
                             try {
-                                return block()
+                                block()
                             } finally {
                                 clearLockMetadata(metadataPath)
                             }
@@ -322,6 +322,7 @@ class DesktopStateStore(
                     }
                     Thread.sleep(STATE_LOCK_RETRY_DELAY_MS)
                 }
+                error("Unreachable")
             }
         } catch (_: OverlappingFileLockException) {
             // The same JVM can legitimately re-enter state reads/writes while a
