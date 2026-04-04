@@ -2,10 +2,8 @@ package com.cotor.app.runtime
 
 import com.cotor.app.CompanyGoal
 import com.cotor.app.CompanyIssue
-import com.cotor.app.DesktopTaskStatus
 import com.cotor.app.IssueStatus
 import com.cotor.app.OrgAgentProfile
-import com.cotor.app.TaskExecutionPlan
 
 object CompanyRuntimeMachine {
     fun planGoalDecomposition(
