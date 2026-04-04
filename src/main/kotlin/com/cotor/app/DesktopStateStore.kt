@@ -8,6 +8,7 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.app.persistence.StateRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -35,7 +36,7 @@ import kotlin.io.path.writeText
  */
 class DesktopStateStore(
     private val appHomeProvider: () -> Path = { defaultDesktopAppHome() },
-) {
+) : StateRepository<DesktopAppState> {
     companion object {
         private const val MAX_PERSISTED_RESOLVED_ISSUES = 20
         private const val MAX_PERSISTED_TASK_PROMPT_CHARS = 512
