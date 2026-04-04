@@ -236,7 +236,9 @@ data class CompanyDashboardResponse(
     val opsMetrics: OpsMetricSnapshot = OpsMetricSnapshot(),
     val runtime: CompanyRuntimeSnapshot = CompanyRuntimeSnapshot(),
     val signals: List<OpsSignal> = emptyList(),
-    val activity: List<CompanyActivityItem> = emptyList()
+    val activity: List<CompanyActivityItem> = emptyList(),
+    val agentContextEntries: List<AgentContextEntry> = emptyList(),
+    val agentMessages: List<AgentMessage> = emptyList()
 )
 
 /**
@@ -261,7 +263,9 @@ data class DashboardResponse(
     val backendStatuses: List<ExecutionBackendStatus> = emptyList(),
     val opsMetrics: OpsMetricSnapshot = OpsMetricSnapshot(),
     val activity: List<CompanyActivityItem> = emptyList(),
-    val companyRuntimes: List<CompanyRuntimeSnapshot> = emptyList()
+    val companyRuntimes: List<CompanyRuntimeSnapshot> = emptyList(),
+    val agentContextEntries: List<AgentContextEntry> = emptyList(),
+    val agentMessages: List<AgentMessage> = emptyList()
 )
 
 /**
