@@ -1445,6 +1445,36 @@ struct MockSeed {
                 budgetPausedAt: nil,
                 budgetResetDate: "2026-03-28"
             )
+        ],
+        agentContextEntries: [
+            AgentContextEntryRecord(
+                id: "context-demo-1",
+                companyId: "company-demo",
+                issueId: "issue-demo-build",
+                goalId: "goal-demo",
+                agentName: "Builder",
+                kind: "handoff",
+                title: "Need QA focus",
+                content: "UI changes are ready for QA verification.",
+                visibility: "goal",
+                createdAt: 0
+            )
+        ],
+        agentMessages: [
+            AgentMessageRecord(
+                id: "message-demo-1",
+                companyId: "company-demo",
+                fromAgentName: "Builder",
+                toAgentName: "QA",
+                issueId: "issue-demo-build",
+                goalId: "goal-demo",
+                kind: "handoff",
+                subject: "UI changes ready",
+                body: "Please verify the branch before CEO approval.",
+                status: "unread",
+                parentMessageId: nil,
+                createdAt: 0
+            )
         ]
     )
 

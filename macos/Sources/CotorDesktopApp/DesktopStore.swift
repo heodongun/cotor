@@ -1924,7 +1924,9 @@ final class DesktopStore: ObservableObject {
                 backendStatuses: settings.backendStatuses,
                 opsMetrics: dashboard.opsMetrics,
                 activity: dashboard.activity,
-                companyRuntimes: dashboard.companyRuntimes
+                companyRuntimes: dashboard.companyRuntimes,
+                agentContextEntries: dashboard.agentContextEntries,
+                agentMessages: dashboard.agentMessages
             )
             syncBackendFormState()
         } catch {

@@ -11,17 +11,22 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class A2aApiTest : FunSpec({
     val desktopService = mockk<DesktopAppService>(relaxed = true)
     val tuiSessionService = mockk<DesktopTuiSessionService>(relaxed = true)
+    val json = Json { encodeDefaults = true }
 
     fun envelope(
         dedupeKey: String = "company-1:issue-1:task-1:assign:v1",
@@ -54,7 +59,8 @@ class A2aApiTest : FunSpec({
             }
 
             val response = client.post("/api/a2a/v1/sessions") {
-                setBody(A2aHelloRequest(agentId = "agent-1", capabilities = listOf("task.assign"), tenant = A2aTenant("company-1")))
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(A2aHelloRequest(agentId = "agent-1", capabilities = listOf("task.assign"), tenant = A2aTenant("company-1"))))
             }
 
             response.status shouldBe HttpStatusCode.Unauthorized
@@ -73,20 +79,23 @@ class A2aApiTest : FunSpec({
 
             val hello = client.post("/api/a2a/v1/sessions") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(A2aHelloRequest(agentId = "agent-builder", capabilities = listOf("task.assign"), tenant = A2aTenant("company-1")))
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(A2aHelloRequest(agentId = "agent-builder", capabilities = listOf("task.assign"), tenant = A2aTenant("company-1"))))
             }
             hello.status shouldBe HttpStatusCode.OK
 
             val first = client.post("/api/a2a/v1/messages") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(envelope())
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(envelope()))
             }
             first.status shouldBe HttpStatusCode.OK
             first.bodyAsText() shouldContain "\"dedupeStatus\":\"accepted\""
 
             val second = client.post("/api/a2a/v1/messages") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(envelope())
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(envelope()))
             }
             second.status shouldBe HttpStatusCode.OK
             second.bodyAsText() shouldContain "\"dedupeStatus\":\"already_processed\""
@@ -105,7 +114,8 @@ class A2aApiTest : FunSpec({
 
             val response = client.post("/api/a2a/v1/messages") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(envelope(ttlMs = 1, ts = 1))
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(envelope(ttlMs = 1, ts = 1)))
             }
 
             response.status shouldBe HttpStatusCode.BadRequest
@@ -125,18 +135,21 @@ class A2aApiTest : FunSpec({
 
             val hello = client.post("/api/a2a/v1/sessions") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(A2aHelloRequest(agentId = "agent-builder", capabilities = listOf("task.assign"), tenant = A2aTenant("company-1")))
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(A2aHelloRequest(agentId = "agent-builder", capabilities = listOf("task.assign"), tenant = A2aTenant("company-1"))))
             }
             hello.status shouldBe HttpStatusCode.OK
             val sessionId = hello.bodyAsText().substringAfter("\"sessionId\":\"").substringBefore('"')
 
             client.post("/api/a2a/v1/messages") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(envelope(dedupeKey = "k1", type = "message.note"))
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(envelope(dedupeKey = "k1", type = "message.note")))
             }
             client.post("/api/a2a/v1/messages") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(envelope(dedupeKey = "k2", type = "message.handoff", ts = System.currentTimeMillis() + 1))
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(envelope(dedupeKey = "k2", type = "message.handoff", ts = System.currentTimeMillis() + 1)))
             }
 
             val firstPull = client.get("/api/a2a/v1/messages/pull?session_id=$sessionId&limit=10") {
@@ -167,7 +180,8 @@ class A2aApiTest : FunSpec({
 
             val response = client.post("/api/a2a/v1/messages") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(envelope(type = "unknown.type", dedupeKey = "unknown-key"))
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(envelope(type = "unknown.type", dedupeKey = "unknown-key")))
             }
 
             response.status shouldBe HttpStatusCode.BadRequest
@@ -189,7 +203,8 @@ class A2aApiTest : FunSpec({
 
             val response = client.post("/api/a2a/v1/sync/snapshot") {
                 header(HttpHeaders.Authorization, "Bearer secret-token")
-                setBody(A2aSnapshotRequest(tenant = A2aTenant(companyId = "company-1")))
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(A2aSnapshotRequest(tenant = A2aTenant(companyId = "company-1"))))
             }
 
             response.status shouldBe HttpStatusCode.OK

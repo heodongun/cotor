@@ -28,7 +28,9 @@ struct DesktopStoreTests {
             backendStatuses: [],
             opsMetrics: DashboardPayload.empty.opsMetrics,
             activity: [],
-            companyRuntimes: []
+            companyRuntimes: [],
+            agentContextEntries: [],
+            agentMessages: []
         )
 
         store.toggleOrgProfileSelection(id: "a", shiftKey: false)
