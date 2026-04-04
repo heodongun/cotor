@@ -43,6 +43,8 @@ class DesktopStateStore(
         private const val MAX_PERSISTED_RUN_OUTPUT_CHARS = 4000
         private const val MAX_STATE_LOAD_LOG_BYTES = 1L * 1024L * 1024L
         private const val STATE_LOAD_LOG_DEDUP_WINDOW_MS = 30_000L
+        private const val STATE_LOCK_TIMEOUT_MS = 3_000L
+        private const val STATE_LOCK_RETRY_DELAY_MS = 50L
 
         @Volatile
         private var lastStateLoadLogMessage: String? = null
@@ -138,6 +140,8 @@ class DesktopStateStore(
 
     private fun lockFile(): Path = appHome().resolve("state.lock")
 
+    private fun lockMetadataFile(): Path = appHome().resolve("state.lock.json")
+
     private fun saveLocked(state: DesktopAppState) {
         val file = stateFile()
         val backupFile = backupStateFile()
@@ -149,20 +153,10 @@ class DesktopStateStore(
         val payload = json.encodeToString(DesktopAppState.serializer(), compactedState)
         val tempFile = Files.createTempFile(file.parent, "${file.fileName}.", ".tmp")
         tempFile.writeText(payload)
-        Files.move(
-            tempFile,
-            file,
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE
-        )
+        moveWithAtomicFallback(tempFile, file)
         val backupTempFile = Files.createTempFile(backupFile.parent, "${backupFile.fileName}.", ".tmp")
         backupTempFile.writeText(payload)
-        Files.move(
-            backupTempFile,
-            backupFile,
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE
-        )
+        moveWithAtomicFallback(backupTempFile, backupFile)
         updateCache(file, compactedState)
     }
 
@@ -289,15 +283,44 @@ class DesktopStateStore(
 
     private fun <T> withStateFileLock(block: () -> T): T {
         val lockPath = lockFile()
+        val metadataPath = lockMetadataFile()
         lockPath.parent?.createDirectories()
+        metadataPath.parent?.createDirectories()
         return try {
             FileChannel.open(
                 lockPath,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE
             ).use { channel ->
-                channel.lock().use {
-                    block()
+                val deadline = System.currentTimeMillis() + STATE_LOCK_TIMEOUT_MS
+                while (true) {
+                    val lock = channel.tryLock()
+                    if (lock != null) {
+                        lock.use {
+                            writeLockMetadata(metadataPath)
+                            try {
+                                return block()
+                            } finally {
+                                clearLockMetadata(metadataPath)
+                            }
+                        }
+                    }
+                    if (System.currentTimeMillis() >= deadline) {
+                        val holder = runCatching { metadataPath.readText() }.getOrNull()?.trim()
+                        error(
+                            buildString {
+                                append("state.lock acquisition timed out after ")
+                                append(STATE_LOCK_TIMEOUT_MS)
+                                append("ms; path=")
+                                append(lockPath)
+                                if (!holder.isNullOrBlank()) {
+                                    append("; holder=")
+                                    append(holder)
+                                }
+                            }
+                        )
+                    }
+                    Thread.sleep(STATE_LOCK_RETRY_DELAY_MS)
                 }
             }
         } catch (_: OverlappingFileLockException) {
@@ -307,6 +330,39 @@ class DesktopStateStore(
             // only need the inter-process lock when it is available.
             block()
         }
+    }
+
+    private fun moveWithAtomicFallback(source: Path, target: Path) {
+        try {
+            Files.move(
+                source,
+                target,
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (error: Exception) {
+            appendStateLoadLog(
+                "ATOMIC_MOVE failed for ${target.fileName}: ${error.message ?: error::class.simpleName.orEmpty()}; falling back to non-atomic replace"
+            )
+            Files.move(
+                source,
+                target,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
+    }
+
+    private fun writeLockMetadata(metadataPath: Path) {
+        val now = System.currentTimeMillis()
+        val pid = runCatching { ProcessHandle.current().pid() }.getOrDefault(-1L)
+        val payload = """
+            {"pid":$pid,"lockedAt":$now,"appHome":"${appHome().toString().replace("\"", "\\\"")}"}
+        """.trimIndent()
+        metadataPath.writeText(payload)
+    }
+
+    private fun clearLockMetadata(metadataPath: Path) {
+        runCatching { Files.deleteIfExists(metadataPath) }
     }
 
     private fun currentFingerprint(file: Path): Pair<Long, Long>? =
