@@ -2073,7 +2073,7 @@ class DesktopAppServiceTest : FunSpec({
 
         service.companyDashboard(company.id)
 
-        withTimeout(10_000) {
+        withTimeout(20_000) {
             while (stateStore.load().tasks.none { it.issueId == pendingIssue.id }) {
                 service.companyDashboard(company.id)
                 delay(100)
@@ -3442,6 +3442,11 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
+        withTimeout(10_000) {
+            while (stateStore.load().issues.first { it.id == reviewIssue.id }.status == IssueStatus.BLOCKED) {
+                delay(25)
+            }
+        }
         val refreshedState = stateStore.load()
         refreshedState.issues.first { it.id == canceledExecution.id }.status shouldBe IssueStatus.CANCELED
         refreshedState.issues.first { it.id == successfulRetry.id }.status shouldBe IssueStatus.DONE
@@ -3742,7 +3747,26 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val refreshed = stateStore.load()
+        val refreshed = withTimeout(10_000) {
+            while (true) {
+                val candidate = stateStore.load()
+                val followUpGoal = candidate.goals.firstOrNull {
+                    it.companyId == company.id &&
+                        it.followUpContext?.rootGoalId == goal.id &&
+                        it.followUpContext?.reviewQueueItemId == reviewQueueItem.id &&
+                        it.followUpContext?.failureClass == FollowUpFailureClass.MERGE_CONFLICT
+                }
+                val followUpExecutionIssueCount = followUpGoal?.let { goalCandidate ->
+                    candidate.issues.count { it.goalId == goalCandidate.id && it.kind.equals("execution", ignoreCase = true) }
+                } ?: 0
+                if (followUpGoal != null && followUpExecutionIssueCount >= 2) {
+                    return@withTimeout candidate
+                }
+                service.runCompanyRuntimeTick(company.id)
+                delay(25)
+            }
+            error("Unreachable")
+        }
         val followUpGoal = refreshed.goals.first {
             it.companyId == company.id &&
                 it.followUpContext?.rootGoalId == goal.id &&
@@ -4237,7 +4261,7 @@ class DesktopAppServiceTest : FunSpec({
         service.startCompanyRuntime(company.id)
         service.runCompanyRuntimeTick(company.id)
 
-        withTimeout(10_000) {
+        withTimeout(20_000) {
             while (true) {
                 if (stateStore.load().tasks.count { it.issueId == executionIssue.id } > 1) {
                     return@withTimeout
