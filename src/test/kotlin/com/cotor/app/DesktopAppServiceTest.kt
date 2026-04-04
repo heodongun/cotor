@@ -427,6 +427,23 @@ class DesktopAppServiceTest : FunSpec({
         fixture.service.runTask(task.id)
         fixture.awaitRuns()
 
+        withTimeout(10_000) {
+            while (true) {
+                val candidate = fixture.stateStore.load().issues.single { it.id == issue.id }
+                val metadataCleared =
+                    candidate.pullRequestNumber == null &&
+                        candidate.pullRequestUrl == null &&
+                        candidate.pullRequestState == null &&
+                        candidate.qaVerdict == null &&
+                        candidate.qaFeedback == null &&
+                        candidate.ceoVerdict == null &&
+                        candidate.ceoFeedback == null
+                if (candidate.status == IssueStatus.DONE && metadataCleared) {
+                    return@withTimeout
+                }
+                delay(25)
+            }
+        }
         val updatedIssue = fixture.stateStore.load().issues.single { it.id == issue.id }
         updatedIssue.status shouldBe IssueStatus.DONE
         updatedIssue.pullRequestNumber shouldBe null
@@ -4220,6 +4237,14 @@ class DesktopAppServiceTest : FunSpec({
         service.startCompanyRuntime(company.id)
         service.runCompanyRuntimeTick(company.id)
 
+        withTimeout(10_000) {
+            while (true) {
+                if (stateStore.load().tasks.count { it.issueId == executionIssue.id } > 1) {
+                    return@withTimeout
+                }
+                delay(25)
+            }
+        }
         // The tick requeues the issue and restarts it – which may re-block it when the
         // relaxed mock executor fails.  Verify the retry was attempted via task count.
         stateStore.load().tasks.count { it.issueId == executionIssue.id } shouldBeGreaterThan 1
@@ -6870,6 +6895,24 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
+        withTimeout(10_000) {
+            while (true) {
+                val candidate = stateStore.load()
+                val executionReady = candidate.issues.first { it.id == executionIssue.id }.status == IssueStatus.IN_REVIEW
+                val staleIssuesClosed =
+                    candidate.issues.none { it.id == staleReviewIssue.id } &&
+                        candidate.issues.none { it.id == staleApprovalIssue.id }
+                val queueRebuilt = candidate.reviewQueue.any {
+                    it.issueId == executionIssue.id &&
+                        it.id != staleQueueItem.id &&
+                        it.pullRequestNumber == 22
+                }
+                if (executionReady && staleIssuesClosed && queueRebuilt) {
+                    return@withTimeout
+                }
+                delay(25)
+            }
+        }
         val refreshed = stateStore.load()
         val refreshedExecution = refreshed.issues.first { it.id == executionIssue.id }
         refreshedExecution.status shouldBe IssueStatus.IN_REVIEW
