@@ -8,6 +8,8 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.a2a.A2aRouter
+import com.cotor.a2a.installA2aRoutes
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -195,6 +197,7 @@ internal fun Application.cotorAppModule(
     token: String?,
     desktopService: DesktopAppService,
     tuiSessionService: DesktopTuiSessionService,
+    a2aRouter: A2aRouter = A2aRouter(desktopService),
     shutdownHandler: (() -> Unit)? = null
 ) {
     val ktorJson = Json {
@@ -215,6 +218,10 @@ internal fun Application.cotorAppModule(
     }
 
     routing {
+        installA2aRoutes(token, a2aRouter) { expectedToken ->
+            requireToken(expectedToken)
+        }
+
         // Health stays unauthenticated so the app can distinguish "server down"
         // from "server up but auth misconfigured".
         get("/health") {
