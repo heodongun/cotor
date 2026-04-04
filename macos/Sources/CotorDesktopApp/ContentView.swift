@@ -1892,6 +1892,7 @@ private struct IssueSummaryRow: View {
     }
 }
 
+@MainActor
 private func valueLine(label: String, value: String) -> some View {
     HStack(alignment: .top, spacing: 8) {
         Text(label)

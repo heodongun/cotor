@@ -1630,7 +1630,7 @@ final class DesktopStore: ObservableObject {
         return value.isEmpty ? nil : value
     }
 
-    private func runWithEmbeddedBackendRecovery<T>(_ action: () async throws -> T) async throws -> T {
+    private func runWithEmbeddedBackendRecovery<T: Sendable>(_ action: @Sendable () async throws -> T) async throws -> T {
         do {
             return try await action()
         } catch is CancellationError {
