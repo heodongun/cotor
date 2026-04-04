@@ -132,6 +132,14 @@ class DesktopAppService(
             "Execution was interrupted because the app-server stopped before the run finished."
         private const val INTERRUPTED_ISSUE_REASON =
             "Runtime stopped while execution was in progress; the issue was returned to the queue."
+        private val trackedServiceInstances = ConcurrentHashMap.newKeySet<DesktopAppService>()
+
+        internal fun shutdownTrackedServicesForTests() {
+            trackedServiceInstances.toList().forEach { service ->
+                runCatching { service.shutdown() }
+            }
+            trackedServiceInstances.clear()
+        }
     }
 
     // Reads are cheap and frequent, but writes must be serialized so the state file
@@ -170,12 +178,14 @@ class DesktopAppService(
     }
 
     init {
+        trackedServiceInstances += this
         // Runtime state is persisted across app-server restarts. Reattach loops eagerly
         // on service startup so companies keep progressing even before the UI polls.
         queueAutomationRefresh()
     }
 
     fun shutdown() {
+        trackedServiceInstances.remove(this)
         runBlocking {
             interruptActiveTasksForShutdown()
         }
@@ -407,9 +417,25 @@ class DesktopAppService(
             val reviewQueueById = state.reviewQueue.associateBy { it.id }
             val now = System.currentTimeMillis()
             var changed = false
+            val recursiveNestedGoalIds = state.goals
+                .filter { goal ->
+                    (companyId == null || goal.companyId == companyId) &&
+                        goal.status == GoalStatus.ACTIVE &&
+                        goal.operatingPolicy?.startsWith("auto-follow-up:goal:") == true
+                }
+                .mapNotNull { goal ->
+                    val parentGoalId = goal.operatingPolicy?.removePrefix("auto-follow-up:goal:").orEmpty()
+                    val parentGoal = goalsById[parentGoalId] ?: return@mapNotNull null
+                    if (parentGoal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) goal.id else null
+                }
+                .toSet()
 
             val canonicalGoals = state.goals.map { goal ->
-                if ((companyId != null && goal.companyId != companyId) || !goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) {
+                if (
+                    (companyId != null && goal.companyId != companyId) ||
+                    !goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:") ||
+                    goal.id in recursiveNestedGoalIds
+                ) {
                     return@map goal
                 }
                 val rootGoalId = resolveFollowUpRootGoalId(goal.id, issuesById, goalsById, reviewQueueById)
@@ -452,7 +478,8 @@ class DesktopAppService(
                 .filter { goal ->
                     (companyId == null || goal.companyId == companyId) &&
                         goal.status == GoalStatus.ACTIVE &&
-                        goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")
+                        goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
+                        goal.id !in recursiveNestedGoalIds
                 }
                 .groupBy { resolveFollowUpRootGoalId(it.id, issuesById, canonicalGoalsById, reviewQueueById) ?: canonicalFollowUpSubject(it.title) }
                 .values

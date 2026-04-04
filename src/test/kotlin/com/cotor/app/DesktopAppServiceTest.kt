@@ -43,6 +43,14 @@ import java.nio.file.Path
 import kotlin.io.path.exists
 
 class DesktopAppServiceTest : FunSpec({
+    beforeTest {
+        DesktopAppService.shutdownTrackedServicesForTests()
+    }
+
+    afterTest {
+        DesktopAppService.shutdownTrackedServicesForTests()
+    }
+
     test("runTask stores publish metadata on a completed run") {
         val fixture = DesktopAppServiceFixture.create()
         coEvery { fixture.gitWorkspaceService.ensureWorktree(any(), any(), any(), any(), any()) } returns WorktreeBinding(
@@ -4430,7 +4438,6 @@ class DesktopAppServiceTest : FunSpec({
         val originalIssue = service.listIssues(goal.id).first { it.kind == "execution" }
         blockIssueWithFailedTask(stateStore, originalIssue)
         service.updateGoal(goal.id, autonomyEnabled = true)
-        service.startCompanyRuntime(company.id)
         // Multiple ticks may be needed for follow-up goal synthesis depending on
         // normalization order and timestamp granularity.
         repeat(3) { service.runCompanyRuntimeTick(company.id) }
@@ -4461,7 +4468,13 @@ class DesktopAppServiceTest : FunSpec({
         // when the first tick races with issue materialization timestamps.
         service.runCompanyRuntimeTick(company.id)
 
-        val updatedNestedGoal = stateStore.load().goals.first { it.id == nestedGoal.id }
+        val companyGoalsAfterNestedTicks = stateStore.load().goals.filter { it.companyId == company.id }
+        val updatedNestedGoal = companyGoalsAfterNestedTicks.firstOrNull { it.id == nestedGoal.id }
+            ?: error(
+                "Nested follow-up goal disappeared. Goals: ${
+                    companyGoalsAfterNestedTicks.map { "${it.id}:${it.operatingPolicy}:${it.status}" }
+                }"
+            )
         updatedNestedGoal.status shouldBe GoalStatus.COMPLETED
         stateStore.load().issues.filter { it.goalId == nestedGoal.id }.all {
             it.status == IssueStatus.CANCELED || it.status == IssueStatus.DONE
