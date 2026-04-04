@@ -212,7 +212,9 @@ class DesktopAppService(
             backendStatuses = computeBackendStatuses(state),
             opsMetrics = state.opsMetrics,
             activity = state.companyActivity.sortedByDescending { it.createdAt },
-            companyRuntimes = state.companyRuntimes.sortedByDescending { it.lastTickAt ?: 0L }
+            companyRuntimes = state.companyRuntimes.sortedByDescending { it.lastTickAt ?: 0L },
+            agentContextEntries = state.agentContextEntries.sortedByDescending { it.createdAt },
+            agentMessages = state.agentMessages.sortedByDescending { it.createdAt }
         )
     }
 
@@ -281,6 +283,12 @@ class DesktopAppService(
                 .filter { companyId == null || it.companyId == companyId }
                 .sortedByDescending { it.createdAt },
             activity = state.companyActivity
+                .filter { companyId == null || it.companyId == companyId }
+                .sortedByDescending { it.createdAt },
+            agentContextEntries = state.agentContextEntries
+                .filter { companyId == null || it.companyId == companyId }
+                .sortedByDescending { it.createdAt },
+            agentMessages = state.agentMessages
                 .filter { companyId == null || it.companyId == companyId }
                 .sortedByDescending { it.createdAt }
         )
@@ -9248,6 +9256,14 @@ class DesktopAppService(
             .filter { it.companyId == company.id }
             .sortedByDescending { it.createdAt }
             .take(3)
+        val recentContextEntries = state.agentContextEntries
+            .filter { it.companyId == company.id && (it.issueId == issue.id || it.goalId == goal?.id || it.visibility == "company") }
+            .sortedByDescending { it.createdAt }
+            .take(5)
+        val recentMessages = state.agentMessages
+            .filter { it.companyId == company.id && (it.issueId == issue.id || it.goalId == goal?.id) }
+            .sortedByDescending { it.createdAt }
+            .take(5)
         val assignedIssues = state.issues
             .filter { it.companyId == company.id && it.assigneeProfileId == profile.id }
             .sortedByDescending { it.updatedAt }
@@ -9290,6 +9306,13 @@ class DesktopAppService(
                         recentDecisions.joinToString(" | ") { it.summary }
                     }"
                 )
+                if (recentContextEntries.isNotEmpty()) {
+                    appendLine(
+                        "handoffs=${
+                            recentContextEntries.joinToString(" | ") { "${it.agentName}:${it.kind}:${summarizeForPrompt(it.content, 120)}" }
+                        }"
+                    )
+                }
             }.trim(),
             agentMemory = buildString {
                 appendLine("role=${profile.roleName}")
@@ -9302,6 +9325,13 @@ class DesktopAppService(
                 )
                 if (collaboratorNames.isNotEmpty()) {
                     appendLine("preferredCollaborators=${collaboratorNames.joinToString()}")
+                }
+                if (recentMessages.isNotEmpty()) {
+                    appendLine(
+                        "recentMessages=${
+                            recentMessages.joinToString(" | ") { "${it.fromAgentName}->${it.toAgentName ?: "all"}:${summarizeForPrompt(it.body, 120)}" }
+                        }"
+                    )
                 }
             }.trim()
         )

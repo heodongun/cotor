@@ -2,6 +2,7 @@ package com.cotor.a2a
 
 import com.cotor.app.DesktopAppService
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
@@ -24,7 +25,7 @@ class A2aRouter(
         )
     }
 
-    fun postMessage(envelope: A2aEnvelope, now: Long = System.currentTimeMillis()): A2aAckResponse {
+    suspend fun postMessage(envelope: A2aEnvelope, now: Long = System.currentTimeMillis()): A2aAckResponse {
         validateEnvelope(envelope, now)
         val freshAck = A2aAck(
             messageId = envelope.id,
@@ -37,6 +38,7 @@ class A2aRouter(
                 ack = ack.copy(dedupeStatus = "already_processed")
             )
         }
+        persistInternalMessage(envelope)
         recipientsFor(envelope).forEach { session ->
             sessionStore.enqueue(session.id, envelope, now)
         }
@@ -90,6 +92,70 @@ class A2aRouter(
         require(envelope.tenant.companyId.isNotBlank()) { "tenant.companyId is required" }
         if (envelope.ts + envelope.ttlMs < now) {
             error("expired_message")
+        }
+    }
+
+    private suspend fun persistInternalMessage(envelope: A2aEnvelope) {
+        val issueId = envelope.correlation?.issueId
+        val goalId = envelope.correlation?.goalId
+        val body = envelope.body as? JsonObject
+        val title = body?.get("title")?.toString()?.trim('"')
+            ?: body?.get("label")?.toString()?.trim('"')
+            ?: envelope.type
+        val content = body?.get("content")?.toString()?.trim('"')
+            ?: body?.get("message")?.toString()?.trim('"')
+            ?: title
+        when (envelope.type) {
+            "message.note" -> {
+                desktopService.addContextEntry(
+                    companyId = envelope.tenant.companyId,
+                    agentName = envelope.from.roleName ?: envelope.from.agentId,
+                    kind = "note",
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId,
+                    visibility = "goal"
+                )
+            }
+            "message.handoff" -> {
+                desktopService.addContextEntry(
+                    companyId = envelope.tenant.companyId,
+                    agentName = envelope.from.roleName ?: envelope.from.agentId,
+                    kind = "handoff",
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId,
+                    visibility = "goal"
+                )
+                envelope.to.firstOrNull()?.let { target ->
+                    desktopService.sendMessage(
+                        companyId = envelope.tenant.companyId,
+                        fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
+                        toAgentName = target.roleName ?: target.agentId,
+                        kind = "handoff",
+                        subject = title,
+                        body = content,
+                        issueId = issueId,
+                        goalId = goalId
+                    )
+                }
+            }
+            "message.escalation" -> {
+                envelope.to.firstOrNull()?.let { target ->
+                    desktopService.sendMessage(
+                        companyId = envelope.tenant.companyId,
+                        fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
+                        toAgentName = target.roleName ?: target.agentId,
+                        kind = "escalation",
+                        subject = title,
+                        body = content,
+                        issueId = issueId,
+                        goalId = goalId
+                    )
+                }
+            }
         }
     }
 
