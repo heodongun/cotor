@@ -132,14 +132,6 @@ class DesktopAppService(
             "Execution was interrupted because the app-server stopped before the run finished."
         private const val INTERRUPTED_ISSUE_REASON =
             "Runtime stopped while execution was in progress; the issue was returned to the queue."
-        private val trackedServiceInstances = ConcurrentHashMap.newKeySet<DesktopAppService>()
-
-        internal fun shutdownTrackedServicesForTests() {
-            trackedServiceInstances.toList().forEach { service ->
-                runCatching { service.shutdown() }
-            }
-            trackedServiceInstances.clear()
-        }
     }
 
     // Reads are cheap and frequent, but writes must be serialized so the state file
@@ -178,14 +170,12 @@ class DesktopAppService(
     }
 
     init {
-        trackedServiceInstances += this
         // Runtime state is persisted across app-server restarts. Reattach loops eagerly
         // on service startup so companies keep progressing even before the UI polls.
         queueAutomationRefresh()
     }
 
     fun shutdown() {
-        trackedServiceInstances.remove(this)
         runBlocking {
             interruptActiveTasksForShutdown()
         }

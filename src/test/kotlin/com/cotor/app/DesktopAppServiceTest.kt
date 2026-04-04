@@ -43,14 +43,6 @@ import java.nio.file.Path
 import kotlin.io.path.exists
 
 class DesktopAppServiceTest : FunSpec({
-    beforeTest {
-        DesktopAppService.shutdownTrackedServicesForTests()
-    }
-
-    afterTest {
-        DesktopAppService.shutdownTrackedServicesForTests()
-    }
-
     test("runTask stores publish metadata on a completed run") {
         val fixture = DesktopAppServiceFixture.create()
         coEvery { fixture.gitWorkspaceService.ensureWorktree(any(), any(), any(), any(), any()) } returns WorktreeBinding(
