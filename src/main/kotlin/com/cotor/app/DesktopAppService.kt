@@ -986,6 +986,61 @@ class DesktopAppService(
             .sortedByDescending { it.updatedAt }
     }
 
+    suspend fun issueExecutionDetails(issueId: String): List<IssueAgentExecutionDetail> {
+        val state = stateStore.load()
+        val issue = state.issues.firstOrNull { it.id == issueId } ?: return emptyList()
+        val assigneeProfile = issue.assigneeProfileId?.let { profileId ->
+            ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                .firstOrNull { it.id == profileId }
+        }
+        val latestQueueItem = state.reviewQueue
+            .filter { it.issueId == issueId }
+            .maxByOrNull { it.updatedAt }
+        return state.tasks
+            .filter { it.issueId == issueId }
+            .sortedByDescending { it.updatedAt }
+            .map { task ->
+                val latestRun = state.runs
+                    .filter { it.taskId == task.id }
+                    .maxByOrNull { it.updatedAt }
+                val agentName = latestRun?.agentName
+                    ?: task.agents.firstOrNull()
+                    ?: assigneeProfile?.executionAgentName
+                    ?: "unknown"
+                val assignment = task.plan?.assignmentFor(agentName) ?: task.plan?.assignments?.firstOrNull()
+                val agentDefinition = state.companyAgentDefinitions.firstOrNull { definition ->
+                    definition.companyId == issue.companyId &&
+                        (
+                            definition.title.equals(assigneeProfile?.roleName, ignoreCase = true) ||
+                                definition.agentCli.equals(agentName, ignoreCase = true)
+                            )
+                }
+                IssueAgentExecutionDetail(
+                    roleName = assigneeProfile?.roleName
+                        ?: assignment?.role
+                        ?: agentDefinition?.title
+                        ?: agentName,
+                    agentName = agentName,
+                    agentCli = assigneeProfile?.executionAgentName
+                        ?: agentDefinition?.agentCli
+                        ?: agentName,
+                    assignedPrompt = assignment?.assignedPrompt ?: task.prompt,
+                    taskId = task.id,
+                    taskStatus = task.status.name,
+                    runId = latestRun?.id,
+                    runStatus = latestRun?.status?.name,
+                    stdout = truncateExecutionLog(latestRun?.output),
+                    stderr = truncateExecutionLog(latestRun?.error ?: latestRun?.publish?.error),
+                    branchName = latestRun?.branchName ?: issue.branchName,
+                    pullRequestUrl = latestRun?.publish?.pullRequestUrl
+                        ?: latestQueueItem?.pullRequestUrl
+                        ?: issue.pullRequestUrl,
+                    updatedAt = maxOf(task.updatedAt, latestRun?.updatedAt ?: task.updatedAt),
+                    publishSummary = buildIssueExecutionPublishSummary(issue, latestQueueItem, latestRun)
+                )
+            }
+    }
+
     suspend fun listGoals(): List<CompanyGoal> =
         stateStore.load().goals.sortedByDescending { it.updatedAt }
 
@@ -2470,59 +2525,60 @@ class DesktopAppService(
             )
             planningIssue.id
         }
-        // Materialize a deterministic fallback plan immediately so the company
-        // loop can keep moving even before an explicit CEO planning run returns.
-        runCatching {
-            stateMutex.withLock {
-                val state = stateStore.load()
-                val planningIssue = state.issues.firstOrNull { it.id == planningIssueId } ?: return@withLock
-                val existingNonPlanning = state.issues.filter {
-                    it.goalId == planningIssue.goalId && !it.kind.equals("planning", ignoreCase = true)
-                }
-                val unresolvedNonPlanning = existingNonPlanning.filterNot { issue ->
-                    issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED
-                }
-                if (unresolvedNonPlanning.isNotEmpty()) {
-                    stateStore.save(
-                        state.copy(
-                            issues = state.issues.map {
-                                if (it.id == planningIssueId) {
-                                    it.copy(status = IssueStatus.DONE, updatedAt = System.currentTimeMillis())
-                                } else {
-                                    it
+        val goalForMode = stateStore.load().goals.firstOrNull { it.id == goalId }
+        if (goalForMode?.autonomyEnabled == false) {
+            runCatching {
+                stateMutex.withLock {
+                    val state = stateStore.load()
+                    val planningIssue = state.issues.firstOrNull { it.id == planningIssueId } ?: return@withLock
+                    val existingNonPlanning = state.issues.filter {
+                        it.goalId == planningIssue.goalId && !it.kind.equals("planning", ignoreCase = true)
+                    }
+                    val unresolvedNonPlanning = existingNonPlanning.filterNot { issue ->
+                        issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED
+                    }
+                    if (unresolvedNonPlanning.isNotEmpty()) {
+                        stateStore.save(
+                            state.copy(
+                                issues = state.issues.map {
+                                    if (it.id == planningIssueId) {
+                                        it.copy(status = IssueStatus.DONE, updatedAt = System.currentTimeMillis())
+                                    } else {
+                                        it
+                                    }
                                 }
-                            }
-                        ).withDerivedMetrics()
+                            ).withDerivedMetrics()
+                        )
+                        return@withLock
+                    }
+                    val goal = state.goals.firstOrNull { it.id == planningIssue.goalId } ?: return@withLock
+                    val workspace = state.workspaces.firstOrNull { it.id == planningIssue.workspaceId } ?: return@withLock
+                    val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                    val now = System.currentTimeMillis()
+                    val fallback = buildFallbackGoalIssues(
+                        state = state,
+                        goal = goal,
+                        workspace = workspace,
+                        profiles = profiles,
+                        definitions = state.companyAgentDefinitions,
+                        now = now
                     )
-                    return@withLock
+                    val updatedPlanningIssue = planningIssue.copy(
+                        status = IssueStatus.DONE,
+                        transitionReason = "Autonomous CEO planning is disabled, so Cotor used the deterministic fallback planner.",
+                        updatedAt = now
+                    )
+                    val company = state.companies.firstOrNull { it.id == goal.companyId } ?: return@withLock
+                    val projectContext = state.projectContexts.firstOrNull { it.companyId == company.id } ?: return@withLock
+                    val nextState = state.copy(
+                        issues = state.issues.filterNot { it.id == planningIssueId } + updatedPlanningIssue + fallback.first,
+                        issueDependencies = state.issueDependencies.filterNot { dep ->
+                            dep.issueId == planningIssueId
+                        } + fallback.second
+                    ).withDerivedMetrics()
+                    stateStore.save(nextState)
+                    writeCompanyContextSnapshot(nextState, company, projectContext)
                 }
-                val goal = state.goals.firstOrNull { it.id == planningIssue.goalId } ?: return@withLock
-                val workspace = state.workspaces.firstOrNull { it.id == planningIssue.workspaceId } ?: return@withLock
-                val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
-                val now = System.currentTimeMillis()
-                val fallback = buildFallbackGoalIssues(
-                    state = state,
-                    goal = goal,
-                    workspace = workspace,
-                    profiles = profiles,
-                    definitions = state.companyAgentDefinitions,
-                    now = now
-                )
-                val updatedPlanningIssue = planningIssue.copy(
-                    status = IssueStatus.DONE,
-                    transitionReason = "CEO planning lane used the deterministic fallback planner.",
-                    updatedAt = now
-                )
-                val company = state.companies.firstOrNull { it.id == goal.companyId } ?: return@withLock
-                val projectContext = state.projectContexts.firstOrNull { it.companyId == company.id } ?: return@withLock
-                val nextState = state.copy(
-                    issues = state.issues.filterNot { it.id == planningIssueId } + updatedPlanningIssue + fallback.first,
-                    issueDependencies = state.issueDependencies.filterNot { dep ->
-                        dep.issueId == planningIssueId
-                    } + fallback.second
-                ).withDerivedMetrics()
-                stateStore.save(nextState)
-                writeCompanyContextSnapshot(nextState, company, projectContext)
             }
         }
         runCatching { mirrorGoalIssuesToLinear(goalId) }
@@ -2896,14 +2952,60 @@ class DesktopAppService(
             .trim()
         return StructuredVerdict(
             value = normalized,
-            feedback = feedback.ifBlank { summarizeForPrompt(text, 240) }
+            feedback = sanitizeReviewFeedback(feedback.ifBlank { text })
         )
     }
 
     private fun normalizedReviewFeedback(text: String?): String =
-        text.orEmpty()
+        sanitizeReviewFeedback(text)
             .trim()
             .replace(Regex("\\s+"), " ")
+
+    private fun sanitizeReviewFeedback(text: String?): String {
+        val raw = text?.trim().orEmpty()
+        if (raw.isBlank()) {
+            return ""
+        }
+        val cleanedLines = raw.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot(::isMachineFeedbackLine)
+            .map { line ->
+                if (line.length > 320) summarizeForPrompt(line, 320) else line
+            }
+            .toList()
+        val effectiveLines = if (cleanedLines.isNotEmpty()) {
+            cleanedLines
+        } else {
+            listOf(summarizeForPrompt(raw, 320))
+        }
+        return effectiveLines
+            .take(5)
+            .joinToString("\n")
+            .trim()
+    }
+
+    private fun reviewFeedbackLines(text: String?): List<String> =
+        sanitizeReviewFeedback(text)
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .take(5)
+            .toList()
+
+    private fun isMachineFeedbackLine(line: String): Boolean {
+        val normalized = line.trim()
+        return normalized == "```" ||
+            normalized.startsWith("```json", ignoreCase = true) ||
+            normalized.startsWith("`text", ignoreCase = true) ||
+            normalized.startsWith("{\"type\"") ||
+            normalized.startsWith("{\"timestamp\"") ||
+            normalized.contains("\"sessionID\"") ||
+            normalized.contains("\"callID\"") ||
+            normalized.contains("\"tool\"") ||
+            normalized.contains("\"command\"") ||
+            normalized.contains("\"metadata\"")
+    }
 
     private fun reviewQueueMatchesPublishedRun(queueItem: ReviewQueueItem, run: AgentRun?): Boolean {
         if (run == null) {
@@ -3020,8 +3122,7 @@ class DesktopAppService(
 
     suspend fun mergeReviewQueueItem(itemId: String): ReviewQueueItem {
         val before = stateStore.load()
-        val item = before.reviewQueue.firstOrNull { it.id == itemId }
-            ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+        val item = requireMergeReadyReviewQueueItem(before, itemId)
         val run = before.runs.firstOrNull { it.id == item.runId }
         val executionIssueBeforeMerge = before.issues.firstOrNull { it.id == item.issueId }
         val worktreePath = item.worktreePath?.takeIf { it.isNotBlank() } ?: run?.worktreePath
@@ -3035,8 +3136,8 @@ class DesktopAppService(
             ?: before.companies.firstOrNull { it.id == item.companyId }?.defaultBaseBranch
             ?: "master"
 
-        val reviewBody = item.ceoFeedback?.takeIf { it.isNotBlank() }
-            ?: "CEO approved this pull request after QA review."
+        val reviewBody = sanitizeReviewFeedback(item.ceoFeedback)
+            .ifBlank { "CEO approved this pull request after QA review." }
         val commentBody = buildPullRequestFeedbackBody(
             actorLabel = "CEO",
             verdictKey = "CEO_VERDICT",
@@ -3096,8 +3197,7 @@ class DesktopAppService(
 
         val mergedItem = stateMutex.withLock {
             val state = stateStore.load()
-            val currentItem = state.reviewQueue.firstOrNull { it.id == itemId }
-                ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+            val currentItem = requireMergeReadyReviewQueueItem(state, itemId)
             val mergedAt = System.currentTimeMillis()
             val nextMergedItem = currentItem.copy(
                 status = ReviewQueueStatus.MERGED,
@@ -3520,6 +3620,7 @@ class DesktopAppService(
                 executionSnapshot.companyAgentDefinitions,
                 executionSnapshot.companies
             ).filter { it.companyId == companyId && it.enabled }
+            val companyProfilesById = companyProfiles.associateBy { it.id }
             val occupiedProfileIds = executionSnapshot.tasks
                 .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
                 .mapNotNull { task ->
@@ -3527,6 +3628,19 @@ class DesktopAppService(
                     if (issue.companyId != companyId) return@mapNotNull null
                     issue.assigneeProfileId
                 }
+                .toMutableSet()
+            val occupiedExecutionAgents = executionSnapshot.tasks
+                .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
+                .mapNotNull { task ->
+                    val issue = executionSnapshot.issues.firstOrNull { it.id == task.issueId } ?: return@mapNotNull null
+                    if (issue.companyId != companyId) return@mapNotNull null
+                    issue.assigneeProfileId
+                        ?.let(companyProfilesById::get)
+                        ?.executionAgentName
+                        ?.trim()
+                        ?.lowercase()
+                }
+                .filter { it.isNotBlank() }
                 .toMutableSet()
             val tasksByIssueId = executionSnapshot.tasks
                 .filter { it.issueId != null }
@@ -3585,8 +3699,19 @@ class DesktopAppService(
                     return@forEach
                 }
                 val profileId = delegated.assigneeProfileId
-                if (profileId == null || occupiedProfileIds.add(profileId)) {
+                val executionAgentName = profileId
+                    ?.let(companyProfilesById::get)
+                    ?.executionAgentName
+                    ?.trim()
+                    ?.lowercase()
+                val canUseProfileSlot = profileId == null || occupiedProfileIds.add(profileId)
+                val canUseExecutionAgentSlot = executionAgentName == null ||
+                    executionAgentName.isBlank() ||
+                    occupiedExecutionAgents.add(executionAgentName)
+                if (canUseProfileSlot && canUseExecutionAgentSlot) {
                     startableIssues += delegated
+                } else if (canUseProfileSlot && executionAgentName != null && executionAgentName.isNotBlank()) {
+                    occupiedProfileIds.remove(profileId)
                 }
             }
 
@@ -4728,6 +4853,10 @@ class DesktopAppService(
             ) ||
             message.contains("githubcopilot.com/.well-known/oauth-protected-resource/mcp/")
 
+    private fun isRecoverableOpenCodeCliFailure(message: String): Boolean =
+        message.contains("decimalerror") &&
+            message.contains("invalid argument: [object object]")
+
     private fun extractGitHubPublishReadinessFailureReason(
         task: AgentTask,
         issue: CompanyIssue,
@@ -4769,12 +4898,14 @@ class DesktopAppService(
                 message.contains("network connection was lost") ||
                 message.contains("connection refused") ||
                 message.contains("no run found") ||
+                message.contains("execution timeout after") ||
                 message.contains("exited before cotor recorded a final result") ||
                 message.contains(INTERRUPTED_RUN_ERROR.lowercase()) ||
                 (message.contains("pull request create failed") && isTransientGitHubPublishFailure(message)) ||
                 message.contains("submitted too quickly") ||
                 isRecoverableCodexExecutionConfigFailure(message) ||
-                isRecoverableCodexMcpBootstrapFailure(message)
+                isRecoverableCodexMcpBootstrapFailure(message) ||
+                isRecoverableOpenCodeCliFailure(message)
         }
     }
 
@@ -5740,12 +5871,18 @@ class DesktopAppService(
                     runs = runsById.values.sortedBy { it.createdAt },
                     reviewQueue = reviewQueueById.values.sortedBy { it.createdAt }
                 )
-                nextState = nextState.recordCompanyActivity(
-                    companyId = companyId,
-                    source = "workflow-lineage",
-                    title = "Healed workflow lineage",
-                    detail = "Repaired $changed stale QA/CEO review lineage entries."
-                ).withDerivedMetrics()
+                if (traceEvents.isNotEmpty()) {
+                    val detail = "Repaired ${traceEvents.size} stale QA/CEO review lineage entries."
+                    if (!nextState.hasRecentCompanyActivity(companyId, "Healed workflow lineage", detail)) {
+                        nextState = nextState.recordCompanyActivity(
+                            companyId = companyId,
+                            source = "workflow-lineage",
+                            title = "Healed workflow lineage",
+                            detail = detail
+                        )
+                    }
+                }
+                nextState = nextState.withDerivedMetrics()
                 stateStore.save(nextState)
             }
         }
@@ -8579,6 +8716,9 @@ class DesktopAppService(
             .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
             .mapNotNull { it.issueId }
             .toSet()
+        val latestRunsByTaskId = state.runs
+            .groupBy { it.taskId }
+            .mapValues { (_, runs) -> runs.maxByOrNull { it.updatedAt }!! }
         val issuesById = state.issues
             .filter { it.companyId == companyId }
             .associateBy { it.id }
@@ -8682,6 +8822,14 @@ class DesktopAppService(
             .sortedByDescending { it.updatedAt }
             .mapNotNull { issue ->
                 if (issue.id in activeTaskIssueIds) return@mapNotNull null
+                val retryDecision = resolveRecoverableRetryDecision(
+                    issueTasks = state.tasks.filter { it.issueId == issue.id },
+                    latestRunsByTaskId = latestRunsByTaskId,
+                    now = System.currentTimeMillis()
+                )
+                if (retryDecision.mode == RecoverableRetryMode.READY || retryDecision.mode == RecoverableRetryMode.WAITING) {
+                    return@mapNotNull null
+                }
                 val parentGoal = state.goals.firstOrNull { it.id == issue.goalId }
                 if (parentGoal?.operatingPolicy?.startsWith("auto-follow-up:") == true) {
                     return@mapNotNull null
@@ -8749,7 +8897,7 @@ class DesktopAppService(
                     "Validation is re-run and residual risks are documented.",
                     "The CEO receives a concrete next-wave recommendation instead of a dead-end remediation note."
                 ),
-                autonomyEnabled = true,
+                autonomyEnabled = false,
                 priority = 1,
                 operatingPolicy = candidate.marker,
                 followUpContext = candidate.followUpContext,
@@ -9592,13 +9740,14 @@ class DesktopAppService(
     private fun commandBackedAgentConfig(name: String): AgentConfig? {
         val resolvedExecutable = resolveExecutablePath(name)?.toString() ?: return null
         val normalizedName = name.trim().lowercase()
+        val timeoutMs = if (normalizedName == "opencode") 45 * 60_000L else 15 * 60_000L
         return AgentConfig(
             name = normalizedName,
             pluginClass = "com.cotor.data.plugin.CommandPlugin",
             parameters = mapOf(
                 "argvJson" to """["$resolvedExecutable","{input}"]"""
             ),
-            timeout = 15 * 60_000L,
+            timeout = timeoutMs,
             tags = listOf("desktop-roster", "command")
         )
     }
@@ -9845,14 +9994,6 @@ class DesktopAppService(
 
             val parsedPlan = if (finalStatus == DesktopTaskStatus.COMPLETED) parseCeoPlanningPayload(primaryRun?.output) else null
             val planningSource = if (parsedPlan != null) "ceo" else "fallback"
-            val fallback = buildFallbackGoalIssues(
-                state = state,
-                goal = goal,
-                workspace = workspace,
-                profiles = profiles,
-                definitions = state.companyAgentDefinitions,
-                now = now
-            )
             val decomposition = if (parsedPlan != null) {
                 val plannedIssues = materializePlannedIssues(
                     goal = goal,
@@ -9872,7 +10013,14 @@ class DesktopAppService(
                     }
                 }
             } else {
-                fallback
+                buildFallbackGoalIssues(
+                    state = state,
+                    goal = goal,
+                    workspace = workspace,
+                    profiles = profiles,
+                    definitions = state.companyAgentDefinitions,
+                    now = now
+                )
             }
             val planningReason = when {
                 parsedPlan != null -> "CEO planning run created ${decomposition.first.size} downstream issues."
@@ -10988,13 +11136,59 @@ class DesktopAppService(
     ): String = buildString {
         appendLine("$verdictKey: $verdict")
         appendLine()
-        appendLine("$actorLabel feedback from Cotor:")
-        if (!feedback.isNullOrBlank()) {
-            appendLine(feedback)
+        appendLine("$actorLabel summary from Cotor:")
+        val feedbackLines = reviewFeedbackLines(feedback)
+        if (feedbackLines.isEmpty()) {
+            appendLine("- $actorLabel recorded this verdict without additional notes.")
         } else {
-            appendLine("$actorLabel recorded this verdict without additional notes.")
+            feedbackLines.forEach { appendLine("- $it") }
         }
     }.trim()
+
+    private fun requireMergeReadyReviewQueueItem(state: DesktopAppState, itemId: String): ReviewQueueItem {
+        val item = state.reviewQueue.firstOrNull { it.id == itemId }
+            ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+        if (item.status != ReviewQueueStatus.READY_FOR_CEO && item.status != ReviewQueueStatus.READY_TO_MERGE) {
+            throw IllegalStateException("Review queue item $itemId is not ready for CEO merge")
+        }
+        if (item.ceoVerdict != null && !item.ceoVerdict.equals("APPROVE", ignoreCase = true)) {
+            throw IllegalStateException("Review queue item $itemId cannot merge after CEO verdict ${item.ceoVerdict}")
+        }
+        val approvalIssue = item.approvalIssueId?.let { approvalIssueId ->
+            state.issues.firstOrNull { it.id == approvalIssueId }
+        }
+        if (approvalIssue?.status == IssueStatus.BLOCKED) {
+            throw IllegalStateException("Review queue item $itemId has a blocked CEO approval issue")
+        }
+        return item
+    }
+
+    private fun truncateExecutionLog(text: String?, maxChars: Int = 12_000): String? {
+        val trimmed = text?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return if (trimmed.length <= maxChars) {
+            trimmed
+        } else {
+            trimmed.take(maxChars) + "\n\n[truncated after $maxChars characters]"
+        }
+    }
+
+    private fun buildIssueExecutionPublishSummary(
+        issue: CompanyIssue,
+        reviewQueueItem: ReviewQueueItem?,
+        run: AgentRun?
+    ): String? {
+        val publish = run?.publish
+        val lines = buildList {
+            reviewQueueItem?.status?.let { add("review queue: $it") }
+            publish?.pullRequestState?.takeIf { it.isNotBlank() }?.let { add("pr state: $it") }
+            publish?.mergeability?.takeIf { it.isNotBlank() }?.let { add("mergeability: $it") }
+            publish?.checksSummary?.takeIf { it.isNotBlank() }?.let { add("checks: ${summarizeForPrompt(it, 220)}") }
+            reviewQueueItem?.qaVerdict?.takeIf { it.isNotBlank() }?.let { add("qa: $it") }
+            reviewQueueItem?.ceoVerdict?.takeIf { it.isNotBlank() }?.let { add("ceo: $it") }
+            issue.mergeResult?.takeIf { it.isNotBlank() }?.let { add("merge: $it") }
+        }
+        return lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
+    }
 
     private fun isMergeConflictFailure(error: ProcessExecutionException): Boolean {
         val combined = listOf(error.message, error.stdout, error.stderr)
@@ -11588,28 +11782,52 @@ class DesktopAppService(
             val backendKind = company?.backendKind ?: backendSettings.defaultBackendKind
             val backendStatus = companyBackendStatus(companyId, this)
             val runtimeStopped = existing.status == CompanyRuntimeStatus.STOPPED
+            val localAppServerInstance = readDesktopAppServerInstanceStatus(stateStore.appHome())
+            val localRuntimeAttached = localAppServerInstance.active
             val budgetWindow = currentBudgetWindow(existing)
             val budgetPausedAt = if (company != null && isBudgetExhausted(company, budgetWindow.todaySpentCents, budgetWindow.monthSpentCents)) {
                 existing.budgetPausedAt
             } else {
                 null
             }
+            val localBackendDetached =
+                !runtimeStopped &&
+                    backendKind == ExecutionBackendKind.LOCAL_COTOR &&
+                    !localRuntimeAttached
+            val localBackendMessage =
+                if (localBackendDetached) {
+                    "No active local Cotor app-server instance is attached to this app home. Autonomous work resumes when the app-server or desktop app is running again."
+                } else {
+                    backendStatus?.message
+                }
             existing.copy(
                 companyId = companyId,
                 backendKind = backendKind,
-                backendHealth = if (runtimeStopped) "stopped" else backendStatus?.health ?: "unknown",
+                backendHealth = when {
+                    runtimeStopped -> "stopped"
+                    localBackendDetached -> "offline"
+                    else -> backendStatus?.health ?: "unknown"
+                },
                 backendMessage = if (runtimeStopped && existing.manuallyStoppedAt != null) {
                     "Runtime stopped manually until the user presses Start."
                 } else {
-                    backendStatus?.message
+                    localBackendMessage
                 },
                 backendLifecycleState = if (runtimeStopped) {
+                    BackendLifecycleState.STOPPED
+                } else if (localBackendDetached) {
                     BackendLifecycleState.STOPPED
                 } else {
                     backendStatus.lifecycleState
                 },
-                backendPid = backendStatus.pid,
-                backendPort = backendStatus.port,
+                backendPid = when {
+                    backendKind == ExecutionBackendKind.LOCAL_COTOR -> localAppServerInstance.metadata?.pid
+                    else -> backendStatus.pid
+                },
+                backendPort = when {
+                    backendKind == ExecutionBackendKind.LOCAL_COTOR -> localAppServerInstance.metadata?.port
+                    else -> backendStatus.port
+                },
                 tickIntervalSeconds = companyRuntimeTickIntervalMs / 1000,
                 activeGoalCount = goals.count { it.companyId == companyId && it.status == GoalStatus.ACTIVE },
                 activeIssueCount = issues.count {

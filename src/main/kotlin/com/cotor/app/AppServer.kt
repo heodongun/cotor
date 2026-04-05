@@ -8,6 +8,8 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.a2a.A2aRouter
+import com.cotor.a2a.installA2aRoutes
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -119,6 +121,11 @@ internal data class DesktopAppServerLockRecord(
     val metadataPath: Path
 )
 
+internal data class DesktopAppServerInstanceStatus(
+    val active: Boolean,
+    val metadata: DesktopAppServerInstanceMetadata? = null
+)
+
 internal class DesktopAppServerInstanceGuard(
     private val appHomeProvider: () -> Path = { defaultDesktopAppHome() }
 ) {
@@ -186,6 +193,19 @@ internal class DesktopAppServerInstanceGuard(
 
 internal val desktopAppServerInstanceGuard = DesktopAppServerInstanceGuard()
 
+internal fun readDesktopAppServerInstanceStatus(appHome: Path): DesktopAppServerInstanceStatus {
+    val metadataPath = appHome.resolve("runtime").resolve("backend").resolve("app-server.instance.json")
+    if (!Files.exists(metadataPath)) {
+        return DesktopAppServerInstanceStatus(active = false)
+    }
+    val json = Json { ignoreUnknownKeys = true }
+    val metadata = runCatching {
+        json.decodeFromString(DesktopAppServerInstanceMetadata.serializer(), Files.readString(metadataPath))
+    }.getOrNull() ?: return DesktopAppServerInstanceStatus(active = false)
+    val active = ProcessHandle.of(metadata.pid).map(ProcessHandle::isAlive).orElse(false)
+    return DesktopAppServerInstanceStatus(active = active, metadata = metadata.takeIf { active })
+}
+
 /**
  * Keep the routing tree flat and explicit for the first desktop iteration.
  * This makes it easier to evolve the contract while the Swift app is still
@@ -205,6 +225,7 @@ internal fun Application.cotorAppModule(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+    val a2aRouter = A2aRouter(desktopService)
     install(ContentNegotiation) {
         json(ktorJson)
     }
@@ -226,6 +247,8 @@ internal fun Application.cotorAppModule(
         get("/ready") {
             call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
         }
+
+        installA2aRoutes(token, a2aRouter)
 
         route("/api/app") {
             // `/api/app` is the contract consumed by the desktop shell. The routes under this
@@ -483,6 +506,15 @@ internal fun Application.cotorAppModule(
                 }
             }
 
+            route("/issues/{issueId}/execution-details") {
+                get {
+                    if (!requireToken(token)) return@get
+                    val issueId = call.parameters["issueId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    call.respond(desktopService.issueExecutionDetails(issueId))
+                }
+            }
+
             route("/goals") {
                 get {
                     if (!requireToken(token)) return@get
@@ -599,6 +631,13 @@ internal fun Application.cotorAppModule(
                         val issue = desktopService.getIssue(issueId)
                             ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found: $issueId"))
                         call.respond(issue)
+                    }
+
+                    get("/{issueId}/execution-details") {
+                        if (!requireToken(token)) return@get
+                        val issueId = call.parameters["issueId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                        call.respond(desktopService.issueExecutionDetails(issueId))
                     }
 
                     post("/{issueId}/delegate") {
@@ -1300,6 +1339,13 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@get
                     val goalId = call.request.queryParameters["goalId"]
                     call.respond(desktopService.listIssues(goalId))
+                }
+
+                get("/{issueId}/execution-details") {
+                    if (!requireToken(token)) return@get
+                    val issueId = call.parameters["issueId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    call.respond(desktopService.issueExecutionDetails(issueId))
                 }
 
                 post("/{issueId}/delegate") {

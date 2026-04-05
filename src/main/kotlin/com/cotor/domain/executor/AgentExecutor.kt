@@ -144,7 +144,7 @@ class DefaultAgentExecutor(
                 )
             } catch (e: ProcessExecutionException) {
                 logAgentFailure("Agent process execution failed: ${agent.name}", e)
-                val stderr = e.stderr.trim().ifEmpty { "(no stderr)" }
+                val stderr = e.stderr.trim().ifEmpty { e.stdout.trim() }.ifEmpty { "(no stderr)" }
                 val message = e.message?.trim().orEmpty().ifEmpty { "Process failed" }
                 AgentResult(
                     agentName = agent.name,
