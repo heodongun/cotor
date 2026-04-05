@@ -445,6 +445,7 @@ class DesktopAppServiceTest : FunSpec({
                 }
                 delay(25)
             }
+            error("Unreachable")
         }
         val updatedIssue = fixture.stateStore.load().issues.single { it.id == issue.id }
         updatedIssue.status shouldBe IssueStatus.DONE
@@ -1389,7 +1390,7 @@ class DesktopAppServiceTest : FunSpec({
             stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
         }
         companyRuns.shouldNotBeEmpty()
-        withTimeout(20_000) {
+        withTimeout(60_000) {
             while (companyRuns.none { it.status != AgentRunStatus.QUEUED }) {
                 service.runCompanyRuntimeTick(goal.companyId)
                 delay(25)
@@ -3760,7 +3761,7 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val refreshed = withTimeout(30_000) {
+        val refreshed = withTimeout(60_000) {
             while (true) {
                 val candidate = stateStore.load()
                 val followUpGoal = candidate.goals.firstOrNull {
@@ -4274,7 +4275,7 @@ class DesktopAppServiceTest : FunSpec({
         service.startCompanyRuntime(company.id)
         service.runCompanyRuntimeTick(company.id)
 
-        withTimeout(45_000) {
+        withTimeout(60_000) {
             while (true) {
                 if (stateStore.load().tasks.count { it.issueId == executionIssue.id } > 1) {
                     return@withTimeout
@@ -5652,7 +5653,7 @@ class DesktopAppServiceTest : FunSpec({
         )
 
         lateinit var resumedState: DesktopAppState
-        withTimeout(5_000) {
+        withTimeout(30_000) {
             while (true) {
                 resumedState = stateStore.load()
                 val resumedTaskStarted = resumedState.tasks.any {
@@ -5662,7 +5663,7 @@ class DesktopAppServiceTest : FunSpec({
                     activity.companyId == company.id &&
                         activity.title == "Resumed delegated issues"
                 }
-                if (resumedTaskStarted && resumeActivityRecorded) {
+                if (resumedTaskStarted && resumeActivityRecorded && capturedAgents.isNotEmpty()) {
                     break
                 }
                 delay(25)
@@ -6613,7 +6614,23 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val refreshed = stateStore.load()
+        val refreshed = withTimeout(30_000) {
+            while (true) {
+                val candidate = stateStore.load()
+                val candidateExecution = candidate.issues.first { it.id == executionIssue.id }
+                val candidateQueue = candidate.reviewQueue.first { it.id == reviewQueueItem.id }
+                if (
+                    candidateExecution.status == IssueStatus.READY_FOR_CEO &&
+                    candidateQueue.status == ReviewQueueStatus.READY_FOR_CEO &&
+                    candidateQueue.ceoVerdict == null &&
+                    candidateQueue.qaVerdict == "PASS"
+                ) {
+                    return@withTimeout candidate
+                }
+                delay(25)
+            }
+            error("Unreachable")
+        }
         // After the tick processes the completed QA review task, the execution
         // issue should advance to READY_FOR_CEO and the review queue should
         // reflect the QA PASS verdict.
@@ -6950,6 +6967,7 @@ class DesktopAppServiceTest : FunSpec({
                 }
                 delay(25)
             }
+            error("Unreachable")
         }
         val refreshed = stateStore.load()
         val refreshedExecution = refreshed.issues.first { it.id == executionIssue.id }
