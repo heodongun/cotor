@@ -57,7 +57,7 @@ with open(path, "w") as handle:
     fcntl.lockf(handle, fcntl.LOCK_EX)
     print("locked", flush=True)
     time.sleep(5)
-""".trimIndent(),
+            """.trimIndent(),
             lockPath.toString()
         ).start()
 

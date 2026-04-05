@@ -13,7 +13,10 @@ class A2aRouter(
     private val sessionStore: A2aSessionStore = A2aSessionStore(),
     private val dedupeStore: A2aDedupeStore = A2aDedupeStore()
 ) {
-    private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+    private val json = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
+    }
     private val artifacts = mutableListOf<A2aArtifactRegistration>()
 
     fun openSession(request: A2aHelloRequest, now: Long = System.currentTimeMillis()): A2aWelcomeResponse {
@@ -167,8 +170,10 @@ class A2aRouter(
         return tenantSessions.filter { session ->
             envelope.to.any { target ->
                 target.agentId.equals(session.agentId, ignoreCase = true) ||
-                    (!target.executionAgentName.isNullOrBlank() &&
-                        target.executionAgentName.equals(session.executionAgentName, ignoreCase = true))
+                    (
+                        !target.executionAgentName.isNullOrBlank() &&
+                            target.executionAgentName.equals(session.executionAgentName, ignoreCase = true)
+                        )
             }
         }
     }
