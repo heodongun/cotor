@@ -432,7 +432,16 @@ class DesktopAppServiceTest : FunSpec({
         fixture.service.runTask(task.id)
         fixture.awaitRuns()
 
-        val updatedIssue = fixture.stateStore.load().issues.single { it.id == issue.id }
+        val updatedIssue = withTimeout(5_000) {
+            while (true) {
+                val candidate = fixture.stateStore.load().issues.single { it.id == issue.id }
+                if (candidate.status == IssueStatus.DONE) {
+                    return@withTimeout candidate
+                }
+                delay(25)
+            }
+            error("Unreachable")
+        }
         updatedIssue.status shouldBe IssueStatus.DONE
         updatedIssue.pullRequestNumber shouldBe null
         updatedIssue.pullRequestUrl shouldBe null

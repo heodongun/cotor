@@ -140,7 +140,7 @@ Result:
 
 - passed
 
-Full Kotlin suite in the active dirty worktree:
+Full Kotlin suite in the active branch state:
 
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
@@ -149,8 +149,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 
 Result:
 
-- one unrelated existing failure remained in `DesktopAppServiceTest > runTask clears stale review metadata when a validation-only follow-up completes without publishing`
-- this failure was already present in the active dirty branch during investigation and is outside the changed code path here
+- `BUILD SUCCESSFUL`
 
 Swift:
 
@@ -173,6 +172,7 @@ Verified directly:
 - raw `opencode run` works in both repo root and generated company worktrees for simple prompts and for a tool-using prompt (`Inspect README.md and report one sentence.`)
 - after rebuilding `shadowJar`, a CLI-created autonomous company now reports detached local backend state honestly before `app-server` startup
 - in a fresh 65-second launcher-based company run with a live `app-server`, the workflow advanced from CEO planning into execution, recovered from a failed run, and re-entered `IN_PROGRESS` with a fresh retry task
+- replaying the real `cotor-test` company for about a minute with a live `app-server` showed the runtime continuing to reconcile and restart work instead of remaining globally dead; blocked execution issues and review lanes moved between `DELEGATED`, `IN_PROGRESS`, and `IN_REVIEW` while the runtime stayed healthy and ticking
 
 ## Remaining limitations / follow-up work
 
