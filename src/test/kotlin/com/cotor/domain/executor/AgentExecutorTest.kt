@@ -12,6 +12,7 @@ import com.cotor.data.plugin.AgentPlugin
 import com.cotor.data.plugin.PluginLoader
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.AgentConfig
+import com.cotor.model.ProcessExecutionException
 import com.cotor.model.PluginExecutionOutput
 import com.cotor.security.SecurityValidator
 import io.kotest.core.spec.style.FunSpec
@@ -118,5 +119,30 @@ class AgentExecutorTest : FunSpec({
         // Then
         result.isSuccess shouldBe false
         result.error?.contains("validation") shouldBe true
+    }
+
+    test("should surface stdout when a process failure has no stderr") {
+        val agentConfig = AgentConfig(
+            name = "opencode",
+            pluginClass = "com.example.ProcessPlugin",
+            timeout = 5000
+        )
+
+        val mockPlugin = mockk<AgentPlugin>()
+        coEvery { mockPlugin.execute(any(), any()) } throws ProcessExecutionException(
+            message = "OpenCode execution failed",
+            exitCode = 1,
+            stdout = "{\"type\":\"error\",\"error\":{\"name\":\"UnknownError\",\"data\":{\"message\":\"Error: [DecimalError] Invalid argument: [object Object]\"}}}",
+            stderr = ""
+        )
+        every { mockPlugin.validateInput(any()) } returns com.cotor.model.ValidationResult.Success
+        every { mockPluginLoader.loadPlugin(any()) } returns mockPlugin
+        every { mockSecurityValidator.validate(any()) } just runs
+
+        val result = executor.executeAgent(agentConfig, "test input")
+
+        result.isSuccess shouldBe false
+        result.output shouldBe "{\"type\":\"error\",\"error\":{\"name\":\"UnknownError\",\"data\":{\"message\":\"Error: [DecimalError] Invalid argument: [object Object]\"}}}"
+        result.error shouldBe "OpenCode execution failed (exit=1): {\"type\":\"error\",\"error\":{\"name\":\"UnknownError\",\"data\":{\"message\":\"Error: [DecimalError] Invalid argument: [object Object]\"}}}"
     }
 })
