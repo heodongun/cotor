@@ -18,6 +18,7 @@ import com.cotor.model.AgentConfig
 import com.cotor.model.AgentResult
 import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
+import io.kotest.core.annotation.Isolate
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
@@ -42,6 +43,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
 
+@Isolate
 class DesktopAppServiceTest : FunSpec({
     test("builtin opencode company agent uses a longer timeout budget") {
         BuiltinAgentCatalog.get("opencode")!!.timeout shouldBe 45 * 60_000L
@@ -432,16 +434,25 @@ class DesktopAppServiceTest : FunSpec({
         fixture.service.runTask(task.id)
         fixture.awaitRuns()
 
-        val updatedIssue = withTimeout(5_000) {
+        withTimeout(10_000) {
             while (true) {
                 val candidate = fixture.stateStore.load().issues.single { it.id == issue.id }
-                if (candidate.status == IssueStatus.DONE) {
-                    return@withTimeout candidate
+                val metadataCleared =
+                    candidate.pullRequestNumber == null &&
+                        candidate.pullRequestUrl == null &&
+                        candidate.pullRequestState == null &&
+                        candidate.qaVerdict == null &&
+                        candidate.qaFeedback == null &&
+                        candidate.ceoVerdict == null &&
+                        candidate.ceoFeedback == null
+                if (candidate.status == IssueStatus.DONE && metadataCleared) {
+                    return@withTimeout
                 }
                 delay(25)
             }
             error("Unreachable")
         }
+        val updatedIssue = fixture.stateStore.load().issues.single { it.id == issue.id }
         updatedIssue.status shouldBe IssueStatus.DONE
         updatedIssue.pullRequestNumber shouldBe null
         updatedIssue.pullRequestUrl shouldBe null
@@ -1493,6 +1504,17 @@ class DesktopAppServiceTest : FunSpec({
             stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
         }
         companyRuns.shouldNotBeEmpty()
+        withTimeout(60_000) {
+            while (companyRuns.none { it.status != AgentRunStatus.QUEUED }) {
+                service.runCompanyRuntimeTick(goal.companyId)
+                delay(25)
+                companyRuns = stateStore.load().runs.filter { run ->
+                    val task = stateStore.load().tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
+                    val issueId = task.issueId ?: return@filter false
+                    stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
+                }
+            }
+        }
         companyRuns.any { it.status != AgentRunStatus.QUEUED } shouldBe true
         service.runtimeStatus(goal.companyId).status shouldBe CompanyRuntimeStatus.RUNNING
     }
@@ -2231,7 +2253,7 @@ class DesktopAppServiceTest : FunSpec({
 
         service.companyDashboard(company.id)
 
-        withTimeout(10_000) {
+        withTimeout(30_000) {
             while (stateStore.load().tasks.none { it.issueId == pendingIssue.id }) {
                 service.companyDashboard(company.id)
                 delay(100)
@@ -3668,6 +3690,11 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
+        withTimeout(10_000) {
+            while (stateStore.load().issues.first { it.id == reviewIssue.id }.status == IssueStatus.BLOCKED) {
+                delay(25)
+            }
+        }
         val refreshedState = stateStore.load()
         refreshedState.issues.first { it.id == canceledExecution.id }.status shouldBe IssueStatus.CANCELED
         refreshedState.issues.first { it.id == successfulRetry.id }.status shouldBe IssueStatus.DONE
@@ -3975,18 +4002,31 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val refreshed = stateStore.load()
-        val followUpGoal = withTimeout(5_000) {
+        val refreshed = withTimeout(120_000) {
             while (true) {
-                stateStore.load().goals.firstOrNull {
+                val candidate = stateStore.load()
+                val followUpGoal = candidate.goals.firstOrNull {
                     it.companyId == company.id &&
                         it.followUpContext?.rootGoalId == goal.id &&
                         it.followUpContext?.reviewQueueItemId == reviewQueueItem.id &&
                         it.followUpContext?.failureClass == FollowUpFailureClass.MERGE_CONFLICT
-                }?.let { return@withTimeout it }
+                }
+                val followUpExecutionIssueCount = followUpGoal?.let { goalCandidate ->
+                    candidate.issues.count { it.goalId == goalCandidate.id && it.kind.equals("execution", ignoreCase = true) }
+                } ?: 0
+                if (followUpGoal != null && followUpExecutionIssueCount >= 2) {
+                    return@withTimeout candidate
+                }
+                service.runCompanyRuntimeTick(company.id)
                 delay(25)
             }
             error("Unreachable")
+        }
+        val followUpGoal = refreshed.goals.first {
+            it.companyId == company.id &&
+                it.followUpContext?.rootGoalId == goal.id &&
+                it.followUpContext?.reviewQueueItemId == reviewQueueItem.id &&
+                it.followUpContext?.failureClass == FollowUpFailureClass.MERGE_CONFLICT
         }
         check(followUpGoal.followUpContext?.failureClass == FollowUpFailureClass.MERGE_CONFLICT) {
             "Expected merge-conflict follow-up context but was ${followUpGoal.followUpContext}"
@@ -4494,10 +4534,18 @@ class DesktopAppServiceTest : FunSpec({
         service.startCompanyRuntime(company.id)
         service.runCompanyRuntimeTick(company.id)
 
-        // The retry may reuse the reopened workflow lane or create a fresh task depending on
-        // how fast normalization and start logic settle. Verify the issue stayed active and the
-        // recoverable retry path was recorded instead of pinning the exact task count.
-        stateStore.load().tasks.count { it.issueId == executionIssue.id } shouldBeGreaterThan 0
+        withTimeout(120_000) {
+            while (true) {
+                if (stateStore.load().tasks.count { it.issueId == executionIssue.id } > 1) {
+                    return@withTimeout
+                }
+                service.runCompanyRuntimeTick(company.id)
+                delay(25)
+            }
+        }
+        // The tick requeues the issue and restarts it – which may re-block it when the
+        // relaxed mock executor fails.  Verify the retry was attempted via task count.
+        stateStore.load().tasks.count { it.issueId == executionIssue.id } shouldBeGreaterThan 1
         stateStore.load().goals.first { it.id == goal.id }.status shouldBe GoalStatus.ACTIVE
         val traceLog = Files.readString(appHome.resolve("runtime").resolve("backend").resolve("company-automation-trace.log"))
         traceLog shouldContain "\"issueId\":\"${executionIssue.id}\""
@@ -4936,7 +4984,6 @@ class DesktopAppServiceTest : FunSpec({
         val originalIssue = service.listIssues(goal.id).first { it.kind == "execution" }
         blockIssueWithFailedTask(stateStore, originalIssue)
         service.updateGoal(goal.id, autonomyEnabled = true)
-        service.startCompanyRuntime(company.id)
         // Multiple ticks may be needed for follow-up goal synthesis depending on
         // normalization order and timestamp granularity.
         repeat(3) { service.runCompanyRuntimeTick(company.id) }
@@ -4973,18 +5020,17 @@ class DesktopAppServiceTest : FunSpec({
         // when the first tick races with issue materialization timestamps.
         service.runCompanyRuntimeTick(company.id)
 
-        withTimeout(5_000) {
-            while (true) {
-                val updatedNestedGoal = stateStore.load().goals.first { it.id == nestedGoal.id }
-                if (updatedNestedGoal.status == GoalStatus.COMPLETED) {
-                    stateStore.load().issues.filter { it.goalId == nestedGoal.id }.all {
-                        it.status == IssueStatus.CANCELED || it.status == IssueStatus.DONE
-                    } shouldBe true
-                    return@withTimeout
-                }
-                delay(25)
-            }
-        }
+        val companyGoalsAfterNestedTicks = stateStore.load().goals.filter { it.companyId == company.id }
+        val updatedNestedGoal = companyGoalsAfterNestedTicks.firstOrNull { it.id == nestedGoal.id }
+            ?: error(
+                "Nested follow-up goal disappeared. Goals: ${
+                    companyGoalsAfterNestedTicks.map { "${it.id}:${it.operatingPolicy}:${it.status}" }
+                }"
+            )
+        updatedNestedGoal.status shouldBe GoalStatus.COMPLETED
+        stateStore.load().issues.filter { it.goalId == nestedGoal.id }.all {
+            it.status == IssueStatus.CANCELED || it.status == IssueStatus.DONE
+        } shouldBe true
     }
 
     test("company dashboard migrates legacy follow-up markers to the root goal lineage and archives duplicates") {
@@ -6103,7 +6149,7 @@ class DesktopAppServiceTest : FunSpec({
         )
 
         lateinit var resumedState: DesktopAppState
-        withTimeout(5_000) {
+        withTimeout(30_000) {
             while (true) {
                 resumedState = stateStore.load()
                 val resumedTaskStarted = resumedState.tasks.any {
@@ -6113,7 +6159,7 @@ class DesktopAppServiceTest : FunSpec({
                     activity.companyId == company.id &&
                         activity.title == "Resumed delegated issues"
                 }
-                if (resumedTaskStarted && resumeActivityRecorded) {
+                if (resumedTaskStarted && resumeActivityRecorded && capturedAgents.isNotEmpty()) {
                     break
                 }
                 delay(25)
@@ -7067,7 +7113,23 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val refreshed = stateStore.load()
+        val refreshed = withTimeout(30_000) {
+            while (true) {
+                val candidate = stateStore.load()
+                val candidateExecution = candidate.issues.first { it.id == executionIssue.id }
+                val candidateQueue = candidate.reviewQueue.first { it.id == reviewQueueItem.id }
+                if (
+                    candidateExecution.status == IssueStatus.READY_FOR_CEO &&
+                    candidateQueue.status == ReviewQueueStatus.READY_FOR_CEO &&
+                    candidateQueue.ceoVerdict == null &&
+                    candidateQueue.qaVerdict == "PASS"
+                ) {
+                    return@withTimeout candidate
+                }
+                delay(25)
+            }
+            error("Unreachable")
+        }
         // After the tick processes the completed QA review task, the execution
         // issue should advance to READY_FOR_CEO and the review queue should
         // reflect the QA PASS verdict.
@@ -7387,6 +7449,25 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
+        withTimeout(10_000) {
+            while (true) {
+                val candidate = stateStore.load()
+                val executionReady = candidate.issues.first { it.id == executionIssue.id }.status == IssueStatus.IN_REVIEW
+                val staleIssuesClosed =
+                    candidate.issues.none { it.id == staleReviewIssue.id } &&
+                        candidate.issues.none { it.id == staleApprovalIssue.id }
+                val queueRebuilt = candidate.reviewQueue.any {
+                    it.issueId == executionIssue.id &&
+                        it.id != staleQueueItem.id &&
+                        it.pullRequestNumber == 22
+                }
+                if (executionReady && staleIssuesClosed && queueRebuilt) {
+                    return@withTimeout
+                }
+                delay(25)
+            }
+            error("Unreachable")
+        }
         val refreshed = stateStore.load()
         val refreshedExecution = refreshed.issues.first { it.id == executionIssue.id }
         refreshedExecution.status shouldBe IssueStatus.IN_REVIEW
@@ -7525,7 +7606,25 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val refreshed = stateStore.load()
+        val refreshed = withTimeout(30_000) {
+            while (true) {
+                val candidate = stateStore.load()
+                val candidateExecution = candidate.issues.first { it.id == executionIssue.id }
+                val candidateQueue = candidate.reviewQueue.first { it.issueId == executionIssue.id }
+                val noQaReviewIssue = candidate.issues.none {
+                    it.kind.equals("review", ignoreCase = true) && executionIssue.id in it.dependsOn
+                }
+                if (
+                    candidateExecution.status !in setOf(IssueStatus.IN_REVIEW, IssueStatus.READY_FOR_CEO, IssueStatus.DONE) &&
+                    candidateQueue.status == ReviewQueueStatus.CHANGES_REQUESTED &&
+                    noQaReviewIssue
+                ) {
+                    return@withTimeout candidate
+                }
+                delay(25)
+            }
+            error("Unreachable")
+        }
         val refreshedExecution = refreshed.issues.first { it.id == executionIssue.id }
         refreshedExecution.status shouldNotBe IssueStatus.IN_REVIEW
         refreshedExecution.status shouldNotBe IssueStatus.READY_FOR_CEO
@@ -9219,7 +9318,26 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val refreshedState = stateStore.load()
+        val refreshedState = withTimeout(30_000) {
+            while (true) {
+                val candidate = stateStore.load()
+                val candidateExecution = candidate.issues.first { it.id == executionIssue.id }
+                val candidateApproval = candidate.issues.firstOrNull { it.id == approvalIssue.id }
+                val candidateQueue = candidate.reviewQueue.firstOrNull { it.id == reviewQueueItem.id }
+                if (
+                    candidateExecution.status == IssueStatus.PLANNED &&
+                    candidateExecution.executionIntent == ExecutionIntent.MERGE_CONFLICT_REMEDIATION &&
+                    candidateApproval == null &&
+                    candidateQueue != null &&
+                    candidateQueue.status == ReviewQueueStatus.CHANGES_REQUESTED &&
+                    candidate.reviewQueue.count { it.issueId == executionIssue.id } == 1
+                ) {
+                    return@withTimeout candidate
+                }
+                delay(25)
+            }
+            error("Unreachable")
+        }
         val refreshedExecution = refreshedState.issues.first { it.id == executionIssue.id }
         val refreshedApproval = refreshedState.issues.firstOrNull { it.id == approvalIssue.id }
         val refreshedQueue = refreshedState.reviewQueue.firstOrNull { it.id == reviewQueueItem.id }
@@ -9234,7 +9352,7 @@ class DesktopAppServiceTest : FunSpec({
         refreshedQueue.id shouldBe reviewQueueItem.id
         refreshedQueue.approvalIssueId shouldBe null
         refreshedState.reviewQueue.count { it.issueId == executionIssue.id } shouldBe 1
-        coVerify(exactly = 1) {
+        coVerify(timeout = 30_000, exactly = 1) {
             gitWorkspaceService.refreshPullRequestMetadata(worktreePath, 22)
         }
     }

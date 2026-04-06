@@ -1,12 +1,11 @@
 package com.cotor.a2a
 
-import com.cotor.app.CompanyDashboardResponse
 import com.cotor.app.DesktopAppService
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.put
 import java.util.UUID
 
 class A2aRouter(
@@ -14,144 +13,183 @@ class A2aRouter(
     private val sessionStore: A2aSessionStore = A2aSessionStore(),
     private val dedupeStore: A2aDedupeStore = A2aDedupeStore()
 ) {
-    suspend fun openSession(request: A2aSessionHelloRequest): A2aSessionWelcomeResponse =
-        sessionStore.open(request)
-
-    suspend fun acceptMessage(envelope: A2aEnvelope): A2aAckResponse {
-        if (envelope.v != "a2a.v1") {
-            throw IllegalArgumentException("unsupported_version")
-        }
-        if (System.currentTimeMillis() > envelope.ts + envelope.ttlMs) {
-            throw IllegalStateException("expired_message")
-        }
-        dedupeStore.get(envelope.dedupeKey)?.let { existing ->
-            return existing.copy(
-                ack = existing.ack.copy(dedupeStatus = "already_processed")
-            )
-        }
-        persistMessageSideEffects(envelope)
-        if (envelope.to.isNotEmpty()) {
-            sessionStore.enqueue(
-                recipientAgentIds = envelope.to.map { it.agentId }.toSet(),
-                tenant = envelope.tenant,
-                message = envelope
-            )
-        }
-        val ack = A2aAckResponse(
-            ack = A2aAck(
-                messageId = envelope.id,
-                dedupeStatus = "accepted",
-                serverTs = System.currentTimeMillis()
-            )
-        )
-        dedupeStore.put(envelope.dedupeKey, ack)
-        return ack
+    private val json = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
     }
+    private val artifacts = mutableListOf<A2aArtifactRegistration>()
 
-    suspend fun pullMessages(sessionId: String, after: String?, limit: Int): A2aPullResponse {
-        val session = sessionStore.get(sessionId) ?: throw IllegalArgumentException("unknown_session")
-        sessionStore.touch(sessionId)
-        val messages = sessionStore.pull(sessionId, after, limit.coerceIn(1, 100))
-        return A2aPullResponse(
-            sessionId = session.sessionId,
-            messages = messages,
-            nextCursor = messages.lastOrNull()?.id
-        )
-    }
-
-    suspend fun snapshot(request: A2aSnapshotRequest): CompanyDashboardResponse =
-        desktopService.companyDashboard(request.tenant.companyId)
-
-    suspend fun registerArtifact(request: A2aArtifactRegistrationRequest): A2aArtifactRegistrationResponse {
-        val now = System.currentTimeMillis()
-        if (!request.url.isNullOrBlank()) {
-            desktopService.addContextEntry(
-                companyId = request.tenant.companyId,
-                agentName = "a2a",
-                kind = "artifact",
-                title = request.label,
-                content = request.url,
-                issueId = request.issueId,
-                goalId = null,
-                visibility = "goal"
-            )
-        }
-        return A2aArtifactRegistrationResponse(
-            artifactId = UUID.randomUUID().toString(),
-            kind = request.kind,
-            label = request.label,
-            url = request.url,
-            localPath = request.localPath,
+    fun openSession(request: A2aHelloRequest, now: Long = System.currentTimeMillis()): A2aWelcomeResponse {
+        val session = sessionStore.open(request, now)
+        return A2aWelcomeResponse(
+            sessionId = session.id,
+            heartbeatIntervalMs = sessionStore.heartbeatIntervalMs(),
             serverTs = now
         )
     }
 
-    private suspend fun persistMessageSideEffects(envelope: A2aEnvelope) {
-        val companyId = envelope.tenant.companyId
-        val fromAgent = envelope.from.roleName?.ifBlank { null } ?: envelope.from.agentId
-        val issueId = envelope.correlation.issueId
-        val goalId = envelope.correlation.goalId
-        val title = bodyTitle(envelope.body) ?: envelope.type
-        val content = bodyText(envelope.body) ?: envelope.type
+    suspend fun postMessage(envelope: A2aEnvelope, now: Long = System.currentTimeMillis()): A2aAckResponse {
+        validateEnvelope(envelope, now)
+        val freshAck = A2aAck(
+            messageId = envelope.id,
+            dedupeStatus = "accepted",
+            serverTs = now
+        )
+        val (accepted, ack) = dedupeStore.remember(envelope.dedupeKey, freshAck)
+        if (!accepted) {
+            return A2aAckResponse(
+                ack = ack.copy(dedupeStatus = "already_processed")
+            )
+        }
+        persistInternalMessage(envelope)
+        recipientsFor(envelope).forEach { session ->
+            sessionStore.enqueue(session.id, envelope, now)
+        }
+        return A2aAckResponse(ack = ack)
+    }
+
+    fun pullMessages(sessionId: String, after: Long?, limit: Int, now: Long = System.currentTimeMillis()): A2aPullResponse {
+        require(limit > 0) { "limit must be positive" }
+        require(sessionStore.session(sessionId) != null) { "Unknown session: $sessionId" }
+        val messages = sessionStore.pull(sessionId, after, limit.coerceAtMost(100), now)
+        return A2aPullResponse(
+            messages = messages,
+            nextCursor = messages.lastOrNull()?.cursor
+        )
+    }
+
+    suspend fun snapshot(request: A2aSnapshotRequest, now: Long = System.currentTimeMillis()): A2aSnapshotResponse {
+        val dashboard = desktopService.companyDashboard(request.tenant.companyId)
+        val snapshot = buildJsonObject {
+            put("companyId", request.tenant.companyId)
+            put("serverTs", now)
+            put("dashboard", json.encodeToJsonElement(dashboard))
+        }
+        return A2aSnapshotResponse(serverTs = now, snapshot = snapshot)
+    }
+
+    fun registerArtifact(request: A2aArtifactRegistrationRequest, now: Long = System.currentTimeMillis()): A2aArtifactRegistrationResponse {
+        val artifact = A2aArtifactRegistration(
+            id = UUID.randomUUID().toString(),
+            tenant = request.tenant,
+            kind = request.kind.trim(),
+            label = request.label.trim(),
+            url = request.url?.trim(),
+            localPath = request.localPath?.trim(),
+            issueId = request.issueId,
+            taskId = request.taskId,
+            runId = request.runId,
+            createdAt = now
+        )
+        artifacts += artifact
+        return A2aArtifactRegistrationResponse(artifact = artifact)
+    }
+
+    private fun validateEnvelope(envelope: A2aEnvelope, now: Long) {
+        require(envelope.v == "a2a.v1") { "Unsupported protocol version: ${envelope.v}" }
+        require(envelope.id.isNotBlank()) { "message id is required" }
+        require(envelope.type in SUPPORTED_MESSAGE_TYPES) { "Unsupported message type: ${envelope.type}" }
+        require(envelope.dedupeKey.isNotBlank()) { "dedupeKey is required" }
+        require(envelope.ttlMs > 0) { "ttlMs must be positive" }
+        require(envelope.from.agentId.isNotBlank()) { "from.agentId is required" }
+        require(envelope.tenant.companyId.isNotBlank()) { "tenant.companyId is required" }
+        if (envelope.ts + envelope.ttlMs < now) {
+            error("expired_message")
+        }
+    }
+
+    private suspend fun persistInternalMessage(envelope: A2aEnvelope) {
+        val issueId = envelope.correlation?.issueId
+        val goalId = envelope.correlation?.goalId
+        val body = envelope.body as? JsonObject
+        val title = body?.get("title")?.toString()?.trim('"')
+            ?: body?.get("label")?.toString()?.trim('"')
+            ?: envelope.type
+        val content = body?.get("content")?.toString()?.trim('"')
+            ?: body?.get("message")?.toString()?.trim('"')
+            ?: title
         when (envelope.type) {
-            "message.note" -> desktopService.addContextEntry(
-                companyId = companyId,
-                agentName = fromAgent,
-                kind = "note",
-                title = title,
-                content = content,
-                issueId = issueId,
-                goalId = goalId,
-                visibility = "goal"
-            )
+            "message.note" -> {
+                desktopService.addContextEntry(
+                    companyId = envelope.tenant.companyId,
+                    agentName = envelope.from.roleName ?: envelope.from.agentId,
+                    kind = "note",
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId,
+                    visibility = "goal"
+                )
+            }
+            "message.handoff" -> {
+                desktopService.addContextEntry(
+                    companyId = envelope.tenant.companyId,
+                    agentName = envelope.from.roleName ?: envelope.from.agentId,
+                    kind = "handoff",
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId,
+                    visibility = "goal"
+                )
+                envelope.to.firstOrNull()?.let { target ->
+                    desktopService.sendMessage(
+                        companyId = envelope.tenant.companyId,
+                        fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
+                        toAgentName = target.roleName ?: target.agentId,
+                        kind = "handoff",
+                        subject = title,
+                        body = content,
+                        issueId = issueId,
+                        goalId = goalId
+                    )
+                }
+            }
+            "message.escalation" -> {
+                envelope.to.firstOrNull()?.let { target ->
+                    desktopService.sendMessage(
+                        companyId = envelope.tenant.companyId,
+                        fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
+                        toAgentName = target.roleName ?: target.agentId,
+                        kind = "escalation",
+                        subject = title,
+                        body = content,
+                        issueId = issueId,
+                        goalId = goalId
+                    )
+                }
+            }
+        }
+    }
 
-            "message.handoff" -> desktopService.addContextEntry(
-                companyId = companyId,
-                agentName = fromAgent,
-                kind = "handoff",
-                title = title,
-                content = content,
-                issueId = issueId,
-                goalId = goalId,
-                visibility = "goal"
-            )
+    private fun recipientsFor(envelope: A2aEnvelope): List<A2aSession> {
+        val tenantSessions = sessionStore.sessionsForTenant(envelope.tenant)
+        if (envelope.to.isEmpty()) {
+            return tenantSessions.filterNot { it.agentId == envelope.from.agentId }
+        }
+        return tenantSessions.filter { session ->
+            envelope.to.any { target ->
+                target.agentId.equals(session.agentId, ignoreCase = true) ||
+                    (
+                        !target.executionAgentName.isNullOrBlank() &&
+                            target.executionAgentName.equals(session.executionAgentName, ignoreCase = true)
+                        )
+            }
+        }
+    }
 
-            "message.escalation",
-            "review.request",
-            "review.verdict",
+    companion object {
+        val SUPPORTED_MESSAGE_TYPES = setOf(
             "task.assign",
             "task.accept",
-            "run.update" -> desktopService.sendMessage(
-                companyId = companyId,
-                fromAgentName = fromAgent,
-                toAgentName = envelope.to.firstOrNull()?.agentId,
-                kind = envelope.type,
-                subject = title,
-                body = content,
-                issueId = issueId,
-                goalId = goalId
-            )
-        }
-    }
-
-    private fun bodyTitle(body: JsonElement): String? {
-        val direct = bodyText(body)?.trim().orEmpty()
-        if (direct.isNotBlank()) {
-            return direct.take(80)
-        }
-        return null
-    }
-
-    private fun bodyText(body: JsonElement): String? = when (body) {
-        is JsonPrimitive -> body.contentOrNull
-        is JsonObject -> {
-            listOf("title", "summary", "message", "text", "content", "status")
-                .asSequence()
-                .mapNotNull { key -> body[key] }
-                .mapNotNull(::bodyText)
-                .firstOrNull()
-        }
-        is JsonArray -> body.mapNotNull(::bodyText).firstOrNull()
-        else -> null
+            "run.update",
+            "review.request",
+            "review.verdict",
+            "message.note",
+            "message.handoff",
+            "message.escalation",
+            "sync.snapshot.request",
+            "sync.snapshot.response"
+        )
     }
 }

@@ -28,7 +28,9 @@ struct DesktopStoreTests {
             backendStatuses: [],
             opsMetrics: DashboardPayload.empty.opsMetrics,
             activity: [],
-            companyRuntimes: []
+            companyRuntimes: [],
+            agentContextEntries: [],
+            agentMessages: []
         )
 
         store.toggleOrgProfileSelection(id: "a", shiftKey: false)
@@ -115,7 +117,9 @@ struct DesktopStoreTests {
             backendStatuses: [],
             opsMetrics: DashboardPayload.empty.opsMetrics,
             activity: [],
-            companyRuntimes: []
+            companyRuntimes: [],
+            agentContextEntries: [],
+            agentMessages: []
         )
 
         store.toggleCompanyAgentSelection(id: "agent-qa", shiftKey: false)

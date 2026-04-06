@@ -217,6 +217,34 @@ struct CompanyActivityItemRecord: Codable, Identifiable, Hashable {
     }
 }
 
+struct AgentContextEntryRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let issueId: String?
+    let goalId: String?
+    let agentName: String
+    let kind: String
+    let title: String
+    let content: String
+    let visibility: String
+    let createdAt: Int64
+}
+
+struct AgentMessageRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let companyId: String
+    let fromAgentName: String
+    let toAgentName: String?
+    let issueId: String?
+    let goalId: String?
+    let kind: String
+    let subject: String
+    let body: String
+    let status: String
+    let parentMessageId: String?
+    let createdAt: Int64
+}
+
 /// User-authored task record shown in the center pane.
 struct TaskRecord: Codable, Identifiable, Hashable {
     let id: String
@@ -660,6 +688,8 @@ struct CompanyDashboardPayload: Codable {
     let runtime: CompanyRuntimeSnapshotRecord
     let signals: [OpsSignalRecord]
     let activity: [CompanyActivityItemRecord]
+    let agentContextEntries: [AgentContextEntryRecord]
+    let agentMessages: [AgentMessageRecord]
 
     private enum CodingKeys: String, CodingKey {
         case companies
@@ -679,6 +709,8 @@ struct CompanyDashboardPayload: Codable {
         case runtime
         case signals
         case activity
+        case agentContextEntries
+        case agentMessages
     }
 
     init(from decoder: Decoder) throws {
@@ -700,6 +732,8 @@ struct CompanyDashboardPayload: Codable {
         runtime = try container.decodeValue(CompanyRuntimeSnapshotRecord.self, forKey: .runtime, default: CompanyRuntimeSnapshotRecord())
         signals = try container.decodeValue([OpsSignalRecord].self, forKey: .signals, default: [])
         activity = try container.decodeValue([CompanyActivityItemRecord].self, forKey: .activity, default: [])
+        agentContextEntries = try container.decodeValue([AgentContextEntryRecord].self, forKey: .agentContextEntries, default: [])
+        agentMessages = try container.decodeValue([AgentMessageRecord].self, forKey: .agentMessages, default: [])
     }
 }
 
@@ -814,6 +848,8 @@ struct DashboardPayload: Codable {
     let opsMetrics: OpsMetricSnapshotRecord
     let activity: [CompanyActivityItemRecord]
     let companyRuntimes: [CompanyRuntimeSnapshotRecord]
+    let agentContextEntries: [AgentContextEntryRecord]
+    let agentMessages: [AgentMessageRecord]
 }
 
 extension DashboardPayload {
@@ -865,7 +901,9 @@ extension DashboardPayload {
             lastUpdatedAt: 0
         ),
         activity: [],
-        companyRuntimes: []
+        companyRuntimes: [],
+        agentContextEntries: [],
+        agentMessages: []
     )
 }
 
@@ -1439,6 +1477,36 @@ struct MockSeed {
                 monthSpentCents: 1260,
                 budgetPausedAt: nil,
                 budgetResetDate: "2026-03-28"
+            )
+        ],
+        agentContextEntries: [
+            AgentContextEntryRecord(
+                id: "context-demo-1",
+                companyId: "company-demo",
+                issueId: "issue-demo-build",
+                goalId: "goal-demo",
+                agentName: "Builder",
+                kind: "handoff",
+                title: "Need QA focus",
+                content: "UI changes are ready for QA verification.",
+                visibility: "goal",
+                createdAt: 0
+            )
+        ],
+        agentMessages: [
+            AgentMessageRecord(
+                id: "message-demo-1",
+                companyId: "company-demo",
+                fromAgentName: "Builder",
+                toAgentName: "QA",
+                issueId: "issue-demo-build",
+                goalId: "goal-demo",
+                kind: "handoff",
+                subject: "UI changes ready",
+                body: "Please verify the branch before CEO approval.",
+                status: "unread",
+                parentMessageId: nil,
+                createdAt: 0
             )
         ]
     )

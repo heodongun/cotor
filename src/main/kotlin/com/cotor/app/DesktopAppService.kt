@@ -10,6 +10,9 @@ package com.cotor.app
  * goals, issues, tasks, runs, and long-lived company runtime loops.
  */
 
+import com.cotor.app.runtime.CompanyRuntimeMachine
+import com.cotor.app.runtime.RuntimeCommand
+import com.cotor.app.runtime.WorkQueue
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.process.resolveExecutablePath
 import com.cotor.domain.executor.AgentExecutor
@@ -216,7 +219,9 @@ class DesktopAppService(
             backendStatuses = computeBackendStatuses(state),
             opsMetrics = state.opsMetrics,
             activity = state.companyActivity.sortedByDescending { it.createdAt },
-            companyRuntimes = state.companyRuntimes.sortedByDescending { it.lastTickAt ?: 0L }
+            companyRuntimes = state.companyRuntimes.sortedByDescending { it.lastTickAt ?: 0L },
+            agentContextEntries = state.agentContextEntries.sortedByDescending { it.createdAt },
+            agentMessages = state.agentMessages.sortedByDescending { it.createdAt }
         )
     }
 
@@ -285,6 +290,12 @@ class DesktopAppService(
                 .filter { companyId == null || it.companyId == companyId }
                 .sortedByDescending { it.createdAt },
             activity = state.companyActivity
+                .filter { companyId == null || it.companyId == companyId }
+                .sortedByDescending { it.createdAt },
+            agentContextEntries = state.agentContextEntries
+                .filter { companyId == null || it.companyId == companyId }
+                .sortedByDescending { it.createdAt },
+            agentMessages = state.agentMessages
                 .filter { companyId == null || it.companyId == companyId }
                 .sortedByDescending { it.createdAt }
         )
@@ -400,9 +411,25 @@ class DesktopAppService(
             val reviewQueueById = state.reviewQueue.associateBy { it.id }
             val now = System.currentTimeMillis()
             var changed = false
+            val recursiveNestedGoalIds = state.goals
+                .filter { goal ->
+                    (companyId == null || goal.companyId == companyId) &&
+                        goal.status == GoalStatus.ACTIVE &&
+                        goal.operatingPolicy?.startsWith("auto-follow-up:goal:") == true
+                }
+                .mapNotNull { goal ->
+                    val parentGoalId = goal.operatingPolicy?.removePrefix("auto-follow-up:goal:").orEmpty()
+                    val parentGoal = goalsById[parentGoalId] ?: return@mapNotNull null
+                    if (parentGoal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) goal.id else null
+                }
+                .toSet()
 
             val canonicalGoals = state.goals.map { goal ->
-                if ((companyId != null && goal.companyId != companyId) || !goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")) {
+                if (
+                    (companyId != null && goal.companyId != companyId) ||
+                    !goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:") ||
+                    goal.id in recursiveNestedGoalIds
+                ) {
                     return@map goal
                 }
                 val rootGoalId = resolveFollowUpRootGoalId(goal.id, issuesById, goalsById, reviewQueueById)
@@ -445,7 +472,8 @@ class DesktopAppService(
                 .filter { goal ->
                     (companyId == null || goal.companyId == companyId) &&
                         goal.status == GoalStatus.ACTIVE &&
-                        goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:")
+                        goal.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
+                        goal.id !in recursiveNestedGoalIds
                 }
                 .groupBy { resolveFollowUpRootGoalId(it.id, issuesById, canonicalGoalsById, reviewQueueById) ?: canonicalFollowUpSubject(it.title) }
                 .values
@@ -3717,16 +3745,19 @@ class DesktopAppService(
                 )
             }
 
-            autonomousGoals.forEach { goal ->
-                val hasOpenNonPlanningIssues = current.issues.any { issue ->
-                    issue.goalId == goal.id &&
-                        !issue.kind.equals("planning", ignoreCase = true) &&
-                        issue.status != IssueStatus.DONE &&
-                        issue.status != IssueStatus.CANCELED
-                }
-                if (!hasOpenNonPlanningIssues) {
-                    decomposeGoal(goal.id)
-                    actions += "decomposed:${goal.id}"
+            val workQueue = WorkQueue()
+            CompanyRuntimeMachine.planGoalDecomposition(
+                companyId = companyId,
+                goals = autonomousGoals,
+                issues = current.issues
+            ).forEach(workQueue::enqueue)
+            workQueue.drain { command ->
+                when (command) {
+                    is RuntimeCommand.EnsurePlanningIssue -> {
+                        decomposeGoal(command.goalId)
+                        actions += "decomposed:${command.goalId}"
+                    }
+                    is RuntimeCommand.StartIssue -> Unit
                 }
             }
 
@@ -3744,6 +3775,19 @@ class DesktopAppService(
                     if (issue.companyId != companyId) return@mapNotNull null
                     issue.assigneeProfileId
                 }
+                .toMutableSet()
+            val occupiedExecutionAgents = executionSnapshot.tasks
+                .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
+                .mapNotNull { task ->
+                    val issue = executionSnapshot.issues.firstOrNull { it.id == task.issueId } ?: return@mapNotNull null
+                    if (issue.companyId != companyId) return@mapNotNull null
+                    issue.assigneeProfileId
+                        ?.let(companyProfilesById::get)
+                        ?.executionAgentName
+                        ?.trim()
+                        ?.lowercase()
+                }
+                .filter { it.isNotBlank() }
                 .toMutableSet()
             val tasksByIssueId = executionSnapshot.tasks
                 .filter { it.issueId != null }
@@ -3788,33 +3832,39 @@ class DesktopAppService(
                             retryDecision.mode == RecoverableRetryMode.WAITING
                     dependenciesSatisfied && !alreadyStarted && !waitingForRetryCooldown
                 }
-            val startableIssues = mutableListOf<CompanyIssue>()
-            runnableIssues.forEach { candidate ->
+            val delegatedRunnableIssues = runnableIssues.map { candidate ->
                 val delegated = if (candidate.assigneeProfileId == null || candidate.status != IssueStatus.DELEGATED) {
                     delegateIssue(candidate.id)
                 } else {
                     candidate
                 }
-                if (companyProfiles.isEmpty()) {
-                    if (startableIssues.isEmpty()) {
-                        startableIssues += delegated
-                    }
-                    return@forEach
-                }
-                val profileId = delegated.assigneeProfileId
-                val canUseProfileSlot = profileId == null || occupiedProfileIds.add(profileId)
-                if (canUseProfileSlot) {
-                    startableIssues += delegated
-                }
+                delegated
+            }
+            val startQueue = WorkQueue()
+            if (companyProfiles.isEmpty()) {
+                delegatedRunnableIssues.firstOrNull()?.let { startQueue.enqueue(RuntimeCommand.StartIssue(it.id)) }
+            } else {
+                CompanyRuntimeMachine.planIssueStarts(
+                    runnableIssues = delegatedRunnableIssues,
+                    companyProfiles = companyProfiles,
+                    occupiedProfileIds = occupiedProfileIds,
+                    occupiedExecutionAgents = occupiedExecutionAgents
+                ).forEach(startQueue::enqueue)
             }
 
-            for (runnableIssue in startableIssues) {
-                val startedIssue = runCatching { startDelegatedIssue(runnableIssue) }
-                    .getOrElse { cause -> handleDelegatedIssueStartFailure(runnableIssue, cause) }
-                actions += if (startedIssue.status == IssueStatus.BLOCKED) {
-                    "start-blocked:${startedIssue.id}"
-                } else {
-                    "started:${startedIssue.id}"
+            startQueue.drain { command ->
+                when (command) {
+                    is RuntimeCommand.StartIssue -> {
+                        val runnableIssue = stateStore.load().issues.firstOrNull { it.id == command.issueId } ?: return@drain
+                        val startedIssue = runCatching { startDelegatedIssue(runnableIssue) }
+                            .getOrElse { cause -> handleDelegatedIssueStartFailure(runnableIssue, cause) }
+                        actions += if (startedIssue.status == IssueStatus.BLOCKED) {
+                            "start-blocked:${startedIssue.id}"
+                        } else {
+                            "started:${startedIssue.id}"
+                        }
+                    }
+                    is RuntimeCommand.EnsurePlanningIssue -> Unit
                 }
             }
 
@@ -9544,6 +9594,14 @@ class DesktopAppService(
             .filter { it.companyId == company.id }
             .sortedByDescending { it.createdAt }
             .take(3)
+        val recentContextEntries = state.agentContextEntries
+            .filter { it.companyId == company.id && (it.issueId == issue.id || it.goalId == goal?.id || it.visibility == "company") }
+            .sortedByDescending { it.createdAt }
+            .take(5)
+        val recentMessages = state.agentMessages
+            .filter { it.companyId == company.id && (it.issueId == issue.id || it.goalId == goal?.id) }
+            .sortedByDescending { it.createdAt }
+            .take(5)
         val assignedIssues = state.issues
             .filter { it.companyId == company.id && it.assigneeProfileId == profile.id }
             .sortedByDescending { it.updatedAt }
@@ -9586,6 +9644,13 @@ class DesktopAppService(
                         recentDecisions.joinToString(" | ") { it.summary }
                     }"
                 )
+                if (recentContextEntries.isNotEmpty()) {
+                    appendLine(
+                        "handoffs=${
+                            recentContextEntries.joinToString(" | ") { "${it.agentName}:${it.kind}:${summarizeForPrompt(it.content, 120)}" }
+                        }"
+                    )
+                }
             }.trim(),
             agentMemory = buildString {
                 appendLine("role=${profile.roleName}")
@@ -9598,6 +9663,13 @@ class DesktopAppService(
                 )
                 if (collaboratorNames.isNotEmpty()) {
                     appendLine("preferredCollaborators=${collaboratorNames.joinToString()}")
+                }
+                if (recentMessages.isNotEmpty()) {
+                    appendLine(
+                        "recentMessages=${
+                            recentMessages.joinToString(" | ") { "${it.fromAgentName}->${it.toAgentName ?: "all"}:${summarizeForPrompt(it.body, 120)}" }
+                        }"
+                    )
                 }
             }.trim()
         )

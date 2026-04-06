@@ -215,6 +215,7 @@ internal fun Application.cotorAppModule(
     token: String?,
     desktopService: DesktopAppService,
     tuiSessionService: DesktopTuiSessionService,
+    a2aRouter: A2aRouter = A2aRouter(desktopService),
     shutdownHandler: (() -> Unit)? = null
 ) {
     val ktorJson = Json {
@@ -236,6 +237,10 @@ internal fun Application.cotorAppModule(
     }
 
     routing {
+        installA2aRoutes(token, a2aRouter) { expectedToken ->
+            requireToken(expectedToken)
+        }
+
         // Health stays unauthenticated so the app can distinguish "server down"
         // from "server up but auth misconfigured".
         get("/health") {
@@ -247,8 +252,6 @@ internal fun Application.cotorAppModule(
         get("/ready") {
             call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
         }
-
-        installA2aRoutes(token, a2aRouter)
 
         route("/api/app") {
             // `/api/app` is the contract consumed by the desktop shell. The routes under this

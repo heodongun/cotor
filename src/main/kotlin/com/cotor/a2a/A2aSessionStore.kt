@@ -2,66 +2,67 @@ package com.cotor.a2a
 
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicLong
 
 class A2aSessionStore(
     private val heartbeatIntervalMs: Long = 15_000L
 ) {
-    private val sessions = ConcurrentHashMap<String, A2aSessionRecord>()
-    private val inbox = ConcurrentHashMap<String, ConcurrentLinkedQueue<A2aEnvelope>>()
+    private val sessions = ConcurrentHashMap<String, A2aSession>()
+    private val inboxes = ConcurrentHashMap<String, ArrayDeque<A2aQueuedMessage>>()
+    private val cursors = ConcurrentHashMap<String, AtomicLong>()
 
-    fun open(request: A2aSessionHelloRequest): A2aSessionWelcomeResponse {
-        val now = System.currentTimeMillis()
-        val sessionId = UUID.randomUUID().toString()
-        sessions[sessionId] = A2aSessionRecord(
-            sessionId = sessionId,
+    fun open(request: A2aHelloRequest, now: Long): A2aSession {
+        val session = A2aSession(
+            id = UUID.randomUUID().toString(),
             agentId = request.agentId.trim(),
             roleName = request.roleName?.trim(),
             executionAgentName = request.executionAgentName?.trim(),
-            capabilities = request.capabilities,
+            capabilities = request.capabilities.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
             tenant = request.tenant,
+            nonce = request.nonce,
             createdAt = now,
-            lastHeartbeatAt = now
+            updatedAt = now
         )
-        inbox.putIfAbsent(sessionId, ConcurrentLinkedQueue())
-        return A2aSessionWelcomeResponse(
-            sessionId = sessionId,
-            heartbeatIntervalMs = heartbeatIntervalMs,
-            serverTs = now
-        )
+        sessions[session.id] = session
+        inboxes.putIfAbsent(session.id, ArrayDeque())
+        cursors.putIfAbsent(session.id, AtomicLong(0))
+        return session
     }
 
-    fun get(sessionId: String): A2aSessionRecord? = sessions[sessionId]
+    fun heartbeatIntervalMs(): Long = heartbeatIntervalMs
 
-    fun touch(sessionId: String) {
-        sessions.computeIfPresent(sessionId) { _, current ->
-            current.copy(lastHeartbeatAt = System.currentTimeMillis())
+    fun sessionsForTenant(tenant: A2aTenant): List<A2aSession> =
+        sessions.values.filter { it.tenant == tenant }
+
+    fun enqueue(sessionId: String, envelope: A2aEnvelope, now: Long) {
+        val cursor = cursors.getOrPut(sessionId) { AtomicLong(0) }.incrementAndGet()
+        val queue = inboxes.getOrPut(sessionId) { ArrayDeque() }
+        synchronized(queue) {
+            queue.addLast(
+                A2aQueuedMessage(
+                    cursor = cursor,
+                    receivedAt = now,
+                    envelope = envelope
+                )
+            )
         }
+        sessions.computeIfPresent(sessionId) { _, session -> session.copy(updatedAt = now) }
     }
 
-    fun enqueue(recipientAgentIds: Set<String>, tenant: A2aTenant, message: A2aEnvelope) {
-        sessions.values
-            .filter { session ->
-                session.tenant.companyId == tenant.companyId &&
-                    recipientAgentIds.contains(session.agentId)
+    fun pull(sessionId: String, after: Long?, limit: Int, now: Long): List<A2aQueuedMessage> {
+        val queue = inboxes[sessionId] ?: return emptyList()
+        val messages = mutableListOf<A2aQueuedMessage>()
+        synchronized(queue) {
+            while (queue.isNotEmpty() && messages.size < limit) {
+                val next = queue.removeFirst()
+                if (after == null || next.cursor > after) {
+                    messages += next
+                }
             }
-            .forEach { session ->
-                inbox.computeIfAbsent(session.sessionId) { ConcurrentLinkedQueue() }.add(message)
-            }
+        }
+        sessions.computeIfPresent(sessionId) { _, session -> session.copy(updatedAt = now) }
+        return messages
     }
 
-    fun pull(sessionId: String, after: String?, limit: Int): List<A2aEnvelope> {
-        val queue = inbox.computeIfAbsent(sessionId) { ConcurrentLinkedQueue() }
-        val pending = mutableListOf<A2aEnvelope>()
-        while (pending.size < limit) {
-            val next = queue.poll() ?: break
-            pending += next
-        }
-        return if (after.isNullOrBlank()) {
-            pending
-        } else {
-            val idx = pending.indexOfFirst { it.id == after }
-            if (idx >= 0) pending.drop(idx + 1) else pending
-        }
-    }
+    fun session(sessionId: String): A2aSession? = sessions[sessionId]
 }

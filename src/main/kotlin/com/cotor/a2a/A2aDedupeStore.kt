@@ -3,11 +3,14 @@ package com.cotor.a2a
 import java.util.concurrent.ConcurrentHashMap
 
 class A2aDedupeStore {
-    private val ackByKey = ConcurrentHashMap<String, A2aAckResponse>()
+    private val acknowledgements = ConcurrentHashMap<String, A2aAck>()
 
-    fun get(dedupeKey: String): A2aAckResponse? = ackByKey[dedupeKey]
-
-    fun put(dedupeKey: String, ack: A2aAckResponse) {
-        ackByKey.putIfAbsent(dedupeKey, ack)
+    fun remember(dedupeKey: String, ack: A2aAck): Pair<Boolean, A2aAck> {
+        val existing = acknowledgements.putIfAbsent(dedupeKey, ack)
+        return if (existing == null) {
+            true to ack
+        } else {
+            false to existing
+        }
     }
 }

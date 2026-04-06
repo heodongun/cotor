@@ -1,10 +1,11 @@
 package com.cotor.app.persistence
 
 /**
- * Minimal persistence abstraction for app/runtime state.
+ * Minimal persistence abstraction for long-lived desktop/runtime state.
  *
- * The current implementation remains file-backed, but tests and future runtime
- * refactors can depend on this interface instead of a concrete state store.
+ * The initial implementation keeps DesktopStateStore as the only concrete
+ * backend, but this interface makes it possible to move toward SQLite or
+ * segmented entity stores without rewriting the runtime orchestration layer.
  */
 interface StateRepository<T> {
     suspend fun load(): T

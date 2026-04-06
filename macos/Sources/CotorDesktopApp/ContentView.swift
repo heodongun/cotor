@@ -2416,6 +2416,20 @@ private struct CenterPaneView: View {
         Array(store.activity.prefix(40))
     }
 
+    private var selectedIssueMessages: [AgentMessageRecord] {
+        guard let issueID = store.selectedIssueID else { return [] }
+        return store.dashboard.agentMessages
+            .filter { $0.issueId == issueID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var selectedIssueContextEntries: [AgentContextEntryRecord] {
+        guard let issueID = store.selectedIssueID else { return [] }
+        return store.dashboard.agentContextEntries
+            .filter { $0.issueId == issueID || $0.visibility == "company" }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
     private var visibleDecisions: [GoalOrchestrationDecisionRecord] {
         Array(
             store.dashboard.goalDecisions
@@ -3504,6 +3518,60 @@ private struct CenterPaneView: View {
                                             updatedLabel: relativeTimestamp(detail.updatedAt)
                                         )
                                     }
+                                }
+                            }
+                        }
+
+                        if !selectedIssueContextEntries.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(l("A2A Handoffs", "A2A handoff"))
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(ShellPalette.text)
+                                ForEach(Array(selectedIssueContextEntries.prefix(5))) { entry in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("\(entry.agentName) · \(entry.kind.uppercased())")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(ShellPalette.accent)
+                                        Text(entry.content)
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(ShellPalette.text.opacity(0.84))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(ShellPalette.panelAlt)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                            .stroke(ShellPalette.line, lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+                                }
+                            }
+                        }
+
+                        if !selectedIssueMessages.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(l("A2A Thread", "A2A 대화"))
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(ShellPalette.text)
+                                ForEach(Array(selectedIssueMessages.prefix(5))) { message in
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("\(message.fromAgentName) → \(message.toAgentName ?? "all") · \(message.kind)")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(message.kind == "escalation" ? ShellPalette.warning : ShellPalette.accent)
+                                        Text(message.body)
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(ShellPalette.text.opacity(0.84))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(ShellPalette.panelAlt)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                            .stroke(ShellPalette.line, lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
                                 }
                             }
                         }

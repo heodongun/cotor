@@ -1,103 +1,90 @@
 package com.cotor.a2a
 
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 
-fun Route.installA2aRoutes(token: String?, router: A2aRouter) {
+fun Route.installA2aRoutes(
+    token: String?,
+    router: A2aRouter,
+    authorize: suspend RoutingContext.(String?) -> Boolean
+) {
     route("/api/a2a/v1") {
         post("/sessions") {
-            if (!call.requireA2aToken(token)) return@post
-            val request = call.receive<A2aSessionHelloRequest>()
-            call.respond(router.openSession(request))
+            if (!authorize(token)) return@post
+            val request = call.receive<A2aHelloRequest>()
+            runCatching {
+                call.respond(router.openSession(request))
+            }.getOrElse { error ->
+                respondA2aError(error)
+            }
         }
 
         post("/messages") {
-            if (!call.requireA2aToken(token)) return@post
+            if (!authorize(token)) return@post
             val request = call.receive<A2aEnvelope>()
-            val response = runCatching { router.acceptMessage(request) }
-                .getOrElse { error ->
-                    return@post call.respond(
-                        when (error.message) {
-                            "unsupported_version", "unknown_session" -> HttpStatusCode.BadRequest
-                            "expired_message" -> HttpStatusCode.Gone
-                            else -> HttpStatusCode.InternalServerError
-                        },
-                        A2aErrorResponse(
-                            error = A2aErrorPayload(
-                                code = error.message ?: "a2a_error",
-                                message = error.message ?: "A2A message handling failed"
-                            )
-                        )
-                    )
-                }
-            call.respond(response)
+            runCatching {
+                call.respond(router.postMessage(request))
+            }.getOrElse { error ->
+                respondA2aError(error)
+            }
         }
 
         get("/messages/pull") {
-            if (!call.requireA2aToken(token)) return@get
+            if (!authorize(token)) return@get
             val sessionId = call.request.queryParameters["session_id"]
-                ?: return@get call.respond(
-                    HttpStatusCode.BadRequest,
-                    A2aErrorResponse(error = A2aErrorPayload("missing_session", "session_id is required"))
-                )
-            val after = call.request.queryParameters["after"]
-            val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 20
-            val response = runCatching { router.pullMessages(sessionId, after, limit) }
-                .getOrElse { error ->
-                    return@get call.respond(
-                        HttpStatusCode.BadRequest,
-                        A2aErrorResponse(
-                            error = A2aErrorPayload(
-                                code = error.message ?: "a2a_pull_error",
-                                message = error.message ?: "A2A pull failed"
-                            )
-                        )
-                    )
-                }
-            call.respond(response)
+                ?: return@get call.respond(HttpStatusCode.BadRequest, a2aError("missing_session", "session_id is required"))
+            val after = call.request.queryParameters["after"]?.toLongOrNull()
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 50
+            runCatching {
+                call.respond(router.pullMessages(sessionId, after, limit))
+            }.getOrElse { error ->
+                respondA2aError(error)
+            }
         }
 
         post("/sync/snapshot") {
-            if (!call.requireA2aToken(token)) return@post
+            if (!authorize(token)) return@post
             val request = call.receive<A2aSnapshotRequest>()
-            call.respond(router.snapshot(request))
+            runCatching {
+                call.respond(router.snapshot(request))
+            }.getOrElse { error ->
+                respondA2aError(error)
+            }
         }
 
         post("/artifacts") {
-            if (!call.requireA2aToken(token)) return@post
+            if (!authorize(token)) return@post
             val request = call.receive<A2aArtifactRegistrationRequest>()
-            call.respond(router.registerArtifact(request))
+            runCatching {
+                call.respond(router.registerArtifact(request))
+            }.getOrElse { error ->
+                respondA2aError(error)
+            }
         }
     }
 }
 
-private suspend fun ApplicationCall.requireA2aToken(token: String?): Boolean {
-    if (token.isNullOrBlank()) {
-        return true
+private suspend fun RoutingContext.respondA2aError(error: Throwable) {
+    val message = error.message ?: error::class.simpleName.orEmpty()
+    val code = when {
+        message == "expired_message" -> "expired_message"
+        message.startsWith("Unsupported message type") -> "unsupported_type"
+        message.startsWith("Unsupported protocol version") -> "unsupported_version"
+        message.startsWith("Unknown session") -> "unknown_session"
+        message.contains("required") -> "invalid_request"
+        else -> "internal_error"
     }
-    val header = request.headers["Authorization"]
-    val candidate = header
-        ?.removePrefix("Bearer")
-        ?.trim()
-        ?.takeIf { it.isNotBlank() }
-    return if (candidate == token) {
-        true
-    } else {
-        respond(
-            HttpStatusCode.Unauthorized,
-            A2aErrorResponse(
-                error = A2aErrorPayload(
-                    code = "unauthorized",
-                    message = "Missing or invalid bearer token"
-                )
-            )
-        )
-        false
+    val status = when (code) {
+        "unknown_session" -> HttpStatusCode.NotFound
+        "internal_error" -> HttpStatusCode.InternalServerError
+        else -> HttpStatusCode.BadRequest
     }
+    call.respond(status, a2aError(code, message))
 }
