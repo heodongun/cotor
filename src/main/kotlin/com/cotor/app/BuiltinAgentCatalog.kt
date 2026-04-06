@@ -27,6 +27,7 @@ private data class BuiltinAgentSpec(
  */
 object BuiltinAgentCatalog {
     private const val DEFAULT_AI_TIMEOUT_MS = 15 * 60_000L
+    private const val DEFAULT_OPENCODE_TIMEOUT_MS = 45 * 60_000L
 
     private val specs = mapOf(
         "claude" to BuiltinAgentSpec(
@@ -70,7 +71,7 @@ object BuiltinAgentCatalog {
         ),
         "opencode" to BuiltinAgentSpec(
             pluginClass = "com.cotor.data.plugin.OpenCodePlugin",
-            defaultTimeoutMs = DEFAULT_AI_TIMEOUT_MS,
+            defaultTimeoutMs = DEFAULT_OPENCODE_TIMEOUT_MS,
             defaultParameters = mapOf("model" to OpenCodeDefaults.DEFAULT_MODEL)
         ),
         "qwen" to BuiltinAgentSpec(

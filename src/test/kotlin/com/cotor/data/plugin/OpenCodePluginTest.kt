@@ -101,4 +101,42 @@ class OpenCodePluginTest : FunSpec({
         error.stdout shouldBe "partial output"
         error.stderr shouldBe "cli error"
     }
+
+    test("parses ndjson event streams into readable text instead of returning raw envelopes") {
+        val plugin = OpenCodePlugin()
+        val processManager = object : ProcessManager {
+            override suspend fun executeProcess(
+                command: List<String>,
+                input: String?,
+                environment: Map<String, String>,
+                timeout: Long,
+                workingDirectory: Path?,
+                onStart: ((Long) -> Unit)?
+            ): ProcessResult =
+                ProcessResult(
+                    exitCode = 0,
+                    stdout = """
+                        {"type":"step_start","timestamp":1,"sessionID":"session-1"}
+                        {"type":"text","text":"QA_VERDICT: PASS"}
+                        {"type":"text","text":"The PR is ready to merge after QA review."}
+                        {"type":"tool_use","tool":"bash","state":{"output":"{\"huge\":true}"}}
+                    """.trimIndent(),
+                    stderr = "",
+                    isSuccess = true
+                )
+        }
+
+        val result = plugin.execute(
+            ExecutionContext(
+                agentName = "opencode",
+                input = "hello",
+                timeout = 1_000,
+                parameters = mapOf("model" to OpenCodeDefaults.DEFAULT_MODEL),
+                environment = emptyMap()
+            ),
+            processManager
+        )
+
+        result.output shouldBe "QA_VERDICT: PASS\n\nThe PR is ready to merge after QA review."
+    }
 })

@@ -122,6 +122,7 @@ data class UpdateCompanyLinearRequest(
 data class CreateCompanyAgentDefinitionRequest(
     val title: String,
     val agentCli: String,
+    val model: String? = null,
     val roleSummary: String,
     val specialties: List<String> = emptyList(),
     val collaborationInstructions: String? = null,
@@ -134,6 +135,7 @@ data class CreateCompanyAgentDefinitionRequest(
 data class UpdateCompanyAgentDefinitionRequest(
     val title: String? = null,
     val agentCli: String? = null,
+    val model: String? = null,
     val roleSummary: String? = null,
     val specialties: List<String>? = null,
     val collaborationInstructions: String? = null,
@@ -147,6 +149,7 @@ data class UpdateCompanyAgentDefinitionRequest(
 data class BatchUpdateCompanyAgentDefinitionsRequest(
     val agentIds: List<String>,
     val agentCli: String? = null,
+    val model: String? = null,
     val specialties: List<String>? = null,
     val enabled: Boolean? = null
 )

@@ -38,6 +38,7 @@ final class DesktopStore: ObservableObject {
 
     @Published var dashboard: DashboardPayload = .empty
     @Published var runs: [RunRecord] = []
+    @Published var issueExecutionDetails: [IssueAgentExecutionDetailRecord] = []
     @Published var tuiSessions: [TuiSessionRecord] = []
     @Published var tuiSession: TuiSessionRecord?
     @Published var selectedTuiSessionID: String?
@@ -68,6 +69,7 @@ final class DesktopStore: ObservableObject {
     @Published var newCompanyMonthlyBudgetInput = ""
     @Published var newCompanyAgentTitle = ""
     @Published var newCompanyAgentCli = ""
+    @Published var newCompanyAgentModel = ""
     @Published var newCompanyAgentRole = ""
     @Published var newCompanyAgentSpecialties = ""
     @Published var newCompanyAgentCollaborationNotes = ""
@@ -438,7 +440,14 @@ final class DesktopStore: ObservableObject {
             return selectedCompanyAgentDefinitions
         }
         if !selectedOrgProfileIDs.isEmpty {
-            return companyAgentDefinitions.filter { selectedOrgProfileIDs.contains($0.id) }
+            let profiles = selectedOrgProfiles
+            return profiles.compactMap { profile in
+                companyAgentDefinitions.first { definition in
+                    definition.companyId == profile.companyId &&
+                        definition.title == profile.roleName &&
+                        definition.agentCli == profile.executionAgentName
+                }
+            }
         }
         return []
     }
@@ -1021,6 +1030,28 @@ final class DesktopStore: ObservableObject {
 
     /// Refresh the right-hand inspector panels for the currently selected task and agent.
     func refreshTaskDetails() async {
+        if isOffline {
+            runs = []
+            issueExecutionDetails = []
+            changes = emptyChangeSummary()
+            files = []
+            ports = []
+            browserURL = nil
+            return
+        }
+
+        if let issueId = selectedIssueID {
+            do {
+                issueExecutionDetails = try await api.issueExecutionDetails(issueId: issueId)
+                    .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+            } catch {
+                issueExecutionDetails = []
+                errorMessage = error.localizedDescription
+            }
+        } else {
+            issueExecutionDetails = []
+        }
+
         guard let task = selectedTask else {
             runs = []
             changes = emptyChangeSummary()
@@ -1032,15 +1063,6 @@ final class DesktopStore: ObservableObject {
         let agent = selectedAgentName ?? task.agents.first
         selectedAgentName = agent
         guard let agent else { return }
-
-        if isOffline {
-            runs = []
-            changes = emptyChangeSummary()
-            files = []
-            ports = []
-            browserURL = nil
-            return
-        }
 
         do {
             let fetchedRuns: [RunRecord]
@@ -1397,6 +1419,7 @@ final class DesktopStore: ObservableObject {
               companies.contains(where: { $0.id == targetCompanyID }) else { return }
         let title = newCompanyAgentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let cli = newCompanyAgentCli.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = trimmedOptional(newCompanyAgentModel)
         let role = newCompanyAgentRole.trimmingCharacters(in: .whitespacesAndNewlines)
         let specialties = splitAgentMeta(newCompanyAgentSpecialties)
         let collaborationNotes = trimmedOptional(newCompanyAgentCollaborationNotes)
@@ -1414,6 +1437,7 @@ final class DesktopStore: ObservableObject {
                         agentId: agentId,
                         title: title,
                         agentCli: cli,
+                        model: model,
                         roleSummary: role,
                         specialties: specialties,
                         collaborationInstructions: collaborationNotes,
@@ -1428,6 +1452,7 @@ final class DesktopStore: ObservableObject {
                         companyId: targetCompanyID,
                         title: title,
                         agentCli: cli,
+                        model: model,
                         roleSummary: role,
                         specialties: specialties,
                         collaborationInstructions: collaborationNotes,
@@ -1447,6 +1472,7 @@ final class DesktopStore: ObservableObject {
 
     func batchUpdateSelectedCompanyAgents(
         agentCli: String?,
+        model: String?,
         specialties: [String]?,
         enabled: Bool?
     ) async -> Bool {
@@ -1469,6 +1495,7 @@ final class DesktopStore: ObservableObject {
                     companyId: companyId,
                     agentIds: selectedAgents.map(\.id),
                     agentCli: agentCli,
+                    model: model,
                     specialties: specialties,
                     enabled: enabled
                 )
@@ -1491,6 +1518,7 @@ final class DesktopStore: ObservableObject {
         selectedCompanyID = agent.companyId
         newCompanyAgentTitle = agent.title
         newCompanyAgentCli = agent.agentCli
+        newCompanyAgentModel = agent.model ?? ""
         newCompanyAgentRole = agent.roleSummary
         newCompanyAgentSpecialties = agent.specialties.joined(separator: ", ")
         newCompanyAgentCollaborationNotes = agent.collaborationInstructions ?? ""
@@ -1610,6 +1638,7 @@ final class DesktopStore: ObservableObject {
         editingCompanyAgentCompanyID = nil
         newCompanyAgentTitle = ""
         newCompanyAgentCli = preferredCliAgent
+        newCompanyAgentModel = ""
         newCompanyAgentRole = ""
         newCompanyAgentSpecialties = ""
         newCompanyAgentCollaborationNotes = ""

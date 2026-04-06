@@ -475,6 +475,45 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("issue execution details route returns per-agent execution logs when authorized") {
+        coEvery { desktopService.issueExecutionDetails("issue-1") } returns listOf(
+            IssueAgentExecutionDetail(
+                roleName = "QA",
+                agentName = "opencode",
+                agentCli = "opencode",
+                assignedPrompt = "Review the latest PR and summarize risk.",
+                taskId = "task-1",
+                taskStatus = "COMPLETED",
+                runId = "run-1",
+                runStatus = "COMPLETED",
+                stdout = "QA_VERDICT: PASS",
+                stderr = null,
+                branchName = "opencode/qa",
+                pullRequestUrl = "https://github.com/bssm-oss/cotor-test/pull/1",
+                updatedAt = 2L,
+                publishSummary = "review queue: READY_FOR_CEO"
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/issues/issue-1/execution-details") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"roleName\":\"QA\""
+            response.bodyAsText() shouldContain "\"stdout\":\"QA_VERDICT: PASS\""
+        }
+    }
+
     test("backend settings and company topology routes respond when authorized") {
         coEvery { desktopService.backendStatuses() } returns listOf(
             ExecutionBackendStatus(

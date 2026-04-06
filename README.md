@@ -121,6 +121,10 @@ Current desktop model:
 - `Company` summary keeps runtime health, blocked workflow count, review attention, and the latest error/action inside the main summary banner instead of a separate tall status card
 - `Company` summary now also shows estimated spend plus daily/monthly cost guardrails for the selected company runtime
 - `Company` mode now uses event-driven live updates as the primary path, so activity, issues, review state, and runtime status update without a manual refresh in normal operation
+- company issue execution details now surface agent CLI, selected model, backend kind, process id, assigned prompt, stdout/stderr, branch, PR link, and publish summary instead of only change metadata
+- company runtime now wakes immediately on issue/task/review transitions and can dispatch multiple runnable issues in parallel even when different roles share the same execution CLI
+- CEO merge only marks local workflow state as merged after GitHub refresh confirms the PR is actually `MERGED`
+- company agent definitions now support an optional per-agent model override for providers like Codex and OpenCode
 - stale Cotor-managed retry PRs are reconciled and closed in batches so repeated review loops do not keep hundreds of obsolete open PRs around
 - legacy CEO merge-conflict blockers are pushed back into execution so the company can rebase, republish, and continue instead of staying stuck in a blocked approval lane
 - if the live company stream drops, the desktop shell keeps the current company snapshot on screen and shows a company-specific re-sync message instead of a generic decode error
@@ -138,6 +142,7 @@ The current build includes a working local operations layer:
 - create multiple companies, each bound to one working folder
 - surface a GitHub readiness warning during company creation when GitHub PR mode is enabled but `gh` auth/origin setup is missing
 - define company agents with only title, CLI, and role summary
+- optionally pin a provider model per company agent definition
 - create company goals
 - decompose goals into issues
 - delegate and run issues

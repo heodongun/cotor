@@ -260,6 +260,7 @@ data class CompanyAgentDefinition(
     val companyId: String,
     val title: String,
     val agentCli: String,
+    val model: String? = null,
     val roleSummary: String,
     val specialties: List<String> = emptyList(),
     val collaborationInstructions: String? = null,
@@ -347,6 +348,8 @@ data class RunningAgentSession(
     val roleName: String? = null,
     val status: AgentRunStatus,
     val branchName: String,
+    val model: String? = null,
+    val backendKind: ExecutionBackendKind? = null,
     val processId: Long? = null,
     val outputSnippet: String? = null,
     val startedAt: Long,
@@ -562,6 +565,8 @@ data class AgentRun(
     val branchName: String,
     val worktreePath: String,
     val status: AgentRunStatus,
+    val model: String? = null,
+    val backendKind: ExecutionBackendKind? = null,
     val processId: Long? = null,
     val output: String? = null,
     val error: String? = null,
@@ -697,6 +702,34 @@ data class ReviewQueueItem(
     val createdAt: Long,
     val updatedAt: Long,
     val workflowLineage: WorkflowLineageSnapshot? = null
+)
+
+/**
+ * Human-readable execution snapshot for one issue-linked agent task/run.
+ *
+ * This is the primary observability DTO used by the desktop app, company web
+ * surface, and CLI when a user wants to inspect what an agent was asked to do
+ * and what it produced for a specific issue.
+ */
+@Serializable
+data class IssueAgentExecutionDetail(
+    val roleName: String,
+    val agentName: String,
+    val agentCli: String,
+    val model: String? = null,
+    val assignedPrompt: String,
+    val taskId: String,
+    val taskStatus: String,
+    val runId: String? = null,
+    val runStatus: String? = null,
+    val backendKind: ExecutionBackendKind? = null,
+    val processId: Long? = null,
+    val stdout: String? = null,
+    val stderr: String? = null,
+    val branchName: String? = null,
+    val pullRequestUrl: String? = null,
+    val updatedAt: Long,
+    val publishSummary: String? = null
 )
 
 /**

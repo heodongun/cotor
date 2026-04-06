@@ -101,9 +101,10 @@ The current macOS shell has two top-level modes.
   - agent-definition composer
   - goal list and goal creation
   - Linear-style issue board/canvas inside the app
-  - company activity feed with live event-driven updates
-  - live company updates use the company event stream plus a focused company dashboard snapshot, not a heavyweight full refresh on every event
-  - if the live company stream disconnects, the UI keeps the last company snapshot and shows `Live company updates disconnected. Re-syncing...` while it recovers
+- company activity feed with live event-driven updates
+- live company updates use the company event stream plus a focused company dashboard snapshot, not a heavyweight full refresh on every event
+- issue execution detail cards now show agent CLI, selected model, backend kind, process id, assigned prompt, stdout/stderr, branch, PR link, and publish summary for each issue-linked run
+- if the live company stream disconnects, the UI keeps the last company snapshot and shows `Live company updates disconnected. Re-syncing...` while it recovers
   - compact company summary banner that keeps runtime health, blocked workflows, review attention, and the latest error/action in one place
   - compact company summary and company settings now surface estimated spend plus daily/monthly cost guardrails for the selected runtime
   - scrollable issue-board lanes so tall blocked/review queues stay readable inside the fixed board surface
@@ -114,9 +115,11 @@ The current macOS shell has two top-level modes.
   - runtime start/stop/status
   - an explicit runtime stop remains sticky across app restarts and company refreshes until the user starts that company again
   - company mode uses a focused company dashboard snapshot instead of forcing a full desktop refresh on every event
-  - when one wave of goal work finishes, the CEO planning lane can reopen for the next wave instead of freezing the goal after the first decomposition
-  - continuous improvement goals now ask for multi-issue portfolios and parallel branchable work when the roster can support it
-  - short high-level goal descriptions are enriched into a broader execution portfolio so larger rosters do not collapse into only one or two issues
+- when one wave of goal work finishes, the CEO planning lane can reopen for the next wave instead of freezing the goal after the first decomposition
+- continuous improvement goals now ask for multi-issue portfolios and parallel branchable work when the roster can support it
+- short high-level goal descriptions are enriched into a broader execution portfolio so larger rosters do not collapse into only one or two issues
+- runtime dispatch is no longer forced to wait for a stale polling tick before reacting to new runnable work, and multiple runnable issues can start in parallel even when several company roles share the same execution CLI
+- local merge completion is only recorded after GitHub confirms the refreshed pull request state is actually `MERGED`
 - `TUI`
   - independent from company workflow state
   - folder or repository selection for launching standalone `cotor` sessions
@@ -162,6 +165,7 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - create multiple companies
 - bind each company to one working folder
 - define company agents with minimal user input
+- store an optional per-agent model override alongside the provider CLI so company roles can pin Codex/OpenCode models explicitly
 - create a company goal
 - auto-decompose that goal into issues
 - delegate and run issues

@@ -31,23 +31,12 @@ object CompanyRuntimeMachine {
     ): List<RuntimeCommand.StartIssue> {
         val profileById = companyProfiles.associateBy { it.id }
         val usedProfiles = occupiedProfileIds.toMutableSet()
-        val usedAgents = occupiedExecutionAgents.toMutableSet()
         val commands = mutableListOf<RuntimeCommand.StartIssue>()
         runnableIssues.forEach { issue ->
             val profileId = issue.assigneeProfileId
-            val executionAgentName = profileId
-                ?.let(profileById::get)
-                ?.executionAgentName
-                ?.trim()
-                ?.lowercase()
             val canUseProfileSlot = profileId == null || usedProfiles.add(profileId)
-            val canUseExecutionAgentSlot = executionAgentName == null ||
-                executionAgentName.isBlank() ||
-                usedAgents.add(executionAgentName)
-            if (canUseProfileSlot && canUseExecutionAgentSlot) {
+            if (canUseProfileSlot) {
                 commands += RuntimeCommand.StartIssue(issue.id)
-            } else if (canUseProfileSlot && executionAgentName != null && executionAgentName.isNotBlank()) {
-                usedProfiles.remove(profileId)
             }
         }
         return commands

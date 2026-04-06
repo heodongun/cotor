@@ -1273,6 +1273,9 @@ private struct SidebarView: View {
                 .pickerStyle(.menu)
                 .frame(width: 150)
                 .disabled(store.availableCliAgents.isEmpty)
+
+                TextField(l("Model (optional)", "모델 (선택)"), text: $store.newCompanyAgentModel)
+                    .textFieldStyle(.roundedBorder)
             }
 
             TextField(l("Role summary", "역할 설명"), text: $store.newCompanyAgentRole)
@@ -1428,6 +1431,7 @@ private struct SidebarView: View {
 
                 VStack(spacing: 8) {
                     ForEach(store.companyAgentDefinitions) { agent in
+                        let isSelected = store.selectedCompanyAgentDefinitionIDs.contains(agent.id)
                         HStack(spacing: 10) {
                             Circle()
                                 .fill(agent.enabled ? ShellPalette.success : ShellPalette.warning)
@@ -1439,6 +1443,14 @@ private struct SidebarView: View {
                                         .foregroundStyle(ShellPalette.text)
                                         .lineLimit(1)
                                     ShellTag(text: agent.agentCli, tint: ShellPalette.accent)
+                                    if let model = agent.model, !model.isEmpty {
+                                        ShellTag(text: model, tint: ShellPalette.accentWarm)
+                                    }
+                                    if isSelected {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundStyle(ShellPalette.accent)
+                                    }
                                     if store.editingCompanyAgentID == agent.id {
                                         ShellTag(text: l("Editing", "수정 중"), tint: ShellPalette.accentWarm)
                                     }
@@ -1479,10 +1491,10 @@ private struct SidebarView: View {
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
-                        .background(store.selectedCompanyAgentDefinitionIDs.contains(agent.id) ? ShellPalette.accent.opacity(0.18) : ShellPalette.panelAlt)
+                        .background(isSelected ? ShellPalette.accent.opacity(0.18) : ShellPalette.panelAlt)
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(store.selectedCompanyAgentDefinitionIDs.contains(agent.id) ? ShellPalette.accent : ShellPalette.line, lineWidth: store.selectedCompanyAgentDefinitionIDs.contains(agent.id) ? 2.5 : 1)
+                                .stroke(isSelected ? ShellPalette.accent : ShellPalette.line, lineWidth: isSelected ? 2.5 : 1)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .contentShape(Rectangle())
@@ -2661,54 +2673,55 @@ private struct CenterPaneView: View {
             }.count
             let runtimeHealthy = runtime.status.uppercased() == "RUNNING" && runtime.backendHealth.lowercased() == "healthy"
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    StatusSummaryPill(text: l.status(runtime.status), tint: companyRuntimeTint(runtime.status))
-                    if runtime.isManuallyStopped {
-                        ShellTag(
-                            text: l("Stopped manually", "수동 중지"),
-                            tint: ShellPalette.warning
-                        )
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        StatusSummaryPill(text: l.status(runtime.status), tint: companyRuntimeTint(runtime.status))
+                        if runtime.isManuallyStopped {
+                            ShellTag(
+                                text: l("Stopped manually", "수동 중지"),
+                                tint: ShellPalette.warning
+                            )
+                        }
+                        StatusSummaryPill(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
+                        if blockedWorkflowCount > 0 {
+                            ShellTag(
+                                text: "\(blockedWorkflowCount) \(l("workflow issues blocked", "워크플로우 차단"))",
+                                tint: ShellPalette.warning
+                            )
+                        }
+                        if reviewAttentionCount > 0 {
+                            ShellTag(
+                                text: "\(reviewAttentionCount) \(l("reviews need attention", "리뷰 대기"))",
+                                tint: ShellPalette.accentWarm
+                            )
+                        }
+                        if let company = selectedCompany {
+                            ShellTag(
+                                text: runtimeSpendSummary(
+                                    label: l("Today", "오늘"),
+                                    spentCents: runtime.todaySpentCents,
+                                    capCents: company.dailyBudgetCents,
+                                    language: l
+                                ),
+                                tint: ShellPalette.accent
+                            )
+                            ShellTag(
+                                text: runtimeSpendSummary(
+                                    label: l("Month", "월"),
+                                    spentCents: runtime.monthSpentCents,
+                                    capCents: company.monthlyBudgetCents,
+                                    language: l
+                                ),
+                                tint: ShellPalette.accentWarm
+                            )
+                        }
+                        if runtime.isBudgetPaused {
+                            ShellTag(
+                                text: l("Cost cap reached", "비용 상한 도달"),
+                                tint: ShellPalette.warning
+                            )
+                        }
                     }
-                    StatusSummaryPill(text: runtime.backendHealth.uppercased(), tint: companyRuntimeHealthTint(runtime.backendHealth))
-                    if blockedWorkflowCount > 0 {
-                        ShellTag(
-                            text: "\(blockedWorkflowCount) \(l("workflow issues blocked", "워크플로우 차단"))",
-                            tint: ShellPalette.warning
-                        )
-                    }
-                    if reviewAttentionCount > 0 {
-                        ShellTag(
-                            text: "\(reviewAttentionCount) \(l("reviews need attention", "리뷰 대기"))",
-                            tint: ShellPalette.accentWarm
-                        )
-                    }
-                    if let company = selectedCompany {
-                        ShellTag(
-                            text: runtimeSpendSummary(
-                                label: l("Today", "오늘"),
-                                spentCents: runtime.todaySpentCents,
-                                capCents: company.dailyBudgetCents,
-                                language: l
-                            ),
-                            tint: ShellPalette.accent
-                        )
-                        ShellTag(
-                            text: runtimeSpendSummary(
-                                label: l("Month", "월"),
-                                spentCents: runtime.monthSpentCents,
-                                capCents: company.monthlyBudgetCents,
-                                language: l
-                            ),
-                            tint: ShellPalette.accentWarm
-                        )
-                    }
-                    if runtime.isBudgetPaused {
-                        ShellTag(
-                            text: l("Cost cap reached", "비용 상한 도달"),
-                            tint: ShellPalette.warning
-                        )
-                    }
-                    Spacer(minLength: 0)
                 }
 
                 if let lastError = runtime.lastError, !lastError.isEmpty {
@@ -3414,8 +3427,7 @@ private struct CenterPaneView: View {
 
                         Text(issue.description)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(ShellPalette.muted)
-                            .lineLimit(3)
+                            .foregroundStyle(ShellPalette.text.opacity(0.84))
                             .fixedSize(horizontal: false, vertical: true)
 
                         HStack(spacing: 8) {
@@ -3482,24 +3494,32 @@ private struct CenterPaneView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(l("Execution Log", "실행 로그"))
+                            Text(l("Agent Execution", "에이전트 실행"))
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(ShellPalette.text)
-                            ScrollView {
-                                Text(selectedIssueLog)
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(ShellPalette.text)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .textSelection(.enabled)
+                            if store.issueExecutionDetails.isEmpty {
+                                Text(l("No agent execution details have been captured for this issue yet.", "이 이슈에 대한 에이전트 실행 상세가 아직 없습니다."))
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(ShellPalette.text.opacity(0.8))
                                     .padding(12)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(ShellPalette.panelAlt)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                            .stroke(ShellPalette.line, lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+                            } else {
+                                VStack(spacing: 10) {
+                                    ForEach(store.issueExecutionDetails) { detail in
+                                        IssueExecutionDetailCard(
+                                            detail: detail,
+                                            language: l,
+                                            updatedLabel: relativeTimestamp(detail.updatedAt)
+                                        )
+                                    }
+                                }
                             }
-                            .frame(minHeight: 96, maxHeight: 132)
-                            .background(ShellPalette.panelAlt)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
-                                    .stroke(ShellPalette.line, lineWidth: 1)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
                         }
 
                         if !selectedIssueContextEntries.isEmpty {
@@ -3557,7 +3577,6 @@ private struct CenterPaneView: View {
                         }
                     }
                 }
-                .frame(maxHeight: layoutMode == .compact ? 220 : 250, alignment: .top)
             } else {
                 EmptyStateView(
                     image: "text.alignleft",
@@ -4658,24 +4677,25 @@ private struct InspectorPaneView: View {
                 }
             }
 
-            inspectorTabBar
             inspectorMetadata
-
-            Group {
-                switch store.inspectorTab {
-                case .changes:
-                    ChangesView(language: l, patch: store.changes.patch, files: store.changes.changedFiles)
-                case .files:
-                    FilesView(language: l, nodes: store.files)
-                case .ports:
-                    PortsView(language: l, ports: store.ports) { port in
-                        store.openPort(port)
+            if store.selectedIssue == nil {
+                inspectorTabBar
+                Group {
+                    switch store.inspectorTab {
+                    case .changes:
+                        ChangesView(language: l, patch: store.changes.patch, files: store.changes.changedFiles)
+                    case .files:
+                        FilesView(language: l, nodes: store.files)
+                    case .ports:
+                        PortsView(language: l, ports: store.ports) { port in
+                            store.openPort(port)
+                        }
+                    case .browser:
+                        BrowserView(language: l, url: store.browserURL)
                     }
-                case .browser:
-                    BrowserView(language: l, url: store.browserURL)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -5027,10 +5047,154 @@ private struct CloneRepositorySheet: View {
     }
 }
 
+private struct IssueExecutionDetailCard: View {
+    let detail: IssueAgentExecutionDetailRecord
+    let language: AppLanguage
+    let updatedLabel: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(detail.roleName)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+                        ShellTag(text: detail.agentCli, tint: ShellPalette.accent)
+                    }
+                    Text(detail.agentName)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(ShellPalette.text.opacity(0.78))
+                    if let model = detail.model, !model.isEmpty {
+                        Text(model)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(ShellPalette.text.opacity(0.72))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                StatusSummaryPill(text: language.status(detail.taskStatus), tint: statusTint(detail.taskStatus))
+                if let runStatus = detail.runStatus {
+                    StatusSummaryPill(text: language.status(runStatus), tint: statusTint(runStatus))
+                }
+            }
+
+            if let branchName = detail.branchName, !branchName.isEmpty {
+                Text("branch · \(branchName)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ShellPalette.text.opacity(0.78))
+            }
+
+            HStack(spacing: 8) {
+                if let backendKind = detail.backendKind, !backendKind.isEmpty {
+                    ShellTag(text: backendKind, tint: ShellPalette.accentSoft)
+                }
+                if let processId = detail.processId {
+                    ShellTag(text: "pid \(processId)", tint: ShellPalette.success)
+                }
+            }
+
+            executionBlock(
+                title: language == .korean ? "할당 프롬프트" : "Assigned Prompt",
+                text: detail.assignedPrompt,
+                tint: ShellPalette.accent
+            )
+
+            if let stdout = detail.stdout, !stdout.isEmpty {
+                executionBlock(
+                    title: "stdout",
+                    text: stdout,
+                    tint: ShellPalette.success
+                )
+            }
+
+            if let stderr = detail.stderr, !stderr.isEmpty {
+                executionBlock(
+                    title: "stderr",
+                    text: stderr,
+                    tint: ShellPalette.warning
+                )
+            }
+
+            if let publishSummary = detail.publishSummary, !publishSummary.isEmpty {
+                executionBlock(
+                    title: language == .korean ? "퍼블리시 요약" : "Publish Summary",
+                    text: publishSummary,
+                    tint: ShellPalette.accentWarm
+                )
+            }
+
+            HStack(spacing: 8) {
+                if let pullRequestUrl = detail.pullRequestUrl,
+                   let url = URL(string: pullRequestUrl)
+                {
+                    Link(destination: url) {
+                        Label(
+                            language == .korean ? "PR 열기" : "Open PR",
+                            systemImage: "arrow.up.right.square"
+                        )
+                        .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundStyle(ShellPalette.accent)
+                }
+                Spacer(minLength: 0)
+                Text((language == .korean ? "업데이트" : "Updated") + " · " + updatedLabel)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ShellPalette.text.opacity(0.72))
+            }
+        }
+        .padding(12)
+        .background(ShellPalette.panelAlt)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func executionBlock(title: String, text: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(tint)
+            ScrollView {
+                Text(text)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(ShellPalette.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(10)
+            }
+            .frame(minHeight: 76, maxHeight: 132)
+            .background(ShellPalette.panelRaised)
+            .overlay(
+                RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                    .stroke(ShellPalette.line, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+        }
+    }
+
+    private func statusTint(_ status: String) -> Color {
+        switch status.uppercased() {
+        case "RUNNING", "IN_PROGRESS":
+            return ShellPalette.accent
+        case "COMPLETED", "DONE", "MERGED", "READY_FOR_CEO", "READY_TO_MERGE", "PASS", "APPROVE":
+            return ShellPalette.success
+        case "FAILED", "BLOCKED", "CHANGES_REQUESTED", "FAILED_CHECKS":
+            return ShellPalette.warning
+        default:
+            return ShellPalette.accentSoft
+        }
+    }
+}
+
 private struct OrgProfileBatchEditSheet: View {
     @EnvironmentObject private var store: DesktopStore
     @Environment(\.dismiss) private var dismiss
     @State private var batchAgent: String = ""
+    @State private var batchModel: String = ""
     @State private var batchCapabilities: String = ""
     @State private var batchEnabled: Bool? = nil
     private var l: AppLanguage { store.language }
@@ -5041,7 +5205,7 @@ private struct OrgProfileBatchEditSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // Selected profiles summary
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("\(store.selectedBatchEditableAgents.count) \(l("profiles selected", "개 프로필 선택됨"))")
+                        Text("\(store.selectedBatchEditableAgents.count) \(l("agents selected", "개 에이전트 선택됨"))")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(ShellPalette.text.opacity(0.84))
 
@@ -5116,6 +5280,15 @@ private struct OrgProfileBatchEditSheet: View {
                             }
                         }
 
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(l("Model Override", "모델 오버라이드"))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(ShellPalette.muted)
+
+                            TextField(l("No change", "변경 없음"), text: $batchModel)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
                         // Capabilities
                         VStack(alignment: .leading, spacing: 6) {
                             Text(l("Capabilities (comma separated)", "역량 (쉼표로 구분)"))
@@ -5150,7 +5323,7 @@ private struct OrgProfileBatchEditSheet: View {
                 }
                 .padding(20)
             }
-            .navigationTitle(l("Batch Edit Profiles", "프로필 일괄 수정"))
+            .navigationTitle(l("Batch Edit Agents", "에이전트 일괄 수정"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(l("Close", "닫기")) { dismiss() }
@@ -5160,6 +5333,7 @@ private struct OrgProfileBatchEditSheet: View {
         .frame(minWidth: 480, minHeight: 420)
         .onAppear {
             batchAgent = ""
+            batchModel = ""
             batchCapabilities = ""
             batchEnabled = nil
         }
@@ -5167,6 +5341,7 @@ private struct OrgProfileBatchEditSheet: View {
 
     private func applyBatchChanges() {
         let agentCli = batchAgent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : batchAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = batchModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : batchModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let specialties: [String]? = {
             let parsed = batchCapabilities
                 .split(separator: ",")
@@ -5177,6 +5352,7 @@ private struct OrgProfileBatchEditSheet: View {
         Task {
             let didApply = await store.batchUpdateSelectedCompanyAgents(
                 agentCli: agentCli,
+                model: model,
                 specialties: specialties,
                 enabled: batchEnabled
             )

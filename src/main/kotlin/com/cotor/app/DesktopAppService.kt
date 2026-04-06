@@ -23,6 +23,7 @@ import com.cotor.model.AgentConfig
 import com.cotor.model.AgentExecutionMetadata
 import com.cotor.model.AgentResult
 import com.cotor.model.CodexDefaults
+import com.cotor.model.OpenCodeDefaults
 import com.cotor.model.ProcessExecutionException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -37,11 +38,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -143,6 +146,7 @@ class DesktopAppService(
     // the user presses "Run Task" in the desktop client.
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val companyRuntimeJobs: MutableMap<String, Job> = linkedMapOf()
+    private val companyRuntimeWakeSignals = ConcurrentHashMap<String, MutableSharedFlow<Unit>>()
     private val automationRefreshJobs: MutableMap<String, Job> = linkedMapOf()
     private val activeTaskJobs: MutableMap<String, Job> = ConcurrentHashMap()
     private val intentionallyInterruptedTaskIds = ConcurrentHashMap.newKeySet<String>()
@@ -938,22 +942,30 @@ class DesktopAppService(
                     issue.status != IssueStatus.DONE &&
                     issue.status != IssueStatus.CANCELED
             }
-            val hasActiveTasks = snapshot.tasks.any { task ->
-                (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED) &&
-                    snapshot.issues.firstOrNull { it.id == task.issueId }?.companyId == activeCompanyId
-            }
             val tickIsStale = runtime?.lastTickAt?.let { now - it > 5_000 } ?: true
             val loopMissing = companyRuntimeJobs[activeCompanyId]?.isActive != true
 
-            if (hasPendingIssues && !hasActiveTasks && tickIsStale && runtime?.manuallyStoppedAt == null) {
+            if (hasPendingIssues && runtime?.manuallyStoppedAt == null) {
                 if (runtime?.status != CompanyRuntimeStatus.RUNNING) {
                     startCompanyRuntime(activeCompanyId)
                 } else if (loopMissing) {
                     ensureCompanyRuntimeLoop(activeCompanyId)
                 }
-                runCatching { runCompanyRuntimeTick(activeCompanyId) }
+                wakeCompanyRuntime(activeCompanyId)
+                if (tickIsStale) {
+                    runCatching { runCompanyRuntimeTick(activeCompanyId) }
+                }
             }
         }
+    }
+
+    private fun runtimeWakeSignal(companyId: String): MutableSharedFlow<Unit> =
+        companyRuntimeWakeSignals.computeIfAbsent(companyId) {
+            MutableSharedFlow(replay = 0, extraBufferCapacity = 1)
+        }
+
+    private fun wakeCompanyRuntime(companyId: String) {
+        runtimeWakeSignal(companyId).tryEmit(Unit)
     }
 
     private fun finalTaskStatus(runs: List<AgentRun>): DesktopTaskStatus = when {
@@ -1012,6 +1024,60 @@ class DesktopAppService(
         return state.runs
             .filter { it.taskId in taskIds }
             .sortedByDescending { it.updatedAt }
+    }
+
+    suspend fun issueExecutionDetails(issueId: String): List<IssueAgentExecutionDetail> {
+        val state = stateStore.load()
+        val issue = state.issues.firstOrNull { it.id == issueId } ?: return emptyList()
+        val assigneeProfile = issue.assigneeProfileId?.let { profileId ->
+            ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                .firstOrNull { it.id == profileId }
+        }
+        val latestQueueItem = state.reviewQueue
+            .filter { it.issueId == issueId }
+            .maxByOrNull { it.updatedAt }
+        return state.tasks
+            .filter { it.issueId == issueId }
+            .sortedByDescending { it.updatedAt }
+            .map { task ->
+                val latestRun = state.runs
+                    .filter { it.taskId == task.id }
+                    .maxByOrNull { it.updatedAt }
+                val agentName = latestRun?.agentName
+                    ?: task.agents.firstOrNull()
+                    ?: assigneeProfile?.executionAgentName
+                    ?: "unknown"
+                val assignment = task.plan?.assignmentFor(agentName) ?: task.plan?.assignments?.firstOrNull()
+                val agentDefinition = resolveCompanyAgentDefinition(state, issue, assigneeProfile, agentName)
+                IssueAgentExecutionDetail(
+                    roleName = assigneeProfile?.roleName
+                        ?: assignment?.role
+                        ?: agentDefinition?.title
+                        ?: agentName,
+                    agentName = agentName,
+                    agentCli = assigneeProfile?.executionAgentName
+                        ?: agentDefinition?.agentCli
+                        ?: agentName,
+                    model = latestRun?.model
+                        ?: agentDefinition?.model
+                        ?: BuiltinAgentCatalog.get(agentName)?.parameters?.get("model"),
+                    assignedPrompt = assignment?.assignedPrompt ?: task.prompt,
+                    taskId = task.id,
+                    taskStatus = task.status.name,
+                    runId = latestRun?.id,
+                    runStatus = latestRun?.status?.name,
+                    backendKind = latestRun?.backendKind,
+                    processId = latestRun?.processId,
+                    stdout = truncateExecutionLog(latestRun?.output),
+                    stderr = truncateExecutionLog(latestRun?.error ?: latestRun?.publish?.error),
+                    branchName = latestRun?.branchName ?: issue.branchName,
+                    pullRequestUrl = latestRun?.publish?.pullRequestUrl
+                        ?: latestQueueItem?.pullRequestUrl
+                        ?: issue.pullRequestUrl,
+                    updatedAt = maxOf(task.updatedAt, latestRun?.updatedAt ?: task.updatedAt),
+                    publishSummary = buildIssueExecutionPublishSummary(issue, latestQueueItem, latestRun)
+                )
+            }
     }
 
     suspend fun listGoals(): List<CompanyGoal> =
@@ -1563,6 +1629,7 @@ class DesktopAppService(
     suspend fun deleteCompany(companyId: String): Company = stateMutex.withLock {
         companyRuntimeJobs.remove(companyId)?.cancel()
         companyRuntimeTickMutexes.remove(companyId)
+        companyRuntimeWakeSignals.remove(companyId)
         codexAppServerManager.stop(companyId)
 
         val state = stateStore.load()
@@ -1811,7 +1878,10 @@ class DesktopAppService(
                                 "runId" to run.id,
                                 "agent" to run.agentName,
                                 "status" to run.status.name,
+                                "model" to run.model,
+                                "backendKind" to run.backendKind?.name,
                                 "branch" to run.branchName,
+                                "processId" to run.processId,
                                 "error" to run.error?.take(300),
                                 "outputSummary" to run.output?.takeLast(200),
                                 "durationMs" to run.durationMs,
@@ -1911,7 +1981,8 @@ class DesktopAppService(
         collaborationInstructions: String? = null,
         preferredCollaboratorIds: List<String> = emptyList(),
         memoryNotes: String? = null,
-        enabled: Boolean = true
+        enabled: Boolean = true,
+        model: String? = null
     ): CompanyAgentDefinition = stateMutex.withLock {
         val state = stateStore.load()
         require(state.companies.any { it.id == companyId }) { "Company not found: $companyId" }
@@ -1927,6 +1998,7 @@ class DesktopAppService(
             companyId = companyId,
             title = title.trim().ifEmpty { "Agent" },
             agentCli = agentCli.trim().ifEmpty { "echo" },
+            model = normalizeCompanyAgentModel(agentCli, model),
             roleSummary = roleSummary.trim().ifEmpty { "general execution" },
             specialties = specialties.map { it.trim() }.filter { it.isNotBlank() }.distinct(),
             collaborationInstructions = collaborationInstructions?.trim()?.takeIf { it.isNotBlank() },
@@ -1967,7 +2039,8 @@ class DesktopAppService(
         preferredCollaboratorIds: List<String>? = null,
         memoryNotes: String? = null,
         enabled: Boolean? = null,
-        displayOrder: Int? = null
+        displayOrder: Int? = null,
+        model: String? = null
     ): CompanyAgentDefinition = stateMutex.withLock {
         val state = stateStore.load()
         val current = state.companyAgentDefinitions.firstOrNull { it.companyId == companyId && it.id == agentId }
@@ -1983,6 +2056,10 @@ class DesktopAppService(
         val updated = current.copy(
             title = title?.trim()?.takeIf { it.isNotBlank() } ?: current.title,
             agentCli = agentCli?.trim()?.takeIf { it.isNotBlank() } ?: current.agentCli,
+            model = when {
+                model == null -> normalizeCompanyAgentModel(agentCli ?: current.agentCli, current.model)
+                else -> normalizeCompanyAgentModel(agentCli ?: current.agentCli, model)
+            },
             roleSummary = roleSummary?.trim()?.takeIf { it.isNotBlank() } ?: current.roleSummary,
             specialties = specialties?.map { it.trim() }?.filter { it.isNotBlank() }?.distinct() ?: current.specialties,
             collaborationInstructions = when {
@@ -2024,7 +2101,8 @@ class DesktopAppService(
         agentIds: List<String>,
         agentCli: String? = null,
         specialties: List<String>? = null,
-        enabled: Boolean? = null
+        enabled: Boolean? = null,
+        model: String? = null
     ): List<CompanyAgentDefinition> {
         val ids = agentIds
             .map { it.trim() }
@@ -2050,6 +2128,10 @@ class DesktopAppService(
                 } else {
                     definition.copy(
                         agentCli = agentCli?.trim()?.takeIf { it.isNotBlank() } ?: definition.agentCli,
+                        model = when {
+                            model == null && agentCli == null -> definition.model
+                            else -> normalizeCompanyAgentModel(agentCli ?: definition.agentCli, model ?: definition.model)
+                        },
                         specialties = normalizedSpecialties ?: definition.specialties,
                         enabled = enabled ?: definition.enabled,
                         updatedAt = updatedAt
@@ -2498,59 +2580,60 @@ class DesktopAppService(
             )
             planningIssue.id
         }
-        // Materialize a deterministic fallback plan immediately so the company
-        // loop can keep moving even before an explicit CEO planning run returns.
-        runCatching {
-            stateMutex.withLock {
-                val state = stateStore.load()
-                val planningIssue = state.issues.firstOrNull { it.id == planningIssueId } ?: return@withLock
-                val existingNonPlanning = state.issues.filter {
-                    it.goalId == planningIssue.goalId && !it.kind.equals("planning", ignoreCase = true)
-                }
-                val unresolvedNonPlanning = existingNonPlanning.filterNot { issue ->
-                    issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED
-                }
-                if (unresolvedNonPlanning.isNotEmpty()) {
-                    stateStore.save(
-                        state.copy(
-                            issues = state.issues.map {
-                                if (it.id == planningIssueId) {
-                                    it.copy(status = IssueStatus.DONE, updatedAt = System.currentTimeMillis())
-                                } else {
-                                    it
+        val goalForMode = stateStore.load().goals.firstOrNull { it.id == goalId }
+        if (goalForMode?.autonomyEnabled == false) {
+            runCatching {
+                stateMutex.withLock {
+                    val state = stateStore.load()
+                    val planningIssue = state.issues.firstOrNull { it.id == planningIssueId } ?: return@withLock
+                    val existingNonPlanning = state.issues.filter {
+                        it.goalId == planningIssue.goalId && !it.kind.equals("planning", ignoreCase = true)
+                    }
+                    val unresolvedNonPlanning = existingNonPlanning.filterNot { issue ->
+                        issue.status == IssueStatus.DONE || issue.status == IssueStatus.CANCELED
+                    }
+                    if (unresolvedNonPlanning.isNotEmpty()) {
+                        stateStore.save(
+                            state.copy(
+                                issues = state.issues.map {
+                                    if (it.id == planningIssueId) {
+                                        it.copy(status = IssueStatus.DONE, updatedAt = System.currentTimeMillis())
+                                    } else {
+                                        it
+                                    }
                                 }
-                            }
-                        ).withDerivedMetrics()
+                            ).withDerivedMetrics()
+                        )
+                        return@withLock
+                    }
+                    val goal = state.goals.firstOrNull { it.id == planningIssue.goalId } ?: return@withLock
+                    val workspace = state.workspaces.firstOrNull { it.id == planningIssue.workspaceId } ?: return@withLock
+                    val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+                    val now = System.currentTimeMillis()
+                    val fallback = buildFallbackGoalIssues(
+                        state = state,
+                        goal = goal,
+                        workspace = workspace,
+                        profiles = profiles,
+                        definitions = state.companyAgentDefinitions,
+                        now = now
                     )
-                    return@withLock
+                    val updatedPlanningIssue = planningIssue.copy(
+                        status = IssueStatus.DONE,
+                        transitionReason = "Autonomous CEO planning is disabled, so Cotor used the deterministic fallback planner.",
+                        updatedAt = now
+                    )
+                    val company = state.companies.firstOrNull { it.id == goal.companyId } ?: return@withLock
+                    val projectContext = state.projectContexts.firstOrNull { it.companyId == company.id } ?: return@withLock
+                    val nextState = state.copy(
+                        issues = state.issues.filterNot { it.id == planningIssueId } + updatedPlanningIssue + fallback.first,
+                        issueDependencies = state.issueDependencies.filterNot { dep ->
+                            dep.issueId == planningIssueId
+                        } + fallback.second
+                    ).withDerivedMetrics()
+                    stateStore.save(nextState)
+                    writeCompanyContextSnapshot(nextState, company, projectContext)
                 }
-                val goal = state.goals.firstOrNull { it.id == planningIssue.goalId } ?: return@withLock
-                val workspace = state.workspaces.firstOrNull { it.id == planningIssue.workspaceId } ?: return@withLock
-                val profiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
-                val now = System.currentTimeMillis()
-                val fallback = buildFallbackGoalIssues(
-                    state = state,
-                    goal = goal,
-                    workspace = workspace,
-                    profiles = profiles,
-                    definitions = state.companyAgentDefinitions,
-                    now = now
-                )
-                val updatedPlanningIssue = planningIssue.copy(
-                    status = IssueStatus.DONE,
-                    transitionReason = "CEO planning lane used the deterministic fallback planner.",
-                    updatedAt = now
-                )
-                val company = state.companies.firstOrNull { it.id == goal.companyId } ?: return@withLock
-                val projectContext = state.projectContexts.firstOrNull { it.companyId == company.id } ?: return@withLock
-                val nextState = state.copy(
-                    issues = state.issues.filterNot { it.id == planningIssueId } + updatedPlanningIssue + fallback.first,
-                    issueDependencies = state.issueDependencies.filterNot { dep ->
-                        dep.issueId == planningIssueId
-                    } + fallback.second
-                ).withDerivedMetrics()
-                stateStore.save(nextState)
-                writeCompanyContextSnapshot(nextState, company, projectContext)
             }
         }
         runCatching { mirrorGoalIssuesToLinear(goalId) }
@@ -2592,6 +2675,7 @@ class DesktopAppService(
             delegated
         }
         mirrorIssueToLinear(delegated.id)
+        stimulateAutonomousCompanyProgress(delegated.companyId)
         return delegated
     }
 
@@ -2924,14 +3008,60 @@ class DesktopAppService(
             .trim()
         return StructuredVerdict(
             value = normalized,
-            feedback = feedback.ifBlank { summarizeForPrompt(text, 240) }
+            feedback = sanitizeReviewFeedback(feedback.ifBlank { text })
         )
     }
 
     private fun normalizedReviewFeedback(text: String?): String =
-        text.orEmpty()
+        sanitizeReviewFeedback(text)
             .trim()
             .replace(Regex("\\s+"), " ")
+
+    private fun sanitizeReviewFeedback(text: String?): String {
+        val raw = text?.trim().orEmpty()
+        if (raw.isBlank()) {
+            return ""
+        }
+        val cleanedLines = raw.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot(::isMachineFeedbackLine)
+            .map { line ->
+                if (line.length > 320) summarizeForPrompt(line, 320) else line
+            }
+            .toList()
+        val effectiveLines = if (cleanedLines.isNotEmpty()) {
+            cleanedLines
+        } else {
+            listOf(summarizeForPrompt(raw, 320))
+        }
+        return effectiveLines
+            .take(5)
+            .joinToString("\n")
+            .trim()
+    }
+
+    private fun reviewFeedbackLines(text: String?): List<String> =
+        sanitizeReviewFeedback(text)
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .take(5)
+            .toList()
+
+    private fun isMachineFeedbackLine(line: String): Boolean {
+        val normalized = line.trim()
+        return normalized == "```" ||
+            normalized.startsWith("```json", ignoreCase = true) ||
+            normalized.startsWith("`text", ignoreCase = true) ||
+            normalized.startsWith("{\"type\"") ||
+            normalized.startsWith("{\"timestamp\"") ||
+            normalized.contains("\"sessionID\"") ||
+            normalized.contains("\"callID\"") ||
+            normalized.contains("\"tool\"") ||
+            normalized.contains("\"command\"") ||
+            normalized.contains("\"metadata\"")
+    }
 
     private fun reviewQueueMatchesPublishedRun(queueItem: ReviewQueueItem, run: AgentRun?): Boolean {
         if (run == null) {
@@ -3048,8 +3178,7 @@ class DesktopAppService(
 
     suspend fun mergeReviewQueueItem(itemId: String): ReviewQueueItem {
         val before = stateStore.load()
-        val item = before.reviewQueue.firstOrNull { it.id == itemId }
-            ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+        val item = requireMergeReadyReviewQueueItem(before, itemId)
         val run = before.runs.firstOrNull { it.id == item.runId }
         val executionIssueBeforeMerge = before.issues.firstOrNull { it.id == item.issueId }
         val worktreePath = item.worktreePath?.takeIf { it.isNotBlank() } ?: run?.worktreePath
@@ -3063,8 +3192,8 @@ class DesktopAppService(
             ?: before.companies.firstOrNull { it.id == item.companyId }?.defaultBaseBranch
             ?: "master"
 
-        val reviewBody = item.ceoFeedback?.takeIf { it.isNotBlank() }
-            ?: "CEO approved this pull request after QA review."
+        val reviewBody = sanitizeReviewFeedback(item.ceoFeedback)
+            .ifBlank { "CEO approved this pull request after QA review." }
         val commentBody = buildPullRequestFeedbackBody(
             actorLabel = "CEO",
             verdictKey = "CEO_VERDICT",
@@ -3111,6 +3240,18 @@ class DesktopAppService(
             }
             throw error
         }
+        val confirmedMergeResult = confirmMergedPullRequest(
+            worktreePath = Path.of(worktreePath),
+            pullRequestNumber = pullRequestNumber,
+            initial = mergeResult
+        )
+        if (!confirmedMergeResult.state.equals("MERGED", ignoreCase = true)) {
+            return markReviewQueueAwaitingMergeConfirmation(
+                itemId = itemId,
+                approvedMetadata = approvedMetadata,
+                mergeResult = confirmedMergeResult
+            )
+        }
         val baseBranchSync = runCatching {
             gitWorkspaceService.syncBaseBranchAfterMerge(
                 worktreePath = Path.of(worktreePath),
@@ -3124,19 +3265,18 @@ class DesktopAppService(
 
         val mergedItem = stateMutex.withLock {
             val state = stateStore.load()
-            val currentItem = state.reviewQueue.firstOrNull { it.id == itemId }
-                ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+            val currentItem = requireMergeReadyReviewQueueItem(state, itemId)
             val mergedAt = System.currentTimeMillis()
             val nextMergedItem = currentItem.copy(
                 status = ReviewQueueStatus.MERGED,
                 pullRequestNumber = approvedMetadata.pullRequestNumber ?: currentItem.pullRequestNumber,
                 pullRequestUrl = approvedMetadata.pullRequestUrl ?: currentItem.pullRequestUrl,
-                pullRequestState = mergeResult.state ?: approvedMetadata.pullRequestState ?: currentItem.pullRequestState,
+                pullRequestState = confirmedMergeResult.state ?: approvedMetadata.pullRequestState ?: currentItem.pullRequestState,
                 mergeability = approvedMetadata.mergeability ?: currentItem.mergeability,
                 ceoVerdict = currentItem.ceoVerdict ?: "APPROVE",
                 ceoFeedback = currentItem.ceoFeedback ?: reviewBody,
                 ceoReviewedAt = currentItem.ceoReviewedAt ?: mergedAt,
-                mergeCommitSha = mergeResult.mergeCommitSha,
+                mergeCommitSha = confirmedMergeResult.mergeCommitSha,
                 mergedAt = mergedAt,
                 updatedAt = mergedAt
             )
@@ -3149,7 +3289,7 @@ class DesktopAppService(
                         pullRequestState = nextMergedItem.pullRequestState ?: issue.pullRequestState,
                         ceoVerdict = nextMergedItem.ceoVerdict ?: issue.ceoVerdict,
                         ceoFeedback = nextMergedItem.ceoFeedback ?: issue.ceoFeedback,
-                        mergeResult = mergeResult.state ?: "MERGED",
+                        mergeResult = confirmedMergeResult.state ?: "MERGED",
                         transitionReason = "CEO approved and merged PR ${nextMergedItem.pullRequestUrl ?: nextMergedItem.pullRequestNumber}.",
                         updatedAt = mergedAt
                     )
@@ -3217,7 +3357,82 @@ class DesktopAppService(
                 comment = "Cotor marked \"${mergedIssue.title}\" as merged and done."
             )
         }
+        stimulateAutonomousCompanyProgress(mergedItem.companyId)
         return mergedItem
+    }
+
+    private suspend fun confirmMergedPullRequest(
+        worktreePath: Path,
+        pullRequestNumber: Int,
+        initial: PullRequestMergeResult
+    ): PullRequestMergeResult {
+        var current = initial
+        repeat(2) {
+            if (current.state.equals("MERGED", ignoreCase = true)) {
+                return current
+            }
+            delay(1_500)
+            val refreshed = gitWorkspaceService.refreshPullRequestMetadata(worktreePath, pullRequestNumber)
+            current = current.copy(
+                url = refreshed.pullRequestUrl ?: current.url,
+                state = refreshed.pullRequestState ?: current.state
+            )
+        }
+        return current
+    }
+
+    private suspend fun markReviewQueueAwaitingMergeConfirmation(
+        itemId: String,
+        approvedMetadata: PublishMetadata,
+        mergeResult: PullRequestMergeResult
+    ): ReviewQueueItem = stateMutex.withLock {
+        val state = stateStore.load()
+        val currentItem = requireMergeReadyReviewQueueItem(state, itemId)
+        val executionIssue = state.issues.firstOrNull { it.id == currentItem.issueId }
+        val now = System.currentTimeMillis()
+        val updatedItem = currentItem.copy(
+            pullRequestNumber = approvedMetadata.pullRequestNumber ?: currentItem.pullRequestNumber,
+            pullRequestUrl = approvedMetadata.pullRequestUrl ?: mergeResult.url ?: currentItem.pullRequestUrl,
+            pullRequestState = mergeResult.state ?: approvedMetadata.pullRequestState ?: currentItem.pullRequestState,
+            mergeability = approvedMetadata.mergeability ?: currentItem.mergeability,
+            ceoVerdict = currentItem.ceoVerdict ?: "APPROVE",
+            ceoReviewedAt = currentItem.ceoReviewedAt ?: now,
+            updatedAt = now
+        )
+        val nextState = state.copy(
+            reviewQueue = state.reviewQueue.map { if (it.id == itemId) updatedItem else it },
+            issues = state.issues.map { issue ->
+                if (issue.id == currentItem.issueId) {
+                    issue.copy(
+                        pullRequestNumber = updatedItem.pullRequestNumber ?: issue.pullRequestNumber,
+                        pullRequestUrl = updatedItem.pullRequestUrl ?: issue.pullRequestUrl,
+                        pullRequestState = updatedItem.pullRequestState ?: issue.pullRequestState,
+                        transitionReason = "Merge command submitted; waiting for GitHub to confirm the merged PR state.",
+                        updatedAt = now
+                    )
+                } else {
+                    issue
+                }
+            }
+        ).recordCompanyActivity(
+            companyId = currentItem.companyId,
+            projectContextId = currentItem.projectContextId,
+            goalId = executionIssue?.goalId,
+            issueId = currentItem.issueId,
+            source = "review-queue",
+            title = "Awaiting GitHub merge confirmation",
+            detail = updatedItem.pullRequestUrl ?: updatedItem.pullRequestNumber?.toString()
+        ).recordSignal(
+            source = "review-queue",
+            message = "Merge command completed, but GitHub has not yet confirmed PR ${updatedItem.pullRequestNumber ?: currentItem.pullRequestNumber} as merged.",
+            companyId = currentItem.companyId,
+            projectContextId = currentItem.projectContextId,
+            goalId = executionIssue?.goalId,
+            issueId = currentItem.issueId,
+            severity = "warning"
+        ).withDerivedMetrics()
+        stateStore.save(nextState)
+        updatedItem
     }
 
     private suspend fun markReviewQueueMergeConflict(
@@ -3391,6 +3606,7 @@ class DesktopAppService(
 
     suspend fun stopCompanyRuntime(companyId: String): CompanyRuntimeSnapshot {
         companyRuntimeJobs.remove(companyId)?.cancel()
+        companyRuntimeWakeSignals.remove(companyId)
         codexAppServerManager.stop(companyId)
         val snapshot = stateMutex.withLock {
             val state = stateStore.load()
@@ -4780,6 +4996,10 @@ class DesktopAppService(
             ) ||
             message.contains("githubcopilot.com/.well-known/oauth-protected-resource/mcp/")
 
+    private fun isRecoverableOpenCodeCliFailure(message: String): Boolean =
+        message.contains("decimalerror") &&
+            message.contains("invalid argument: [object object]")
+
     private fun extractGitHubPublishReadinessFailureReason(
         task: AgentTask,
         issue: CompanyIssue,
@@ -4821,12 +5041,14 @@ class DesktopAppService(
                 message.contains("network connection was lost") ||
                 message.contains("connection refused") ||
                 message.contains("no run found") ||
+                message.contains("execution timeout after") ||
                 message.contains("exited before cotor recorded a final result") ||
                 message.contains(INTERRUPTED_RUN_ERROR.lowercase()) ||
                 (message.contains("pull request create failed") && isTransientGitHubPublishFailure(message)) ||
                 message.contains("submitted too quickly") ||
                 isRecoverableCodexExecutionConfigFailure(message) ||
-                isRecoverableCodexMcpBootstrapFailure(message)
+                isRecoverableCodexMcpBootstrapFailure(message) ||
+                isRecoverableOpenCodeCliFailure(message)
         }
     }
 
@@ -5792,12 +6014,18 @@ class DesktopAppService(
                     runs = runsById.values.sortedBy { it.createdAt },
                     reviewQueue = reviewQueueById.values.sortedBy { it.createdAt }
                 )
-                nextState = nextState.recordCompanyActivity(
-                    companyId = companyId,
-                    source = "workflow-lineage",
-                    title = "Healed workflow lineage",
-                    detail = "Repaired $changed stale QA/CEO review lineage entries."
-                ).withDerivedMetrics()
+                if (traceEvents.isNotEmpty()) {
+                    val detail = "Repaired ${traceEvents.size} stale QA/CEO review lineage entries."
+                    if (!nextState.hasRecentCompanyActivity(companyId, "Healed workflow lineage", detail)) {
+                        nextState = nextState.recordCompanyActivity(
+                            companyId = companyId,
+                            source = "workflow-lineage",
+                            title = "Healed workflow lineage",
+                            detail = detail
+                        )
+                    }
+                }
+                nextState = nextState.withDerivedMetrics()
                 stateStore.save(nextState)
             }
         }
@@ -6767,6 +6995,8 @@ class DesktopAppService(
                     roleName = profile?.roleName,
                     status = run.status,
                     branchName = run.branchName,
+                    model = run.model,
+                    backendKind = run.backendKind,
                     processId = run.processId,
                     outputSnippet = run.output?.lineSequence()?.take(3)?.joinToString("\n"),
                     startedAt = run.createdAt,
@@ -6860,6 +7090,50 @@ class DesktopAppService(
 
     private fun slugify(value: String): String =
         value.lowercase().replace("[^a-z0-9]+".toRegex(), "-").trim('-').ifBlank { "company" }
+
+    private fun resolveCompanyAgentDefinition(
+        state: DesktopAppState,
+        issue: CompanyIssue,
+        assigneeProfile: OrgAgentProfile?,
+        agentName: String
+    ): CompanyAgentDefinition? =
+        state.companyAgentDefinitions.firstOrNull { definition ->
+            definition.companyId == issue.companyId &&
+                (
+                    definition.title.equals(assigneeProfile?.roleName, ignoreCase = true) ||
+                        (
+                            definition.agentCli.equals(assigneeProfile?.executionAgentName ?: agentName, ignoreCase = true) &&
+                                assigneeProfile?.roleName?.let { roleName -> definition.title.equals(roleName, ignoreCase = true) } != false
+                            ) ||
+                        definition.agentCli.equals(agentName, ignoreCase = true)
+                    )
+        }
+
+    private fun normalizeCompanyAgentModel(agentCli: String, model: String?): String? {
+        val trimmed = model?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return when (agentCli.trim().lowercase()) {
+            "codex", "codex-exec", "codex-oauth" -> CodexDefaults.normalizeModel(trimmed)
+            "opencode" -> OpenCodeDefaults.normalizeModel(trimmed)
+            else -> trimmed
+        }
+    }
+
+    private fun defaultModelForAgentCli(agentCli: String): String? =
+        normalizeCompanyAgentModel(agentCli, BuiltinAgentCatalog.get(agentCli)?.parameters?.get("model"))
+
+    private fun applyCompanyAgentExecutionOverrides(
+        agent: AgentConfig,
+        state: DesktopAppState,
+        issue: CompanyIssue?
+    ): AgentConfig {
+        if (issue == null) return agent
+        val assigneeProfile = issue.assigneeProfileId?.let { profileId ->
+            ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies).firstOrNull { it.id == profileId }
+        }
+        val definition = resolveCompanyAgentDefinition(state, issue, assigneeProfile, agent.name) ?: return agent
+        val normalizedModel = normalizeCompanyAgentModel(definition.agentCli, definition.model) ?: return agent
+        return agent.copy(parameters = agent.parameters + mapOf("model" to normalizedModel))
+    }
 
     private fun writeCompanyContextSnapshot(
         state: DesktopAppState,
@@ -7198,6 +7472,7 @@ class DesktopAppService(
         try {
             val currentState = stateStore.load()
             val issue = task.issueId?.let { issueId -> currentState.issues.firstOrNull { it.id == issueId } }
+            val effectiveAgent = applyCompanyAgentExecutionOverrides(agent, currentState, issue)
             val binding = if (shouldReuseExecutionLineageBinding(issue)) {
                 gitWorkspaceService.ensureExistingWorktreeLineage(
                     repositoryRoot = Path.of(repository.localPath),
@@ -7210,25 +7485,31 @@ class DesktopAppService(
                     repositoryRoot = Path.of(repository.localPath),
                     taskId = task.id,
                     taskTitle = task.title,
-                    agentName = agent.name,
+                    agentName = effectiveAgent.name,
                     baseBranch = workspace.baseBranch
                 )
             }
-            val run = upsertQueuedRun(task, workspace, repository, agent.name, binding)
+            val run = upsertQueuedRun(task, workspace, repository, effectiveAgent.name, binding)
             val company = issue?.let { linkedIssue -> currentState.companies.firstOrNull { it.id == linkedIssue.companyId } }
                 ?: currentState.companies.firstOrNull { it.repositoryId == repository.id }
             val preferredBackendKind = company?.backendKind ?: currentState.backendSettings.defaultBackendKind
             val backendConfig = effectiveBackendConfig(company, currentState)
             val executionBackend = executionBackendFor(preferredBackendKind)
 
-            val startedRun = run.copy(status = AgentRunStatus.RUNNING, updatedAt = System.currentTimeMillis())
+            val startedRun = run.copy(
+                status = AgentRunStatus.RUNNING,
+                model = effectiveAgent.parameters["model"],
+                backendKind = preferredBackendKind,
+                updatedAt = System.currentTimeMillis()
+            )
             replaceRun(startedRun)
             company?.let {
                 publishCompanyEvent(
                     companyId = it.id,
                     type = "run.started",
                     title = "Started agent run",
-                    detail = "${agent.name} on ${task.title}",
+                    detail = listOfNotNull(effectiveAgent.name, effectiveAgent.parameters["model"])
+                        .joinToString(" · ") + " on ${task.title}",
                     goalId = issue?.goalId,
                     issueId = issue?.id,
                     runId = startedRun.id
@@ -7245,7 +7526,7 @@ class DesktopAppService(
                 repoRoot = Path.of(repository.localPath),
                 workspaceId = workspace.id,
                 taskId = task.id,
-                agentId = agent.name,
+                agentId = effectiveAgent.name,
                 baseBranch = workspace.baseBranch,
                 branchName = binding.branchName,
                 workingDirectory = binding.worktreePath,
@@ -7260,7 +7541,7 @@ class DesktopAppService(
                     }
                 }
             )
-            val assignedPrompt = assignedPromptFor(task, agent.name)
+            val assignedPrompt = assignedPromptFor(task, effectiveAgent.name)
 
             val result = if (preferredBackendKind == ExecutionBackendKind.CODEX_APP_SERVER) {
                 val managedStatus = company?.let {
@@ -7287,7 +7568,7 @@ class DesktopAppService(
                     }
                     localExecutionBackend.execute(
                         ExecutionBackendRequest(
-                            agent = agent,
+                            agent = effectiveAgent,
                             prompt = assignedPrompt,
                             effectiveConfig = localBackendConfig(currentState),
                             metadata = executionMetadata
@@ -7296,7 +7577,7 @@ class DesktopAppService(
                 } else {
                     val remoteResult = executionBackend.execute(
                         ExecutionBackendRequest(
-                            agent = agent,
+                            agent = effectiveAgent,
                             prompt = assignedPrompt,
                             effectiveConfig = effectiveBackendConfig,
                             metadata = executionMetadata
@@ -7313,7 +7594,7 @@ class DesktopAppService(
                         }
                         localExecutionBackend.execute(
                             ExecutionBackendRequest(
-                                agent = agent,
+                                agent = effectiveAgent,
                                 prompt = assignedPrompt,
                                 effectiveConfig = localBackendConfig(currentState),
                                 metadata = executionMetadata
@@ -7326,7 +7607,7 @@ class DesktopAppService(
             } else {
                 executionBackend.execute(
                     ExecutionBackendRequest(
-                        agent = agent,
+                        agent = effectiveAgent,
                         prompt = assignedPrompt,
                         effectiveConfig = backendConfig,
                         metadata = executionMetadata
@@ -7338,7 +7619,7 @@ class DesktopAppService(
             val publish = if (result.isSuccess && publishRequired) {
                 gitWorkspaceService.publishRun(
                     task = task,
-                    agentName = agent.name,
+                    agentName = effectiveAgent.name,
                     worktreePath = binding.worktreePath,
                     branchName = binding.branchName,
                     baseBranch = workspace.baseBranch
@@ -7359,12 +7640,14 @@ class DesktopAppService(
                     "GitHub pull request was not created for required code work"
                 else -> null
             }
-            val estimatedCostCents = estimateRunCostCents(agent, assignedPrompt, result)
+            val estimatedCostCents = estimateRunCostCents(effectiveAgent, assignedPrompt, result)
 
             replaceRun(
                 startedRun.copy(
                     status = if (result.isSuccess && finalError == null) AgentRunStatus.COMPLETED else AgentRunStatus.FAILED,
                     processId = result.processId,
+                    model = effectiveAgent.parameters["model"],
+                    backendKind = preferredBackendKind,
                     output = result.output,
                     error = finalError,
                     publish = publish,
@@ -7390,9 +7673,9 @@ class DesktopAppService(
                     type = if (result.isSuccess && finalError == null) "run.completed" else "run.failed",
                     title = if (result.isSuccess && finalError == null) "Completed agent run" else "Agent run failed",
                     detail = if (result.isSuccess && finalError == null) {
-                        successDetail ?: "${agent.name} finished ${task.title}"
+                        successDetail ?: "${effectiveAgent.name} finished ${task.title}"
                     } else {
-                        result.error ?: publish?.error ?: "${agent.name} finished ${task.title}"
+                        result.error ?: publish?.error ?: "${effectiveAgent.name} finished ${task.title}"
                     },
                     goalId = issue?.goalId,
                     issueId = issue?.id,
@@ -8631,6 +8914,9 @@ class DesktopAppService(
             .filter { it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED }
             .mapNotNull { it.issueId }
             .toSet()
+        val latestRunsByTaskId = state.runs
+            .groupBy { it.taskId }
+            .mapValues { (_, runs) -> runs.maxByOrNull { it.updatedAt }!! }
         val issuesById = state.issues
             .filter { it.companyId == companyId }
             .associateBy { it.id }
@@ -8734,6 +9020,14 @@ class DesktopAppService(
             .sortedByDescending { it.updatedAt }
             .mapNotNull { issue ->
                 if (issue.id in activeTaskIssueIds) return@mapNotNull null
+                val retryDecision = resolveRecoverableRetryDecision(
+                    issueTasks = state.tasks.filter { it.issueId == issue.id },
+                    latestRunsByTaskId = latestRunsByTaskId,
+                    now = System.currentTimeMillis()
+                )
+                if (retryDecision.mode == RecoverableRetryMode.READY || retryDecision.mode == RecoverableRetryMode.WAITING) {
+                    return@mapNotNull null
+                }
                 val parentGoal = state.goals.firstOrNull { it.id == issue.goalId }
                 if (parentGoal?.operatingPolicy?.startsWith("auto-follow-up:") == true) {
                     return@mapNotNull null
@@ -8801,7 +9095,7 @@ class DesktopAppService(
                     "Validation is re-run and residual risks are documented.",
                     "The CEO receives a concrete next-wave recommendation instead of a dead-end remediation note."
                 ),
-                autonomyEnabled = true,
+                autonomyEnabled = false,
                 priority = 1,
                 operatingPolicy = candidate.marker,
                 followUpContext = candidate.followUpContext,
@@ -9575,6 +9869,7 @@ class DesktopAppService(
                 companyId = companyId,
                 title = template.title,
                 agentCli = preferredAgent,
+                model = defaultModelForAgentCli(preferredAgent),
                 roleSummary = template.roleSummary,
                 specialties = template.specialties,
                 collaborationInstructions = template.collaborationInstructions,
@@ -9666,13 +9961,14 @@ class DesktopAppService(
     private fun commandBackedAgentConfig(name: String): AgentConfig? {
         val resolvedExecutable = resolveExecutablePath(name)?.toString() ?: return null
         val normalizedName = name.trim().lowercase()
+        val timeoutMs = if (normalizedName == "opencode") 45 * 60_000L else 15 * 60_000L
         return AgentConfig(
             name = normalizedName,
             pluginClass = "com.cotor.data.plugin.CommandPlugin",
             parameters = mapOf(
                 "argvJson" to """["$resolvedExecutable","{input}"]"""
             ),
-            timeout = 15 * 60_000L,
+            timeout = timeoutMs,
             tags = listOf("desktop-roster", "command")
         )
     }
@@ -9799,6 +10095,7 @@ class DesktopAppService(
             else -> syncExecutionIssueFromTask(task, issue, primaryRun, finalStatus)
         }
         runCatching { extractAgentContextAndMessages(issue, primaryRun) }
+        stimulateAutonomousCompanyProgress(issue.companyId)
     }
 
     private suspend fun extractAgentContextAndMessages(issue: CompanyIssue, run: AgentRun?) {
@@ -9919,14 +10216,6 @@ class DesktopAppService(
 
             val parsedPlan = if (finalStatus == DesktopTaskStatus.COMPLETED) parseCeoPlanningPayload(primaryRun?.output) else null
             val planningSource = if (parsedPlan != null) "ceo" else "fallback"
-            val fallback = buildFallbackGoalIssues(
-                state = state,
-                goal = goal,
-                workspace = workspace,
-                profiles = profiles,
-                definitions = state.companyAgentDefinitions,
-                now = now
-            )
             val decomposition = if (parsedPlan != null) {
                 val plannedIssues = materializePlannedIssues(
                     goal = goal,
@@ -9946,7 +10235,14 @@ class DesktopAppService(
                     }
                 }
             } else {
-                fallback
+                buildFallbackGoalIssues(
+                    state = state,
+                    goal = goal,
+                    workspace = workspace,
+                    profiles = profiles,
+                    definitions = state.companyAgentDefinitions,
+                    now = now
+                )
             }
             val planningReason = when {
                 parsedPlan != null -> "CEO planning run created ${decomposition.first.size} downstream issues."
@@ -11062,13 +11358,59 @@ class DesktopAppService(
     ): String = buildString {
         appendLine("$verdictKey: $verdict")
         appendLine()
-        appendLine("$actorLabel feedback from Cotor:")
-        if (!feedback.isNullOrBlank()) {
-            appendLine(feedback)
+        appendLine("$actorLabel summary from Cotor:")
+        val feedbackLines = reviewFeedbackLines(feedback)
+        if (feedbackLines.isEmpty()) {
+            appendLine("- $actorLabel recorded this verdict without additional notes.")
         } else {
-            appendLine("$actorLabel recorded this verdict without additional notes.")
+            feedbackLines.forEach { appendLine("- $it") }
         }
     }.trim()
+
+    private fun requireMergeReadyReviewQueueItem(state: DesktopAppState, itemId: String): ReviewQueueItem {
+        val item = state.reviewQueue.firstOrNull { it.id == itemId }
+            ?: throw IllegalArgumentException("Review queue item not found: $itemId")
+        if (item.status != ReviewQueueStatus.READY_FOR_CEO && item.status != ReviewQueueStatus.READY_TO_MERGE) {
+            throw IllegalStateException("Review queue item $itemId is not ready for CEO merge")
+        }
+        if (item.ceoVerdict != null && !item.ceoVerdict.equals("APPROVE", ignoreCase = true)) {
+            throw IllegalStateException("Review queue item $itemId cannot merge after CEO verdict ${item.ceoVerdict}")
+        }
+        val approvalIssue = item.approvalIssueId?.let { approvalIssueId ->
+            state.issues.firstOrNull { it.id == approvalIssueId }
+        }
+        if (approvalIssue?.status == IssueStatus.BLOCKED) {
+            throw IllegalStateException("Review queue item $itemId has a blocked CEO approval issue")
+        }
+        return item
+    }
+
+    private fun truncateExecutionLog(text: String?, maxChars: Int = 12_000): String? {
+        val trimmed = text?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        return if (trimmed.length <= maxChars) {
+            trimmed
+        } else {
+            trimmed.take(maxChars) + "\n\n[truncated after $maxChars characters]"
+        }
+    }
+
+    private fun buildIssueExecutionPublishSummary(
+        issue: CompanyIssue,
+        reviewQueueItem: ReviewQueueItem?,
+        run: AgentRun?
+    ): String? {
+        val publish = run?.publish
+        val lines = buildList {
+            reviewQueueItem?.status?.let { add("review queue: $it") }
+            publish?.pullRequestState?.takeIf { it.isNotBlank() }?.let { add("pr state: $it") }
+            publish?.mergeability?.takeIf { it.isNotBlank() }?.let { add("mergeability: $it") }
+            publish?.checksSummary?.takeIf { it.isNotBlank() }?.let { add("checks: ${summarizeForPrompt(it, 220)}") }
+            reviewQueueItem?.qaVerdict?.takeIf { it.isNotBlank() }?.let { add("qa: $it") }
+            reviewQueueItem?.ceoVerdict?.takeIf { it.isNotBlank() }?.let { add("ceo: $it") }
+            issue.mergeResult?.takeIf { it.isNotBlank() }?.let { add("merge: $it") }
+        }
+        return lines.takeIf { it.isNotEmpty() }?.joinToString("\n")
+    }
 
     private fun isMergeConflictFailure(error: ProcessExecutionException): Boolean {
         val combined = listOf(error.message, error.stdout, error.stderr)
@@ -11188,6 +11530,7 @@ class DesktopAppService(
         companyRuntimeJobs[companyId] = serviceScope.launch {
             var consecutiveFailures = 0
             val maxConsecutiveFailures = 5
+            val wakeSignal = runtimeWakeSignal(companyId)
             while (isActive) {
                 val runtime = runtimeStatus(companyId)
                 val preTickState = stateStore.load()
@@ -11197,7 +11540,9 @@ class DesktopAppService(
                 } else {
                     runtime.adaptiveTickMs.coerceIn(15_000L, 120_000L)
                 }
-                delay(tickDelay)
+                withTimeoutOrNull(tickDelay) {
+                    wakeSignal.first()
+                }
                 try {
                     if (runtimeStatus(companyId).status != CompanyRuntimeStatus.RUNNING) {
                         break
@@ -11662,28 +12007,52 @@ class DesktopAppService(
             val backendKind = company?.backendKind ?: backendSettings.defaultBackendKind
             val backendStatus = companyBackendStatus(companyId, this)
             val runtimeStopped = existing.status == CompanyRuntimeStatus.STOPPED
+            val localAppServerInstance = readDesktopAppServerInstanceStatus(stateStore.appHome())
+            val localRuntimeAttached = localAppServerInstance.active
             val budgetWindow = currentBudgetWindow(existing)
             val budgetPausedAt = if (company != null && isBudgetExhausted(company, budgetWindow.todaySpentCents, budgetWindow.monthSpentCents)) {
                 existing.budgetPausedAt
             } else {
                 null
             }
+            val localBackendDetached =
+                !runtimeStopped &&
+                    backendKind == ExecutionBackendKind.LOCAL_COTOR &&
+                    !localRuntimeAttached
+            val localBackendMessage =
+                if (localBackendDetached) {
+                    "No active local Cotor app-server instance is attached to this app home. Autonomous work resumes when the app-server or desktop app is running again."
+                } else {
+                    backendStatus?.message
+                }
             existing.copy(
                 companyId = companyId,
                 backendKind = backendKind,
-                backendHealth = if (runtimeStopped) "stopped" else backendStatus?.health ?: "unknown",
+                backendHealth = when {
+                    runtimeStopped -> "stopped"
+                    localBackendDetached -> "offline"
+                    else -> backendStatus?.health ?: "unknown"
+                },
                 backendMessage = if (runtimeStopped && existing.manuallyStoppedAt != null) {
                     "Runtime stopped manually until the user presses Start."
                 } else {
-                    backendStatus?.message
+                    localBackendMessage
                 },
                 backendLifecycleState = if (runtimeStopped) {
+                    BackendLifecycleState.STOPPED
+                } else if (localBackendDetached) {
                     BackendLifecycleState.STOPPED
                 } else {
                     backendStatus.lifecycleState
                 },
-                backendPid = backendStatus.pid,
-                backendPort = backendStatus.port,
+                backendPid = when {
+                    backendKind == ExecutionBackendKind.LOCAL_COTOR -> localAppServerInstance.metadata?.pid
+                    else -> backendStatus.pid
+                },
+                backendPort = when {
+                    backendKind == ExecutionBackendKind.LOCAL_COTOR -> localAppServerInstance.metadata?.port
+                    else -> backendStatus.port
+                },
                 tickIntervalSeconds = companyRuntimeTickIntervalMs / 1000,
                 activeGoalCount = goals.count { it.companyId == companyId && it.status == GoalStatus.ACTIVE },
                 activeIssueCount = issues.count {

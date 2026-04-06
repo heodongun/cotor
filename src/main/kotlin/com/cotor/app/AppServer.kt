@@ -121,6 +121,11 @@ internal data class DesktopAppServerLockRecord(
     val metadataPath: Path
 )
 
+internal data class DesktopAppServerInstanceStatus(
+    val active: Boolean,
+    val metadata: DesktopAppServerInstanceMetadata? = null
+)
+
 internal class DesktopAppServerInstanceGuard(
     private val appHomeProvider: () -> Path = { defaultDesktopAppHome() }
 ) {
@@ -188,6 +193,19 @@ internal class DesktopAppServerInstanceGuard(
 
 internal val desktopAppServerInstanceGuard = DesktopAppServerInstanceGuard()
 
+internal fun readDesktopAppServerInstanceStatus(appHome: Path): DesktopAppServerInstanceStatus {
+    val metadataPath = appHome.resolve("runtime").resolve("backend").resolve("app-server.instance.json")
+    if (!Files.exists(metadataPath)) {
+        return DesktopAppServerInstanceStatus(active = false)
+    }
+    val json = Json { ignoreUnknownKeys = true }
+    val metadata = runCatching {
+        json.decodeFromString(DesktopAppServerInstanceMetadata.serializer(), Files.readString(metadataPath))
+    }.getOrNull() ?: return DesktopAppServerInstanceStatus(active = false)
+    val active = ProcessHandle.of(metadata.pid).map(ProcessHandle::isAlive).orElse(false)
+    return DesktopAppServerInstanceStatus(active = active, metadata = metadata.takeIf { active })
+}
+
 /**
  * Keep the routing tree flat and explicit for the first desktop iteration.
  * This makes it easier to evolve the contract while the Swift app is still
@@ -208,6 +226,7 @@ internal fun Application.cotorAppModule(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+    val a2aRouter = A2aRouter(desktopService)
     install(ContentNegotiation) {
         json(ktorJson)
     }
@@ -490,6 +509,15 @@ internal fun Application.cotorAppModule(
                 }
             }
 
+            route("/issues/{issueId}/execution-details") {
+                get {
+                    if (!requireToken(token)) return@get
+                    val issueId = call.parameters["issueId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    call.respond(desktopService.issueExecutionDetails(issueId))
+                }
+            }
+
             route("/goals") {
                 get {
                     if (!requireToken(token)) return@get
@@ -606,6 +634,13 @@ internal fun Application.cotorAppModule(
                         val issue = desktopService.getIssue(issueId)
                             ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found: $issueId"))
                         call.respond(issue)
+                    }
+
+                    get("/{issueId}/execution-details") {
+                        if (!requireToken(token)) return@get
+                        val issueId = call.parameters["issueId"]
+                            ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                        call.respond(desktopService.issueExecutionDetails(issueId))
                     }
 
                     post("/{issueId}/delegate") {
@@ -861,6 +896,7 @@ internal fun Application.cotorAppModule(
                                 companyId = companyId,
                                 title = request.title,
                                 agentCli = request.agentCli,
+                                model = request.model,
                                 roleSummary = request.roleSummary,
                                 specialties = request.specialties,
                                 collaborationInstructions = request.collaborationInstructions,
@@ -881,6 +917,7 @@ internal fun Application.cotorAppModule(
                                 companyId = companyId,
                                 agentIds = request.agentIds,
                                 agentCli = request.agentCli,
+                                model = request.model,
                                 specialties = request.specialties,
                                 enabled = request.enabled
                             )
@@ -900,6 +937,7 @@ internal fun Application.cotorAppModule(
                                 agentId = agentId,
                                 title = request.title,
                                 agentCli = request.agentCli,
+                                model = request.model,
                                 roleSummary = request.roleSummary,
                                 specialties = request.specialties,
                                 collaborationInstructions = request.collaborationInstructions,
@@ -1307,6 +1345,13 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@get
                     val goalId = call.request.queryParameters["goalId"]
                     call.respond(desktopService.listIssues(goalId))
+                }
+
+                get("/{issueId}/execution-details") {
+                    if (!requireToken(token)) return@get
+                    val issueId = call.parameters["issueId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    call.respond(desktopService.issueExecutionDetails(issueId))
                 }
 
                 post("/{issueId}/delegate") {
