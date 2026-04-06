@@ -73,6 +73,7 @@ final class DesktopStore: ObservableObject {
     @Published var newCompanyAgentCollaborationNotes = ""
     @Published var newCompanyAgentMemoryNotes = ""
     @Published var newCompanyAgentPreferredCollaboratorIDs: Set<String> = []
+    @Published var newCompanyAgentParameters = ""
     @Published var newCompanyAgentEnabled = true
     @Published var editingCompanyAgentID: String?
     @Published var editingCompanyAgentCompanyID: String?
@@ -1402,6 +1403,7 @@ final class DesktopStore: ObservableObject {
         let collaborationNotes = trimmedOptional(newCompanyAgentCollaborationNotes)
         let memoryNotes = trimmedOptional(newCompanyAgentMemoryNotes)
         let preferredCollaboratorIds = Array(newCompanyAgentPreferredCollaboratorIDs).sorted()
+        let parameters = parseAgentParameters(newCompanyAgentParameters)
         guard !title.isEmpty, !cli.isEmpty, !role.isEmpty else { return }
         do {
             actionErrorMessage = nil
@@ -1419,6 +1421,7 @@ final class DesktopStore: ObservableObject {
                         collaborationInstructions: collaborationNotes,
                         preferredCollaboratorIds: preferredCollaboratorIds,
                         memoryNotes: memoryNotes,
+                        parameters: parameters.isEmpty ? nil : parameters,
                         enabled: newCompanyAgentEnabled
                     )
                 }
@@ -1433,6 +1436,7 @@ final class DesktopStore: ObservableObject {
                         collaborationInstructions: collaborationNotes,
                         preferredCollaboratorIds: preferredCollaboratorIds,
                         memoryNotes: memoryNotes,
+                        parameters: parameters,
                         enabled: newCompanyAgentEnabled
                     )
                 }
@@ -1448,6 +1452,7 @@ final class DesktopStore: ObservableObject {
     func batchUpdateSelectedCompanyAgents(
         agentCli: String?,
         specialties: [String]?,
+        parameters: [String: String]?,
         enabled: Bool?
     ) async -> Bool {
         let selectedAgents = selectedBatchEditableAgents
@@ -1470,6 +1475,7 @@ final class DesktopStore: ObservableObject {
                     agentIds: selectedAgents.map(\.id),
                     agentCli: agentCli,
                     specialties: specialties,
+                    parameters: parameters,
                     enabled: enabled
                 )
             }
@@ -1496,6 +1502,7 @@ final class DesktopStore: ObservableObject {
         newCompanyAgentCollaborationNotes = agent.collaborationInstructions ?? ""
         newCompanyAgentMemoryNotes = agent.memoryNotes ?? ""
         newCompanyAgentPreferredCollaboratorIDs = Set(agent.preferredCollaboratorIds)
+        newCompanyAgentParameters = formatAgentParameters(agent.parameters)
         newCompanyAgentEnabled = agent.enabled
     }
 
@@ -1615,6 +1622,7 @@ final class DesktopStore: ObservableObject {
         newCompanyAgentCollaborationNotes = ""
         newCompanyAgentMemoryNotes = ""
         newCompanyAgentPreferredCollaboratorIDs = []
+        newCompanyAgentParameters = ""
         newCompanyAgentEnabled = true
     }
 
@@ -2432,5 +2440,27 @@ final class DesktopStore: ObservableObject {
         if tuiSession?.id == sessionID {
             tuiSession = nil
         }
+    }
+    
+    // Parse agent parameters from text format (key=value, one per line or comma-separated)
+    private func parseAgentParameters(_ text: String) -> [String: String] {
+        var result: [String: String] = [:]
+        let lines = text.components(separatedBy: .newlines).flatMap { $0.components(separatedBy: ",") }
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty else { continue }
+            result[key] = value
+        }
+        return result
+    }
+    
+    // Format agent parameters from dictionary to text (one per line)
+    private func formatAgentParameters(_ params: [String: String]) -> String {
+        params.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: "\n")
     }
 }

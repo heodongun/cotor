@@ -265,6 +265,7 @@ data class CompanyAgentDefinition(
     val collaborationInstructions: String? = null,
     val preferredCollaboratorIds: List<String> = emptyList(),
     val memoryNotes: String? = null,
+    val parameters: Map<String, String> = emptyMap(),
     val enabled: Boolean = true,
     val displayOrder: Int = 0,
     val createdAt: Long,

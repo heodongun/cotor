@@ -115,6 +115,7 @@ final class DesktopAppLifecycleDelegate: NSObject, NSApplicationDelegate {
     private var terminationInFlight = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        print("CotorDesktopApp: applicationDidFinishLaunching")
         Task {
             await EmbeddedBackendLauncher.shared.ensureRunning()
         }
@@ -1304,6 +1305,25 @@ private struct SidebarView: View {
                 TextEditor(text: $store.newCompanyAgentMemoryNotes)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 72)
+                    .padding(8)
+                    .background(ShellPalette.panelAlt)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(ShellPalette.line, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(l("Parameters (key=value, one per line)", "파라미터 (key=value, 한 줄에 하나)"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(ShellPalette.muted)
+                Text(l("Example: model=gpt-5.2", "예시: model=gpt-5.2"))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted.opacity(0.8))
+                TextEditor(text: $store.newCompanyAgentParameters)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 60)
                     .padding(8)
                     .background(ShellPalette.panelAlt)
                     .overlay(
@@ -5178,6 +5198,7 @@ private struct OrgProfileBatchEditSheet: View {
             let didApply = await store.batchUpdateSelectedCompanyAgents(
                 agentCli: agentCli,
                 specialties: specialties,
+                parameters: nil,
                 enabled: batchEnabled
             )
             if didApply {

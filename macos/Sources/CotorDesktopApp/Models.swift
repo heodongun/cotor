@@ -136,6 +136,7 @@ struct CompanyAgentDefinitionRecord: Codable, Identifiable, Hashable {
     let collaborationInstructions: String?
     let preferredCollaboratorIds: [String]
     let memoryNotes: String?
+    let parameters: [String: String]
     let enabled: Bool
     let displayOrder: Int
     let createdAt: Int64
@@ -967,6 +968,7 @@ struct CreateCompanyAgentPayload: Codable {
     let collaborationInstructions: String?
     let preferredCollaboratorIds: [String]
     let memoryNotes: String?
+    let parameters: [String: String]
     let enabled: Bool
 }
 
@@ -978,6 +980,7 @@ struct UpdateCompanyAgentPayload: Codable {
     let collaborationInstructions: String?
     let preferredCollaboratorIds: [String]?
     let memoryNotes: String?
+    let parameters: [String: String]?
     let enabled: Bool?
     let displayOrder: Int?
 }
@@ -986,6 +989,7 @@ struct BatchUpdateCompanyAgentsPayload: Codable {
     let agentIds: [String]
     let agentCli: String?
     let specialties: [String]?
+    let parameters: [String: String]?
     let enabled: Bool?
 }
 
@@ -1140,6 +1144,7 @@ struct MockSeed {
                 collaborationInstructions: "Break goals into issues and route work to the strongest specialists first.",
                 preferredCollaboratorIds: ["agent-def-builder", "agent-def-qa"],
                 memoryNotes: "Own final merge decisions.",
+                parameters: [:],
                 enabled: true,
                 displayOrder: 0,
                 createdAt: 0,
@@ -1155,6 +1160,7 @@ struct MockSeed {
                 collaborationInstructions: "Hand off risky or ambiguous work back to CEO and route finished work to QA.",
                 preferredCollaboratorIds: ["agent-def-ceo", "agent-def-qa"],
                 memoryNotes: "Keep branches narrowly scoped.",
+                parameters: [:],
                 enabled: true,
                 displayOrder: 1,
                 createdAt: 0,
@@ -1170,6 +1176,7 @@ struct MockSeed {
                 collaborationInstructions: "Review implementation output and escalate blockers to CEO.",
                 preferredCollaboratorIds: ["agent-def-builder", "agent-def-ceo"],
                 memoryNotes: "Track regressions before merge.",
+                parameters: [:],
                 enabled: true,
                 displayOrder: 2,
                 createdAt: 0,

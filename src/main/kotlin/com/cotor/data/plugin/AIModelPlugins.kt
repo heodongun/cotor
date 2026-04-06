@@ -275,7 +275,7 @@ class CodexPlugin : AgentPlugin {
 
 /**
  * GitHub Copilot Plugin
- * Executes: copilot -p <prompt> --allow-all-tools
+ * Executes: copilot -p <prompt> --allow-all-tools [--model <model>]
  * Note: Copilot doesn't support full auto-approval, uses session-based silent auth
  */
 class CopilotPlugin : AgentPlugin {
@@ -287,6 +287,18 @@ class CopilotPlugin : AgentPlugin {
         supportedFormats = listOf(DataFormat.TEXT)
     )
 
+    override val parameterSchema = AgentParameterSchema(
+        parameters = listOf(
+            AgentParameter(
+                name = "model",
+                type = ParameterType.STRING,
+                required = false,
+                description = "The AI model to use (e.g., gpt-5.2, gpt-5.4-mini, claude-sonnet-4.5)",
+                defaultValue = null
+            )
+        )
+    )
+
     override suspend fun execute(
         context: ExecutionContext,
         processManager: ProcessManager
@@ -296,7 +308,14 @@ class CopilotPlugin : AgentPlugin {
         // Copilot's session model is quieter than the other CLIs, so this wrapper simply
         // forwards the prompt and trusts the pre-authenticated CLI state on the machine.
         // Note: Full auto-approval not supported, requires pre-authenticated session
-        val command = listOf("copilot", "-p", prompt, "--allow-all-tools")
+        val command = mutableListOf("copilot", "-p", prompt, "--allow-all-tools")
+        
+        // Add model parameter if specified
+        val model = context.parameters["model"]?.trim()
+        if (!model.isNullOrBlank()) {
+            command.add("--model")
+            command.add(model)
+        }
 
         val result = processManager.executeProcess(
             command = command,

@@ -866,6 +866,7 @@ internal fun Application.cotorAppModule(
                                 collaborationInstructions = request.collaborationInstructions,
                                 preferredCollaboratorIds = request.preferredCollaboratorIds,
                                 memoryNotes = request.memoryNotes,
+                                parameters = request.parameters,
                                 enabled = request.enabled
                             )
                         }
@@ -882,6 +883,7 @@ internal fun Application.cotorAppModule(
                                 agentIds = request.agentIds,
                                 agentCli = request.agentCli,
                                 specialties = request.specialties,
+                                parameters = request.parameters,
                                 enabled = request.enabled
                             )
                         }
@@ -905,6 +907,7 @@ internal fun Application.cotorAppModule(
                                 collaborationInstructions = request.collaborationInstructions,
                                 preferredCollaboratorIds = request.preferredCollaboratorIds,
                                 memoryNotes = request.memoryNotes,
+                                parameters = request.parameters,
                                 enabled = request.enabled,
                                 displayOrder = request.displayOrder
                             )

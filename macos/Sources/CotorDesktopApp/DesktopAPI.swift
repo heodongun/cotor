@@ -385,6 +385,7 @@ struct DesktopAPI {
         collaborationInstructions: String?,
         preferredCollaboratorIds: [String],
         memoryNotes: String?,
+        parameters: [String: String] = [:],
         enabled: Bool = true
     ) async throws -> CompanyAgentDefinitionRecord {
         try await post(
@@ -397,6 +398,7 @@ struct DesktopAPI {
                 collaborationInstructions: collaborationInstructions,
                 preferredCollaboratorIds: preferredCollaboratorIds,
                 memoryNotes: memoryNotes,
+                parameters: parameters,
                 enabled: enabled
             )
         )
@@ -412,6 +414,7 @@ struct DesktopAPI {
         collaborationInstructions: String?,
         preferredCollaboratorIds: [String],
         memoryNotes: String?,
+        parameters: [String: String]?,
         enabled: Bool
     ) async throws -> CompanyAgentDefinitionRecord {
         try await patch(
@@ -424,6 +427,7 @@ struct DesktopAPI {
                 collaborationInstructions: collaborationInstructions,
                 preferredCollaboratorIds: preferredCollaboratorIds,
                 memoryNotes: memoryNotes,
+                parameters: parameters,
                 enabled: enabled,
                 displayOrder: nil
             )
@@ -435,6 +439,7 @@ struct DesktopAPI {
         agentIds: [String],
         agentCli: String?,
         specialties: [String]?,
+        parameters: [String: String]?,
         enabled: Bool?
     ) async throws -> [CompanyAgentDefinitionRecord] {
         try await patch(
@@ -443,6 +448,7 @@ struct DesktopAPI {
                 agentIds: agentIds,
                 agentCli: agentCli,
                 specialties: specialties,
+                parameters: parameters,
                 enabled: enabled
             )
         )

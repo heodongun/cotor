@@ -1911,6 +1911,7 @@ class DesktopAppService(
         collaborationInstructions: String? = null,
         preferredCollaboratorIds: List<String> = emptyList(),
         memoryNotes: String? = null,
+        parameters: Map<String, String> = emptyMap(),
         enabled: Boolean = true
     ): CompanyAgentDefinition = stateMutex.withLock {
         val state = stateStore.load()
@@ -1932,6 +1933,7 @@ class DesktopAppService(
             collaborationInstructions = collaborationInstructions?.trim()?.takeIf { it.isNotBlank() },
             preferredCollaboratorIds = normalizedCollaborators,
             memoryNotes = memoryNotes?.trim()?.takeIf { it.isNotBlank() },
+            parameters = parameters.filterKeys { it.isNotBlank() }.mapValues { it.value.trim() },
             enabled = enabled,
             displayOrder = state.companyAgentDefinitions.count { it.companyId == companyId },
             createdAt = now,
@@ -1966,6 +1968,7 @@ class DesktopAppService(
         collaborationInstructions: String? = null,
         preferredCollaboratorIds: List<String>? = null,
         memoryNotes: String? = null,
+        parameters: Map<String, String>? = null,
         enabled: Boolean? = null,
         displayOrder: Int? = null
     ): CompanyAgentDefinition = stateMutex.withLock {
@@ -1996,6 +1999,7 @@ class DesktopAppService(
                 memoryNotes.isBlank() -> null
                 else -> memoryNotes.trim()
             },
+            parameters = parameters?.filterKeys { it.isNotBlank() }?.mapValues { it.value.trim() } ?: current.parameters,
             enabled = enabled ?: current.enabled,
             displayOrder = displayOrder ?: current.displayOrder,
             updatedAt = System.currentTimeMillis()
@@ -2024,6 +2028,7 @@ class DesktopAppService(
         agentIds: List<String>,
         agentCli: String? = null,
         specialties: List<String>? = null,
+        parameters: Map<String, String>? = null,
         enabled: Boolean? = null
     ): List<CompanyAgentDefinition> {
         val ids = agentIds
@@ -2036,6 +2041,8 @@ class DesktopAppService(
             ?.map { it.trim() }
             ?.filter { it.isNotBlank() }
             ?.distinct()
+        
+        val normalizedParameters = parameters?.filterKeys { it.isNotBlank() }?.mapValues { it.value.trim() }
 
         return stateMutex.withLock {
             val state = stateStore.load()
@@ -2051,6 +2058,7 @@ class DesktopAppService(
                     definition.copy(
                         agentCli = agentCli?.trim()?.takeIf { it.isNotBlank() } ?: definition.agentCli,
                         specialties = normalizedSpecialties ?: definition.specialties,
+                        parameters = normalizedParameters ?: definition.parameters,
                         enabled = enabled ?: definition.enabled,
                         updatedAt = updatedAt
                     )
@@ -9580,6 +9588,7 @@ class DesktopAppService(
                 collaborationInstructions = template.collaborationInstructions,
                 preferredCollaboratorIds = template.preferredCollaborators.mapNotNull(idByTitle::get),
                 memoryNotes = template.memoryNotes,
+                parameters = emptyMap(),
                 displayOrder = index,
                 createdAt = now,
                 updatedAt = now

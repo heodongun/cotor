@@ -127,6 +127,7 @@ data class CreateCompanyAgentDefinitionRequest(
     val collaborationInstructions: String? = null,
     val preferredCollaboratorIds: List<String> = emptyList(),
     val memoryNotes: String? = null,
+    val parameters: Map<String, String> = emptyMap(),
     val enabled: Boolean = true
 )
 
@@ -139,6 +140,7 @@ data class UpdateCompanyAgentDefinitionRequest(
     val collaborationInstructions: String? = null,
     val preferredCollaboratorIds: List<String>? = null,
     val memoryNotes: String? = null,
+    val parameters: Map<String, String>? = null,
     val enabled: Boolean? = null,
     val displayOrder: Int? = null
 )
@@ -148,6 +150,7 @@ data class BatchUpdateCompanyAgentDefinitionsRequest(
     val agentIds: List<String>,
     val agentCli: String? = null,
     val specialties: List<String>? = null,
+    val parameters: Map<String, String>? = null,
     val enabled: Boolean? = null
 )
 
