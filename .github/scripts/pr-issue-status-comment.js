@@ -269,7 +269,6 @@ async function fetchPullRequest({ github, owner, repo, number }) {
                                 name
                                 status
                                 conclusion
-                                workflowName
                               }
                               ... on StatusContext {
                                 context
