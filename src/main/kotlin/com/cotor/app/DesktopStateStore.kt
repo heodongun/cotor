@@ -8,6 +8,7 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.app.persistence.StateRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -17,6 +18,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -35,7 +37,7 @@ import kotlin.io.path.writeText
  */
 class DesktopStateStore(
     private val appHomeProvider: () -> Path = { defaultDesktopAppHome() },
-) {
+) : StateRepository<DesktopAppState> {
     companion object {
         private const val MAX_PERSISTED_RESOLVED_ISSUES = 20
         private const val MAX_PERSISTED_TASK_PROMPT_CHARS = 512
@@ -75,7 +77,7 @@ class DesktopStateStore(
 
     fun managedReposRoot(): Path = appHome().resolve("ManagedRepos")
 
-    suspend fun load(): DesktopAppState = withContext(Dispatchers.IO) {
+    override suspend fun load(): DesktopAppState = withContext(Dispatchers.IO) {
         val stateFile = stateFile()
         if (!stateFile.exists()) {
             return@withContext DesktopAppState()
@@ -121,7 +123,7 @@ class DesktopStateStore(
         }
     }
 
-    suspend fun save(state: DesktopAppState) {
+    override suspend fun save(state: DesktopAppState) {
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 withStateFileLock {
@@ -295,7 +297,7 @@ class DesktopStateStore(
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE
             ).use { channel ->
-                channel.lock().use {
+                acquireBoundedFileLock(channel, lockPath).use {
                     block()
                 }
             }
@@ -305,6 +307,25 @@ class DesktopStateStore(
             // case the in-process mutexes already provide serialization, so we
             // only need the inter-process lock when it is available.
             block()
+        }
+    }
+
+    private fun acquireBoundedFileLock(channel: FileChannel, lockPath: Path): FileLock {
+        val startedAt = System.currentTimeMillis()
+        val deadline = startedAt + 3_000L
+        while (true) {
+            try {
+                channel.tryLock()?.let { return it }
+            } catch (overlapping: OverlappingFileLockException) {
+                throw overlapping
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                error(
+                    "Timed out waiting for desktop state lock at $lockPath after ${System.currentTimeMillis() - startedAt}ms. " +
+                        "Possible stale lock holder or runtime deadlock."
+                )
+            }
+            Thread.sleep(50)
         }
     }
 

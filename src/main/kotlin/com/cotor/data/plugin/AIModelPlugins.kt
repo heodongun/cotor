@@ -13,8 +13,10 @@ import com.cotor.model.*
 import com.cotor.model.OpenCodeDefaults
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Files
 import java.nio.file.Path
@@ -485,42 +487,53 @@ class OpenCodePlugin : AgentPlugin {
     private fun parseOpenCodeJsonOutput(rawOutput: String): String {
         if (rawOutput.isBlank()) return rawOutput
 
-        return try {
-            val json = Json { ignoreUnknownKeys = true }
-            val events = json.parseToJsonElement(rawOutput.trim())
+        val json = Json { ignoreUnknownKeys = true }
+        val textParts = linkedSetOf<String>()
 
-            val textParts = mutableListOf<String>()
-
-            val eventList = when (events) {
-                is JsonArray -> events
-                is JsonObject -> listOf(events)
-                else -> emptyList()
-            }
-
-            for (event in eventList) {
-                val type = (event as? JsonObject)?.get("type")?.jsonPrimitive?.content
-                when (type) {
-                    "text", "step_finish" -> {
-                        val content = extractTextFromEvent(event)
-                        if (content.isNotBlank()) {
-                            textParts.add(content)
+        fun collectText(element: JsonElement) {
+            when (element) {
+                is JsonArray -> element.forEach(::collectText)
+                is JsonObject -> {
+                    val type = element["type"]?.jsonPrimitive?.contentOrNull?.lowercase()
+                    if (type == "tool_use" || type == "step_start") {
+                        return
+                    }
+                    extractTextFromEvent(element)
+                        .takeIf { it.isNotBlank() }
+                        ?.let { textParts += normalizeOpenCodeText(it) }
+                    val part = element["part"]
+                    if (part is JsonObject) {
+                        val partType = part["type"]?.jsonPrimitive?.contentOrNull?.lowercase()
+                        if (partType != "tool") {
+                            extractTextFromEvent(part)
+                                .takeIf { it.isNotBlank() }
+                                ?.let { textParts += normalizeOpenCodeText(it) }
                         }
                     }
                 }
+                else -> Unit
             }
-
-            if (textParts.isNotEmpty()) {
-                textParts.joinToString("\n")
-            } else {
-                rawOutput
-            }
-        } catch (e: Exception) {
-            rawOutput
         }
+
+        runCatching {
+            collectText(json.parseToJsonElement(rawOutput.trim()))
+        }.onFailure {
+            rawOutput.lineSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() && (it.startsWith("{") || it.startsWith("[")) }
+                .forEach { line ->
+                    runCatching { collectText(json.parseToJsonElement(line)) }
+                }
+        }
+
+        return textParts
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
+            .ifBlank { rawOutput }
     }
 
     private fun extractTextFromEvent(event: JsonObject): String {
-        val contentFields = listOf("content", "text", "message", "output")
+        val contentFields = listOf("content", "text", "message", "output", "summary")
         for (field in contentFields) {
             val value = event[field]
             if (value is JsonPrimitive && value.isString) {
@@ -530,9 +543,34 @@ class OpenCodePlugin : AgentPlugin {
                 val nested = extractTextFromEvent(value)
                 if (nested.isNotBlank()) return nested
             }
+            if (value is JsonArray) {
+                val nested = value.joinToString("\n") { element ->
+                    when (element) {
+                        is JsonPrimitive -> if (element.isString) element.content else ""
+                        is JsonObject -> extractTextFromEvent(element)
+                        else -> ""
+                    }
+                }.trim()
+                if (nested.isNotBlank()) return nested
+            }
         }
         return ""
     }
+
+    private fun normalizeOpenCodeText(text: String): String =
+        text.lineSequence()
+            .map { it.trimEnd() }
+            .filter { line ->
+                val trimmed = line.trim()
+                trimmed.isNotBlank() &&
+                    !trimmed.startsWith("{\"type\"") &&
+                    !trimmed.contains("\"sessionID\"") &&
+                    !trimmed.contains("\"callID\"") &&
+                    !trimmed.contains("\"tool\"") &&
+                    !trimmed.contains("\"command\"")
+            }
+            .joinToString("\n")
+            .trim()
 
     override fun validateInput(input: String?): ValidationResult {
         if (input.isNullOrBlank()) {

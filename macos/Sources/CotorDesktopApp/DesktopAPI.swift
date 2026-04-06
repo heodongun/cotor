@@ -65,6 +65,10 @@ struct DesktopAPI {
         try await get(path: "api/app/issues/\(issueId)/runs")
     }
 
+    func issueExecutionDetails(issueId: String) async throws -> [IssueAgentExecutionDetailRecord] {
+        try await get(path: "api/app/issues/\(issueId)/execution-details")
+    }
+
     /// Fetch the git diff summary for one task/agent pair.
     func changes(taskId: String, agentName: String) async throws -> ChangeSummaryPayload {
         try await get(path: "api/app/tasks/\(taskId)/changes/\(agentName)")
@@ -380,6 +384,7 @@ struct DesktopAPI {
         companyId: String,
         title: String,
         agentCli: String,
+        model: String?,
         roleSummary: String,
         specialties: [String],
         collaborationInstructions: String?,
@@ -392,6 +397,7 @@ struct DesktopAPI {
             body: CreateCompanyAgentPayload(
                 title: title,
                 agentCli: agentCli,
+                model: model,
                 roleSummary: roleSummary,
                 specialties: specialties,
                 collaborationInstructions: collaborationInstructions,
@@ -407,6 +413,7 @@ struct DesktopAPI {
         agentId: String,
         title: String,
         agentCli: String,
+        model: String?,
         roleSummary: String,
         specialties: [String],
         collaborationInstructions: String?,
@@ -419,6 +426,7 @@ struct DesktopAPI {
             body: UpdateCompanyAgentPayload(
                 title: title,
                 agentCli: agentCli,
+                model: model,
                 roleSummary: roleSummary,
                 specialties: specialties,
                 collaborationInstructions: collaborationInstructions,
@@ -434,6 +442,7 @@ struct DesktopAPI {
         companyId: String,
         agentIds: [String],
         agentCli: String?,
+        model: String?,
         specialties: [String]?,
         enabled: Bool?
     ) async throws -> [CompanyAgentDefinitionRecord] {
@@ -442,6 +451,7 @@ struct DesktopAPI {
             body: BatchUpdateCompanyAgentsPayload(
                 agentIds: agentIds,
                 agentCli: agentCli,
+                model: model,
                 specialties: specialties,
                 enabled: enabled
             )

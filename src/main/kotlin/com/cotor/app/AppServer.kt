@@ -893,6 +893,7 @@ internal fun Application.cotorAppModule(
                                 companyId = companyId,
                                 title = request.title,
                                 agentCli = request.agentCli,
+                                model = request.model,
                                 roleSummary = request.roleSummary,
                                 specialties = request.specialties,
                                 collaborationInstructions = request.collaborationInstructions,
@@ -913,6 +914,7 @@ internal fun Application.cotorAppModule(
                                 companyId = companyId,
                                 agentIds = request.agentIds,
                                 agentCli = request.agentCli,
+                                model = request.model,
                                 specialties = request.specialties,
                                 enabled = request.enabled
                             )
@@ -932,6 +934,7 @@ internal fun Application.cotorAppModule(
                                 agentId = agentId,
                                 title = request.title,
                                 agentCli = request.agentCli,
+                                model = request.model,
                                 roleSummary = request.roleSummary,
                                 specialties = request.specialties,
                                 collaborationInstructions = request.collaborationInstructions,

@@ -1264,7 +1264,7 @@ class DesktopAppServiceTest : FunSpec({
             gitWorkspaceService = gitWorkspaceService,
             configRepository = configRepository,
             agentExecutor = agentExecutor,
-            commandAvailability = { command -> command == "codex" }
+            commandAvailability = { command -> command in setOf("codex", "opencode") }
         )
 
         val task = service.createTask(
@@ -1369,7 +1369,7 @@ class DesktopAppServiceTest : FunSpec({
             configRepository = mockk<ConfigRepository>(relaxed = true),
             agentExecutor = agentExecutor,
             companyRuntimeTickIntervalMs = 50,
-            commandAvailability = { command -> command == "codex" }
+            commandAvailability = { command -> command in setOf("codex", "opencode") }
         )
 
         val goal = service.createGoal(
@@ -1426,7 +1426,7 @@ class DesktopAppServiceTest : FunSpec({
             configRepository = mockk<ConfigRepository>(relaxed = true),
             agentExecutor = agentExecutor,
             companyRuntimeTickIntervalMs = 50,
-            commandAvailability = { command -> command == "codex" }
+            commandAvailability = { command -> command in setOf("codex", "opencode") }
         )
 
         service.updateBackendSettings(
@@ -2065,7 +2065,7 @@ class DesktopAppServiceTest : FunSpec({
             configRepository = mockk<ConfigRepository>(relaxed = true),
             agentExecutor = agentExecutor,
             companyRuntimeTickIntervalMs = 50,
-            commandAvailability = { command -> command == "codex" }
+            commandAvailability = { command -> command in setOf("codex", "opencode") }
         )
 
         val company = service.createCompany(
@@ -2239,7 +2239,7 @@ class DesktopAppServiceTest : FunSpec({
         }
     }
 
-    test("runtime starts only one issue per execution agent cli when many roles share opencode") {
+    test("runtime can start multiple issues when many roles share opencode") {
         val appHome = Files.createTempDirectory("desktop-runtime-shared-agent-slot-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-shared-agent-slot-test").resolve("repo"))
         val worktreeRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-shared-agent-slot-worktree"))
@@ -2286,8 +2286,8 @@ class DesktopAppServiceTest : FunSpec({
         )
         val goal = service.createGoal(
             companyId = company.id,
-            title = "Fan out implementation carefully",
-            description = "Multiple roles share opencode and should not all start at once.",
+            title = "Fan out implementation in parallel",
+            description = "Multiple roles share opencode and should be able to start together.",
             autonomyEnabled = false
         )
 
@@ -2298,8 +2298,8 @@ class DesktopAppServiceTest : FunSpec({
         withTimeout(5_000) {
             while (true) {
                 val startedCount = stateStore.load().tasks.count { it.issueId in goalIssueIds }
-                if (startedCount >= 1) {
-                    startedCount shouldBe 1
+                if (startedCount >= 2) {
+                    startedCount shouldBeGreaterThan 1
                     return@withTimeout
                 }
                 delay(25)
@@ -3196,7 +3196,7 @@ class DesktopAppServiceTest : FunSpec({
             configRepository = configRepository,
             agentExecutor = agentExecutor,
             companyRuntimeTickIntervalMs = 50,
-            commandAvailability = { command -> command == "codex" }
+            commandAvailability = { command -> command in setOf("codex", "opencode") }
         )
 
         val company = service.createCompany(
@@ -5436,7 +5436,7 @@ class DesktopAppServiceTest : FunSpec({
             gitWorkspaceService = gitWorkspaceService,
             configRepository = mockk<ConfigRepository>(relaxed = true),
             agentExecutor = agentExecutor,
-            commandAvailability = { command -> command == "codex" }
+            commandAvailability = { command -> command in setOf("codex", "opencode") }
         )
 
         val company = service.createCompany(

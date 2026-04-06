@@ -10,7 +10,7 @@ import kotlin.io.path.deleteIfExists
 
 class AuthCommand : CliktCommand(
     name = "auth",
-    help = "Manage authentication helpers for external runtimes"
+    help = "Manage authentication helpers for external runtimes. Use `cotor auth codex-oauth status|login|logout` for the dedicated Codex OAuth home."
 ) {
     init {
         subcommands(CodexOAuthCommand())

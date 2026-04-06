@@ -107,6 +107,7 @@ cotor delete
 - 앱 내부의 Linear 스타일 이슈 보드/캔버스
 - 이벤트 기반으로 바로 갱신되는 회사 활동 피드
 - 회사 live update는 무거운 전체 refresh 대신 company event stream + 회사 전용 dashboard snapshot으로 상태를 반영
+- 이슈 실행 상세 카드는 이제 각 issue-linked run마다 에이전트 CLI, 선택 모델, 백엔드 종류, 프로세스 ID, 할당 프롬프트, stdout/stderr, 브랜치, PR 링크, 퍼블리시 요약을 함께 보여줌
 - 회사 실시간 stream이 끊기면 마지막 snapshot은 유지한 채 `회사 실시간 업데이트 연결이 끊어졌습니다. 다시 동기화하는 중...` 메시지를 보여주며 복구
 - 런타임 건강도, 차단 워크플로우 수, 리뷰 주의 수, 최근 오류/동작을 한곳에 모아 둔 압축형 회사 요약 배너
 - 압축형 회사 요약과 회사 설정에서 선택한 런타임의 추정 비용과 일/월 비용 상한도 함께 표시
@@ -121,6 +122,8 @@ cotor delete
 - 한 wave의 goal work가 끝나면 CEO planning lane을 다시 열어서 첫 decomposition 이후 goal이 얼어붙지 않게 함
 - continuous improvement goal은 roster가 허용하면 여러 branchable issue와 병렬 slice를 만들도록 유도
 - 짧은 고수준 goal 설명도 더 넓은 execution portfolio로 보강해서, 큰 roster가 한두 개 이슈로만 줄어들지 않게 함
+- 새 runnable work가 생기면 stale polling tick을 기다리지 않고 런타임이 즉시 깨어나며, 여러 회사 역할이 같은 execution CLI를 써도 runnable issue를 병렬로 시작할 수 있음
+- 로컬 merge 완료 표시는 GitHub 새로고침 결과가 실제 `MERGED`일 때만 기록됨
 
 ### `TUI`
 
@@ -168,6 +171,7 @@ cotor delete
 - 여러 회사 생성
 - 회사당 하나의 작업 폴더 바인딩
 - 최소 입력 기반 회사 에이전트 정의
+- 회사 에이전트별 provider 모델 override 저장
 - 회사 목표 생성
 - 목표를 이슈로 자동 분해
 - 이슈 위임 및 실행

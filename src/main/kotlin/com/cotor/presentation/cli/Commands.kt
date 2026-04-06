@@ -85,8 +85,8 @@ class CotorCli : CliktCommand(
             CheatSheetPrinter.printShort(terminal)
             terminal.println(
                 when (CliHelpLanguage.resolve()) {
-                    CliHelpLanguage.KOREAN -> "ℹ️  상세 도움말: cotor help"
-                    CliHelpLanguage.ENGLISH -> "ℹ️  Detailed help: cotor help"
+                    CliHelpLanguage.KOREAN -> "ℹ️  상세 도움말: cotor help · 회사 기능: cotor company --help · 인증: cotor auth codex-oauth status"
+                    CliHelpLanguage.ENGLISH -> "ℹ️  Detailed help: cotor help · Company: cotor company --help · Auth: cotor auth codex-oauth status"
                 }
             )
         }
@@ -656,8 +656,26 @@ class CompletionCommand : CliktCommand(
     }
 
     private val commonSubcommands = listOf(
-        "init", "list", "run", "validate", "test", "template", "plugin", "dash", "interactive", "tui", "web", "resume", "checkpoint", "stats", "doctor", "status", "lint", "explain", "agent", "company", "auth", "version", "completion"
+        "hello", "help", "init", "run", "dash", "interactive", "tui", "validate", "test", "template",
+        "resume", "checkpoint", "stats", "doctor", "status", "list", "web", "app-server", "lint",
+        "explain", "plugin", "agent", "auth", "company", "install", "update", "delete", "version", "completion"
     )
+    private val companySubcommands = listOf(
+        "list", "create", "show", "update", "delete", "dashboard", "agent", "goal", "issue", "review",
+        "runtime", "backend", "linear", "context", "message", "topology", "decisions", "issue-graph",
+        "execution-log", "tui"
+    )
+    private val companyAgentSubcommands = listOf("list", "add", "update", "batch-update")
+    private val companyGoalSubcommands = listOf("list", "create", "update", "delete", "decompose", "enable-autonomy", "disable-autonomy")
+    private val companyIssueSubcommands = listOf("list", "create", "show", "delete", "delegate", "run")
+    private val companyReviewSubcommands = listOf("list", "merge")
+    private val companyRuntimeSubcommands = listOf("status", "start", "stop")
+    private val companyBackendSubcommands = listOf("status", "update", "start", "stop", "restart", "test")
+    private val companyLinearSubcommands = listOf("config", "resync")
+    private val companyContextSubcommands = listOf("list", "add", "delete")
+    private val companyMessageSubcommands = listOf("list", "send")
+    private val authSubcommands = listOf("codex-oauth")
+    private val codexOAuthSubcommands = listOf("login", "status", "logout")
 
     private val bashCompletion: String
         get() = """
@@ -669,6 +687,37 @@ _cotor_completions() {
 
   if [[ ${'$'}COMP_CWORD -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "${commonSubcommands.joinToString(" ")}" -- "${'$'}cur") )
+    return 0
+  fi
+
+  if [[ ${'$'}{COMP_WORDS[1]} == "company" ]]; then
+    if [[ ${'$'}COMP_CWORD -eq 2 ]]; then
+      COMPREPLY=( $(compgen -W "${companySubcommands.joinToString(" ")}" -- "${'$'}cur") )
+      return 0
+    fi
+    case "${'$'}{COMP_WORDS[2]}" in
+      agent) COMPREPLY=( $(compgen -W "${companyAgentSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+      goal) COMPREPLY=( $(compgen -W "${companyGoalSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+      issue) COMPREPLY=( $(compgen -W "${companyIssueSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+      review) COMPREPLY=( $(compgen -W "${companyReviewSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+      runtime) COMPREPLY=( $(compgen -W "${companyRuntimeSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+      backend) COMPREPLY=( $(compgen -W "${companyBackendSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+      linear) COMPREPLY=( $(compgen -W "${companyLinearSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+      context) COMPREPLY=( $(compgen -W "${companyContextSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+      message) COMPREPLY=( $(compgen -W "${companyMessageSubcommands.joinToString(" ")}" -- "${'$'}cur") ) ;;
+    esac
+    return 0
+  fi
+
+  if [[ ${'$'}{COMP_WORDS[1]} == "auth" ]]; then
+    if [[ ${'$'}COMP_CWORD -eq 2 ]]; then
+      COMPREPLY=( $(compgen -W "${authSubcommands.joinToString(" ")}" -- "${'$'}cur") )
+      return 0
+    fi
+    if [[ ${'$'}{COMP_WORDS[2]} == "codex-oauth" ]]; then
+      COMPREPLY=( $(compgen -W "${codexOAuthSubcommands.joinToString(" ")}" -- "${'$'}cur") )
+      return 0
+    fi
   fi
   return 0
 }
@@ -679,14 +728,55 @@ complete -F _cotor_completions cotor
         get() = """
 #compdef cotor
 _cotor_completions() {
-  local -a subcmds
-  subcmds=(${commonSubcommands.joinToString(" ")})
-  _arguments "1: :->subcmds"
-  case ${'$'}state in
-    subcmds)
-      _describe 'command' subcmds
-    ;;
-  esac
+  local -a root_subcmds company_subcmds agent_subcmds goal_subcmds issue_subcmds review_subcmds runtime_subcmds backend_subcmds linear_subcmds context_subcmds message_subcmds auth_subcmds oauth_subcmds
+  root_subcmds=(${commonSubcommands.joinToString(" ")})
+  company_subcmds=(${companySubcommands.joinToString(" ")})
+  agent_subcmds=(${companyAgentSubcommands.joinToString(" ")})
+  goal_subcmds=(${companyGoalSubcommands.joinToString(" ")})
+  issue_subcmds=(${companyIssueSubcommands.joinToString(" ")})
+  review_subcmds=(${companyReviewSubcommands.joinToString(" ")})
+  runtime_subcmds=(${companyRuntimeSubcommands.joinToString(" ")})
+  backend_subcmds=(${companyBackendSubcommands.joinToString(" ")})
+  linear_subcmds=(${companyLinearSubcommands.joinToString(" ")})
+  context_subcmds=(${companyContextSubcommands.joinToString(" ")})
+  message_subcmds=(${companyMessageSubcommands.joinToString(" ")})
+  auth_subcmds=(${authSubcommands.joinToString(" ")})
+  oauth_subcmds=(${codexOAuthSubcommands.joinToString(" ")})
+
+  if (( CURRENT == 2 )); then
+    _describe 'command' root_subcmds
+    return
+  fi
+
+  if [[ ${'$'}words[2] == company ]]; then
+    if (( CURRENT == 3 )); then
+      _describe 'company command' company_subcmds
+      return
+    fi
+    case ${'$'}words[3] in
+      agent) _describe 'company agent command' agent_subcmds ;;
+      goal) _describe 'company goal command' goal_subcmds ;;
+      issue) _describe 'company issue command' issue_subcmds ;;
+      review) _describe 'company review command' review_subcmds ;;
+      runtime) _describe 'company runtime command' runtime_subcmds ;;
+      backend) _describe 'company backend command' backend_subcmds ;;
+      linear) _describe 'company linear command' linear_subcmds ;;
+      context) _describe 'company context command' context_subcmds ;;
+      message) _describe 'company message command' message_subcmds ;;
+    esac
+    return
+  fi
+
+  if [[ ${'$'}words[2] == auth ]]; then
+    if (( CURRENT == 3 )); then
+      _describe 'auth command' auth_subcmds
+      return
+    fi
+    if [[ ${'$'}words[3] == codex-oauth ]]; then
+      _describe 'codex oauth command' oauth_subcmds
+      return
+    fi
+  fi
 }
 _cotor_completions "${'$'}@"
         """.trimIndent()
@@ -694,6 +784,18 @@ _cotor_completions "${'$'}@"
     private val fishCompletion: String
         get() = """
 complete -c cotor -n "__fish_is_first_arg" -f -a "${commonSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and not __fish_seen_subcommand_from ${companySubcommands.joinToString(" ")}" -f -a "${companySubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from agent; and not __fish_seen_subcommand_from ${companyAgentSubcommands.joinToString(" ")}" -f -a "${companyAgentSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from goal; and not __fish_seen_subcommand_from ${companyGoalSubcommands.joinToString(" ")}" -f -a "${companyGoalSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from issue; and not __fish_seen_subcommand_from ${companyIssueSubcommands.joinToString(" ")}" -f -a "${companyIssueSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from review; and not __fish_seen_subcommand_from ${companyReviewSubcommands.joinToString(" ")}" -f -a "${companyReviewSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from runtime; and not __fish_seen_subcommand_from ${companyRuntimeSubcommands.joinToString(" ")}" -f -a "${companyRuntimeSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from backend; and not __fish_seen_subcommand_from ${companyBackendSubcommands.joinToString(" ")}" -f -a "${companyBackendSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from linear; and not __fish_seen_subcommand_from ${companyLinearSubcommands.joinToString(" ")}" -f -a "${companyLinearSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from context; and not __fish_seen_subcommand_from ${companyContextSubcommands.joinToString(" ")}" -f -a "${companyContextSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from company; and __fish_seen_subcommand_from message; and not __fish_seen_subcommand_from ${companyMessageSubcommands.joinToString(" ")}" -f -a "${companyMessageSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from auth; and not __fish_seen_subcommand_from ${authSubcommands.joinToString(" ")}" -f -a "${authSubcommands.joinToString(" ")}"
+complete -c cotor -n "__fish_seen_subcommand_from codex-oauth; and not __fish_seen_subcommand_from ${codexOAuthSubcommands.joinToString(" ")}" -f -a "${codexOAuthSubcommands.joinToString(" ")}"
         """.trimIndent()
 }
 
@@ -752,8 +854,10 @@ object CheatSheetPrinter {
                 terminal.println("6) cotor run <pipeline> -c <yaml> --output-format text")
                 terminal.println("7) cotor interactive  |  cotor dash -c <yaml>  |  cotor web")
                 terminal.println("8) 예제 실행: examples/run-examples.sh")
-                terminal.println("9) 문제 발생 시 cotor doctor, --debug, docs/QUICK_START.md")
-                terminal.println("10) 자동완성/alias: cotor completion zsh|bash|fish")
+                terminal.println("9) 회사 운영: cotor company --help  |  cotor company tui")
+                terminal.println("10) 인증: cotor auth codex-oauth status")
+                terminal.println("11) 문제 발생 시 cotor doctor, --debug, docs/QUICK_START.md")
+                terminal.println("12) 자동완성/alias: cotor completion zsh|bash|fish")
             }
 
             CliHelpLanguage.ENGLISH -> {
@@ -767,8 +871,10 @@ object CheatSheetPrinter {
                 terminal.println("6) cotor run <pipeline> -c <yaml> --output-format text")
                 terminal.println("7) cotor interactive  |  cotor dash -c <yaml>  |  cotor web")
                 terminal.println("8) Example runs: examples/run-examples.sh")
-                terminal.println("9) Troubleshooting: cotor doctor, --debug, docs/QUICK_START.md")
-                terminal.println("10) Completion/alias: cotor completion zsh|bash|fish")
+                terminal.println("9) Company workflows: cotor company --help  |  cotor company tui")
+                terminal.println("10) Auth: cotor auth codex-oauth status")
+                terminal.println("11) Troubleshooting: cotor doctor, --debug, docs/QUICK_START.md")
+                terminal.println("12) Completion/alias: cotor completion zsh|bash|fish")
             }
         }
         terminal.println()

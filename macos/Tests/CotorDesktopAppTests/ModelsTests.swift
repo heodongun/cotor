@@ -81,6 +81,7 @@ struct ModelsTests {
         let payload = BatchUpdateCompanyAgentsPayload(
             agentIds: ["agent-1", "agent-2"],
             agentCli: "codex-oauth",
+            model: "gpt-5.4",
             specialties: ["qa", "review"],
             enabled: false
         )
@@ -89,6 +90,7 @@ struct ModelsTests {
 
         #expect(decoded.agentIds == ["agent-1", "agent-2"])
         #expect(decoded.agentCli == "codex-oauth")
+        #expect(decoded.model == "gpt-5.4")
         #expect(decoded.specialties == ["qa", "review"])
         #expect(decoded.enabled == false)
     }

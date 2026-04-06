@@ -131,6 +131,7 @@ struct CompanyAgentDefinitionRecord: Codable, Identifiable, Hashable {
     let companyId: String
     let title: String
     let agentCli: String
+    let model: String?
     let roleSummary: String
     let specialties: [String]
     let collaborationInstructions: String?
@@ -242,6 +243,8 @@ struct RunRecord: Codable, Identifiable, Hashable {
     let branchName: String
     let worktreePath: String
     let status: String
+    let model: String?
+    let backendKind: String?
     let processId: Int64?
     let output: String?
     let error: String?
@@ -367,6 +370,28 @@ struct ReviewQueueItemRecord: Codable, Identifiable, Hashable {
     let mergedAt: Int64?
     let createdAt: Int64
     let updatedAt: Int64
+}
+
+struct IssueAgentExecutionDetailRecord: Codable, Identifiable, Hashable {
+    var id: String { runId ?? taskId }
+
+    let roleName: String
+    let agentName: String
+    let agentCli: String
+    let model: String?
+    let assignedPrompt: String
+    let taskId: String
+    let taskStatus: String
+    let runId: String?
+    let runStatus: String?
+    let backendKind: String?
+    let processId: Int64?
+    let stdout: String?
+    let stderr: String?
+    let branchName: String?
+    let pullRequestUrl: String?
+    let updatedAt: Int64
+    let publishSummary: String?
 }
 
 struct IssueDependencyRecord: Codable, Identifiable, Hashable {
@@ -591,6 +616,8 @@ struct RunningAgentSessionRecord: Codable, Hashable, Identifiable {
     let roleName: String?
     let status: String
     let branchName: String
+    let model: String?
+    let backendKind: String?
     let processId: Int64?
     let outputSnippet: String?
     let startedAt: Int64
@@ -924,6 +951,7 @@ struct LinearSyncResponsePayload: Codable, Hashable {
 struct CreateCompanyAgentPayload: Codable {
     let title: String
     let agentCli: String
+    let model: String?
     let roleSummary: String
     let specialties: [String]
     let collaborationInstructions: String?
@@ -935,6 +963,7 @@ struct CreateCompanyAgentPayload: Codable {
 struct UpdateCompanyAgentPayload: Codable {
     let title: String?
     let agentCli: String?
+    let model: String?
     let roleSummary: String?
     let specialties: [String]?
     let collaborationInstructions: String?
@@ -947,6 +976,7 @@ struct UpdateCompanyAgentPayload: Codable {
 struct BatchUpdateCompanyAgentsPayload: Codable {
     let agentIds: [String]
     let agentCli: String?
+    let model: String?
     let specialties: [String]?
     let enabled: Bool?
 }
@@ -1097,6 +1127,7 @@ struct MockSeed {
                 companyId: "company-demo",
                 title: "CEO",
                 agentCli: "claude",
+                model: "claude-sonnet-4-20250514",
                 roleSummary: "lead strategy, planning, triage, final merge",
                 specialties: ["planning", "triage", "approval"],
                 collaborationInstructions: "Break goals into issues and route work to the strongest specialists first.",
@@ -1112,6 +1143,7 @@ struct MockSeed {
                 companyId: "company-demo",
                 title: "Builder",
                 agentCli: "codex",
+                model: "gpt-5.4",
                 roleSummary: "implementation, integration, delivery",
                 specialties: ["implementation", "integration"],
                 collaborationInstructions: "Hand off risky or ambiguous work back to CEO and route finished work to QA.",
@@ -1127,6 +1159,7 @@ struct MockSeed {
                 companyId: "company-demo",
                 title: "QA",
                 agentCli: "gemini",
+                model: nil,
                 roleSummary: "qa, review, verification",
                 specialties: ["qa", "review", "verification"],
                 collaborationInstructions: "Review implementation output and escalate blockers to CEO.",
@@ -1423,6 +1456,8 @@ struct MockSeed {
             branchName: "codex/cotor/superset-shell/claude",
             worktreePath: "/Users/demo/cotor/.cotor/worktrees/task-demo/claude",
             status: "RUNNING",
+            model: "claude-sonnet-4-20250514",
+            backendKind: "LOCAL_COTOR",
             processId: 1001,
             output: "Working on shell layout and task orchestration...",
             error: nil,
@@ -1443,6 +1478,8 @@ struct MockSeed {
             branchName: "codex/cotor/superset-shell/codex",
             worktreePath: "/Users/demo/cotor/.cotor/worktrees/task-demo/codex",
             status: "COMPLETED",
+            model: "gpt-5.4",
+            backendKind: "LOCAL_COTOR",
             processId: 1002,
             output: "Added app-server APIs and worktree scaffolding.",
             error: nil,

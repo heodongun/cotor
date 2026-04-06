@@ -82,4 +82,13 @@ class CompanyCommandTest : FunSpec({
         result.output shouldContain "\"agentCli\": \"opencode\""
         result.output shouldContain "\"enabled\": false"
     }
+
+    test("completion output includes company and auth nested commands") {
+        val result = CompletionCommand().test("bash")
+
+        result.statusCode shouldBe 0
+        result.output shouldContain "company"
+        result.output shouldContain "batch-update"
+        result.output shouldContain "codex-oauth"
+    }
 })

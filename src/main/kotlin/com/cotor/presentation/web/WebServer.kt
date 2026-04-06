@@ -515,6 +515,11 @@ internal fun Application.cotorWebModule(
                 call.respond(desktopService.companyDashboard())
             }
 
+            get("/issues/{issueId}/execution-details") {
+                val issueId = call.parameters["issueId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                call.respond(desktopService.issueExecutionDetails(issueId))
+            }
+
             route("/companies") {
                 get {
                     call.respond(desktopService.listCompanies())
@@ -580,6 +585,7 @@ internal fun Application.cotorWebModule(
                             companyId = companyId,
                             agentIds = request.agentIds,
                             agentCli = request.agentCli,
+                            model = request.model,
                             specialties = request.specialties,
                             enabled = request.enabled
                         )
@@ -609,6 +615,11 @@ internal fun Application.cotorWebModule(
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     val goalId = call.request.queryParameters["goalId"]
                     call.respond(desktopService.listIssues(goalId, companyId))
+                }
+
+                get("/{companyId}/issues/{issueId}/execution-details") {
+                    val issueId = call.parameters["issueId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    call.respond(desktopService.issueExecutionDetails(issueId))
                 }
 
                 post("/{companyId}/issues") {

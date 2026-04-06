@@ -27,7 +27,7 @@ private val companyCliJson = Json {
 
 class CompanyCommand : CliktCommand(
     name = "company",
-    help = "Manage company workflows from the CLI"
+    help = "Manage company workflows from the CLI. See `cotor company --help` for goals, issues, review, runtime, backend, and TUI commands."
 ) {
     init {
         subcommands(
@@ -193,6 +193,7 @@ private class CompanyAgentAddCommand : CompanyServiceCommand(name = "add") {
     private val companyId by option("--company-id").required()
     private val title by option("--title").required()
     private val agentCli by option("--agent-cli").required()
+    private val model by option("--model")
     private val roleSummary by option("--role-summary").required()
     private val specialties by option("--specialty").multiple()
     private val collaborationInstructions by option("--collaboration-instructions")
@@ -206,6 +207,7 @@ private class CompanyAgentAddCommand : CompanyServiceCommand(name = "add") {
                 companyId = companyId,
                 title = title,
                 agentCli = agentCli,
+                model = model,
                 roleSummary = roleSummary,
                 specialties = specialties,
                 collaborationInstructions = collaborationInstructions,
@@ -223,6 +225,7 @@ private class CompanyAgentUpdateCommand : CompanyServiceCommand(name = "update")
     private val agentId by option("--agent-id").required()
     private val title by option("--title")
     private val agentCli by option("--agent-cli")
+    private val model by option("--model")
     private val roleSummary by option("--role-summary")
     private val specialties by option("--specialty").multiple()
     private val collaborationInstructions by option("--collaboration-instructions")
@@ -238,6 +241,7 @@ private class CompanyAgentUpdateCommand : CompanyServiceCommand(name = "update")
                 agentId = agentId,
                 title = title,
                 agentCli = agentCli,
+                model = model,
                 roleSummary = roleSummary,
                 specialties = specialties.takeIf { it.isNotEmpty() },
                 collaborationInstructions = collaborationInstructions,
@@ -255,6 +259,7 @@ private class CompanyAgentBatchUpdateCommand : CompanyServiceCommand(name = "bat
     private val companyId by option("--company-id").required()
     private val agentIds by option("--agent-id").multiple(required = true)
     private val agentCli by option("--agent-cli")
+    private val model by option("--model")
     private val specialties by option("--specialty").multiple()
     private val enabled by option("--enabled").choice("true", "false")
 
@@ -264,6 +269,7 @@ private class CompanyAgentBatchUpdateCommand : CompanyServiceCommand(name = "bat
                 companyId = companyId,
                 agentIds = agentIds,
                 agentCli = agentCli,
+                model = model,
                 specialties = specialties.takeIf { it.isNotEmpty() },
                 enabled = enabled?.toBooleanStrict()
             ),
