@@ -69,6 +69,27 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("help guide route returns localized app help when authorized") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/help-guide?lang=en") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"title\":\"Cotor Help\""
+            response.bodyAsText() shouldContain "cotor help web"
+            response.bodyAsText() shouldContain "cotor help ai"
+        }
+    }
+
     test("shutdown route accepts authenticated graceful shutdown requests") {
         val shutdownLatch = CountDownLatch(1)
 
@@ -511,6 +532,49 @@ class AppServerTest : FunSpec({
             response.status shouldBe HttpStatusCode.OK
             response.bodyAsText() shouldContain "\"roleName\":\"QA\""
             response.bodyAsText() shouldContain "\"stdout\":\"QA_VERDICT: PASS\""
+        }
+    }
+
+    test("company execution log route returns nested execution data when authorized") {
+        coEvery { desktopService.executionLog("company-1") } returns listOf(
+            mapOf(
+                "issueId" to "issue-1",
+                "issueTitle" to "Ship README change",
+                "issueStatus" to "IN_PROGRESS",
+                "tasks" to listOf(
+                    mapOf(
+                        "taskId" to "task-1",
+                        "status" to "RUNNING",
+                        "runs" to listOf(
+                            mapOf(
+                                "runId" to "run-1",
+                                "agent" to "opencode",
+                                "status" to "RUNNING",
+                                "processId" to 42L
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/companies/company-1/execution-log") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"issueId\":\"issue-1\""
+            response.bodyAsText() shouldContain "\"agent\":\"opencode\""
+            response.bodyAsText() shouldContain "\"processId\":42"
         }
     }
 

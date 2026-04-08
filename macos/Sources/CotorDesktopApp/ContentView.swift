@@ -177,6 +177,10 @@ struct ContentView: View {
         .sheet(isPresented: $store.showingCloneSheet) {
             CloneRepositorySheet()
         }
+        .sheet(isPresented: $store.showingHelpGuide) {
+            DesktopHelpGuideSheet()
+                .environmentObject(store)
+        }
         .alert(l.text(.requestFailed), isPresented: Binding(
             get: { store.actionErrorMessage != nil },
             set: {
@@ -438,6 +442,13 @@ private struct DesktopTopBar: View {
             CompactLanguagePicker()
 
             CompactThemePicker()
+
+            Button {
+                Task { await store.openHelpGuide() }
+            } label: {
+                Image(systemName: "questionmark.circle")
+            }
+            .buttonStyle(ShellTopBarButtonStyle(prominent: false))
 
             if store.shellMode == .tui {
                 Button {
@@ -5445,6 +5456,11 @@ private struct DesktopCommandMenu: Commands {
             }
             .keyboardShortcut("l", modifiers: [.command])
 
+            Button(store.language("Help & Commands", "도움말과 명령어")) {
+                Task { await store.openHelpGuide() }
+            }
+            .keyboardShortcut("/", modifiers: [.command, .shift])
+
             Button(l.text(.createTaskMenu)) {
                 Task { await store.createTask() }
             }
@@ -5532,5 +5548,130 @@ private func statusTint(for status: String) -> Color {
         return ShellPalette.warning
     default:
         return ShellPalette.accent
+    }
+}
+
+private struct DesktopHelpGuideSheet: View {
+    @EnvironmentObject private var store: DesktopStore
+
+    var body: some View {
+        ZStack {
+            ShellCanvas().ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let guide = store.helpGuide {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(guide.title)
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(ShellPalette.text)
+                            Text(guide.subtitle)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(ShellPalette.muted)
+                        }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(shellCardBackground)
+
+                        HelpGuideSectionCard(
+                            title: store.language("Quick Start", "빠른 시작"),
+                            subtitle: store.language("The fastest commands to orient yourself.", "가장 빨리 시작할 수 있는 명령들입니다."),
+                            items: guide.quickStart
+                        )
+
+                        ForEach(guide.sections) { section in
+                            HelpGuideSectionCard(title: section.title, subtitle: section.summary, items: section.items)
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            ShellSectionHeader(eyebrow: store.language("Topics", "주제"), title: store.language("Topic Guides", "주제별 도움말"), subtitle: store.language("Jump to focused help modes.", "집중된 도움말 모드로 바로 이동합니다."))
+                            ForEach(guide.topics) { topic in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    ShellTag(text: topic.command, tint: ShellPalette.accent)
+                                    Text(topic.title)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(ShellPalette.text)
+                                    Text(topic.description)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(ShellPalette.muted)
+                                }
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(shellCardBackground)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            ShellSectionHeader(eyebrow: "AI", title: store.language("AI Usage Guide", "AI 사용 안내"), subtitle: store.language("Narrative guidance for new operators.", "처음 쓰는 사람도 따라갈 수 있는 줄글 안내입니다."))
+                            Text(guide.aiNarrative)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(ShellPalette.text)
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(shellCardBackground)
+                            Text(guide.footer)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(ShellPalette.muted)
+                        }
+                    } else {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .frame(maxWidth: .infinity, minHeight: 280)
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .frame(minWidth: 820, minHeight: 720)
+    }
+
+    private var shellCardBackground: some View {
+        RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+            .fill(ShellPalette.panel)
+            .overlay(
+                RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                    .stroke(ShellPalette.line, lineWidth: 1)
+            )
+    }
+}
+
+private struct HelpGuideSectionCard: View {
+    let title: String
+    let subtitle: String
+    let items: [HelpGuideItemPayload]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ShellSectionHeader(eyebrow: "CLI", title: title, subtitle: subtitle)
+            ForEach(items) { item in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.command)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(ShellPalette.text)
+                    Text(item.description)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(ShellPalette.panelAlt)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(ShellPalette.line, lineWidth: 1)
+                        )
+                )
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                .fill(ShellPalette.panel)
+                .overlay(
+                    RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                        .stroke(ShellPalette.line, lineWidth: 1)
+                )
+        )
     }
 }

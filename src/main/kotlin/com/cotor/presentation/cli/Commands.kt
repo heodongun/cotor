@@ -8,6 +8,7 @@ package com.cotor.presentation.cli
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.app.HelpGuideContent
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.config.CotorProperties
 import com.cotor.data.registry.AgentRegistry
@@ -19,10 +20,12 @@ import com.cotor.presentation.formatter.OutputFormatter
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.choice
+import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
 import com.github.ajalt.mordant.rendering.TextColors.*
 import com.github.ajalt.mordant.rendering.TextStyles.*
@@ -99,14 +102,40 @@ class HelpCommand(
     name = "help",
     help = "Show how to use Cotor in English or Korean"
 ) {
+    private val topic by argument("topic").choice("web", "ai").optional()
     private val languageCode by option("--lang", help = "Help output language")
         .choice("en", "ko")
+    private val port by option("--port", help = "Port for web help").int().default(8080)
+    private val noOpen by option("--no-open", help = "Do not auto-open the browser for web help").flag(default = false)
 
     override fun run() {
-        CheatSheetPrinter.printDetailed(
-            terminal = terminal,
-            language = CliHelpLanguage.resolve(languageCode)
-        )
+        val language = CliHelpLanguage.resolve(languageCode)
+        when (topic) {
+            "ai" -> {
+                terminal.println(HelpGuideContent.aiNarrative(language))
+                terminal.println()
+            }
+            "web" -> {
+                val lang = if (language == CliHelpLanguage.KOREAN) "ko" else "en"
+                val path = "/help?lang=$lang"
+                terminal.println(
+                    when (language) {
+                        CliHelpLanguage.KOREAN -> "🌐 웹 도움말을 엽니다: http://127.0.0.1:$port$path"
+                        CliHelpLanguage.ENGLISH -> "🌐 Opening web help at http://127.0.0.1:$port$path"
+                    }
+                )
+                com.cotor.presentation.web.WebServer().start(
+                    port = port,
+                    openBrowser = !noOpen,
+                    readOnly = true,
+                    initialPath = path
+                )
+            }
+            else -> CheatSheetPrinter.printDetailed(
+                terminal = terminal,
+                language = language
+            )
+        }
     }
 }
 
@@ -892,6 +921,8 @@ object CheatSheetPrinter {
                 terminal.println("  cotor                     대화형 TUI 채팅 시작")
                 terminal.println("  cotor tui                 interactive의 별칭")
                 terminal.println("  cotor help --lang en      영어 도움말 보기")
+                terminal.println("  cotor help ai             줄글형 사용 안내문")
+                terminal.println("  cotor help web            웹 도움말 열기")
                 terminal.println()
                 terminal.println("프로젝트 준비")
                 terminal.println("  cotor init --starter-template")
@@ -921,6 +952,8 @@ object CheatSheetPrinter {
                 terminal.println("  cotor                     Start the interactive TUI chat")
                 terminal.println("  cotor tui                 Alias for interactive mode")
                 terminal.println("  cotor help --lang ko      Show this guide in Korean")
+                terminal.println("  cotor help ai             Print the narrative usage guide")
+                terminal.println("  cotor help web            Open the web help surface")
                 terminal.println()
                 terminal.println("Project setup")
                 terminal.println("  cotor init --starter-template")

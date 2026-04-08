@@ -139,4 +139,69 @@ class OpenCodePluginTest : FunSpec({
 
         result.output shouldBe "QA_VERDICT: PASS\n\nThe PR is ready to merge after QA review."
     }
+
+    test("retries with an available opencode model when the configured model is missing") {
+        val plugin = OpenCodePlugin()
+        var runCount = 0
+        val processManager = object : ProcessManager {
+            override suspend fun executeProcess(
+                command: List<String>,
+                input: String?,
+                environment: Map<String, String>,
+                timeout: Long,
+                workingDirectory: Path?,
+                onStart: ((Long) -> Unit)?
+            ): ProcessResult {
+                return when {
+                    command == listOf("opencode", "models", "opencode") -> ProcessResult(
+                        exitCode = 0,
+                        stdout = "opencode/minimax-m2.5-free\nopencode/gpt-5-nano\n",
+                        stderr = "",
+                        isSuccess = true
+                    )
+                    command.take(2) == listOf("opencode", "run") -> {
+                        runCount += 1
+                        when (runCount) {
+                            1 -> {
+                                command shouldBe listOf("opencode", "run", "--model", OpenCodeDefaults.DEFAULT_MODEL, "--format", "json", "hello")
+                                ProcessResult(
+                                    exitCode = 0,
+                                    stdout = """{"type":"error","error":{"data":{"message":"Model not found: ${OpenCodeDefaults.DEFAULT_MODEL}."}}}""",
+                                    stderr = "",
+                                    isSuccess = true
+                                )
+                            }
+                            2 -> {
+                                command shouldBe listOf("opencode", "run", "--model", "opencode/minimax-m2.5-free", "--format", "json", "hello")
+                                ProcessResult(
+                                    exitCode = 0,
+                                    stdout = """{"type":"text","text":"fixed"}""",
+                                    stderr = "",
+                                    isSuccess = true,
+                                    processId = 88L
+                                )
+                            }
+                            else -> error("unexpected extra opencode run invocation")
+                        }
+                    }
+                    else -> error("unexpected command: $command")
+                }
+            }
+        }
+
+        val result = plugin.execute(
+            ExecutionContext(
+                agentName = "opencode",
+                input = "hello",
+                timeout = 1_000,
+                parameters = mapOf("model" to OpenCodeDefaults.DEFAULT_MODEL),
+                environment = emptyMap()
+            ),
+            processManager
+        )
+
+        runCount shouldBe 2
+        result.output shouldBe "fixed"
+        result.processId shouldBe 88L
+    }
 })

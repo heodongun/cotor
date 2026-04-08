@@ -828,6 +828,39 @@ struct ShortcutBindingPayload: Codable, Hashable, Identifiable {
     let shortcut: String
 }
 
+struct HelpGuideItemPayload: Codable, Hashable, Identifiable {
+    var id: String { command }
+
+    let command: String
+    let description: String
+}
+
+struct HelpGuideSectionPayload: Codable, Hashable, Identifiable {
+    var id: String { title }
+
+    let title: String
+    let summary: String
+    let items: [HelpGuideItemPayload]
+}
+
+struct HelpGuideTopicPayload: Codable, Hashable, Identifiable {
+    var id: String { command }
+
+    let command: String
+    let title: String
+    let description: String
+}
+
+struct HelpGuidePayload: Codable, Hashable {
+    let title: String
+    let subtitle: String
+    let quickStart: [HelpGuideItemPayload]
+    let sections: [HelpGuideSectionPayload]
+    let topics: [HelpGuideTopicPayload]
+    let aiNarrative: String
+    let footer: String
+}
+
 /// Combined payload fetched during initial load and refresh.
 struct DashboardPayload: Codable {
     let repositories: [RepositoryRecord]

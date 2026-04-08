@@ -45,6 +45,10 @@ struct DesktopAPI {
         return payload.status?.lowercased() == "ok"
     }
 
+    func helpGuide(languageCode: String) async throws -> HelpGuidePayload {
+        try await get(path: "api/app/help-guide", query: [URLQueryItem(name: "lang", value: languageCode)])
+    }
+
     /// Return the selectable base branches for the currently focused repository.
     func repositoryBranches(repositoryId: String) async throws -> [String] {
         try await get(path: "api/app/repositories/\(repositoryId)/branches")

@@ -48,6 +48,38 @@ class WebServerTest : FunSpec({
         }
     }
 
+    test("help page is served through web module") {
+        val configRepository = mockk<ConfigRepository>(relaxed = true)
+        val agentRegistry = mockk<AgentRegistry>(relaxed = true)
+        val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
+        val desktopService = mockk<DesktopAppService>(relaxed = true)
+        val editorDir = Files.createTempDirectory("cotor-web-test")
+
+        testApplication {
+            application {
+                cotorWebModule(
+                    configRepository = configRepository,
+                    agentRegistry = agentRegistry,
+                    orchestrator = orchestrator,
+                    desktopService = desktopService,
+                    editorDir = editorDir,
+                    readOnly = false,
+                    buildTemplates = { emptyList() },
+                    listSavedPipelines = { emptyList() },
+                    loadPipelineDetail = { null },
+                    savePipeline = { editorDir.resolve("saved.yaml") },
+                    buildTimelinePayload = { _, _ -> emptyList() }
+                )
+            }
+
+            val response = client.get("/help?lang=en")
+            response.status.value shouldBe 200
+            response.bodyAsText() shouldContain "Cotor Help"
+            response.bodyAsText() shouldContain "cotor help web"
+            response.bodyAsText() shouldContain "cotor help ai"
+        }
+    }
+
     test("company dashboard api is served through web module") {
         val configRepository = mockk<ConfigRepository>(relaxed = true)
         val agentRegistry = mockk<AgentRegistry>(relaxed = true)

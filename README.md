@@ -24,6 +24,8 @@ Important entry behavior:
 - `cotor` with no args launches `interactive`
 - `cotor tui` is an alias to `interactive`
 - `interactive` defaults to a single preferred agent chat; use `--mode auto|compare` or `:mode ...` to fan out to multiple agents
+- `cotor help ai` prints a prose usage guide for operators
+- `cotor help web` launches a web help page with the command collection and quick-start guidance
 - interactive transcripts live under `.cotor/interactive/...`, and each session now writes `interactive.log` beside the transcript files
 - packaged first-run interactive writes its auto-generated starter config under `~/.cotor/interactive/default/cotor.yaml` when no local config exists
 - packaged first-run interactive only auto-selects AI starters that are actually ready to answer immediately; otherwise it falls back to the safe `example-agent` echo starter instead of failing on an unauthenticated CLI
@@ -134,6 +136,7 @@ Current desktop model:
 - `TUI` mode for standalone folder-backed `cotor` terminals, with multiple live sessions in parallel
 - top session strip for active execution contexts
 - collapsible detail drawer for changes, files, ports, browser, and review metadata
+- a built-in desktop help sheet that surfaces the command collection and quick usage guidance inside the app
 
 ## Autonomous Company Status
 

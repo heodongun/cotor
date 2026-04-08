@@ -27,6 +27,6 @@ class WebCommand : CliktCommand(
     private val readOnly by option("--read-only", help = "읽기 전용 모드로 실행합니다").flag(default = false)
 
     override fun run() {
-        WebServer().start(port = port, openBrowser = openBrowser, readOnly = readOnly)
+        WebServer().start(port = port, openBrowser = openBrowser, readOnly = readOnly, initialPath = "/")
     }
 }
