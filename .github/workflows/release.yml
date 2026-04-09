@@ -81,7 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [app, core, pipeline]
+        shard: [app-service, app-surface, core, pipeline]
 
     steps:
       - name: Checkout
@@ -102,10 +102,14 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ matrix.shard }}" in
-            app)
+            app-service)
               ./gradlew --no-daemon test \
                 --tests 'com.cotor.app.*' \
                 --tests 'com.cotor.app.runtime.*' \
+                -x jacocoTestReport -x jacocoTestCoverageVerification
+              ;;
+            app-surface)
+              ./gradlew --no-daemon test \
                 --tests 'com.cotor.a2a.*' \
                 --tests 'com.cotor.presentation.*' \
                 --tests 'com.cotor.chat.*' \
