@@ -81,7 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [app-core, app-company, app-support, app-surface, core, pipeline]
+        shard: [app-core, app-support, app-surface, core, pipeline]
 
     steps:
       - name: Checkout
@@ -105,14 +105,6 @@ jobs:
             app-core)
               ./gradlew --no-daemon test \
                 --tests 'com.cotor.app.runtime.*' \
-                -x jacocoTestReport -x jacocoTestCoverageVerification
-              ;;
-            app-company)
-              ./gradlew --no-daemon test \
-                --tests 'com.cotor.app.DesktopAppServiceTest' \
-                --tests 'com.cotor.app.DesktopAppServiceDashboardRuntimeTest' \
-                --tests 'com.cotor.app.DesktopAppServiceMergeConfirmationTest' \
-                --tests 'com.cotor.app.DesktopAppServiceParallelDispatchTest' \
                 -x jacocoTestReport -x jacocoTestCoverageVerification
               ;;
             app-support)
@@ -156,6 +148,36 @@ jobs:
               ;;
           esac
         timeout-minutes: 60
+
+  verify-app-company:
+    needs: [detect-version, verify-format]
+    if: ${{ needs.detect-version.outputs.should_release == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test company shard
+        run: |
+          ./gradlew --no-daemon test \
+            --tests 'com.cotor.app.DesktopAppServiceTest' \
+            --tests 'com.cotor.app.DesktopAppServiceDashboardRuntimeTest' \
+            --tests 'com.cotor.app.DesktopAppServiceMergeConfirmationTest' \
+            --tests 'com.cotor.app.DesktopAppServiceParallelDispatchTest' \
+            -x jacocoTestReport -x jacocoTestCoverageVerification
+        timeout-minutes: 140
 
   build-jar:
     needs: [detect-version, verify]
