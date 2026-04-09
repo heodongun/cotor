@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [app-core, app-heavy, app-surface, core, pipeline]
+        shard: [app-core, app-company, app-support, app-surface, core, pipeline]
 
     steps:
       - name: Checkout
@@ -62,9 +62,20 @@ jobs:
                 --tests 'com.cotor.app.runtime.*' \
                 -x jacocoTestReport -x jacocoTestCoverageVerification
               ;;
-            app-heavy)
+            app-company)
               ./gradlew --no-daemon test --stacktrace \
-                --tests 'com.cotor.app.*' \
+                --tests 'com.cotor.app.DesktopAppServiceTest' \
+                --tests 'com.cotor.app.DesktopAppServiceDashboardRuntimeTest' \
+                --tests 'com.cotor.app.DesktopAppServiceMergeConfirmationTest' \
+                --tests 'com.cotor.app.DesktopAppServiceParallelDispatchTest' \
+                -x jacocoTestReport -x jacocoTestCoverageVerification
+              ;;
+            app-support)
+              ./gradlew --no-daemon test --stacktrace \
+                --tests 'com.cotor.app.AppServer*' \
+                --tests 'com.cotor.app.GitWorkspaceServiceTest' \
+                --tests 'com.cotor.app.DesktopStateStore*' \
+                --tests 'com.cotor.app.DesktopTuiSessionServiceTest' \
                 -x jacocoTestReport -x jacocoTestCoverageVerification
               ;;
             app-surface)
