@@ -3,7 +3,7 @@ class Cotor < Formula
   homepage "https://github.com/bssm-oss/cotor"
   version "1.0.6"
   url "https://github.com/bssm-oss/cotor/releases/download/v1.0.6/cotor-1.0.6-all.jar"
-  sha256 "0fab7d374884e545d4c53a349a36e7df76b9fc579b80d82d114db348c7f40fc2"
+  sha256 "d23e0424175eb704d40fd4db8f9012932653abf77e06b7d1288a744b2908d1aa"
   license "MIT"
   head "https://github.com/bssm-oss/cotor.git", branch: "master"
 
@@ -11,7 +11,7 @@ class Cotor < Formula
 
   resource "desktop-dmg" do
     url "https://github.com/bssm-oss/cotor/releases/download/v1.0.6/Cotor-1.0.6.dmg"
-    sha256 "a2e64e9280fc07903efc4bdd35815688d2ed22fc150c9c652fa42e23d9269d60"
+    sha256 "24999e76baf9f2a97c533dc1b370c2d5528430db328cdf257dc40be169befe1f"
   end
 
   def install
