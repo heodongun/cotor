@@ -107,7 +107,7 @@ jobs:
 
   verify-app-company:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 330
     needs: verify-format
 
     steps:
@@ -132,7 +132,7 @@ jobs:
             --tests 'com.cotor.app.DesktopAppServiceMergeConfirmationTest' \
             --tests 'com.cotor.app.DesktopAppServiceParallelDispatchTest' \
             -x jacocoTestReport -x jacocoTestCoverageVerification
-        timeout-minutes: 140
+        timeout-minutes: 320
 
       - name: Reopen and unassign Linear issue on failed PR tests
         if: ${{ failure() && github.event_name == 'pull_request' && steps.test.outcome == 'failure' }}

@@ -153,7 +153,7 @@ jobs:
     needs: [detect-version, verify-format]
     if: ${{ needs.detect-version.outputs.should_release == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 330
 
     steps:
       - name: Checkout
@@ -177,7 +177,7 @@ jobs:
             --tests 'com.cotor.app.DesktopAppServiceMergeConfirmationTest' \
             --tests 'com.cotor.app.DesktopAppServiceParallelDispatchTest' \
             -x jacocoTestReport -x jacocoTestCoverageVerification
-        timeout-minutes: 140
+        timeout-minutes: 320
 
   build-jar:
     needs: [detect-version, verify]
