@@ -51,7 +51,7 @@ class CompanyRuntimeMachineTest : FunSpec({
         ) shouldContainExactly listOf(RuntimeCommand.EnsurePlanningIssue("goal-a"))
     }
 
-    test("planIssueStarts limits concurrent work by profile and execution agent") {
+    test("planIssueStarts limits concurrent work by profile only") {
         val profiles = listOf(
             OrgAgentProfile(
                 id = "profile-a",
@@ -121,7 +121,7 @@ class CompanyRuntimeMachineTest : FunSpec({
             occupiedExecutionAgents = emptySet()
         )
 
-        commands.map { (it as RuntimeCommand.StartIssue).issueId } shouldContainExactly listOf("issue-a", "issue-c")
-        commands.size shouldBe 2
+        commands.map { (it as RuntimeCommand.StartIssue).issueId } shouldContainExactly listOf("issue-a", "issue-b", "issue-c")
+        commands.size shouldBe 3
     }
 })

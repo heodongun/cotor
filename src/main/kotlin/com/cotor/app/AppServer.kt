@@ -27,6 +27,7 @@ import io.ktor.server.request.header
 import io.ktor.server.request.path
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
 import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.delete
@@ -38,6 +39,12 @@ import io.ktor.server.routing.routing
 import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.nio.channels.FileChannel
@@ -260,6 +267,12 @@ internal fun Application.cotorAppModule(
             get("/health") {
                 if (!requireToken(token)) return@get
                 call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
+            }
+
+            get("/help-guide") {
+                if (!requireToken(token)) return@get
+                val language = com.cotor.presentation.cli.CliHelpLanguage.resolve(call.request.queryParameters["lang"])
+                call.respond(HelpGuideContent.guide(language))
             }
 
             post("/shutdown") {
@@ -1278,7 +1291,11 @@ internal fun Application.cotorAppModule(
                         if (!requireToken(token)) return@get
                         val companyId = call.parameters["companyId"]
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
-                        call.respond(desktopService.executionLog(companyId))
+                        val payload = desktopService.executionLog(companyId)
+                        call.respondText(
+                            text = streamJson.encodeToString(JsonArray.serializer(), payload.toJsonArray()),
+                            contentType = ContentType.Application.Json
+                        )
                     }
                 }
 
@@ -1550,4 +1567,33 @@ private suspend fun RoutingContext.respondDesktopRequest(block: suspend () -> An
             mapOf("error" to (cause.message ?: cause::class.simpleName ?: "Internal server error"))
         )
     }
+}
+
+private fun List<Map<String, Any?>>.toJsonArray(): JsonArray = buildJsonArray {
+    forEach { add(it.toJsonElement()) }
+}
+
+private fun Map<String, Any?>.toJsonElement(): JsonElement = buildJsonObject {
+    forEach { (key, value) -> put(key, value.toJsonElement()) }
+}
+
+private fun Any?.toJsonElement(): JsonElement = when (this) {
+    null -> JsonNull
+    is JsonElement -> this
+    is String -> JsonPrimitive(this)
+    is Number -> JsonPrimitive(this)
+    is Boolean -> JsonPrimitive(this)
+    is Enum<*> -> JsonPrimitive(this.name)
+    is Map<*, *> -> buildJsonObject {
+        this@toJsonElement.forEach { (key, value) ->
+            if (key != null) put(key.toString(), value.toJsonElement())
+        }
+    }
+    is Iterable<*> -> buildJsonArray {
+        this@toJsonElement.forEach { add(it.toJsonElement()) }
+    }
+    is Array<*> -> buildJsonArray {
+        this@toJsonElement.forEach { add(it.toJsonElement()) }
+    }
+    else -> JsonPrimitive(toString())
 }

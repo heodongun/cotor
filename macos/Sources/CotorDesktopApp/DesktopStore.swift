@@ -121,6 +121,8 @@ final class DesktopStore: ObservableObject {
     @Published var companyStreamStatusMessage: String?
     @Published var backendStatusMessage: String?
     @Published var errorMessage: String?
+    @Published var showingHelpGuide = false
+    @Published var helpGuide: HelpGuidePayload?
 
     let api = DesktopAPI()
     private var statusState: StatusState = .connecting
@@ -367,6 +369,9 @@ final class DesktopStore: ObservableObject {
     func setLanguage(_ language: AppLanguage) {
         self.language = language
         UserDefaults.standard.set(language.rawValue, forKey: Self.languageDefaultsKey)
+        if showingHelpGuide {
+            Task { await loadHelpGuide() }
+        }
         objectWillChange.send()
     }
 
@@ -385,6 +390,20 @@ final class DesktopStore: ObservableObject {
     func openSettings() {
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func openHelpGuide() async {
+        await loadHelpGuide()
+        showingHelpGuide = true
+    }
+
+    func loadHelpGuide() async {
+        do {
+            helpGuide = try await api.helpGuide(languageCode: language.rawValue)
+            actionErrorMessage = nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+        }
     }
 
     /// The desktop app treats the first workflow agent as the coordinator that

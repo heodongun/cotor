@@ -441,10 +441,56 @@ class OpenCodePlugin : AgentPlugin {
         processManager: ProcessManager
     ): PluginExecutionOutput {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
-        val model = OpenCodeDefaults.normalizeModel(
+        val requestedModel = OpenCodeDefaults.normalizeModel(
             context.parameters["model"] ?: context.environment["OPENCODE_MODEL"]
         )
 
+        var model = requestedModel
+        var result = executeOpenCodeRun(
+            prompt = prompt,
+            model = model,
+            context = context,
+            processManager = processManager
+        )
+        val initialError = extractOpenCodeError(result)
+
+        if (requestedModel != null && initialError?.contains("Model not found", ignoreCase = true) == true) {
+            val fallbackModel = discoverFallbackOpenCodeModel(
+                processManager = processManager,
+                context = context,
+                rejectedModel = requestedModel
+            )
+            if (fallbackModel != null) {
+                model = fallbackModel
+                result = executeOpenCodeRun(
+                    prompt = prompt,
+                    model = model,
+                    context = context,
+                    processManager = processManager
+                )
+            }
+        }
+
+        val finalError = extractOpenCodeError(result)
+        if (!result.isSuccess || finalError != null) {
+            throw ProcessExecutionException(
+                message = "OpenCode execution failed",
+                exitCode = result.exitCode,
+                stdout = result.stdout.ifBlank { finalError ?: result.stdout },
+                stderr = result.stderr.ifBlank { finalError ?: result.stderr }
+            )
+        }
+
+        val parsedText = parseOpenCodeJsonOutput(result.stdout)
+        return PluginExecutionOutput(parsedText, result.processId)
+    }
+
+    private suspend fun executeOpenCodeRun(
+        prompt: String,
+        model: String?,
+        context: ExecutionContext,
+        processManager: ProcessManager
+    ): ProcessResult {
         // OpenCode run with --format json produces a structured JSON event stream
         // instead of launching an interactive TUI. Events include step_start, text,
         // step_finish, etc. We parse text events to extract the response content.
@@ -462,7 +508,7 @@ class OpenCodePlugin : AgentPlugin {
             add(prompt)
         }
 
-        val result = processManager.executeProcess(
+        return processManager.executeProcess(
             command = command,
             input = null,
             environment = context.environment,
@@ -470,18 +516,64 @@ class OpenCodePlugin : AgentPlugin {
             workingDirectory = context.workingDirectory,
             onStart = context.onProcessStarted
         )
+    }
 
-        if (!result.isSuccess) {
-            throw ProcessExecutionException(
-                message = "OpenCode execution failed",
-                exitCode = result.exitCode,
-                stdout = result.stdout,
-                stderr = result.stderr
-            )
+    private suspend fun discoverFallbackOpenCodeModel(
+        processManager: ProcessManager,
+        context: ExecutionContext,
+        rejectedModel: String
+    ): String? {
+        val result = processManager.executeProcess(
+            command = listOf("opencode", "models", "opencode"),
+            input = null,
+            environment = context.environment,
+            timeout = minOf(context.timeout, 30_000),
+            workingDirectory = context.workingDirectory,
+            onStart = null
+        )
+        if (!result.isSuccess) return null
+        val models = result.stdout.lineSequence()
+            .map { it.trim() }
+            .filter { it.startsWith("opencode/") }
+            .filter { it != rejectedModel }
+            .toList()
+        return models.firstOrNull { it.endsWith("-free") } ?: models.firstOrNull()
+    }
+
+    private fun extractOpenCodeError(result: ProcessResult): String? {
+        val combined = listOf(result.stdout, result.stderr)
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+            .trim()
+        if (combined.isBlank()) return null
+        Regex("Model not found: [^\\s\"]+")
+            .find(combined)
+            ?.value
+            ?.let { return it }
+        val json = Json { ignoreUnknownKeys = true }
+        fun extract(element: JsonElement): String? = when (element) {
+            is JsonArray -> element.firstNotNullOfOrNull(::extract)
+            is JsonObject -> {
+                if (element["type"]?.jsonPrimitive?.contentOrNull?.equals("error", ignoreCase = true) == true) {
+                    element["error"]?.let(::extract)
+                        ?: element["message"]?.jsonPrimitive?.contentOrNull
+                } else {
+                    element["data"]?.let(::extract)
+                        ?: element["message"]?.jsonPrimitive?.contentOrNull
+                }
+            }
+            is JsonPrimitive -> element.contentOrNull
+            else -> null
         }
-
-        val parsedText = parseOpenCodeJsonOutput(result.stdout)
-        return PluginExecutionOutput(parsedText, result.processId)
+        runCatching { extract(json.parseToJsonElement(combined)) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        return combined.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() && (it.startsWith("{") || it.startsWith("[")) }
+            .mapNotNull { line -> runCatching { extract(json.parseToJsonElement(line)) }.getOrNull() }
+            .firstOrNull { it.isNotBlank() }
     }
 
     private fun parseOpenCodeJsonOutput(rawOutput: String): String {

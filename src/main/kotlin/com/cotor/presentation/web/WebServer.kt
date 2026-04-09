@@ -13,6 +13,7 @@ import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
 import com.cotor.model.*
+import com.cotor.presentation.cli.CliHelpLanguage
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -145,13 +146,13 @@ class WebServer : KoinComponent {
         "echo" to "com.cotor.data.plugin.EchoPlugin"
     )
 
-    fun start(port: Int = 8080, openBrowser: Boolean = false, readOnly: Boolean = false) {
+    fun start(port: Int = 8080, openBrowser: Boolean = false, readOnly: Boolean = false, initialPath: String = "/") {
         ensureEditorDir()
 
         if (openBrowser) {
             thread(name = "cotor-web-open") {
                 Thread.sleep(600)
-                openInBrowser("http://localhost:$port/")
+                openInBrowser("http://localhost:$port$initialPath")
             }
         }
 
@@ -425,6 +426,16 @@ internal fun Application.cotorWebModule(
 
         get("/company") {
             call.respondText(companyHtml, ContentType.Text.Html)
+        }
+
+        get("/help") {
+            val language = CliHelpLanguage.resolve(call.request.queryParameters["lang"])
+            call.respondText(helpHtml(language), ContentType.Text.Html)
+        }
+
+        get("/api/help-guide") {
+            val language = CliHelpLanguage.resolve(call.request.queryParameters["lang"])
+            call.respond(HelpGuideContent.guide(language))
         }
 
         get("/api/editor/config") {
@@ -835,6 +846,87 @@ private val companyHtml = """
 </body>
 </html>
 """.trimIndent()
+
+private fun helpHtml(language: CliHelpLanguage): String {
+    val guide = HelpGuideContent.guide(language)
+    val htmlLang = if (language == CliHelpLanguage.KOREAN) "ko" else "en"
+    val quickStart = guide.quickStart.joinToString("\n") { item ->
+        "<div class=\"quick-item\"><code>${item.command}</code><p>${item.description}</p></div>"
+    }
+    val sections = guide.sections.joinToString("\n") { section ->
+        val items = section.items.joinToString("\n") { item ->
+            "<li><code>${item.command}</code><span>${item.description}</span></li>"
+        }
+        """
+        <section class="help-card">
+          <h2>${section.title}</h2>
+          <p>${section.summary}</p>
+          <ul>$items</ul>
+        </section>
+        """.trimIndent()
+    }
+    val topics = guide.topics.joinToString("\n") { topic ->
+        """
+        <article class="topic-card">
+          <div class="topic-command">${topic.command}</div>
+          <strong>${topic.title}</strong>
+          <p>${topic.description}</p>
+        </article>
+        """.trimIndent()
+    }
+    return """
+    <!doctype html>
+    <html lang="$htmlLang">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>${guide.title}</title>
+      <style>
+        body { font-family: ui-sans-serif, system-ui, sans-serif; background: #f3f6fb; color: #172033; margin: 0; padding: 24px; }
+        .shell { max-width: 1120px; margin: 0 auto; display: grid; gap: 20px; }
+        .hero, .help-card, .topic-card { background: #fff; border: 1px solid #dbe3ef; border-radius: 16px; padding: 20px; box-shadow: 0 10px 30px rgba(15,23,42,.06); }
+        .hero h1 { margin: 0 0 8px; font-size: 2rem; }
+        .hero p { margin: 0; color: #52627a; }
+        .quick-grid, .topic-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+        .quick-item { background: #f8fbff; border: 1px solid #e1e9f4; border-radius: 12px; padding: 14px; }
+        .quick-item p, .topic-card p, .help-card p { color: #52627a; }
+        code { background: #eef4fb; color: #0f172a; padding: 3px 8px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, monospace; }
+        ul { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 10px; }
+        li { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid #eef2f7; }
+        li:first-child { border-top: 0; padding-top: 0; }
+        .topic-command { font-size: .82rem; color: #6d28d9; font-weight: 700; margin-bottom: 8px; }
+        .footer-note { color: #52627a; font-size: .95rem; }
+      </style>
+    </head>
+    <body>
+      <div class="shell">
+        <section class="hero">
+          <h1>${guide.title}</h1>
+          <p>${guide.subtitle}</p>
+        </section>
+        <section class="help-card">
+          <h2>${if (language == CliHelpLanguage.KOREAN) "빠른 시작" else "Quick Start"}</h2>
+          <div class="quick-grid">
+            $quickStart
+          </div>
+        </section>
+        $sections
+        <section class="help-card">
+          <h2>${if (language == CliHelpLanguage.KOREAN) "주제별 도움말" else "Topic Guides"}</h2>
+          <div class="topic-grid">
+            $topics
+          </div>
+        </section>
+        <section class="help-card">
+          <h2>${if (language == CliHelpLanguage.KOREAN) "AI 사용 안내" else "AI Usage Guide"}</h2>
+          <p>${guide.aiNarrative}</p>
+        </section>
+        <p class="footer-note">${guide.footer}</p>
+      </div>
+    </body>
+    </html>
+    """.trimIndent()
+}
 
 // Lightweight HTML (single file) to keep the web UI self contained.
 private val editorHtml = """
