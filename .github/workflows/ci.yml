@@ -64,7 +64,8 @@ jobs:
                 --tests 'com.cotor.a2a.*' \
                 --tests 'com.cotor.presentation.*' \
                 --tests 'com.cotor.chat.*' \
-                --tests 'com.cotor.stats.*'
+                --tests 'com.cotor.stats.*' \
+                -x jacocoTestReport -x jacocoTestCoverageVerification
               ;;
             core)
               ./gradlew --no-daemon test --stacktrace \
@@ -76,12 +77,14 @@ jobs:
                 --tests 'com.cotor.recovery.*' \
                 --tests 'com.cotor.reliability.*' \
                 --tests 'com.cotor.integration.*' \
-                --tests 'com.cotor.testsupport.*'
+                --tests 'com.cotor.testsupport.*' \
+                -x jacocoTestReport -x jacocoTestCoverageVerification
               ;;
             pipeline)
               ./gradlew --no-daemon test --stacktrace \
                 --tests 'com.cotor.domain.*' \
-                --tests 'com.cotor.validation.*'
+                --tests 'com.cotor.validation.*' \
+                -x jacocoTestReport -x jacocoTestCoverageVerification
               ;;
             *)
               echo "Unknown shard: ${{ matrix.shard }}" >&2
