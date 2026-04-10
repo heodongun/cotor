@@ -309,7 +309,7 @@ class CopilotPlugin : AgentPlugin {
         // forwards the prompt and trusts the pre-authenticated CLI state on the machine.
         // Note: Full auto-approval not supported, requires pre-authenticated session
         val command = mutableListOf("copilot", "-p", prompt, "--allow-all-tools")
-        
+
         // Add model parameter if specified
         val model = context.parameters["model"]?.trim()
         if (!model.isNullOrBlank()) {

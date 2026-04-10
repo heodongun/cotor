@@ -2045,7 +2045,7 @@ class DesktopAppService(
             ?.map { it.trim() }
             ?.filter { it.isNotBlank() }
             ?.distinct()
-        
+
         val normalizedParameters = parameters
             ?.entries
             ?.mapNotNull { entry ->

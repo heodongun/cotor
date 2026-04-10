@@ -115,7 +115,7 @@ final class DesktopAppLifecycleDelegate: NSObject, NSApplicationDelegate {
     private var terminationInFlight = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("CotorDesktopApp: applicationDidFinishLaunching")
+        AppLogger.info("CotorDesktopApp: applicationDidFinishLaunching")
         Task {
             await EmbeddedBackendLauncher.shared.ensureRunning()
         }

@@ -1395,7 +1395,7 @@ final class DesktopStore: ObservableObject {
     func createCompanyAgent() async {
         let targetCompanyID = editingCompanyAgentCompanyID ?? selectedCompanyID
         guard let targetCompanyID,
-              companies.contains(where: { $0.id == targetCompanyID }) else { return }
+                companies.contains(where: { $0.id == targetCompanyID }) else { return }
         let title = newCompanyAgentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let cli = newCompanyAgentCli.trimmingCharacters(in: .whitespacesAndNewlines)
         let role = newCompanyAgentRole.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1409,7 +1409,7 @@ final class DesktopStore: ObservableObject {
             actionErrorMessage = nil
             errorMessage = nil
             if let agentId = editingCompanyAgentID,
-               companyAgentDefinitions.contains(where: { $0.id == agentId && $0.companyId == targetCompanyID }) {
+                companyAgentDefinitions.contains(where: { $0.id == agentId && $0.companyId == targetCompanyID }) {
                 _ = try await runWithEmbeddedBackendRecovery {
                     try await api.updateCompanyAgent(
                         companyId: targetCompanyID,
@@ -1421,7 +1421,7 @@ final class DesktopStore: ObservableObject {
                         collaborationInstructions: collaborationNotes,
                         preferredCollaboratorIds: preferredCollaboratorIds,
                         memoryNotes: memoryNotes,
-                        parameters: parameters.isEmpty ? nil : parameters,
+                        parameters: parameters,
                         enabled: newCompanyAgentEnabled
                     )
                 }
