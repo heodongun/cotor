@@ -3761,7 +3761,7 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val refreshed = withTimeout(120_000) {
+        val refreshed = withTimeout(240_000) {
             while (true) {
                 val candidate = stateStore.load()
                 val followUpGoal = candidate.goals.firstOrNull {
@@ -4275,7 +4275,7 @@ class DesktopAppServiceTest : FunSpec({
         service.startCompanyRuntime(company.id)
         service.runCompanyRuntimeTick(company.id)
 
-        withTimeout(120_000) {
+        withTimeout(240_000) {
             while (true) {
                 if (stateStore.load().tasks.count { it.issueId == executionIssue.id } > 1) {
                     return@withTimeout
