@@ -1933,7 +1933,11 @@ class DesktopAppService(
             collaborationInstructions = collaborationInstructions?.trim()?.takeIf { it.isNotBlank() },
             preferredCollaboratorIds = normalizedCollaborators,
             memoryNotes = memoryNotes?.trim()?.takeIf { it.isNotBlank() },
-            parameters = parameters.filterKeys { it.isNotBlank() }.mapValues { it.value.trim() },
+            parameters = parameters.entries
+                .asSequence()
+                .map { it.key.trim() to it.value.trim() }
+                .filter { (key, _) -> key.isNotBlank() }
+                .associate { it },
             enabled = enabled,
             displayOrder = state.companyAgentDefinitions.count { it.companyId == companyId },
             createdAt = now,
@@ -2042,7 +2046,17 @@ class DesktopAppService(
             ?.filter { it.isNotBlank() }
             ?.distinct()
         
-        val normalizedParameters = parameters?.filterKeys { it.isNotBlank() }?.mapValues { it.value.trim() }
+        val normalizedParameters = parameters
+            ?.entries
+            ?.mapNotNull { entry ->
+                val trimmedKey = entry.key.trim()
+                if (trimmedKey.isBlank()) {
+                    null
+                } else {
+                    trimmedKey to entry.value.trim()
+                }
+            }
+            ?.toMap()
 
         return stateMutex.withLock {
             val state = stateStore.load()
@@ -11138,7 +11152,9 @@ class DesktopAppService(
         runCatching {
             // This file is for state transitions, not steady-state re-affirmations. Repeated
             // no-op entries made it difficult to see real workflow movement in live debugging.
-            if (event.oldStatus == event.newStatus) {
+            // However, allow logging when the event signals a recoverable retry or is marked retryEligible
+            // so tests and debuggers can observe recoverable reopen attempts.
+            if (event.oldStatus == event.newStatus && event.retryEligible != true && !event.reason.contains("recoverable", ignoreCase = true)) {
                 return@runCatching
             }
             val runtimeDir = stateStore.appHome().resolve("runtime").resolve("backend")
