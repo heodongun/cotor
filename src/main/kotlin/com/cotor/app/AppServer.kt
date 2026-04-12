@@ -10,6 +10,8 @@ package com.cotor.app
 
 import com.cotor.a2a.A2aRouter
 import com.cotor.a2a.installA2aRoutes
+import com.cotor.runtime.durable.DurableResumeCoordinator
+import com.cotor.runtime.durable.DurableRuntimeService
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -65,6 +67,8 @@ import kotlin.io.path.writeText
 class AppServer : KoinComponent {
     private val desktopService: DesktopAppService by inject()
     private val tuiSessionService: DesktopTuiSessionService by inject()
+    private val durableRuntimeService: DurableRuntimeService by inject()
+    private val durableResumeCoordinator: DurableResumeCoordinator by inject()
 
     fun start(
         port: Int = 8787,
@@ -83,6 +87,8 @@ class AppServer : KoinComponent {
                 token = token,
                 desktopService = desktopService,
                 tuiSessionService = tuiSessionService,
+                durableRuntimeService = durableRuntimeService,
+                durableResumeCoordinator = durableResumeCoordinator,
                 shutdownHandler = {
                     Thread {
                         server.stop(1000, 5000)
@@ -223,6 +229,8 @@ internal fun Application.cotorAppModule(
     desktopService: DesktopAppService,
     tuiSessionService: DesktopTuiSessionService,
     a2aRouter: A2aRouter = A2aRouter(desktopService),
+    durableRuntimeService: DurableRuntimeService? = null,
+    durableResumeCoordinator: DurableResumeCoordinator? = null,
     shutdownHandler: (() -> Unit)? = null
 ) {
     val ktorJson = Json {
@@ -245,7 +253,7 @@ internal fun Application.cotorAppModule(
 
     routing {
         installA2aRoutes(token, a2aRouter) { expectedToken ->
-            requireToken(expectedToken)
+            this.requireToken(expectedToken)
         }
 
         // Health stays unauthenticated so the app can distinguish "server down"
@@ -510,6 +518,58 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@get
                     val taskId = call.request.queryParameters["taskId"]
                     call.respond(desktopService.listRuns(taskId).map(::toApiRunRecord))
+                }
+            }
+
+            route("/durable-runtime") {
+                get("/runs") {
+                    if (!requireToken(token)) return@get
+                    call.respond(durableRuntimeService?.listRuns().orEmpty())
+                }
+
+                get("/runs/{runId}") {
+                    if (!requireToken(token)) return@get
+                    val runId = call.parameters["runId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
+                    val snapshot = durableRuntimeService?.inspectRun(runId)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Durable run not found: $runId"))
+                    call.respond(snapshot)
+                }
+
+                post("/runs/{runId}/continue") {
+                    if (!requireToken(token)) return@post
+                    val runId = call.parameters["runId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
+                    val coordinator = durableResumeCoordinator
+                        ?: return@post call.respond(HttpStatusCode.NotImplemented, mapOf("error" to "Durable runtime coordinator not configured"))
+                    val request = call.receive<DurableContinueRequest>()
+                    respondDesktopRequest {
+                        coordinator.continueRun(runId, request.configPath)
+                    }
+                }
+
+                post("/runs/{runId}/fork") {
+                    if (!requireToken(token)) return@post
+                    val runId = call.parameters["runId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
+                    val coordinator = durableResumeCoordinator
+                        ?: return@post call.respond(HttpStatusCode.NotImplemented, mapOf("error" to "Durable runtime coordinator not configured"))
+                    val request = call.receive<DurableForkRequest>()
+                    respondDesktopRequest {
+                        coordinator.forkRun(runId, request.checkpointId, request.configPath)
+                    }
+                }
+
+                post("/runs/{runId}/approve") {
+                    if (!requireToken(token)) return@post
+                    val runId = call.parameters["runId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
+                    val coordinator = durableResumeCoordinator
+                        ?: return@post call.respond(HttpStatusCode.NotImplemented, mapOf("error" to "Durable runtime coordinator not configured"))
+                    val request = call.receive<DurableApproveRequest>()
+                    respondDesktopRequest {
+                        coordinator.approve(runId, request.checkpointId)
+                    }
                 }
             }
 
@@ -1489,6 +1549,41 @@ internal fun Application.cotorAppModule(
             }
         }
     }
+}
+
+internal fun Application.cotorAppModule(
+    token: String?,
+    desktopService: DesktopAppService,
+    tuiSessionService: DesktopTuiSessionService,
+    shutdownHandler: (() -> Unit)?
+) {
+    cotorAppModule(
+        token = token,
+        desktopService = desktopService,
+        tuiSessionService = tuiSessionService,
+        a2aRouter = A2aRouter(desktopService),
+        durableRuntimeService = null,
+        durableResumeCoordinator = null,
+        shutdownHandler = shutdownHandler
+    )
+}
+
+internal fun Application.cotorAppModule(
+    token: String?,
+    desktopService: DesktopAppService,
+    tuiSessionService: DesktopTuiSessionService,
+    a2aRouter: A2aRouter,
+    shutdownHandler: (() -> Unit)?
+) {
+    cotorAppModule(
+        token = token,
+        desktopService = desktopService,
+        tuiSessionService = tuiSessionService,
+        a2aRouter = a2aRouter,
+        durableRuntimeService = null,
+        durableResumeCoordinator = null,
+        shutdownHandler = shutdownHandler
+    )
 }
 
 private const val RUN_OUTPUT_LIMIT = 40_000

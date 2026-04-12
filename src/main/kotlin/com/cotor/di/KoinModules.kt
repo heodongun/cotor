@@ -40,6 +40,8 @@ import com.cotor.monitoring.ObservabilityService
 import com.cotor.monitoring.PipelineRunTracker
 import com.cotor.monitoring.ResourceMonitor
 import com.cotor.monitoring.StructuredLogger
+import com.cotor.runtime.durable.DurableResumeCoordinator
+import com.cotor.runtime.durable.DurableRuntimeService
 import com.cotor.presentation.formatter.*
 import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
@@ -68,10 +70,12 @@ val cotorModule = module {
     single<AgentRegistry> { InMemoryAgentRegistry() }
     single<ProcessManager> { CoroutineProcessManager(get()) }
     single<PluginLoader> { ReflectionPluginLoader(get()) }
+    single { DurableRuntimeService() }
+    single { DurableResumeCoordinator(get(), get(), get(), get()) }
     // Desktop-only services are registered here so the app-server can reuse the
     // same process manager, config loading, and executor pipeline as the CLI.
     single { DesktopStateStore() }
-    single { GitWorkspaceService(get(), get(), get()) }
+    single { GitWorkspaceService(get(), get(), get(), get()) }
     single { DesktopAppService(get(), get(), get(), get()) }
     single { DesktopTuiSessionService(get(), get(), get(), get()) }
 
@@ -94,13 +98,13 @@ val cotorModule = module {
     single<SecurityValidator> { DefaultSecurityValidator(get(), get()) }
 
     // Domain Layer
-    single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get(), get()) }
+    single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get(), get(), get()) }
     single<ResultAnalyzer> { DefaultResultAnalyzer() }
     single<ResultAggregator> { DefaultResultAggregator(get()) }
     single<SyntaxValidator> { SyntaxValidator() }
     single<OutputValidator> { DefaultOutputValidator(get()) }
     single<StatsManager> { StatsManager() }
-    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get(), get(), observability = get()) }
+    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get(), get(), observability = get(), durableRuntimeService = get()) }
     single(createdAtStart = true) { PipelineRunTracker(get()) }
 
     // Event System

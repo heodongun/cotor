@@ -13,6 +13,8 @@ import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
 import com.cotor.monitoring.NoopObservabilityService
 import com.cotor.monitoring.ObservabilityService
+import com.cotor.runtime.durable.DurableRuntimeService
+import com.cotor.runtime.durable.SideEffectKind
 import com.cotor.security.SecurityValidator
 import kotlinx.coroutines.*
 import org.slf4j.Logger
@@ -57,8 +59,38 @@ class DefaultAgentExecutor(
     private val pluginLoader: PluginLoader,
     private val securityValidator: SecurityValidator,
     private val logger: Logger,
-    private val observability: ObservabilityService = NoopObservabilityService
+    private val observability: ObservabilityService = NoopObservabilityService,
+    private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService()
 ) : AgentExecutor {
+    constructor(
+        processManager: ProcessManager,
+        pluginLoader: PluginLoader,
+        securityValidator: SecurityValidator,
+        logger: Logger
+    ) : this(
+        processManager = processManager,
+        pluginLoader = pluginLoader,
+        securityValidator = securityValidator,
+        logger = logger,
+        observability = NoopObservabilityService,
+        durableRuntimeService = DurableRuntimeService()
+    )
+
+    constructor(
+        processManager: ProcessManager,
+        pluginLoader: PluginLoader,
+        securityValidator: SecurityValidator,
+        logger: Logger,
+        observability: ObservabilityService
+    ) : this(
+        processManager = processManager,
+        pluginLoader = pluginLoader,
+        securityValidator = securityValidator,
+        logger = logger,
+        observability = observability,
+        durableRuntimeService = DurableRuntimeService()
+    )
+
     private val isDesktopTui = System.getenv("COTOR_DESKTOP_TUI") == "1"
 
     override suspend fun executeAgent(
@@ -112,6 +144,17 @@ class DefaultAgentExecutor(
                 // Time only the plugin body itself so reported duration reflects the
                 // actual execution window seen by the child process or API call.
                 val startTime = System.currentTimeMillis()
+                durableRuntimeService.recordSideEffect(
+                    kind = SideEffectKind.AGENT_EXECUTION,
+                    label = "agent.execute:${agent.name}",
+                    replaySafe = true,
+                    approvalRequiredOnReplay = false,
+                    metadata = buildMap {
+                        put("agentName", agent.name)
+                        metadata.stageId?.let { put("stageId", it) }
+                        metadata.taskId?.let { put("taskId", it) }
+                    }
+                )
                 val pluginOutput = withTimeout(agent.timeout) {
                     plugin.execute(context, processManager)
                 }

@@ -202,6 +202,22 @@ data class TestBackendRequest(
 )
 
 @Serializable
+data class DurableContinueRequest(
+    val configPath: String? = null
+)
+
+@Serializable
+data class DurableForkRequest(
+    val checkpointId: String,
+    val configPath: String? = null
+)
+
+@Serializable
+data class DurableApproveRequest(
+    val checkpointId: String? = null
+)
+
+@Serializable
 data class CompanyEventEnvelope(
     val event: CompanyEvent,
     val dashboard: DashboardResponse? = null,

@@ -11,6 +11,8 @@ package com.cotor.app
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
+import com.cotor.runtime.durable.DurableRuntimeService
+import com.cotor.runtime.durable.SideEffectKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -83,8 +85,15 @@ private data class BranchRestackResult(
 class GitWorkspaceService(
     private val processManager: ProcessManager,
     private val stateStore: DesktopStateStore,
-    private val logger: Logger
+    private val logger: Logger,
+    private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService()
 ) {
+    constructor(
+        processManager: ProcessManager,
+        stateStore: DesktopStateStore,
+        logger: Logger
+    ) : this(processManager, stateStore, logger, DurableRuntimeService())
+
     private val json = Json { ignoreUnknownKeys = true }
 
     @Volatile private var cachedGitHubLogin: String? = null
@@ -254,6 +263,16 @@ class GitWorkspaceService(
         agentName: String,
         baseBranch: String
     ): WorktreeBinding {
+        durableRuntimeService.recordSideEffect(
+            kind = SideEffectKind.GIT_WORKTREE,
+            label = "git.ensureWorktree:$taskId:$agentName",
+            replaySafe = true,
+            approvalRequiredOnReplay = false,
+            metadata = mapOf(
+                "repositoryRoot" to repositoryRoot.toString(),
+                "baseBranch" to baseBranch
+            )
+        )
         ensureBootstrapCommit(repositoryRoot)
         val agentSlug = slugify(agentName).ifBlank { "agent" }
         val taskSlug = slugify(taskTitle).ifBlank { "task" }
@@ -333,6 +352,18 @@ class GitWorkspaceService(
         branchName: String,
         baseBranch: String
     ): PublishMetadata {
+        durableRuntimeService.recordSideEffect(
+            kind = SideEffectKind.GIT_PUBLISH,
+            label = "git.publish:$branchName",
+            replaySafe = false,
+            approvalRequiredOnReplay = true,
+            metadata = mapOf(
+                "taskId" to task.id,
+                "agentName" to agentName,
+                "branchName" to branchName,
+                "baseBranch" to baseBranch
+            )
+        )
         var commitSha: String? = null
         var pushedBranch: String? = null
         var pullRequest: PullRequestRef? = null
@@ -541,6 +572,13 @@ class GitWorkspaceService(
         verdict: PullRequestReviewVerdict,
         body: String
     ): PublishMetadata {
+        durableRuntimeService.recordSideEffect(
+            kind = SideEffectKind.GITHUB_REVIEW,
+            label = "github.review:$pullRequestNumber:$verdict",
+            replaySafe = false,
+            approvalRequiredOnReplay = true,
+            metadata = mapOf("pullRequestNumber" to pullRequestNumber.toString())
+        )
         val currentLogin = currentGitHubLogin(worktreePath)
         val currentPullRequest = viewPullRequest(worktreePath, pullRequestNumber)
         val selfAuthoredReview =
@@ -589,6 +627,13 @@ class GitWorkspaceService(
         pullRequestNumber: Int,
         body: String
     ) {
+        durableRuntimeService.recordSideEffect(
+            kind = SideEffectKind.GITHUB_COMMENT,
+            label = "github.comment:$pullRequestNumber",
+            replaySafe = false,
+            approvalRequiredOnReplay = true,
+            metadata = mapOf("pullRequestNumber" to pullRequestNumber.toString())
+        )
         runCommand(
             worktreePath,
             listOf("gh", "pr", "comment", pullRequestNumber.toString(), "--body", body)
@@ -600,6 +645,13 @@ class GitWorkspaceService(
         pullRequestNumber: Int,
         comment: String? = null
     ): PublishMetadata {
+        durableRuntimeService.recordSideEffect(
+            kind = SideEffectKind.GITHUB_CLOSE_PR,
+            label = "github.close:$pullRequestNumber",
+            replaySafe = false,
+            approvalRequiredOnReplay = true,
+            metadata = mapOf("pullRequestNumber" to pullRequestNumber.toString())
+        )
         if (!comment.isNullOrBlank()) {
             try {
                 commentOnPullRequest(
@@ -717,6 +769,13 @@ class GitWorkspaceService(
         worktreePath: Path,
         pullRequestNumber: Int
     ): PublishMetadata {
+        durableRuntimeService.recordSideEffect(
+            kind = SideEffectKind.GITHUB_REFRESH_PR,
+            label = "github.refresh:$pullRequestNumber",
+            replaySafe = true,
+            approvalRequiredOnReplay = false,
+            metadata = mapOf("pullRequestNumber" to pullRequestNumber.toString())
+        )
         val refreshed = viewPullRequest(worktreePath, pullRequestNumber)
         return PublishMetadata(
             pullRequestNumber = refreshed.number,
@@ -728,6 +787,13 @@ class GitWorkspaceService(
     }
 
     suspend fun mergePullRequest(worktreePath: Path, pullRequestNumber: Int): PullRequestMergeResult {
+        durableRuntimeService.recordSideEffect(
+            kind = SideEffectKind.GITHUB_MERGE,
+            label = "github.merge:$pullRequestNumber",
+            replaySafe = false,
+            approvalRequiredOnReplay = true,
+            metadata = mapOf("pullRequestNumber" to pullRequestNumber.toString())
+        )
         try {
             runCommand(
                 worktreePath,

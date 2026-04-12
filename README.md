@@ -99,6 +99,17 @@ cotor app-server --port 8787
 open "/Applications/Cotor Desktop.app"
 ```
 
+Experimental durable runtime:
+
+```bash
+export COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1
+cotor run <pipeline> -c cotor.yaml
+cotor resume inspect <run-id>
+cotor resume continue <run-id> --config cotor.yaml
+cotor resume fork <run-id> --from <checkpoint-id> --config cotor.yaml
+cotor resume approve <run-id> --checkpoint <checkpoint-id>
+```
+
 ## macOS Desktop
 
 After `brew install cotor`, install the packaged desktop app with:
@@ -167,7 +178,7 @@ Current limits in this build:
 - runtime automation is intentionally minimal
 - policy engine and full PR/CI sync are not implemented yet
 - company context persistence exists as local `.cotor/companies/...` snapshots, but it is still a lightweight knowledge layer
-- `resume` inspects checkpoints but does not resume execution yet
+- `resume` now supports experimental durable inspect/continue/fork/approve flows when `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1` is enabled
 
 Inspect `.cotor/companies/` in the working folder to review the persisted company state.
 

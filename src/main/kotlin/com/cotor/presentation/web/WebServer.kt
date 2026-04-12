@@ -14,6 +14,8 @@ import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
 import com.cotor.model.*
 import com.cotor.presentation.cli.CliHelpLanguage
+import com.cotor.runtime.durable.DurableRuntimeFlags
+import com.cotor.runtime.durable.DurableRuntimeService
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -29,6 +31,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.awt.Desktop
 import java.net.URI
+import java.util.UUID
 import kotlin.concurrent.thread
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
@@ -134,6 +137,7 @@ class WebServer : KoinComponent {
     private val agentRegistry: AgentRegistry by inject()
     private val orchestrator: PipelineOrchestrator by inject()
     private val desktopService: DesktopAppService by inject()
+    private val durableRuntimeService: DurableRuntimeService by inject()
 
     private val editorDir = Path(".cotor/web")
     private val pluginClassMap = mapOf(
@@ -168,7 +172,8 @@ class WebServer : KoinComponent {
                 listSavedPipelines = ::listSavedPipelines,
                 loadPipelineDetail = ::loadPipelineDetail,
                 savePipeline = ::savePipeline,
-                buildTimelinePayload = ::buildTimelinePayload
+                buildTimelinePayload = ::buildTimelinePayload,
+                durableRuntimeService = durableRuntimeService
             )
         }.start(wait = true)
     }
@@ -406,7 +411,8 @@ internal fun Application.cotorWebModule(
     listSavedPipelines: suspend () -> List<EditorPipelineSummary>,
     loadPipelineDetail: suspend (String) -> EditorPipelineDetail?,
     savePipeline: suspend (EditorPipelineRequest) -> java.nio.file.Path,
-    buildTimelinePayload: (Pipeline, AggregatedResult) -> List<TimelineEntryPayload>
+    buildTimelinePayload: (Pipeline, AggregatedResult) -> List<TimelineEntryPayload>,
+    durableRuntimeService: DurableRuntimeService? = null
 ) {
     install(ContentNegotiation) {
         json()
@@ -436,6 +442,18 @@ internal fun Application.cotorWebModule(
         get("/api/help-guide") {
             val language = CliHelpLanguage.resolve(call.request.queryParameters["lang"])
             call.respond(HelpGuideContent.guide(language))
+        }
+
+        get("/api/runtime/runs") {
+            call.respond(durableRuntimeService?.listRuns().orEmpty())
+        }
+
+        get("/api/runtime/runs/{runId}") {
+            val runId = call.parameters["runId"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
+            val snapshot = durableRuntimeService?.inspectRun(runId)
+                ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Durable run not found: $runId"))
+            call.respond(snapshot)
         }
 
         get("/api/editor/config") {
@@ -493,7 +511,17 @@ internal fun Application.cotorWebModule(
                     ?: return@post call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pipeline not found in config"))
 
                 config.agents.forEach { agentRegistry.registerAgent(it) }
-                val result = orchestrator.executePipeline(pipeline)
+                val pipelineContext = PipelineContext(
+                    pipelineId = UUID.randomUUID().toString(),
+                    pipelineName = pipeline.name,
+                    totalStages = pipeline.stages.size
+                ).also { context ->
+                    context.metadata["configPath"] = configPath.toString()
+                    if (DurableRuntimeFlags.isEnabled()) {
+                        DurableRuntimeFlags.enable(context)
+                    }
+                }
+                val result = orchestrator.executePipeline(pipeline, context = pipelineContext)
                 val timeline = buildTimelinePayload(pipeline, result)
                 val agentResults = result.results.map {
                     AgentResultPayload(
@@ -685,6 +713,35 @@ internal fun Application.cotorWebModule(
             }
         }
     }
+}
+
+internal fun Application.cotorWebModule(
+    configRepository: ConfigRepository,
+    agentRegistry: AgentRegistry,
+    orchestrator: PipelineOrchestrator,
+    desktopService: DesktopAppService,
+    editorDir: java.nio.file.Path,
+    readOnly: Boolean,
+    buildTemplates: () -> List<EditorTemplatePayload>,
+    listSavedPipelines: suspend () -> List<EditorPipelineSummary>,
+    loadPipelineDetail: suspend (String) -> EditorPipelineDetail?,
+    savePipeline: suspend (EditorPipelineRequest) -> java.nio.file.Path,
+    buildTimelinePayload: (Pipeline, AggregatedResult) -> List<TimelineEntryPayload>
+) {
+    cotorWebModule(
+        configRepository = configRepository,
+        agentRegistry = agentRegistry,
+        orchestrator = orchestrator,
+        desktopService = desktopService,
+        editorDir = editorDir,
+        readOnly = readOnly,
+        buildTemplates = buildTemplates,
+        listSavedPipelines = listSavedPipelines,
+        loadPipelineDetail = loadPipelineDetail,
+        savePipeline = savePipeline,
+        buildTimelinePayload = buildTimelinePayload,
+        durableRuntimeService = null
+    )
 }
 
 private fun openInBrowser(url: String) {

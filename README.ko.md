@@ -97,6 +97,17 @@ cotor app-server --port 8787
 open "/Applications/Cotor Desktop.app"
 ```
 
+실험적 durable runtime 사용 예:
+
+```bash
+export COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1
+cotor run <pipeline> -c cotor.yaml
+cotor resume inspect <run-id>
+cotor resume continue <run-id> --config cotor.yaml
+cotor resume fork <run-id> --from <checkpoint-id> --config cotor.yaml
+cotor resume approve <run-id> --checkpoint <checkpoint-id>
+```
+
 ## macOS 데스크톱
 
 `brew install cotor` 후 데스크톱 앱 설치:
@@ -168,6 +179,7 @@ cotor delete    # 삭제
 - 앱 안의 보드는 `Linear 같은` 운영 UI일 뿐, 외부 Linear 실동기화는 이번 빌드 범위가 아닙니다.
 - 런타임 자동화는 최소 루프 수준입니다.
 - 정책 엔진과 실제 PR/CI 동기화는 아직 구현되지 않았습니다.
+- `resume`은 기본적으로 체크포인트 inspect를 제공하며, `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1`을 켜면 durable inspect/continue/fork/approve 흐름을 사용할 수 있습니다.
 - 회사 컨텍스트는 `.cotor/companies/...` 아래 로컬 스냅샷으로 유지되지만 아직 경량 지식 레이어 수준입니다.
 - `resume`은 체크포인트를 보여주지만 실제 재개는 아직 지원하지 않습니다.
 
