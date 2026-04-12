@@ -1,15 +1,14 @@
 package com.cotor.runtime.durable
 
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.nio.file.Path
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
-import kotlin.io.path.nameWithoutExtension
 
 class DurableRuntimeStore(
     private val rootDir: Path = Path.of(".cotor", "runtime")

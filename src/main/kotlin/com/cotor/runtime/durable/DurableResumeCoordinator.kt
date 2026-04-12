@@ -7,7 +7,6 @@ import com.cotor.model.AgentResult
 import com.cotor.model.PipelineContext
 import kotlinx.coroutines.withContext
 import java.util.UUID
-import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.io.path.Path
 
 class DurableResumeCoordinator(

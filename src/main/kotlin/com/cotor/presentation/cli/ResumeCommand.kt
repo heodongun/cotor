@@ -22,13 +22,14 @@ import com.github.ajalt.mordant.table.table
 import com.github.ajalt.mordant.terminal.Terminal
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
-import kotlin.io.path.Path
 
-class ResumeCommand : CliktCommand(
-    name = "resume",
-    help = "Inspect, continue, fork, and approve durable pipeline runs",
-    invokeWithoutSubcommand = true
-), KoinComponent {
+class ResumeCommand :
+    CliktCommand(
+        name = "resume",
+        help = "Inspect, continue, fork, and approve durable pipeline runs",
+        invokeWithoutSubcommand = true
+    ),
+    KoinComponent {
     private val runId by argument("run-id", help = "Durable run ID or legacy pipeline ID").optional()
     private val terminal = Terminal()
     private val durableRuntimeService: DurableRuntimeService by inject()
@@ -132,10 +133,11 @@ class ResumeCommand : CliktCommand(
         terminal.println("Completed Stages: ${checkpoint.completedStages.size}")
         terminal.println("─".repeat(50))
     }
-
 }
 
-class ResumeInspectCommand : CliktCommand(name = "inspect", help = "Inspect one durable run"), KoinComponent {
+class ResumeInspectCommand :
+    CliktCommand(name = "inspect", help = "Inspect one durable run"),
+    KoinComponent {
     private val runId by argument("run-id")
     private val durableRuntimeService: DurableRuntimeService by inject()
     private val terminal = Terminal()
@@ -147,7 +149,9 @@ class ResumeInspectCommand : CliktCommand(name = "inspect", help = "Inspect one 
     }
 }
 
-class ResumeContinueCommand : CliktCommand(name = "continue", help = "Continue a durable run from its latest safe checkpoint"), KoinComponent {
+class ResumeContinueCommand :
+    CliktCommand(name = "continue", help = "Continue a durable run from its latest safe checkpoint"),
+    KoinComponent {
     private val runId by argument("run-id")
     private val configPath by option("--config", "-c", help = "Override configuration path").path(mustExist = false)
     private val coordinator: DurableResumeCoordinator by inject()
@@ -167,7 +171,9 @@ class ResumeContinueCommand : CliktCommand(name = "continue", help = "Continue a
     }
 }
 
-class ResumeForkCommand : CliktCommand(name = "fork", help = "Fork a durable run from a checkpoint"), KoinComponent {
+class ResumeForkCommand :
+    CliktCommand(name = "fork", help = "Fork a durable run from a checkpoint"),
+    KoinComponent {
     private val runId by argument("run-id")
     private val checkpointId by option("--from", help = "Checkpoint ID to fork from").required()
     private val configPath by option("--config", "-c", help = "Override configuration path").path(mustExist = false)
@@ -187,7 +193,9 @@ class ResumeForkCommand : CliktCommand(name = "fork", help = "Fork a durable run
     }
 }
 
-class ResumeApproveCommand : CliktCommand(name = "approve", help = "Approve replay-unsafe durable side effects"), KoinComponent {
+class ResumeApproveCommand :
+    CliktCommand(name = "approve", help = "Approve replay-unsafe durable side effects"),
+    KoinComponent {
     private val runId by argument("run-id")
     private val checkpointId by option("--checkpoint", help = "Approve only one checkpoint scope")
     private val coordinator: DurableResumeCoordinator by inject()

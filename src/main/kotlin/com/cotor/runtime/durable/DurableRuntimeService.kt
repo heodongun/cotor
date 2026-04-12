@@ -1,13 +1,11 @@
 package com.cotor.runtime.durable
 
 import com.cotor.checkpoint.CheckpointManager
-import com.cotor.checkpoint.PipelineCheckpoint
 import com.cotor.model.AgentResult
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineContext
 import com.cotor.model.PipelineStage
 import java.time.Instant
-import java.util.UUID
 
 class DurableRuntimeService(
     private val checkpointManager: CheckpointManager = CheckpointManager(),
