@@ -100,7 +100,7 @@ val cotorModule = module {
     // same process manager, config loading, and executor pipeline as the CLI.
     single { DesktopStateStore() }
     single { GitWorkspaceService(get(), get(), get(), get(), get()) }
-    single { DesktopAppService(get(), get(), get(), get(), runtimeBindingService = get(), gitHubControlPlaneService = get(), knowledgeService = get()) }
+    single { DesktopAppService(get(), get(), get(), get(), runtimeBindingService = get(), gitHubControlPlaneService = get(), knowledgeService = get(), durableRuntimeService = get()) }
     single { DesktopTuiSessionService(get(), get(), get(), get()) }
 
     // Security

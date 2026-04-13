@@ -28,6 +28,10 @@ import com.cotor.model.AgentResult
 import com.cotor.model.CodexDefaults
 import com.cotor.model.OpenCodeDefaults
 import com.cotor.model.ProcessExecutionException
+import com.cotor.model.Pipeline
+import com.cotor.model.PipelineContext
+import com.cotor.model.PipelineStage
+import com.cotor.model.StageType
 import com.cotor.policy.PolicyDecision
 import com.cotor.policy.PolicyEngine
 import com.cotor.providers.github.CheckSnapshot
@@ -38,6 +42,10 @@ import com.cotor.providers.github.MergeRequirement
 import com.cotor.providers.github.PullRequestSnapshot
 import com.cotor.provenance.EvidenceBundle
 import com.cotor.provenance.ProvenanceService
+import com.cotor.runtime.durable.DurableRuntimeContext
+import com.cotor.runtime.durable.DurableRuntimeFlags
+import com.cotor.runtime.durable.DurableRuntimeService
+import com.cotor.runtime.durable.ReplayMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +65,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import java.io.PrintWriter
@@ -136,7 +145,8 @@ class DesktopAppService(
     private val policyEngine: PolicyEngine = PolicyEngine(),
     private val provenanceService: ProvenanceService = ProvenanceService(),
     private val gitHubControlPlaneService: GitHubControlPlaneService = GitHubControlPlaneService(),
-    private val knowledgeService: KnowledgeService = KnowledgeService()
+    private val knowledgeService: KnowledgeService = KnowledgeService(),
+    private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService()
 ) {
     companion object {
         private const val COMPANY_TRACE_DEDUP_WINDOW_MS = 30_000L
@@ -1308,6 +1318,95 @@ class DesktopAppService(
 
     suspend fun getIssue(issueId: String): CompanyIssue? =
         stateStore.load().issues.firstOrNull { it.id == issueId }
+
+    private suspend fun bindIssueToDurableRun(
+        issueId: String,
+        runId: String,
+        providerBlockReason: String? = null
+    ) {
+        val approvalPauseId = durableRuntimeApprovalPauseId(runId)
+        stateMutex.withLock {
+            val state = stateStore.load()
+            val issue = state.issues.firstOrNull { it.id == issueId } ?: return@withLock
+            val nextIssue = issue.copy(
+                durableRunId = runId,
+                approvalPauseId = approvalPauseId ?: issue.approvalPauseId,
+                providerBlockReason = providerBlockReason ?: issue.providerBlockReason,
+                updatedAt = issue.updatedAt
+            )
+            val nextQueue = state.reviewQueue.map { item ->
+                if (item.issueId == issueId) {
+                    item.copy(
+                        approvalPauseId = approvalPauseId ?: item.approvalPauseId,
+                        providerBlockReason = providerBlockReason ?: item.providerBlockReason
+                    )
+                } else {
+                    item
+                }
+            }
+            stateStore.save(
+                state.copy(
+                    issues = state.issues.map { existing -> if (existing.id == issueId) nextIssue else existing },
+                    reviewQueue = nextQueue
+                )
+            )
+        }
+    }
+
+    private fun durableRuntimeApprovalPauseId(runId: String?): String? =
+        runId
+            ?.let { durableRuntimeService.inspectRun(it) }
+            ?.approvalPauses
+            ?.firstOrNull { it.status.name == "PENDING" }
+            ?.id
+
+    private fun providerBlockReasonForIssue(
+        nextStatus: IssueStatus,
+        run: AgentRun?
+    ): String? {
+        if (nextStatus != IssueStatus.BLOCKED) {
+            return null
+        }
+        return run?.publish?.checksSummary
+            ?.takeIf { it.isNotBlank() }
+            ?: run?.publish?.error
+            ?.takeIf { it.isNotBlank() }
+            ?: run?.error
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun syntheticCompanyRunPipeline(issue: CompanyIssue?): Pair<Pipeline, PipelineStage> {
+        val stage = PipelineStage(id = "company-agent-execution", type = StageType.EXECUTION)
+        val name = issue?.kind?.takeIf { it.isNotBlank() }?.let { "company-$it-run" } ?: "company-execution-run"
+        return Pipeline(name = name, stages = listOf(stage)) to stage
+    }
+
+    private fun createCompanyRunContext(
+        runId: String,
+        pipeline: Pipeline,
+        issue: CompanyIssue?,
+        task: AgentTask,
+        repository: ManagedRepository
+    ): PipelineContext {
+        val context = PipelineContext(
+            pipelineId = runId,
+            pipelineName = pipeline.name,
+            totalStages = pipeline.stages.size
+        )
+        DurableRuntimeFlags.enable(context)
+        context.metadata["durableRunId"] = runId
+        context.metadata["companyTaskRun"] = "true"
+        context.metadata["repositoryPath"] = repository.localPath
+        issue?.companyId?.let { context.metadata["companyId"] = it }
+        issue?.goalId?.let { context.metadata["goalId"] = it }
+        issue?.id?.let { context.metadata["issueId"] = it }
+        context.metadata["taskId"] = task.id
+        val configPath = Path.of(repository.localPath).resolve("cotor.yaml")
+        if (configPath.exists()) {
+            context.metadata["configPath"] = configPath.toString()
+        }
+        return context
+    }
 
     private fun parseChecks(summary: String?): List<CheckSnapshot> {
         if (summary.isNullOrBlank()) {
@@ -7644,6 +7743,8 @@ class DesktopAppService(
         agent: AgentConfig?
     ) {
         var heartbeatJob: Job? = null
+        var activeDurableContext: PipelineContext? = null
+        var activeDurableStage: PipelineStage? = null
         if (agent == null) {
             recordRunFailure(task, workspace, repository, agentName, "Unknown agent configuration")
             return
@@ -7675,6 +7776,21 @@ class DesktopAppService(
             val preferredBackendKind = company?.backendKind ?: currentState.backendSettings.defaultBackendKind
             val backendConfig = effectiveBackendConfig(company, currentState)
             val executionBackend = executionBackendFor(preferredBackendKind)
+            val durableEnabled = DurableRuntimeFlags.isEnabled()
+            val (durablePipeline, durableStage) = syntheticCompanyRunPipeline(issue)
+            val durablePipelineContext = if (durableEnabled) {
+                createCompanyRunContext(
+                    runId = run.id,
+                    pipeline = durablePipeline,
+                    issue = issue,
+                    task = task,
+                    repository = repository
+                )
+            } else {
+                null
+            }
+            activeDurableContext = durablePipelineContext
+            activeDurableStage = if (durablePipelineContext != null) durableStage else null
 
             val startedRun = run.copy(
                 status = AgentRunStatus.RUNNING,
@@ -7683,6 +7799,19 @@ class DesktopAppService(
                 updatedAt = System.currentTimeMillis()
             )
             replaceRun(startedRun)
+            issue?.let {
+                bindIssueToDurableRun(it.id, startedRun.id)
+                provenanceService.recordIssueRunLink(
+                    companyId = it.companyId,
+                    goalId = it.goalId,
+                    issueId = it.id,
+                    runId = startedRun.id
+                )
+            }
+            if (durablePipelineContext != null) {
+                durableRuntimeService.beginPipelineRun(durablePipeline, durablePipelineContext)
+                durableRuntimeService.recordStageStarted(durablePipelineContext, durableStage)
+            }
             company?.let {
                 publishCompanyEvent(
                     companyId = it.id,
@@ -7723,53 +7852,35 @@ class DesktopAppService(
             )
             val assignedPrompt = assignedPromptFor(task, effectiveAgent.name)
 
-            val result = if (preferredBackendKind == ExecutionBackendKind.CODEX_APP_SERVER) {
-                val managedStatus = company?.let {
-                    if (backendConfig.launchMode == BackendLaunchMode.MANAGED) {
-                        publishCompanyEvent(it.id, "backend.starting", "Starting backend", issueId = issue?.id)
-                        codexAppServerManager.ensureStarted(it.id, backendConfig)
-                    } else {
-                        codexAppServerManager.status(it.id, backendConfig)
+            val durableExecutionContext = DurableRuntimeContext(
+                runId = startedRun.id,
+                replayMode = ReplayMode.LIVE,
+                sourceRunId = startedRun.id,
+                configPath = durablePipelineContext?.metadata?.get("configPath")?.toString()
+            )
+
+            val (result, publish) = withContext(durableExecutionContext) {
+                val executionResult = if (preferredBackendKind == ExecutionBackendKind.CODEX_APP_SERVER) {
+                    val managedStatus = company?.let {
+                        if (backendConfig.launchMode == BackendLaunchMode.MANAGED) {
+                            publishCompanyEvent(it.id, "backend.starting", "Starting backend", issueId = issue?.id)
+                            codexAppServerManager.ensureStarted(it.id, backendConfig)
+                        } else {
+                            codexAppServerManager.status(it.id, backendConfig)
+                        }
                     }
-                }
-                val effectiveBackendConfig = backendConfig.copy(
-                    baseUrl = managedStatus?.baseUrl ?: backendConfig.baseUrl,
-                    port = managedStatus?.port ?: backendConfig.port
-                )
-                val health = executionBackend.health(effectiveBackendConfig)
-                if (health.health != "healthy") {
-                    company?.let {
-                        recordBackendFallback(
-                            company = it,
-                            issue = issue,
-                            preferredKind = preferredBackendKind,
-                            reason = health.message ?: "Codex app server is unavailable"
-                        )
-                    }
-                    localExecutionBackend.execute(
-                        ExecutionBackendRequest(
-                            agent = effectiveAgent,
-                            prompt = assignedPrompt,
-                            effectiveConfig = localBackendConfig(currentState),
-                            metadata = executionMetadata
-                        )
+                    val effectiveBackendConfig = backendConfig.copy(
+                        baseUrl = managedStatus?.baseUrl ?: backendConfig.baseUrl,
+                        port = managedStatus?.port ?: backendConfig.port
                     )
-                } else {
-                    val remoteResult = executionBackend.execute(
-                        ExecutionBackendRequest(
-                            agent = effectiveAgent,
-                            prompt = assignedPrompt,
-                            effectiveConfig = effectiveBackendConfig,
-                            metadata = executionMetadata
-                        )
-                    )
-                    if (shouldFallbackFromCodexResult(remoteResult)) {
+                    val health = executionBackend.health(effectiveBackendConfig)
+                    if (health.health != "healthy") {
                         company?.let {
                             recordBackendFallback(
                                 company = it,
                                 issue = issue,
                                 preferredKind = preferredBackendKind,
-                                reason = remoteResult.error ?: "Codex app server execution failed"
+                                reason = health.message ?: "Codex app server is unavailable"
                             )
                         }
                         localExecutionBackend.execute(
@@ -7777,36 +7888,66 @@ class DesktopAppService(
                                 agent = effectiveAgent,
                                 prompt = assignedPrompt,
                                 effectiveConfig = localBackendConfig(currentState),
-                                metadata = executionMetadata
+                                metadata = executionMetadata.copy(pipelineContext = durablePipelineContext, stageId = durableStage.id)
                             )
                         )
                     } else {
-                        remoteResult
+                        val remoteResult = executionBackend.execute(
+                            ExecutionBackendRequest(
+                                agent = effectiveAgent,
+                                prompt = assignedPrompt,
+                                effectiveConfig = effectiveBackendConfig,
+                                metadata = executionMetadata.copy(pipelineContext = durablePipelineContext, stageId = durableStage.id)
+                            )
+                        )
+                        if (shouldFallbackFromCodexResult(remoteResult)) {
+                            company?.let {
+                                recordBackendFallback(
+                                    company = it,
+                                    issue = issue,
+                                    preferredKind = preferredBackendKind,
+                                    reason = remoteResult.error ?: "Codex app server execution failed"
+                                )
+                            }
+                            localExecutionBackend.execute(
+                                ExecutionBackendRequest(
+                                    agent = effectiveAgent,
+                                    prompt = assignedPrompt,
+                                    effectiveConfig = localBackendConfig(currentState),
+                                    metadata = executionMetadata.copy(pipelineContext = durablePipelineContext, stageId = durableStage.id)
+                                )
+                            )
+                        } else {
+                            remoteResult
+                        }
                     }
-                }
-            } else {
-                executionBackend.execute(
-                    ExecutionBackendRequest(
-                        agent = effectiveAgent,
-                        prompt = assignedPrompt,
-                        effectiveConfig = backendConfig,
-                        metadata = executionMetadata
+                } else {
+                    executionBackend.execute(
+                        ExecutionBackendRequest(
+                            agent = effectiveAgent,
+                            prompt = assignedPrompt,
+                            effectiveConfig = backendConfig,
+                            metadata = executionMetadata.copy(pipelineContext = durablePipelineContext, stageId = durableStage.id)
+                        )
                     )
-                )
+                }
+                val publishRequired = requiresCodePublish(issue)
+                val localPullRequestRequired = requiresGitHubPullRequest(issue, currentState) && issue != null
+                val publishResult = if (executionResult.isSuccess && publishRequired) {
+                    gitWorkspaceService.publishRun(
+                        task = task,
+                        agentName = effectiveAgent.name,
+                        worktreePath = binding.worktreePath,
+                        branchName = binding.branchName,
+                        baseBranch = workspace.baseBranch
+                    )
+                } else {
+                    null
+                }
+                executionResult to publishResult
             }
             val publishRequired = requiresCodePublish(issue)
             val pullRequestRequired = requiresGitHubPullRequest(issue, currentState) && issue != null
-            val publish = if (result.isSuccess && publishRequired) {
-                gitWorkspaceService.publishRun(
-                    task = task,
-                    agentName = effectiveAgent.name,
-                    worktreePath = binding.worktreePath,
-                    branchName = binding.branchName,
-                    baseBranch = workspace.baseBranch
-                )
-            } else {
-                null
-            }
             val finalError = result.error ?: when {
                 !publishRequired -> null
                 !pullRequestRequired -> publish?.error?.takeUnless {
@@ -7819,6 +7960,35 @@ class DesktopAppService(
                 publish.pullRequestUrl.isNullOrBlank() || publish.pullRequestNumber == null ->
                     "GitHub pull request was not created for required code work"
                 else -> null
+            }
+            if (durablePipelineContext != null) {
+                val durableResult = result.copy(
+                    isSuccess = result.isSuccess && finalError == null,
+                    error = finalError ?: result.error,
+                    metadata = result.metadata + buildMap {
+                        issue?.companyId?.let { put("companyId", it) }
+                        issue?.goalId?.let { put("goalId", it) }
+                        issue?.id?.let { put("issueId", it) }
+                        put("taskId", task.id)
+                    }
+                )
+                if (durableResult.isSuccess) {
+                    durableRuntimeService.recordStageCompleted(durablePipelineContext, durableStage, durableResult)
+                    durableRuntimeService.completeRun(durablePipelineContext)
+                } else {
+                    durableRuntimeService.recordStageFailed(durablePipelineContext, durableStage, durableResult)
+                    durableRuntimeService.failRun(durablePipelineContext)
+                }
+                issue?.let {
+                    bindIssueToDurableRun(
+                        issueId = it.id,
+                        runId = startedRun.id,
+                        providerBlockReason = providerBlockReasonForIssue(
+                            nextStatus = if (durableResult.isSuccess) IssueStatus.DONE else IssueStatus.BLOCKED,
+                            run = startedRun.copy(error = durableResult.error, publish = publish)
+                        )
+                    )
+                }
             }
             val estimatedCostCents = estimateRunCostCents(effectiveAgent, assignedPrompt, result)
 
@@ -7868,6 +8038,21 @@ class DesktopAppService(
                 throw cancelled
             }
         } catch (t: Throwable) {
+            if (activeDurableContext != null && activeDurableStage != null) {
+                val failedResult = AgentResult(
+                    agentName = agent.name,
+                    isSuccess = false,
+                    output = null,
+                    error = t.message ?: "Unknown error",
+                    duration = 0,
+                    metadata = emptyMap()
+                )
+                durableRuntimeService.recordStageFailed(activeDurableContext!!, activeDurableStage!!, failedResult)
+                durableRuntimeService.failRun(activeDurableContext!!)
+                task.issueId?.let { issueId ->
+                    bindIssueToDurableRun(issueId = issueId, runId = activeDurableContext!!.pipelineId, providerBlockReason = failedResult.error)
+                }
+            }
             recordRunFailure(task, workspace, repository, agent.name, t.message ?: "Unknown error")
         } finally {
             heartbeatJob?.cancel()
@@ -8074,6 +8259,35 @@ class DesktopAppService(
             )
         )
         val state = stateStore.load()
+        if (DurableRuntimeFlags.isEnabled()) {
+            val issue = task.issueId?.let { issueId -> state.issues.firstOrNull { it.id == issueId } }
+            val (pipeline, stage) = syntheticCompanyRunPipeline(issue)
+            val context = createCompanyRunContext(run.id, pipeline, issue, task, repository)
+            durableRuntimeService.beginPipelineRun(pipeline, context)
+            durableRuntimeService.recordStageStarted(context, stage)
+            durableRuntimeService.recordStageFailed(
+                context,
+                stage,
+                AgentResult(
+                    agentName = agentName,
+                    isSuccess = false,
+                    output = null,
+                    error = message,
+                    duration = 0,
+                    metadata = buildMap {
+                        issue?.companyId?.let { put("companyId", it) }
+                        issue?.goalId?.let { put("goalId", it) }
+                        issue?.id?.let { put("issueId", it) }
+                        put("taskId", task.id)
+                    }
+                )
+            )
+            durableRuntimeService.failRun(context)
+            issue?.let {
+                bindIssueToDurableRun(issueId = it.id, runId = run.id, providerBlockReason = message)
+                provenanceService.recordIssueRunLink(companyId = it.companyId, goalId = it.goalId, issueId = it.id, runId = run.id)
+            }
+        }
         task.issueId?.let { issueId ->
             state.issues.firstOrNull { it.id == issueId }?.let { issue ->
                 publishCompanyEvent(
@@ -10629,6 +10843,9 @@ class DesktopAppService(
                 pullRequestNumber = if (completedWithoutPublish) null else primaryRun?.publish?.pullRequestNumber ?: currentIssue.pullRequestNumber,
                 pullRequestUrl = if (completedWithoutPublish) null else primaryRun?.publish?.pullRequestUrl ?: currentIssue.pullRequestUrl,
                 pullRequestState = if (completedWithoutPublish) null else primaryRun?.publish?.pullRequestState ?: currentIssue.pullRequestState,
+                durableRunId = primaryRun?.id ?: currentIssue.durableRunId,
+                approvalPauseId = durableRuntimeApprovalPauseId(primaryRun?.id),
+                providerBlockReason = providerBlockReasonForIssue(nextIssueStatus, primaryRun),
                 qaVerdict = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.qaVerdict,
                 qaFeedback = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.qaFeedback,
                 ceoVerdict = if (hasPublishMetadata || completedWithoutPublish) null else currentIssue.ceoVerdict,
@@ -10763,6 +10980,8 @@ class DesktopAppService(
                     ceoFeedback = null,
                     ceoReviewedAt = null,
                     approvalIssueId = if (clearWorkflowBindings) null else existing?.approvalIssueId,
+                    approvalPauseId = durableRuntimeApprovalPauseId(primaryRun?.id),
+                    providerBlockReason = providerBlockReasonForIssue(nextIssueStatus, primaryRun),
                     createdAt = if (publishedReviewIdentityChanged) now else existing?.createdAt ?: now,
                     updatedAt = now,
                     workflowLineage = workflowLineage
@@ -11092,6 +11311,12 @@ class DesktopAppService(
             }
             val updatedReviewIssue = currentIssue.copy(
                 status = if (reviewPassed) IssueStatus.DONE else IssueStatus.BLOCKED,
+                durableRunId = primaryRun?.id ?: currentIssue.durableRunId,
+                approvalPauseId = durableRuntimeApprovalPauseId(primaryRun?.id),
+                providerBlockReason = providerBlockReasonForIssue(
+                    if (reviewPassed) IssueStatus.DONE else IssueStatus.BLOCKED,
+                    primaryRun
+                ),
                 qaVerdict = verdict.value,
                 qaFeedback = verdict.feedback,
                 transitionReason = if (reviewPassed) {
@@ -11188,6 +11413,11 @@ class DesktopAppService(
                         ceoFeedback = null,
                         ceoReviewedAt = null,
                         approvalIssueId = approvalIssue?.id,
+                        approvalPauseId = durableRuntimeApprovalPauseId(primaryRun?.id),
+                        providerBlockReason = providerBlockReasonForIssue(
+                            if (reviewPassed) IssueStatus.DONE else IssueStatus.BLOCKED,
+                            primaryRun
+                        ),
                         updatedAt = now,
                         workflowLineage = expectedLineage
                     )
@@ -11398,6 +11628,12 @@ class DesktopAppService(
             }
             val updatedApprovalIssue = currentIssue.copy(
                 status = if (approvalGranted) IssueStatus.IN_PROGRESS else IssueStatus.BLOCKED,
+                durableRunId = primaryRun?.id ?: currentIssue.durableRunId,
+                approvalPauseId = durableRuntimeApprovalPauseId(primaryRun?.id),
+                providerBlockReason = providerBlockReasonForIssue(
+                    if (approvalGranted) IssueStatus.IN_PROGRESS else IssueStatus.BLOCKED,
+                    primaryRun
+                ),
                 ceoVerdict = verdict.value,
                 ceoFeedback = verdict.feedback,
                 transitionReason = if (approvalGranted) {
@@ -11430,6 +11666,11 @@ class DesktopAppService(
                         ceoFeedback = verdict.feedback,
                         ceoReviewedAt = now,
                         approvalIssueId = currentIssue.id,
+                        approvalPauseId = durableRuntimeApprovalPauseId(primaryRun?.id),
+                        providerBlockReason = providerBlockReasonForIssue(
+                            if (approvalGranted) IssueStatus.IN_PROGRESS else IssueStatus.BLOCKED,
+                            primaryRun
+                        ),
                         updatedAt = now,
                         workflowLineage = expectedLineage
                     )

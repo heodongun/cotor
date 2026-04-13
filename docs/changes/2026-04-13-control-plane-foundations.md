@@ -18,6 +18,7 @@ Cotor already had a durable pipeline runtime slice, but the surrounding control 
 - Added `com.cotor.providers.github` for PR state/control-plane snapshots and sync events.
 - Added `com.cotor.knowledge` for structured issue knowledge records backed by evidence references.
 - Exposed read surfaces through CLI, app-server, web, and read-only MCP.
+- Bound company issue/review runtime state to durable run ids, pending approval pauses, and GitHub provider block reasons.
 
 ## Design reasoning
 

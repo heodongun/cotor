@@ -10,6 +10,7 @@
 - GitHub control-plane v1 state under `.cotor/providers/github/`
 - Structured knowledge store v1 under `.cotor/knowledge/`
 - Read-only MCP runtime exposure through the localhost app-server
+- Company runtime binding now maps company issues and review queue items to durable run ids, approval pauses, and provider block reasons
 - Legacy checkpoint import bridge
 - `cotor resume inspect|continue|fork|approve`
 - `cotor policy`, `cotor evidence`, `cotor github`, `cotor knowledge`, `cotor mcp`

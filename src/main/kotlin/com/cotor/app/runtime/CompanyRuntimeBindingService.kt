@@ -24,8 +24,17 @@ class CompanyRuntimeBindingService(
     private val gitHubControlPlaneService: GitHubControlPlaneService = GitHubControlPlaneService()
 ) {
     fun bind(state: DesktopAppState, companyId: String, runtime: CompanyRuntimeSnapshot): BoundCompanyRuntime {
+        val boundRunIds = state.issues
+            .filter { it.companyId == companyId }
+            .mapNotNull { it.durableRunId }
+            .toSet() + state.reviewQueue
+            .filter { it.companyId == companyId }
+            .map { it.runId }
+            .filter { it.isNotBlank() }
+            .toSet()
         val runs = durableRuntimeService.listRuns().filter { run ->
-            run.checkpoints.any { node -> node.metadata["companyId"] == companyId } ||
+            run.runId in boundRunIds ||
+                run.checkpoints.any { node -> node.metadata["companyId"] == companyId } ||
                 run.sideEffects.any { effect -> effect.metadata["companyId"] == companyId }
         }
         val githubPullRequests = gitHubControlPlaneService.listPullRequests(companyId)
@@ -45,18 +54,24 @@ class CompanyRuntimeBindingService(
         }
         val blockedByCi = githubPullRequests.count { pullRequest ->
             val stateValue = pullRequest.state?.uppercase()
-            stateValue == "OPEN" && pullRequest.checks.any { check ->
-                check.status.equals("COMPLETED", ignoreCase = true) &&
-                    !check.conclusion.equals("SUCCESS", ignoreCase = true)
-            }
+            stateValue == "OPEN" && (
+                pullRequest.checks.any { check ->
+                    check.status.equals("COMPLETED", ignoreCase = true) &&
+                        !check.conclusion.equals("SUCCESS", ignoreCase = true)
+                } || pullRequest.checksSummary?.contains("FAILURE", ignoreCase = true) == true
+            )
         }
 
         val providerBlockByPr = githubPullRequests.associateBy { it.number }
+        val providerBlockByIssueId = githubPullRequests
+            .filter { !it.issueId.isNullOrBlank() }
+            .associateBy { it.issueId!! }
         val boundIssues = state.issues.map { issue ->
             if (issue.companyId != companyId) {
                 issue
             } else {
                 val issuePullRequest = issue.pullRequestNumber?.let(providerBlockByPr::get)
+                    ?: providerBlockByIssueId[issue.id]
                 val matchingRun = runs.firstOrNull { run ->
                     run.runId == issue.durableRunId || run.pipelineName == issue.pipelineId
                 }
@@ -67,7 +82,7 @@ class CompanyRuntimeBindingService(
                         pr.checks.any { check ->
                             check.status.equals("COMPLETED", ignoreCase = true) &&
                                 !check.conclusion.equals("SUCCESS", ignoreCase = true)
-                        }
+                        } || pr.checksSummary?.contains("FAILURE", ignoreCase = true) == true
                     }?.checksSummary ?: issue.providerBlockReason
                 )
             }
