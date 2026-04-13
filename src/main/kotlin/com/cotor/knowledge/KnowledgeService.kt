@@ -33,6 +33,27 @@ class KnowledgeService(
             .sortedByDescending { it.createdAt }
     }
 
+    fun retrieveForExecution(issueId: String, companyId: String? = null): List<KnowledgeRecord> =
+        rankedRecords(
+            primary = { it.subjectType == "issue" && it.subjectId == issueId },
+            secondary = { record ->
+                companyId != null &&
+                    record.evidenceRefs.any { ref -> ref.ref == "company:$companyId" || ref.ref == "issue:$issueId" }
+            }
+        )
+
+    fun retrieveForReview(issueId: String): List<KnowledgeRecord> =
+        rankedRecords(
+            primary = { it.subjectType == "issue" && it.subjectId == issueId && it.kind.contains("qa", ignoreCase = true) },
+            secondary = { it.subjectType == "issue" && it.subjectId == issueId }
+        )
+
+    fun retrieveForApproval(issueId: String): List<KnowledgeRecord> =
+        rankedRecords(
+            primary = { it.subjectType == "issue" && it.subjectId == issueId && (it.kind.contains("merge", ignoreCase = true) || it.kind.contains("ceo", ignoreCase = true)) },
+            secondary = { it.subjectType == "issue" && it.subjectId == issueId }
+        )
+
     fun synchronizeFromState(state: DesktopAppState) {
         val harvested = buildList {
             state.reviewQueue.forEach { item ->
@@ -141,5 +162,28 @@ class KnowledgeService(
             }
         }
         return merged.values.sortedByDescending { it.createdAt }
+    }
+
+    private fun rankedRecords(
+        primary: (KnowledgeRecord) -> Boolean,
+        secondary: (KnowledgeRecord) -> Boolean
+    ): List<KnowledgeRecord> {
+        val now = System.currentTimeMillis()
+        return store.load().records
+            .map { record ->
+                val expired = record.ttlMs?.let { now - record.freshness > it } ?: false
+                if (expired && record.conflictStatus == KnowledgeConflictStatus.CLEAR) {
+                    record.copy(conflictStatus = KnowledgeConflictStatus.STALE)
+                } else {
+                    record
+                }
+            }
+            .sortedWith(
+                compareByDescending<KnowledgeRecord> { primary(it) }
+                    .thenByDescending { secondary(it) }
+                    .thenByDescending { it.confidence }
+                    .thenByDescending { it.createdAt }
+            )
+            .take(3)
     }
 }

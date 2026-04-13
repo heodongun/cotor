@@ -618,6 +618,12 @@ internal fun Application.cotorAppModule(
                     call.respond(desktopService.listGitHubPullRequests(companyId))
                 }
 
+                get("/events") {
+                    if (!requireToken(token)) return@get
+                    val companyId = call.request.queryParameters["companyId"]
+                    call.respond(desktopService.listGitHubEvents(companyId))
+                }
+
                 get("/pull-requests/{pullRequestNumber}") {
                     if (!requireToken(token)) return@get
                     val pullRequestNumber = call.parameters["pullRequestNumber"]?.toIntOrNull()
@@ -652,6 +658,15 @@ internal fun Application.cotorAppModule(
                     val issueId = call.parameters["issueId"]
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
                     call.respond(desktopService.verificationBundle(issueId))
+                }
+            }
+
+            route("/runtime") {
+                get("/issues/{issueId}/projection") {
+                    if (!requireToken(token)) return@get
+                    val issueId = call.parameters["issueId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    call.respond(desktopService.issueRuntimeProjection(issueId))
                 }
             }
 
@@ -1715,15 +1730,18 @@ private suspend fun handleReadonlyMcpRequest(
         "tools/list" -> mcpResult(id, buildJsonObject {
             put(
                 "tools",
-                buildJsonArray {
-                    add(mcpToolDescriptor("company_summary", "Return the company dashboard summary."))
-                    add(mcpToolDescriptor("issue_list", "Return issues for one company."))
-                    add(mcpToolDescriptor("durable_run_inspect", "Inspect one durable runtime run."))
-                    add(mcpToolDescriptor("approval_queue", "Return runs waiting for approval."))
-                    add(mcpToolDescriptor("evidence_summary", "Return evidence bundle for a run or file."))
-                }
-            )
-        })
+                    buildJsonArray {
+                        add(mcpToolDescriptor("company_summary", "Return the company dashboard summary."))
+                        add(mcpToolDescriptor("issue_list", "Return issues for one company."))
+                        add(mcpToolDescriptor("durable_run_inspect", "Inspect one durable runtime run."))
+                        add(mcpToolDescriptor("approval_queue", "Return runs waiting for approval."))
+                        add(mcpToolDescriptor("evidence_summary", "Return evidence bundle for a run or file."))
+                        add(mcpToolDescriptor("verification_bundle", "Return verification bundle for one issue."))
+                        add(mcpToolDescriptor("github_company_events", "Return GitHub provider events for one company."))
+                        add(mcpToolDescriptor("runtime_projection", "Return projected runtime state for one issue."))
+                    }
+                )
+            })
         "tools/call" -> {
             val toolName = params["name"]?.jsonPrimitive?.contentOrNull
                 ?: return mcpError(id, -32602, "Missing tool name")
@@ -1760,6 +1778,23 @@ private suspend fun handleReadonlyMcpRequest(
                         filePath != null -> mcpJson.encodeToString(EvidenceBundle.serializer(), desktopService.evidenceForFile(filePath))
                         else -> return mcpError(id, -32602, "runId or path is required")
                     }
+                }
+                "verification_bundle" -> {
+                    val issueId = arguments["issueId"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "issueId is required")
+                    mcpJson.encodeToString(com.cotor.verification.VerificationBundle.serializer(), desktopService.verificationBundle(issueId))
+                }
+                "github_company_events" -> {
+                    val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
+                    mcpJson.encodeToString(
+                        kotlinx.serialization.builtins.ListSerializer(com.cotor.providers.github.GitHubProviderEvent.serializer()),
+                        desktopService.listGitHubEvents(companyId)
+                    )
+                }
+                "runtime_projection" -> {
+                    val issueId = arguments["issueId"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "issueId is required")
+                    mcpJson.encodeToString(IssueRuntimeProjection.serializer(), desktopService.issueRuntimeProjection(issueId))
                 }
                 else -> return mcpError(id, -32601, "Unknown MCP tool: $toolName")
             }

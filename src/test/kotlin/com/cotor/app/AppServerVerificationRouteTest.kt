@@ -1,6 +1,10 @@
 package com.cotor.app
 
 import com.cotor.verification.VerificationBundle
+import com.cotor.verification.VerificationContract
+import com.cotor.verification.VerificationOutcome
+import com.cotor.verification.VerificationOutcomeStatus
+import com.cotor.verification.VerificationObservation
 import com.cotor.verification.VerificationSignal
 import com.cotor.verification.VerificationSignalStatus
 import io.kotest.core.spec.style.FunSpec
@@ -20,11 +24,27 @@ class AppServerVerificationRouteTest : FunSpec({
         coEvery { desktopService.verificationBundle("issue-1") } returns VerificationBundle(
             issueId = "issue-1",
             issueTitle = "Issue",
-            signals = listOf(
-                VerificationSignal(
-                    key = "github-checks",
-                    status = VerificationSignalStatus.PASS,
-                    detail = "ci=COMPLETED/SUCCESS"
+            contract = VerificationContract(issueId = "issue-1"),
+            observations = listOf(
+                VerificationObservation(
+                    source = "github",
+                    signal = VerificationSignal(
+                        key = "github-checks",
+                        status = VerificationSignalStatus.PASS,
+                        detail = "ci=COMPLETED/SUCCESS"
+                    )
+                )
+            ),
+            outcome = VerificationOutcome(
+                issueId = "issue-1",
+                status = VerificationOutcomeStatus.PASS,
+                summary = "ok",
+                passedSignals = listOf(
+                    VerificationSignal(
+                        key = "github-checks",
+                        status = VerificationSignalStatus.PASS,
+                        detail = "ci=COMPLETED/SUCCESS"
+                    )
                 )
             )
         )

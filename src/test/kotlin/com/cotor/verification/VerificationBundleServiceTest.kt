@@ -76,11 +76,11 @@ class VerificationBundleServiceTest : FunSpec({
             )
         )
 
-        bundle.acceptanceCriteria.size shouldBe 2
-        bundle.signals.any { it.key == "github-checks" && it.status == VerificationSignalStatus.PASS } shouldBe true
-        bundle.signals.any { it.key == "mergeability" && it.status == VerificationSignalStatus.PASS } shouldBe true
+        bundle.contract.acceptanceCriteria.size shouldBe 2
+        bundle.outcome.status shouldBe VerificationOutcomeStatus.PARTIAL
+        bundle.outcome.passedSignals.any { it.key == "github-checks" && it.status == VerificationSignalStatus.PASS } shouldBe true
+        bundle.outcome.passedSignals.any { it.key == "mergeability" && it.status == VerificationSignalStatus.PASS } shouldBe true
         bundle.evidenceSummary?.contains("file:src/App.kt") shouldBe true
         bundle.knowledgeSummary?.contains("Prior QA finding") shouldBe true
     }
 })
-

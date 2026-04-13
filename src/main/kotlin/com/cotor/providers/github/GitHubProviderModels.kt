@@ -12,6 +12,12 @@ data class CheckSnapshot(
 )
 
 @Serializable
+data class CheckRollupSnapshot(
+    val checks: List<CheckSnapshot> = emptyList(),
+    val summary: String? = null
+)
+
+@Serializable
 data class MergeRequirement(
     val requiredChecks: List<String> = emptyList(),
     val branchProtectionKnown: Boolean = false,
@@ -32,8 +38,12 @@ data class PullRequestSnapshot(
     val state: String? = null,
     val mergeability: String? = null,
     val mergeable: String? = null,
+    val isDraft: Boolean = false,
+    val baseRefName: String? = null,
+    val headRefName: String? = null,
     val checksSummary: String? = null,
     val checks: List<CheckSnapshot> = emptyList(),
+    val statusCheckRollupSummary: String? = null,
     val mergeRequirement: MergeRequirement = MergeRequirement(),
     val mergeQueueState: MergeQueueState = MergeQueueState(),
     val companyId: String? = null,
@@ -41,6 +51,15 @@ data class PullRequestSnapshot(
     val runId: String? = null,
     val branchName: String? = null,
     val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Serializable
+data class ProviderEventDedupeKey(
+    val type: String,
+    val pullRequestNumber: Int? = null,
+    val companyId: String? = null,
+    val issueId: String? = null,
+    val detailFingerprint: String
 )
 
 @Serializable
@@ -52,6 +71,7 @@ data class GitHubProviderEvent(
     val issueId: String? = null,
     val runId: String? = null,
     val detail: String,
+    val dedupeKey: ProviderEventDedupeKey? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -69,4 +89,3 @@ data class GitHubSyncResponse(
     val resumedRuntimeTick: Boolean,
     val updatedAt: Long = System.currentTimeMillis()
 )
-

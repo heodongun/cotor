@@ -347,6 +347,13 @@ data class BudgetResponse(
 )
 
 @Serializable
+data class IssueRuntimeProjection(
+    val issue: CompanyIssue,
+    val reviewQueueItem: ReviewQueueItem? = null,
+    val runtime: CompanyRuntimeSnapshot
+)
+
+@Serializable
 data class SendMessageRequest(
     val fromAgentName: String,
     val toAgentName: String? = null,

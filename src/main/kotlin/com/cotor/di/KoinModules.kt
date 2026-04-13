@@ -43,6 +43,7 @@ import com.cotor.monitoring.ResourceMonitor
 import com.cotor.monitoring.StructuredLogger
 import com.cotor.presentation.formatter.*
 import com.cotor.policy.PolicyEngine
+import com.cotor.policy.RiskApprovalInterceptor
 import com.cotor.providers.github.GitHubControlPlaneStore
 import com.cotor.providers.github.GitHubControlPlaneService
 import com.cotor.provenance.ProvenanceService
@@ -84,16 +85,20 @@ val cotorModule = module {
     single { ProvenanceService() }
     single { KnowledgeService() }
     single { PolicyEngine() }
-    single<ActionInterceptor> { get<PolicyEngine>() }
+    single<ActionInterceptor>(qualifier = org.koin.core.qualifier.named("policy")) { get<PolicyEngine>() }
+    single<ActionInterceptor>(qualifier = org.koin.core.qualifier.named("risk")) { RiskApprovalInterceptor() }
     single { GitHubControlPlaneStore() }
     single { GitHubControlPlaneService(get(), get(), get()) }
-    single { VerificationBundleService(get(), get()) }
+    single { VerificationBundleService(get(), get(), com.cotor.verification.VerificationStore()) }
     single {
         ActionExecutionService(
             actionStore = com.cotor.runtime.actions.ActionStore(),
             durableRuntimeService = get(),
             provenanceService = get(),
-            interceptors = listOf(get<ActionInterceptor>()),
+            interceptors = listOf(
+                get(org.koin.core.qualifier.named("policy")),
+                get(org.koin.core.qualifier.named("risk"))
+            ),
             logger = get()
         )
     }

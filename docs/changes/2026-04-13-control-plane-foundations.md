@@ -19,6 +19,7 @@ Cotor already had a durable pipeline runtime slice, but the surrounding control 
 - Added `com.cotor.knowledge` for structured issue knowledge records backed by evidence references.
 - Exposed read surfaces through CLI, app-server, web, and read-only MCP.
 - Bound company issue/review runtime state to durable run ids, pending approval pauses, and GitHub provider block reasons.
+- Added persisted verification contracts/outcomes, GitHub event feeds with dedupe keys, issue runtime projections, and risk-approval interception for high-risk actions.
 
 ## Design reasoning
 

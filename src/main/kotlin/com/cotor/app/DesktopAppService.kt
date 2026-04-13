@@ -1216,6 +1216,9 @@ class DesktopAppService(
     suspend fun listGitHubPullRequests(companyId: String? = null): List<PullRequestSnapshot> =
         gitHubControlPlaneService.listPullRequests(companyId)
 
+    suspend fun listGitHubEvents(companyId: String? = null) =
+        gitHubControlPlaneService.listEvents(companyId)
+
     suspend fun issueKnowledge(issueId: String): List<KnowledgeRecord> {
         knowledgeService.synchronizeFromState(stateStore.load())
         return knowledgeService.inspectIssue(issueId)
@@ -1230,6 +1233,22 @@ class DesktopAppService(
             .maxByOrNull { it.updatedAt }
         knowledgeService.synchronizeFromState(state)
         return verificationBundleService.buildForIssue(state, issue, queueItem)
+    }
+
+    suspend fun issueRuntimeProjection(issueId: String): IssueRuntimeProjection {
+        val state = stateStore.load().withDerivedMetrics()
+        val issue = state.issues.firstOrNull { it.id == issueId }
+            ?: throw IllegalArgumentException("Issue not found: $issueId")
+        val runtime = runtimeBindingService.bind(
+            state = state,
+            companyId = issue.companyId,
+            runtime = state.companyRuntimes.firstOrNull { it.companyId == issue.companyId } ?: CompanyRuntimeSnapshot(companyId = issue.companyId)
+        )
+        return IssueRuntimeProjection(
+            issue = runtime.issues.firstOrNull { it.id == issueId } ?: issue,
+            reviewQueueItem = runtime.reviewQueue.firstOrNull { it.issueId == issueId },
+            runtime = runtime.runtime
+        )
     }
 
     suspend fun syncGitHubProvider(companyId: String): GitHubSyncResponse {
@@ -1417,7 +1436,7 @@ class DesktopAppService(
                     companyId = companyId
                 )
             }
-            nextState = nextState.withDerivedMetrics()
+            nextState = applyVerificationProjection(nextState).withDerivedMetrics()
             stateStore.save(nextState)
             knowledgeService.synchronizeFromState(nextState)
             refreshedMetadata.size
@@ -1588,6 +1607,37 @@ class DesktopAppService(
             issue.pullRequestUrl != null || issue.pullRequestNumber != null -> IssueStatus.IN_REVIEW
             else -> issue.status
         }
+
+    private fun applyVerificationProjection(state: DesktopAppState): DesktopAppState {
+        val issuesById = state.issues.associateBy { it.id }
+        val bundlesByIssueId = state.issues.associate { issue ->
+            issue.id to verificationBundleService.buildForIssue(
+                state = state,
+                issue = issue,
+                queueItem = state.reviewQueue.filter { it.issueId == issue.id }.maxByOrNull { it.updatedAt }
+            )
+        }
+        val updatedIssues = state.issues.map { issue ->
+            val bundle = bundlesByIssueId.getValue(issue.id)
+            issue.copy(
+                verificationStatus = bundle.outcome.status.name,
+                verificationSummary = bundle.outcome.summary,
+                lastVerifiedAt = bundle.outcome.verifiedAt
+            )
+        }
+        val updatedReviewQueue = state.reviewQueue.map { item ->
+            val bundle = bundlesByIssueId[item.issueId] ?: return@map item
+            item.copy(
+                verificationStatus = bundle.outcome.status.name,
+                verificationSummary = bundle.outcome.summary,
+                lastVerifiedAt = bundle.outcome.verifiedAt
+            )
+        }
+        return state.copy(
+            issues = updatedIssues,
+            reviewQueue = updatedReviewQueue
+        )
+    }
 
     suspend fun updateGoalAutonomy(goalId: String, enabled: Boolean): CompanyGoal = stateMutex.withLock {
         val state = stateStore.load()
@@ -10243,12 +10293,16 @@ class DesktopAppService(
 
     private fun StringBuilder.appendVerificationBundle(bundle: VerificationBundle) {
         appendLine("Verification bundle:")
-        if (bundle.acceptanceCriteria.isNotEmpty()) {
-            appendLine("- acceptanceCriteria=${bundle.acceptanceCriteria.size}")
+        if (bundle.contract.acceptanceCriteria.isNotEmpty()) {
+            appendLine("- acceptanceCriteria=${bundle.contract.acceptanceCriteria.size}")
         }
-        bundle.signals.forEach { signal ->
+        bundle.outcome.passedSignals.forEach { signal ->
             appendLine("- ${signal.key}: ${signal.status} (${summarizeForPrompt(signal.detail, 180)})")
         }
+        bundle.outcome.failingSignals.forEach { signal ->
+            appendLine("- ${signal.key}: ${signal.status} (${summarizeForPrompt(signal.detail, 180)})")
+        }
+        appendLine("- outcome=${bundle.outcome.status}: ${bundle.outcome.summary}")
         bundle.evidenceSummary?.let { summary ->
             appendLine("Evidence summary:")
             appendLine(summarizeForPrompt(summary, 320))
@@ -10869,13 +10923,13 @@ class DesktopAppService(
                 escalations = if (planningSource == "fallback") listOf(planningReason) else emptyList(),
                 createdAt = now
             )
-            val nextState = state.copy(
+            val nextState = applyVerificationProjection(state.copy(
                 issues = state.issues.filterNot { it.id == currentIssue.id } + updatedPlanningIssue + decomposition.first,
                 issueDependencies = state.issueDependencies.filterNot { dependency ->
                     dependency.issueId == currentIssue.id
                 } + decomposition.second,
                 goalDecisions = state.goalDecisions + decision
-            ).recordCompanyActivity(
+            )).recordCompanyActivity(
                 companyId = company.id,
                 projectContextId = currentIssue.projectContextId,
                 goalId = goal.id,
@@ -11647,7 +11701,7 @@ class DesktopAppService(
                     latestRun = primaryRun
                 )
             }
-            val nextState = state.copy(
+            val nextState = applyVerificationProjection(state.copy(
                 issues = state.issues
                     .filterNot { existing ->
                         existing.id == currentIssue.id ||
@@ -11664,7 +11718,7 @@ class DesktopAppService(
                     state.runs.map { existing -> if (existing.id == run.id) run else existing }
                 } ?: state.runs,
                 reviewQueue = updatedReviewQueue
-            ).recordCompanyActivity(
+            )).recordCompanyActivity(
                 companyId = currentIssue.companyId,
                 projectContextId = currentIssue.projectContextId,
                 goalId = currentIssue.goalId,
@@ -11886,7 +11940,7 @@ class DesktopAppService(
                 latestTask = task,
                 latestRun = primaryRun
             )
-            val nextState = state.copy(
+            val nextState = applyVerificationProjection(state.copy(
                 issues = state.issues.map { existing ->
                     when (existing.id) {
                         currentIssue.id -> updatedApprovalIssue
@@ -11901,7 +11955,7 @@ class DesktopAppService(
                     state.runs.map { existing -> if (existing.id == run.id) run else existing }
                 } ?: state.runs,
                 reviewQueue = updatedReviewQueue
-            ).recordCompanyActivity(
+            )).recordCompanyActivity(
                 companyId = currentIssue.companyId,
                 projectContextId = currentIssue.projectContextId,
                 goalId = currentIssue.goalId,

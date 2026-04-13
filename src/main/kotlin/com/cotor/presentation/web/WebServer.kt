@@ -479,6 +479,11 @@ internal fun Application.cotorWebModule(
             call.respond(desktopService.listGitHubPullRequests(companyId))
         }
 
+        get("/api/runtime/github/events") {
+            val companyId = call.request.queryParameters["companyId"]
+            call.respond(desktopService.listGitHubEvents(companyId))
+        }
+
         get("/api/runtime/github/pull-requests/{pullRequestNumber}") {
             val pullRequestNumber = call.parameters["pullRequestNumber"]?.toIntOrNull()
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "pullRequestNumber is required"))
@@ -497,6 +502,12 @@ internal fun Application.cotorWebModule(
             val issueId = call.parameters["issueId"]
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
             call.respond(desktopService.verificationBundle(issueId))
+        }
+
+        get("/api/runtime/issues/{issueId}/projection") {
+            val issueId = call.parameters["issueId"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+            call.respond(desktopService.issueRuntimeProjection(issueId))
         }
 
         get("/api/editor/config") {

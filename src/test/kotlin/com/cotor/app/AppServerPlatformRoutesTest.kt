@@ -4,6 +4,7 @@ import com.cotor.knowledge.KnowledgeRecord
 import com.cotor.policy.PolicyDecision
 import com.cotor.policy.PolicyEffect
 import com.cotor.policy.PolicyExplanation
+import com.cotor.providers.github.GitHubProviderEvent
 import com.cotor.providers.github.PullRequestSnapshot
 import com.cotor.provenance.EvidenceBundle
 import io.kotest.core.spec.style.FunSpec
@@ -42,11 +43,28 @@ class AppServerPlatformRoutesTest : FunSpec({
         coEvery { desktopService.listGitHubPullRequests("company-1") } returns listOf(
             PullRequestSnapshot(number = 12, state = "OPEN", companyId = "company-1")
         )
+        coEvery { desktopService.listGitHubEvents("company-1") } returns listOf(
+            GitHubProviderEvent(type = "sync", companyId = "company-1", detail = "synced")
+        )
         coEvery { desktopService.issueKnowledge("issue-1") } returns listOf(
             KnowledgeRecord(subjectType = "issue", subjectId = "issue-1", kind = "mergeability", title = "test", content = "CLEAN")
         )
         coEvery { desktopService.companyDashboard(any()) } returns CompanyDashboardResponse(
             companies = listOf(Company(id = "company-1", name = "Test", rootPath = ".", repositoryId = "repo", defaultBaseBranch = "main", createdAt = 1L, updatedAt = 1L))
+        )
+        coEvery { desktopService.issueRuntimeProjection("issue-1") } returns IssueRuntimeProjection(
+            issue = CompanyIssue(
+                id = "issue-1",
+                goalId = "goal-1",
+                workspaceId = "workspace-1",
+                title = "Issue",
+                description = "desc",
+                status = IssueStatus.IN_REVIEW,
+                runtimeDisposition = "WAITING_FOR_CI",
+                createdAt = 1L,
+                updatedAt = 1L
+            ),
+            runtime = CompanyRuntimeSnapshot(companyId = "company-1")
         )
 
         testApplication {
@@ -70,9 +88,17 @@ class AppServerPlatformRoutesTest : FunSpec({
                 header("Authorization", "Bearer secret-token")
             }.bodyAsText().contains("\"number\":12") shouldBe true
 
+            client.get("/api/app/github/events?companyId=company-1") {
+                header("Authorization", "Bearer secret-token")
+            }.bodyAsText().contains("synced") shouldBe true
+
             client.get("/api/app/knowledge/issues/issue-1") {
                 header("Authorization", "Bearer secret-token")
             }.bodyAsText().contains("mergeability") shouldBe true
+
+            client.get("/api/app/runtime/issues/issue-1/projection") {
+                header("Authorization", "Bearer secret-token")
+            }.bodyAsText().contains("WAITING_FOR_CI") shouldBe true
 
             val mcpResponse = client.post("/api/app/mcp") {
                 header("Authorization", "Bearer secret-token")

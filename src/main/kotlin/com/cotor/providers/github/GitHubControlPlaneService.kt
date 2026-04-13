@@ -15,18 +15,38 @@ class GitHubControlPlaneService(
             .filterNot { it.number == snapshot.number }
             .plus(snapshot)
             .sortedByDescending { it.updatedAt }
+        val dedupeKey = ProviderEventDedupeKey(
+            type = eventType,
+            pullRequestNumber = snapshot.number,
+            companyId = snapshot.companyId,
+            issueId = snapshot.issueId,
+            detailFingerprint = detail.trim().lowercase()
+        )
         val event = GitHubProviderEvent(
             type = eventType,
             pullRequestNumber = snapshot.number,
             companyId = snapshot.companyId,
             issueId = snapshot.issueId,
             runId = snapshot.runId,
-            detail = detail
+            detail = detail,
+            dedupeKey = dedupeKey
         )
+        val mergedEvents = (current.events + event)
+            .reversed()
+            .distinctBy { existing ->
+                existing.dedupeKey ?: ProviderEventDedupeKey(
+                    type = existing.type,
+                    pullRequestNumber = existing.pullRequestNumber,
+                    companyId = existing.companyId,
+                    issueId = existing.issueId,
+                    detailFingerprint = existing.detail.trim().lowercase()
+                )
+            }
+            .reversed()
         store.save(
             current.copy(
                 pullRequests = mergedPullRequests,
-                events = (current.events + event).takeLast(500),
+                events = mergedEvents.takeLast(500),
                 updatedAt = System.currentTimeMillis()
             )
         )

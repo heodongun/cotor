@@ -40,9 +40,10 @@ Current subcommand support:
 - `checkpoint gc`
 - `policy validate`, `policy simulate`
 - `evidence run`, `evidence file`
-- `github sync`, `github inspect-pr`, `github list`
+- `github sync`, `github inspect-pr`, `github list`, `github events`
 - `knowledge inspect`
 - `verification inspect`
+- `runtime inspect`
 - `mcp serve --readonly`
 
 Current template types:
@@ -183,7 +184,10 @@ Current limits in this build:
 - the app uses a Linear-style board inside Cotor; it is not a live external Linear sync
 - runtime automation is intentionally minimal
 - policy engine is v1 and currently focuses on readably simulating and enforcing action-level allow/deny/approval decisions rather than a full external policy language
+- risk approval is v1 and currently uses action-kind/path/network heuristics rather than a full repository diff risk model
 - GitHub control plane is v1 and currently syncs PR state, mergeability, and status-check summaries through `gh`, not a webhook-driven GitHub App
+- verification bundles persist contract/outcome state locally, but verifier-agent enforcement is still prompt-driven rather than a separate verifier runtime
+- runtime projection surfaces expose issue-level `runtimeDisposition`, but the runtime scheduler is still heuristic rather than fully market/simulation driven
 - company context persistence now includes structured evidence and knowledge stores under `.cotor/provenance/` and `.cotor/knowledge/`, but retrieval is still read-oriented
 - `resume` supports experimental durable inspect/continue/fork/approve flows when `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1` is enabled
 

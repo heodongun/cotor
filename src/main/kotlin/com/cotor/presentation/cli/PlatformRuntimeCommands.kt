@@ -114,7 +114,7 @@ private class EvidenceFileCommand : CliktCommand(name = "file"), KoinComponent {
 
 class GitHubProviderCommand : CliktCommand(name = "github", help = "Inspect GitHub provider control plane state.") {
     init {
-        subcommands(GitHubSyncCommand(), GitHubInspectPrCommand(), GitHubListPrCommand())
+        subcommands(GitHubSyncCommand(), GitHubInspectPrCommand(), GitHubListPrCommand(), GitHubEventsCommand())
     }
 
     override fun run() = Unit
@@ -149,6 +149,15 @@ private class GitHubListPrCommand : CliktCommand(name = "list"), KoinComponent {
     }
 }
 
+private class GitHubEventsCommand : CliktCommand(name = "events"), KoinComponent {
+    private val desktopService: DesktopAppService by inject()
+    private val companyId by option("--company")
+
+    override fun run() = runBlocking {
+        echo(platformJson.encodeToString(desktopService.listGitHubEvents(companyId)))
+    }
+}
+
 class KnowledgeCommand : CliktCommand(name = "knowledge", help = "Inspect structured knowledge records.") {
     init {
         subcommands(KnowledgeInspectCommand())
@@ -180,6 +189,23 @@ private class VerificationInspectCommand : CliktCommand(name = "inspect"), KoinC
 
     override fun run() = runBlocking {
         echo(platformJson.encodeToString(desktopService.verificationBundle(issueId)))
+    }
+}
+
+class RuntimeProjectionCommand : CliktCommand(name = "runtime", help = "Inspect projected runtime state for workflow issues.") {
+    init {
+        subcommands(RuntimeInspectCommand())
+    }
+
+    override fun run() = Unit
+}
+
+private class RuntimeInspectCommand : CliktCommand(name = "inspect"), KoinComponent {
+    private val desktopService: DesktopAppService by inject()
+    private val issueId by option("--issue").required()
+
+    override fun run() = runBlocking {
+        echo(platformJson.encodeToString(desktopService.issueRuntimeProjection(issueId)))
     }
 }
 

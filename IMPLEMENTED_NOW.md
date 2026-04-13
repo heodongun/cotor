@@ -13,6 +13,11 @@
 - Company runtime binding now maps company issues and review queue items to durable run ids, approval pauses, and provider block reasons
 - GitHub sync now pushes failing/passing check transitions back into review queue and execution issue state
 - GitHub sync now also settles merged and closed pull requests back into review queue, approval, and execution issue state
+- Verification bundles now persist contract/outcome state and stamp verification status back into issue/review workflow records
+- GitHub control-plane now exposes event feeds with dedupe keys
+- Runtime projection read surfaces expose issue-level runtime disposition
+- Risk approval interceptor v1 can require approval for high-risk action classes
+- Knowledge retrieval now has execution/review/approval-specific ranking paths
 - Legacy checkpoint import bridge
 - `cotor resume inspect|continue|fork|approve`
 - `cotor policy`, `cotor evidence`, `cotor github`, `cotor knowledge`, `cotor mcp`
