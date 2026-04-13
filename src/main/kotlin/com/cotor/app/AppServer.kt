@@ -10,6 +10,8 @@ package com.cotor.app
 
 import com.cotor.a2a.A2aRouter
 import com.cotor.a2a.installA2aRoutes
+import com.cotor.provenance.EvidenceBundle
+import com.cotor.runtime.durable.DurableRunSnapshot
 import com.cotor.runtime.durable.DurableResumeCoordinator
 import com.cotor.runtime.durable.DurableRuntimeService
 import io.ktor.http.ContentType
@@ -39,6 +41,8 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.flow.collect
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -47,6 +51,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.nio.channels.FileChannel
@@ -217,6 +224,12 @@ internal fun readDesktopAppServerInstanceStatus(appHome: Path): DesktopAppServer
     }.getOrNull() ?: return DesktopAppServerInstanceStatus(active = false)
     val active = ProcessHandle.of(metadata.pid).map(ProcessHandle::isAlive).orElse(false)
     return DesktopAppServerInstanceStatus(active = active, metadata = metadata.takeIf { active })
+}
+
+private val mcpJson = Json {
+    encodeDefaults = true
+    prettyPrint = true
+    ignoreUnknownKeys = true
 }
 
 /**
@@ -571,6 +584,72 @@ internal fun Application.cotorAppModule(
                         coordinator.approve(runId, request.checkpointId)
                     }
                 }
+            }
+
+            route("/policy") {
+                get("/decisions") {
+                    if (!requireToken(token)) return@get
+                    val runId = call.request.queryParameters["runId"]
+                    val issueId = call.request.queryParameters["issueId"]
+                    call.respond(desktopService.policyDecisions(runId = runId, issueId = issueId))
+                }
+            }
+
+            route("/evidence") {
+                get("/runs/{runId}") {
+                    if (!requireToken(token)) return@get
+                    val runId = call.parameters["runId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
+                    call.respond(desktopService.evidenceForRun(runId))
+                }
+
+                get("/files") {
+                    if (!requireToken(token)) return@get
+                    val path = call.request.queryParameters["path"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "path is required"))
+                    call.respond(desktopService.evidenceForFile(path))
+                }
+            }
+
+            route("/github") {
+                get("/pull-requests") {
+                    if (!requireToken(token)) return@get
+                    val companyId = call.request.queryParameters["companyId"]
+                    call.respond(desktopService.listGitHubPullRequests(companyId))
+                }
+
+                get("/pull-requests/{pullRequestNumber}") {
+                    if (!requireToken(token)) return@get
+                    val pullRequestNumber = call.parameters["pullRequestNumber"]?.toIntOrNull()
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "pullRequestNumber is required"))
+                    val snapshot = desktopService.inspectGitHubPullRequest(pullRequestNumber)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pull request not found: $pullRequestNumber"))
+                    call.respond(snapshot)
+                }
+
+                post("/companies/{companyId}/sync") {
+                    if (!requireToken(token)) return@post
+                    val companyId = call.parameters["companyId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    respondDesktopRequest {
+                        desktopService.syncGitHubProvider(companyId)
+                    }
+                }
+            }
+
+            route("/knowledge") {
+                get("/issues/{issueId}") {
+                    if (!requireToken(token)) return@get
+                    val issueId = call.parameters["issueId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    call.respond(desktopService.issueKnowledge(issueId))
+                }
+            }
+
+            post("/mcp") {
+                if (!requireToken(token)) return@post
+                val request = call.receive<JsonElement>()
+                call.respond(handleReadonlyMcpRequest(request, desktopService, durableRuntimeService))
             }
 
             route("/issues/{issueId}/runs") {
@@ -1588,6 +1667,175 @@ internal fun Application.cotorAppModule(
 
 private const val RUN_OUTPUT_LIMIT = 40_000
 private const val RUN_ERROR_LIMIT = 8_000
+
+private suspend fun handleReadonlyMcpRequest(
+    request: JsonElement,
+    desktopService: DesktopAppService,
+    durableRuntimeService: DurableRuntimeService?
+): JsonElement {
+    val root = request.jsonObject
+    val id = root["id"] ?: JsonNull
+    val method = root["method"]?.jsonPrimitive?.contentOrNull
+        ?: return mcpError(id, code = -32600, message = "Missing JSON-RPC method")
+    val params = root["params"]?.jsonObject ?: buildJsonObject { }
+    return when (method) {
+        "initialize" -> buildJsonObject {
+            put("jsonrpc", JsonPrimitive("2.0"))
+            put("id", id)
+            put(
+                "result",
+                buildJsonObject {
+                    put("protocolVersion", JsonPrimitive("2025-06-18"))
+                    put(
+                        "serverInfo",
+                        buildJsonObject {
+                            put("name", JsonPrimitive("cotor-readonly"))
+                            put("version", JsonPrimitive("1.0"))
+                        }
+                    )
+                    put(
+                        "capabilities",
+                        buildJsonObject {
+                            put("tools", buildJsonObject { })
+                            put("resources", buildJsonObject { })
+                        }
+                    )
+                }
+            )
+        }
+        "tools/list" -> mcpResult(id, buildJsonObject {
+            put(
+                "tools",
+                buildJsonArray {
+                    add(mcpToolDescriptor("company_summary", "Return the company dashboard summary."))
+                    add(mcpToolDescriptor("issue_list", "Return issues for one company."))
+                    add(mcpToolDescriptor("durable_run_inspect", "Inspect one durable runtime run."))
+                    add(mcpToolDescriptor("approval_queue", "Return runs waiting for approval."))
+                    add(mcpToolDescriptor("evidence_summary", "Return evidence bundle for a run or file."))
+                }
+            )
+        })
+        "tools/call" -> {
+            val toolName = params["name"]?.jsonPrimitive?.contentOrNull
+                ?: return mcpError(id, -32602, "Missing tool name")
+            val arguments = params["arguments"]?.jsonObject ?: buildJsonObject { }
+            val content = when (toolName) {
+                "company_summary" -> {
+                    val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
+                    mcpJson.encodeToString(CompanyDashboardResponse.serializer(), desktopService.companyDashboard(companyId))
+                }
+                "issue_list" -> {
+                    val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
+                    mcpJson.encodeToString(
+                        ListSerializer(CompanyIssue.serializer()),
+                        desktopService.companyDashboard(companyId).issues
+                    )
+                }
+                "durable_run_inspect" -> {
+                    val runId = arguments["runId"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "runId is required")
+                    durableRuntimeService?.inspectRun(runId)?.let {
+                        mcpJson.encodeToString(DurableRunSnapshot.serializer(), it)
+                    } ?: mcpJson.encodeToString(EvidenceBundle.serializer(), desktopService.evidenceForRun(runId))
+                }
+                "approval_queue" -> {
+                    val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
+                    val dashboard = desktopService.companyDashboard(companyId)
+                    mcpJson.encodeToString(ListSerializer(String.serializer()), dashboard.runtime.pendingApprovalRunIds)
+                }
+                "evidence_summary" -> {
+                    val runId = arguments["runId"]?.jsonPrimitive?.contentOrNull
+                    val filePath = arguments["path"]?.jsonPrimitive?.contentOrNull
+                    when {
+                        runId != null -> mcpJson.encodeToString(EvidenceBundle.serializer(), desktopService.evidenceForRun(runId))
+                        filePath != null -> mcpJson.encodeToString(EvidenceBundle.serializer(), desktopService.evidenceForFile(filePath))
+                        else -> return mcpError(id, -32602, "runId or path is required")
+                    }
+                }
+                else -> return mcpError(id, -32601, "Unknown MCP tool: $toolName")
+            }
+            mcpResult(id, buildJsonObject {
+                put("content", buildJsonArray { add(buildJsonObject { put("type", JsonPrimitive("text")); put("text", JsonPrimitive(content)) }) })
+            })
+        }
+        "resources/list" -> mcpResult(id, buildJsonObject {
+            put(
+                "resources",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("uri", JsonPrimitive("cotor://companies"))
+                            put("name", JsonPrimitive("Companies"))
+                        }
+                    )
+                    add(
+                        buildJsonObject {
+                            put("uri", JsonPrimitive("cotor://durable-runs"))
+                            put("name", JsonPrimitive("Durable Runs"))
+                        }
+                    )
+                }
+            )
+        })
+        "resources/read" -> {
+            val uri = params["uri"]?.jsonPrimitive?.contentOrNull
+                ?: return mcpError(id, -32602, "uri is required")
+            val content = when (uri) {
+                "cotor://companies" -> mcpJson.encodeToString(
+                    ListSerializer(Company.serializer()),
+                    desktopService.companyDashboard().companies
+                )
+                "cotor://durable-runs" -> mcpJson.encodeToString(
+                    ListSerializer(DurableRunSnapshot.serializer()),
+                    durableRuntimeService?.listRuns().orEmpty()
+                )
+                else -> return mcpError(id, -32602, "Unsupported resource: $uri")
+            }
+            mcpResult(id, buildJsonObject {
+                put(
+                    "contents",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("uri", JsonPrimitive(uri))
+                                put("mimeType", JsonPrimitive("application/json"))
+                                put("text", JsonPrimitive(content))
+                            }
+                        )
+                    }
+                )
+            })
+        }
+        else -> mcpError(id, -32601, "Unsupported MCP method: $method")
+    }
+}
+
+private fun mcpToolDescriptor(name: String, description: String): JsonElement = buildJsonObject {
+    put("name", JsonPrimitive(name))
+    put("description", JsonPrimitive(description))
+    put("inputSchema", buildJsonObject {
+        put("type", JsonPrimitive("object"))
+        put("properties", buildJsonObject { })
+    })
+}
+
+private fun mcpResult(id: JsonElement, result: JsonElement): JsonElement = buildJsonObject {
+    put("jsonrpc", JsonPrimitive("2.0"))
+    put("id", id)
+    put("result", result)
+}
+
+private fun mcpError(id: JsonElement, code: Int, message: String): JsonElement = buildJsonObject {
+    put("jsonrpc", JsonPrimitive("2.0"))
+    put("id", id)
+    put(
+        "error",
+        buildJsonObject {
+            put("code", JsonPrimitive(code))
+            put("message", JsonPrimitive(message))
+        }
+    )
+}
 
 private fun toApiRunRecord(run: AgentRun): AgentRun =
     run.copy(

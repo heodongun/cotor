@@ -17,7 +17,7 @@ Smoke test: `cotor version`
 
 Top-level commands registered in `Main.kt`:
 
-`init`, `run`, `dash`, `interactive`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `list`, `web`, `app-server`, `lint`, `explain`, `plugin`, `agent`, `company`, `auth`, `version`, `completion`
+`init`, `run`, `dash`, `interactive`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `list`, `web`, `app-server`, `lint`, `explain`, `plugin`, `agent`, `company`, `auth`, `policy`, `evidence`, `github`, `knowledge`, `mcp`, `version`, `completion`
 
 Important entry behavior:
 
@@ -38,6 +38,11 @@ Current subcommand support:
 - `company ...` for company/agent/goal/issue/review/runtime/backend/linear/context/message operations
 - `plugin init`
 - `checkpoint gc`
+- `policy validate`, `policy simulate`
+- `evidence run`, `evidence file`
+- `github sync`, `github inspect-pr`, `github list`
+- `knowledge inspect`
+- `mcp serve --readonly`
 
 Current template types:
 
@@ -176,9 +181,10 @@ Current limits in this build:
 
 - the app uses a Linear-style board inside Cotor; it is not a live external Linear sync
 - runtime automation is intentionally minimal
-- policy engine and full PR/CI sync are not implemented yet
-- company context persistence exists as local `.cotor/companies/...` snapshots, but it is still a lightweight knowledge layer
-- `resume` now supports experimental durable inspect/continue/fork/approve flows when `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1` is enabled
+- policy engine is v1 and currently focuses on readably simulating and enforcing action-level allow/deny/approval decisions rather than a full external policy language
+- GitHub control plane is v1 and currently syncs PR state, mergeability, and status-check summaries through `gh`, not a webhook-driven GitHub App
+- company context persistence now includes structured evidence and knowledge stores under `.cotor/provenance/` and `.cotor/knowledge/`, but retrieval is still read-oriented
+- `resume` supports experimental durable inspect/continue/fork/approve flows when `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1` is enabled
 
 Inspect `.cotor/companies/` in the working folder to review the persisted company state.
 

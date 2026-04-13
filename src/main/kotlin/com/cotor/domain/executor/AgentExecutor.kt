@@ -13,8 +13,13 @@ import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
 import com.cotor.monitoring.NoopObservabilityService
 import com.cotor.monitoring.ObservabilityService
+import com.cotor.runtime.actions.ActionEvidence
+import com.cotor.runtime.actions.ActionExecutionService
+import com.cotor.runtime.actions.ActionKind
+import com.cotor.runtime.actions.ActionRequest
+import com.cotor.runtime.actions.ActionScope
+import com.cotor.runtime.actions.ActionSubject
 import com.cotor.runtime.durable.DurableRuntimeService
-import com.cotor.runtime.durable.SideEffectKind
 import com.cotor.security.SecurityValidator
 import kotlinx.coroutines.*
 import org.slf4j.Logger
@@ -60,7 +65,8 @@ class DefaultAgentExecutor(
     private val securityValidator: SecurityValidator,
     private val logger: Logger,
     private val observability: ObservabilityService = NoopObservabilityService,
-    private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService()
+    private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService(),
+    private val actionExecutionService: ActionExecutionService = ActionExecutionService(durableRuntimeService = durableRuntimeService, logger = logger)
 ) : AgentExecutor {
     constructor(
         processManager: ProcessManager,
@@ -73,7 +79,8 @@ class DefaultAgentExecutor(
         securityValidator = securityValidator,
         logger = logger,
         observability = NoopObservabilityService,
-        durableRuntimeService = DurableRuntimeService()
+        durableRuntimeService = DurableRuntimeService(),
+        actionExecutionService = ActionExecutionService(durableRuntimeService = DurableRuntimeService(), logger = logger)
     )
 
     constructor(
@@ -88,7 +95,8 @@ class DefaultAgentExecutor(
         securityValidator = securityValidator,
         logger = logger,
         observability = observability,
-        durableRuntimeService = DurableRuntimeService()
+        durableRuntimeService = DurableRuntimeService(),
+        actionExecutionService = ActionExecutionService(durableRuntimeService = DurableRuntimeService(), logger = logger)
     )
 
     private val isDesktopTui = System.getenv("COTOR_DESKTOP_TUI") == "1"
@@ -144,19 +152,38 @@ class DefaultAgentExecutor(
                 // Time only the plugin body itself so reported duration reflects the
                 // actual execution window seen by the child process or API call.
                 val startTime = System.currentTimeMillis()
-                durableRuntimeService.recordSideEffect(
-                    kind = SideEffectKind.AGENT_EXECUTION,
+                val actionRequest = ActionRequest(
+                    kind = ActionKind.AGENT_EXEC,
                     label = "agent.execute:${agent.name}",
+                    scope = if (metadata.pipelineContext != null) ActionScope.RUN else ActionScope.GLOBAL,
+                    subject = ActionSubject(
+                        runId = metadata.pipelineContext?.metadata?.get("durableRunId")?.toString(),
+                        taskId = metadata.taskId,
+                        agentName = agent.name
+                    ),
                     replaySafe = true,
                     approvalRequiredOnReplay = false,
                     metadata = buildMap {
                         put("agentName", agent.name)
                         metadata.stageId?.let { put("stageId", it) }
                         metadata.taskId?.let { put("taskId", it) }
+                        metadata.pipelineContext?.metadata?.get("configPath")?.toString()?.let { put("configPath", it) }
                     }
                 )
-                val pluginOutput = withTimeout(agent.timeout) {
-                    plugin.execute(context, processManager)
+                val pluginOutput = actionExecutionService.run(
+                    request = actionRequest,
+                    onSuccess = { output ->
+                        ActionEvidence(
+                            branchName = metadata.branchName
+                        ).copy(
+                            filePaths = emptyList(),
+                            pullRequestUrl = null
+                        )
+                    }
+                ) {
+                    withTimeout(agent.timeout) {
+                        plugin.execute(context, processManager)
+                    }
                 }
                 val duration = System.currentTimeMillis() - startTime
 

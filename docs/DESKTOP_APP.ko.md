@@ -193,6 +193,6 @@ cotor delete
 
 - macOS 셸만 지원합니다.
 - Linear sync는 회사 단위 outward mirror이며, 기존 Linear 이슈를 다시 Cotor로 가져오지는 않습니다.
-- 런타임 자동화에는 아직 계획된 정책 엔진이 없습니다.
-- 리뷰/PR 동기화는 현재 로컬 상태 중심이며, 완전한 GitHub/CI live orchestration은 아닙니다.
-- `resume`은 여전히 체크포인트 조회 성격이고 전체 실행 재개는 아닙니다.
+- 런타임 자동화에는 action 단위 allow/deny/approval를 다루는 정책 엔진 v1이 들어갔지만, 아직 file-backed 실험 기능입니다.
+- 리뷰/PR 동기화에는 `gh` 기반 GitHub control-plane v1이 들어가서 PR 상태, mergeability, status-check summary를 읽어옵니다.
+- `resume`은 이제 실험적 durable inspect/continue/fork/approve 흐름을 지원하지만, 회사 전체 issue/review 재개는 아직 완전하지 않습니다.

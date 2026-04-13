@@ -638,6 +638,9 @@ data class CompanyIssue(
     val sourceSignal: String = "goal-decomposition",
     val pipelineId: String? = null,
     val currentStageId: String? = null,
+    val durableRunId: String? = null,
+    val approvalPauseId: String? = null,
+    val providerBlockReason: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
     val workflowLineage: WorkflowLineageSnapshot? = null
@@ -697,6 +700,8 @@ data class ReviewQueueItem(
     val ceoFeedback: String? = null,
     val ceoReviewedAt: Long? = null,
     val approvalIssueId: String? = null,
+    val approvalPauseId: String? = null,
+    val providerBlockReason: String? = null,
     val mergeCommitSha: String? = null,
     val mergedAt: Long? = null,
     val createdAt: Long,
@@ -789,7 +794,14 @@ data class CompanyRuntimeSnapshot(
     val todaySpentCents: Int = 0,
     val monthSpentCents: Int = 0,
     val budgetPausedAt: Long? = null,
-    val budgetResetDate: String? = null
+    val budgetResetDate: String? = null,
+    val resumableRunCount: Int = 0,
+    val waitingApprovalCount: Int = 0,
+    val blockedByPolicyCount: Int = 0,
+    val blockedByCiCount: Int = 0,
+    val quarantinedRunCount: Int = 0,
+    val resumableRunIds: List<String> = emptyList(),
+    val pendingApprovalRunIds: List<String> = emptyList()
 )
 
 internal fun CompanyRuntimeSnapshot.withNormalizedStopIntent(): CompanyRuntimeSnapshot {

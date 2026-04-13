@@ -187,6 +187,6 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 
 - macOS shell only
 - Linear sync is company-scoped and mirrors Cotor-managed issues outward; it does not yet import existing Linear issues back into Cotor
-- runtime automation does not yet include the planned policy engine
-- review and PR sync are local-state driven in this build, not full live GitHub/CI orchestration
-- `resume` remains a checkpoint inspection flow, not full run resumption
+- runtime automation now includes a policy engine v1 for action allow/deny/approval decisions, but it is still file-backed and experimental
+- review and PR sync now include a GitHub control-plane v1 with PR state, mergeability, and status-check summary syncing through `gh`
+- `resume` now supports experimental durable inspect/continue/fork/approve flows, but company-wide issue/review continuation is still incomplete

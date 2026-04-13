@@ -3,19 +3,24 @@
 ## Highest leverage missing capabilities
 
 ### Durable Runtime
-- Missing: checkpoint graph, side-effect journal, replay-safe continuation, forked execution, approval pauses, dead-letter path.
+- Delivered: checkpoint graph, action/side-effect logging, replay-safe continuation, forked execution, approval pauses.
+- Remaining: full company issue/review durable continuation, dead-letter/quarantine UI, stronger deterministic replay boundaries.
 
 ### Policy Engine
-- Missing: explicit action policy scopes, explainable denials, dry-run policy simulation, audit trail.
+- Delivered: explicit action policy scopes, explainable denials, dry-run policy simulation, audit trail.
+- Remaining: richer DSL, runtime windows, secret scopes, budget-native policy clauses, stronger per-company/goal authoring UX.
 
 ### GitHub Control Plane
-- Missing: real PR/CI/check/merge-queue provider model and durable state linkage.
+- Delivered: file-backed PR state/control-plane store with mergeability and status-check summary sync.
+- Remaining: webhook/App-native ingestion, merge queue awareness, required-check semantics, branch protection modeling.
 
 ### Provenance / Evidence
-- Missing: goal -> issue -> run -> artifact -> branch -> PR -> CI lineage graph.
+- Delivered: run/action/file/pr evidence graph and inspect bundles.
+- Remaining: richer goal/issue/ci lineage and visual/export surfaces.
 
 ### Knowledge Layer
-- Missing: attributable, queryable, freshness-aware memory substrate.
+- Delivered: structured, attributable, freshness-aware issue knowledge store.
+- Remaining: planner/reviewer prompt retrieval depth, vector retrieval, conflict resolution workflow.
 
 ## Strong existing seams to build on
 - `PipelineContext` and orchestrator lifecycle hooks

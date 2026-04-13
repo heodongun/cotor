@@ -456,6 +456,43 @@ internal fun Application.cotorWebModule(
             call.respond(snapshot)
         }
 
+        get("/api/runtime/policy/decisions") {
+            val runId = call.request.queryParameters["runId"]
+            val issueId = call.request.queryParameters["issueId"]
+            call.respond(desktopService.policyDecisions(runId = runId, issueId = issueId))
+        }
+
+        get("/api/runtime/evidence/runs/{runId}") {
+            val runId = call.parameters["runId"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
+            call.respond(desktopService.evidenceForRun(runId))
+        }
+
+        get("/api/runtime/evidence/files") {
+            val path = call.request.queryParameters["path"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "path is required"))
+            call.respond(desktopService.evidenceForFile(path))
+        }
+
+        get("/api/runtime/github/pull-requests") {
+            val companyId = call.request.queryParameters["companyId"]
+            call.respond(desktopService.listGitHubPullRequests(companyId))
+        }
+
+        get("/api/runtime/github/pull-requests/{pullRequestNumber}") {
+            val pullRequestNumber = call.parameters["pullRequestNumber"]?.toIntOrNull()
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "pullRequestNumber is required"))
+            val snapshot = desktopService.inspectGitHubPullRequest(pullRequestNumber)
+                ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pull request not found: $pullRequestNumber"))
+            call.respond(snapshot)
+        }
+
+        get("/api/runtime/knowledge/issues/{issueId}") {
+            val issueId = call.parameters["issueId"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+            call.respond(desktopService.issueKnowledge(issueId))
+        }
+
         get("/api/editor/config") {
             call.respond(ConfigResponse(readOnly = readOnly))
         }

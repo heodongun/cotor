@@ -14,13 +14,13 @@
 - `src/main/kotlin/com/cotor/presentation/web/WebServer.kt`
 
 ## Partial / shallow layers
-- `resume` inspects checkpoints but does not yet behave like a durable execution engine.
+- `resume` supports experimental durable inspect/continue/fork/approve for pipeline runs, but company-wide issue/review continuation is still partial.
 - `CheckpointManager` stores flat stage summaries rather than a causal execution graph.
-- policy / approval / guardrail logic is scattered across validators and workflow code.
-- GitHub workflow sync exists as local reconciliation logic, not as a full provider-native control plane.
-- company messages/context exist, but not provenance-aware memory.
+- policy / approval / guardrail logic now has a file-backed v1 engine, but richer policy DSL features are still missing.
+- GitHub workflow sync now has a provider state store and sync surface, but it is still `gh`-driven rather than webhook-native.
+- company messages/context now have provenance and knowledge stores, but planner/reviewer retrieval is still shallow.
 
 ## Architectural bottlenecks
 - `DesktopAppService.kt` remains a large concentration point.
-- Side effects are distributed across shell/process/git/PR actions without one shared idempotency model.
+- Side effects now flow through an action store/interceptor substrate for key agent/git/github paths, but not every mutating path is migrated yet.
 - Draft docs and current code still disagree in some places, especially around follow-up generation and remote runners.

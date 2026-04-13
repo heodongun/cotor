@@ -11,6 +11,7 @@ package com.cotor.app
  */
 
 import com.cotor.app.runtime.CompanyRuntimeMachine
+import com.cotor.app.runtime.CompanyRuntimeBindingService
 import com.cotor.app.runtime.RuntimeCommand
 import com.cotor.app.runtime.WorkQueue
 import com.cotor.data.config.ConfigRepository
@@ -19,12 +20,24 @@ import com.cotor.domain.executor.AgentExecutor
 import com.cotor.domain.planning.GoalDrivenTaskPlanner
 import com.cotor.integrations.linear.DefaultLinearTrackerAdapter
 import com.cotor.integrations.linear.LinearTrackerAdapter
+import com.cotor.knowledge.KnowledgeRecord
+import com.cotor.knowledge.KnowledgeService
 import com.cotor.model.AgentConfig
 import com.cotor.model.AgentExecutionMetadata
 import com.cotor.model.AgentResult
 import com.cotor.model.CodexDefaults
 import com.cotor.model.OpenCodeDefaults
 import com.cotor.model.ProcessExecutionException
+import com.cotor.policy.PolicyDecision
+import com.cotor.policy.PolicyEngine
+import com.cotor.providers.github.CheckSnapshot
+import com.cotor.providers.github.GitHubControlPlaneService
+import com.cotor.providers.github.GitHubSyncResponse
+import com.cotor.providers.github.MergeQueueState
+import com.cotor.providers.github.MergeRequirement
+import com.cotor.providers.github.PullRequestSnapshot
+import com.cotor.provenance.EvidenceBundle
+import com.cotor.provenance.ProvenanceService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -118,7 +131,12 @@ class DesktopAppService(
     private val linearTracker: LinearTrackerAdapter = DefaultLinearTrackerAdapter(),
     private val codexAppServerManager: CodexAppServerManager = CodexAppServerManager(),
     private val staleRunStartupGraceMs: Long = 15_000L,
-    private val runHeartbeatIntervalMs: Long = 5_000L
+    private val runHeartbeatIntervalMs: Long = 5_000L,
+    private val runtimeBindingService: CompanyRuntimeBindingService = CompanyRuntimeBindingService(),
+    private val policyEngine: PolicyEngine = PolicyEngine(),
+    private val provenanceService: ProvenanceService = ProvenanceService(),
+    private val gitHubControlPlaneService: GitHubControlPlaneService = GitHubControlPlaneService(),
+    private val knowledgeService: KnowledgeService = KnowledgeService()
 ) {
     companion object {
         private const val COMPANY_TRACE_DEDUP_WINDOW_MS = 30_000L
@@ -200,6 +218,16 @@ class DesktopAppService(
         queueAutomationRefresh()
         val state = stateStore.load().withDerivedMetrics()
         val orgProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+        val boundIssuesById = mutableMapOf<String, CompanyIssue>()
+        val boundReviewQueueById = mutableMapOf<String, ReviewQueueItem>()
+        val boundRuntimesByCompanyId = mutableMapOf<String?, CompanyRuntimeSnapshot>()
+        state.companies.forEach { company ->
+            val runtime = state.companyRuntimes.firstOrNull { it.companyId == company.id } ?: CompanyRuntimeSnapshot(companyId = company.id)
+            val bound = runtimeBindingService.bind(state, company.id, runtime)
+            bound.issues.forEach { boundIssuesById[it.id] = it }
+            bound.reviewQueue.forEach { boundReviewQueueById[it.id] = it }
+            boundRuntimesByCompanyId[company.id] = bound.runtime
+        }
         return DashboardResponse(
             repositories = state.repositories.sortedByDescending { it.updatedAt },
             workspaces = state.workspaces.sortedByDescending { it.updatedAt },
@@ -210,8 +238,12 @@ class DesktopAppService(
                 .sortedWith(compareBy<CompanyAgentDefinition> { it.displayOrder }.thenBy { it.title.lowercase() }),
             projectContexts = state.projectContexts.sortedByDescending { it.lastUpdatedAt },
             goals = state.goals.sortedByDescending { it.updatedAt },
-            issues = state.issues.sortedByDescending { it.updatedAt },
-            reviewQueue = state.reviewQueue.sortedByDescending { it.updatedAt },
+            issues = state.issues
+                .map { issue -> boundIssuesById[issue.id] ?: issue }
+                .sortedByDescending { it.updatedAt },
+            reviewQueue = state.reviewQueue
+                .map { item -> boundReviewQueueById[item.id] ?: item }
+                .sortedByDescending { it.updatedAt },
             orgProfiles = orgProfiles,
             workflowTopologies = computeWorkflowTopologies(state, orgProfiles),
             goalDecisions = state.goalDecisions.sortedByDescending { it.createdAt },
@@ -219,7 +251,9 @@ class DesktopAppService(
             backendStatuses = computeBackendStatuses(state),
             opsMetrics = state.opsMetrics,
             activity = state.companyActivity.sortedByDescending { it.createdAt },
-            companyRuntimes = state.companyRuntimes.sortedByDescending { it.lastTickAt ?: 0L },
+            companyRuntimes = state.companyRuntimes
+                .map { runtime -> boundRuntimesByCompanyId[runtime.companyId] ?: runtime }
+                .sortedByDescending { it.lastTickAt ?: 0L },
             agentContextEntries = state.agentContextEntries.sortedByDescending { it.createdAt },
             agentMessages = state.agentMessages.sortedByDescending { it.createdAt }
         )
@@ -254,6 +288,13 @@ class DesktopAppService(
             }
             .sortedByDescending { it.updatedAt }
         val orgProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
+        val boundRuntime = companyId?.let {
+            runtimeBindingService.bind(
+                state = state,
+                companyId = it,
+                runtime = state.companyRuntimes.firstOrNull { runtime -> runtime.companyId == it } ?: CompanyRuntimeSnapshot(companyId = it)
+            )
+        }
         return CompanyDashboardResponse(
             companies = state.companies.sortedByDescending { it.updatedAt },
             companyAgentDefinitions = state.companyAgentDefinitions
@@ -263,10 +304,10 @@ class DesktopAppService(
                 .filter { companyId == null || it.companyId == companyId }
                 .sortedByDescending { it.lastUpdatedAt },
             goals = filteredGoals,
-            issues = filteredIssues,
+            issues = boundRuntime?.issues?.filter { it.id in filteredIssueIds } ?: filteredIssues,
             tasks = filteredTasks,
             issueDependencies = state.issueDependencies.filter { it.issueId in filteredIssueIds || it.dependsOnIssueId in filteredIssueIds },
-            reviewQueue = state.reviewQueue
+            reviewQueue = (boundRuntime?.reviewQueue ?: state.reviewQueue)
                 .filter { companyId == null || it.companyId == companyId }
                 .sortedByDescending { it.updatedAt },
             orgProfiles = orgProfiles
@@ -284,7 +325,7 @@ class DesktopAppService(
             runtime = if (companyId == null) {
                 state.runtime
             } else {
-                state.companyRuntimes.firstOrNull { it.companyId == companyId } ?: CompanyRuntimeSnapshot(companyId = companyId)
+                boundRuntime?.runtime ?: state.companyRuntimes.firstOrNull { it.companyId == companyId } ?: CompanyRuntimeSnapshot(companyId = companyId)
             },
             signals = state.signals
                 .filter { companyId == null || it.companyId == companyId }
@@ -1139,8 +1180,127 @@ class DesktopAppService(
         return if (companyId == null) {
             state.runtime
         } else {
-            state.companyRuntimes.firstOrNull { it.companyId == companyId } ?: CompanyRuntimeSnapshot(companyId = companyId)
+            runtimeBindingService.bind(
+                state = state,
+                companyId = companyId,
+                runtime = state.companyRuntimes.firstOrNull { it.companyId == companyId } ?: CompanyRuntimeSnapshot(companyId = companyId)
+            ).runtime
         }
+    }
+
+    suspend fun policyDecisions(runId: String? = null, issueId: String? = null): List<PolicyDecision> =
+        policyEngine.decisions(runId = runId, issueId = issueId)
+
+    suspend fun evidenceForRun(runId: String): EvidenceBundle =
+        provenanceService.bundleForRun(runId)
+
+    suspend fun evidenceForFile(path: String): EvidenceBundle =
+        provenanceService.bundleForFile(path)
+
+    suspend fun inspectGitHubPullRequest(pullRequestNumber: Int): PullRequestSnapshot? =
+        gitHubControlPlaneService.inspectPullRequest(pullRequestNumber)
+
+    suspend fun listGitHubPullRequests(companyId: String? = null): List<PullRequestSnapshot> =
+        gitHubControlPlaneService.listPullRequests(companyId)
+
+    suspend fun issueKnowledge(issueId: String): List<KnowledgeRecord> {
+        knowledgeService.synchronizeFromState(stateStore.load())
+        return knowledgeService.inspectIssue(issueId)
+    }
+
+    suspend fun syncGitHubProvider(companyId: String): GitHubSyncResponse {
+        val refreshedCount = stateMutex.withLock {
+            val state = stateStore.load()
+            val company = state.companies.firstOrNull { it.id == companyId }
+                ?: throw IllegalArgumentException("Company not found: $companyId")
+            val candidates = state.reviewQueue
+                .filter { it.companyId == companyId }
+                .filter { it.pullRequestNumber != null && !it.worktreePath.isNullOrBlank() }
+
+            if (candidates.isEmpty()) {
+                return@withLock 0
+            }
+
+            val refreshedMetadata = candidates.mapNotNull { item ->
+                val worktreePath = item.worktreePath?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val pullRequestNumber = item.pullRequestNumber ?: return@mapNotNull null
+                val refreshed = runCatching {
+                    gitWorkspaceService.refreshPullRequestMetadata(Path.of(worktreePath), pullRequestNumber)
+                }.getOrNull() ?: return@mapNotNull null
+                item to refreshed
+            }
+
+            val updatedIssues = state.issues.map { issue ->
+                val queueItem = refreshedMetadata.firstOrNull { it.first.issueId == issue.id } ?: return@map issue
+                issue.copy(
+                    pullRequestNumber = queueItem.second.pullRequestNumber ?: issue.pullRequestNumber,
+                    pullRequestUrl = queueItem.second.pullRequestUrl ?: issue.pullRequestUrl,
+                    pullRequestState = queueItem.second.pullRequestState ?: issue.pullRequestState,
+                    providerBlockReason = queueItem.second.checksSummary?.takeIf { it.isNotBlank() } ?: issue.providerBlockReason,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+            val updatedReviewQueue = state.reviewQueue.map { item ->
+                val refreshed = refreshedMetadata.firstOrNull { it.first.id == item.id }?.second ?: return@map item
+                item.copy(
+                    pullRequestState = refreshed.pullRequestState ?: item.pullRequestState,
+                    checksSummary = refreshed.checksSummary ?: item.checksSummary,
+                    mergeability = refreshed.mergeability ?: item.mergeability,
+                    providerBlockReason = refreshed.checksSummary?.takeIf { it.isNotBlank() } ?: item.providerBlockReason,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+
+            refreshedMetadata.forEach { (item, metadata) ->
+                val checks = parseChecks(metadata.checksSummary)
+                gitHubControlPlaneService.recordSnapshot(
+                    snapshot = PullRequestSnapshot(
+                        number = metadata.pullRequestNumber ?: return@forEach,
+                        url = metadata.pullRequestUrl,
+                        state = metadata.pullRequestState,
+                        mergeability = metadata.mergeability,
+                        checksSummary = metadata.checksSummary,
+                        checks = checks,
+                        mergeRequirement = MergeRequirement(
+                            requiredChecks = checks.map { it.name },
+                            reviewDecision = metadata.reviewState
+                        ),
+                        mergeQueueState = MergeQueueState(
+                            state = when {
+                                metadata.pullRequestState.equals("MERGED", ignoreCase = true) -> "merged"
+                                metadata.mergeability.equals("DIRTY", ignoreCase = true) -> "blocked"
+                                else -> "ready"
+                            }
+                        ),
+                        companyId = companyId,
+                        issueId = item.issueId,
+                        runId = item.runId,
+                        branchName = item.branchName
+                    ),
+                    eventType = "sync",
+                    detail = "Synced PR #${metadata.pullRequestNumber ?: "unknown"} for company ${company.name}"
+                )
+                updatedIssues.firstOrNull { it.id == item.issueId }?.let { issue ->
+                    provenanceService.recordIssueRunLink(companyId = companyId, goalId = issue.goalId, issueId = issue.id, runId = item.runId)
+                }
+            }
+
+            val nextState = state.copy(
+                issues = updatedIssues,
+                reviewQueue = updatedReviewQueue
+            ).withDerivedMetrics()
+            stateStore.save(nextState)
+            knowledgeService.synchronizeFromState(nextState)
+            refreshedMetadata.size
+        }
+        if (refreshedCount > 0) {
+            runCatching { runCompanyRuntimeTick(companyId) }
+        }
+        return GitHubSyncResponse(
+            companyId = companyId,
+            syncedPullRequests = refreshedCount,
+            resumedRuntimeTick = refreshedCount > 0
+        )
     }
 
     suspend fun getTask(taskId: String): AgentTask? =
@@ -1148,6 +1308,26 @@ class DesktopAppService(
 
     suspend fun getIssue(issueId: String): CompanyIssue? =
         stateStore.load().issues.firstOrNull { it.id == issueId }
+
+    private fun parseChecks(summary: String?): List<CheckSnapshot> {
+        if (summary.isNullOrBlank()) {
+            return emptyList()
+        }
+        return summary.split(';')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map { token ->
+                val name = token.substringBefore('=').trim()
+                val statusPart = token.substringAfter('=', "UNKNOWN").trim()
+                val status = statusPart.substringBefore('/').trim()
+                val conclusion = statusPart.substringAfter('/', "").trim().ifBlank { null }
+                CheckSnapshot(
+                    name = name,
+                    status = status,
+                    conclusion = conclusion
+                )
+            }
+    }
 
     suspend fun updateGoalAutonomy(goalId: String, enabled: Boolean): CompanyGoal = stateMutex.withLock {
         val state = stateStore.load()
