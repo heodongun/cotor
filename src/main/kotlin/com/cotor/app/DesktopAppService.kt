@@ -1240,23 +1240,63 @@ class DesktopAppService(
                 item to refreshed
             }
 
+            val refreshedByIssueId = refreshedMetadata.associateBy { it.first.issueId }
             val updatedIssues = state.issues.map { issue ->
-                val queueItem = refreshedMetadata.firstOrNull { it.first.issueId == issue.id } ?: return@map issue
+                val queueItem = refreshedByIssueId[issue.id] ?: return@map issue
+                val existingQueueItem = queueItem.first
+                val refreshed = queueItem.second
+                val pullRequestState = refreshed.pullRequestState?.uppercase()
+                val failingChecks = checksFailing(refreshed.checksSummary)
+                val passingChecks = checksExplicitlyPassing(refreshed.checksSummary)
+                val nextStatus = when {
+                    pullRequestState == "MERGED" -> IssueStatus.DONE
+                    pullRequestState == "OPEN" && failingChecks && issue.status in setOf(IssueStatus.IN_REVIEW, IssueStatus.READY_FOR_CEO) -> IssueStatus.BLOCKED
+                    issue.status == IssueStatus.BLOCKED && passingChecks -> recoveredIssueStatus(issue, existingQueueItem)
+                    else -> issue.status
+                }
                 issue.copy(
-                    pullRequestNumber = queueItem.second.pullRequestNumber ?: issue.pullRequestNumber,
-                    pullRequestUrl = queueItem.second.pullRequestUrl ?: issue.pullRequestUrl,
-                    pullRequestState = queueItem.second.pullRequestState ?: issue.pullRequestState,
-                    providerBlockReason = queueItem.second.checksSummary?.takeIf { it.isNotBlank() } ?: issue.providerBlockReason,
+                    status = nextStatus,
+                    pullRequestNumber = refreshed.pullRequestNumber ?: issue.pullRequestNumber,
+                    pullRequestUrl = refreshed.pullRequestUrl ?: issue.pullRequestUrl,
+                    pullRequestState = refreshed.pullRequestState ?: issue.pullRequestState,
+                    mergeResult = if (pullRequestState == "MERGED") "MERGED" else issue.mergeResult,
+                    providerBlockReason = when {
+                        pullRequestState == "MERGED" -> null
+                        failingChecks -> refreshed.checksSummary?.takeIf { it.isNotBlank() } ?: issue.providerBlockReason
+                        passingChecks -> null
+                        else -> issue.providerBlockReason
+                    },
+                    transitionReason = when {
+                        pullRequestState == "MERGED" -> "GitHub sync confirmed that the linked PR merged."
+                        pullRequestState == "OPEN" && failingChecks -> "GitHub sync found failing required checks on the linked PR."
+                        issue.status == IssueStatus.BLOCKED && passingChecks -> "GitHub sync confirmed that required checks recovered."
+                        else -> issue.transitionReason
+                    },
                     updatedAt = System.currentTimeMillis()
                 )
             }
             val updatedReviewQueue = state.reviewQueue.map { item ->
                 val refreshed = refreshedMetadata.firstOrNull { it.first.id == item.id }?.second ?: return@map item
+                val pullRequestState = refreshed.pullRequestState?.uppercase()
+                val failingChecks = checksFailing(refreshed.checksSummary)
+                val passingChecks = checksExplicitlyPassing(refreshed.checksSummary)
+                val nextStatus = when {
+                    pullRequestState == "MERGED" -> ReviewQueueStatus.MERGED
+                    pullRequestState == "OPEN" && failingChecks -> ReviewQueueStatus.FAILED_CHECKS
+                    item.status == ReviewQueueStatus.FAILED_CHECKS && passingChecks -> recoveredReviewQueueStatus(item)
+                    else -> item.status
+                }
                 item.copy(
+                    status = nextStatus,
                     pullRequestState = refreshed.pullRequestState ?: item.pullRequestState,
                     checksSummary = refreshed.checksSummary ?: item.checksSummary,
                     mergeability = refreshed.mergeability ?: item.mergeability,
-                    providerBlockReason = refreshed.checksSummary?.takeIf { it.isNotBlank() } ?: item.providerBlockReason,
+                    providerBlockReason = when {
+                        pullRequestState == "MERGED" -> null
+                        failingChecks -> refreshed.checksSummary?.takeIf { it.isNotBlank() } ?: item.providerBlockReason
+                        passingChecks -> null
+                        else -> item.providerBlockReason
+                    },
                     updatedAt = System.currentTimeMillis()
                 )
             }
@@ -1427,6 +1467,48 @@ class DesktopAppService(
                 )
             }
     }
+
+    private fun checksFailing(summary: String?): Boolean {
+        if (summary.isNullOrBlank()) return false
+        val checks = parseChecks(summary)
+        return when {
+            checks.isNotEmpty() -> checks.any { check ->
+                check.status.equals("COMPLETED", ignoreCase = true) &&
+                    !check.conclusion.equals("SUCCESS", ignoreCase = true)
+            }
+            else -> summary.contains("FAILURE", ignoreCase = true) ||
+                summary.contains("ERROR", ignoreCase = true)
+        }
+    }
+
+    private fun checksExplicitlyPassing(summary: String?): Boolean {
+        if (summary.isNullOrBlank()) return false
+        val checks = parseChecks(summary)
+        return when {
+            checks.isNotEmpty() -> checks.all { check ->
+                !check.status.equals("COMPLETED", ignoreCase = true) ||
+                    check.conclusion.equals("SUCCESS", ignoreCase = true)
+            }
+            else -> !checksFailing(summary)
+        }
+    }
+
+    private fun recoveredReviewQueueStatus(item: ReviewQueueItem): ReviewQueueStatus =
+        when {
+            item.ceoVerdict.equals("APPROVE", ignoreCase = true) -> ReviewQueueStatus.READY_FOR_CEO
+            item.qaVerdict.equals("PASS", ignoreCase = true) -> ReviewQueueStatus.READY_FOR_CEO
+            else -> ReviewQueueStatus.AWAITING_QA
+        }
+
+    private fun recoveredIssueStatus(issue: CompanyIssue, queueItem: ReviewQueueItem? = null): IssueStatus =
+        when {
+            issue.ceoVerdict.equals("APPROVE", ignoreCase = true) -> IssueStatus.READY_FOR_CEO
+            issue.qaVerdict.equals("PASS", ignoreCase = true) -> IssueStatus.READY_FOR_CEO
+            queueItem?.ceoVerdict.equals("APPROVE", ignoreCase = true) -> IssueStatus.READY_FOR_CEO
+            queueItem?.qaVerdict.equals("PASS", ignoreCase = true) -> IssueStatus.READY_FOR_CEO
+            issue.pullRequestUrl != null || issue.pullRequestNumber != null -> IssueStatus.IN_REVIEW
+            else -> issue.status
+        }
 
     suspend fun updateGoalAutonomy(goalId: String, enabled: Boolean): CompanyGoal = stateMutex.withLock {
         val state = stateStore.load()
