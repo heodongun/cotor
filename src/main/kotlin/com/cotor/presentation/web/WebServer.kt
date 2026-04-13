@@ -493,6 +493,12 @@ internal fun Application.cotorWebModule(
             call.respond(desktopService.issueKnowledge(issueId))
         }
 
+        get("/api/runtime/verification/issues/{issueId}") {
+            val issueId = call.parameters["issueId"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+            call.respond(desktopService.verificationBundle(issueId))
+        }
+
         get("/api/editor/config") {
             call.respond(ConfigResponse(readOnly = readOnly))
         }

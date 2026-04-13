@@ -46,6 +46,8 @@ import com.cotor.runtime.durable.DurableRuntimeContext
 import com.cotor.runtime.durable.DurableRuntimeFlags
 import com.cotor.runtime.durable.DurableRuntimeService
 import com.cotor.runtime.durable.ReplayMode
+import com.cotor.verification.VerificationBundle
+import com.cotor.verification.VerificationBundleService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -146,7 +148,8 @@ class DesktopAppService(
     private val provenanceService: ProvenanceService = ProvenanceService(),
     private val gitHubControlPlaneService: GitHubControlPlaneService = GitHubControlPlaneService(),
     private val knowledgeService: KnowledgeService = KnowledgeService(),
-    private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService()
+    private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService(),
+    private val verificationBundleService: VerificationBundleService = VerificationBundleService()
 ) {
     companion object {
         private const val COMPANY_TRACE_DEDUP_WINDOW_MS = 30_000L
@@ -1216,6 +1219,17 @@ class DesktopAppService(
     suspend fun issueKnowledge(issueId: String): List<KnowledgeRecord> {
         knowledgeService.synchronizeFromState(stateStore.load())
         return knowledgeService.inspectIssue(issueId)
+    }
+
+    suspend fun verificationBundle(issueId: String): VerificationBundle {
+        val state = stateStore.load()
+        val issue = state.issues.firstOrNull { it.id == issueId }
+            ?: throw IllegalArgumentException("Issue not found: $issueId")
+        val queueItem = state.reviewQueue
+            .filter { it.issueId == issueId }
+            .maxByOrNull { it.updatedAt }
+        knowledgeService.synchronizeFromState(state)
+        return verificationBundleService.buildForIssue(state, issue, queueItem)
     }
 
     suspend fun syncGitHubProvider(companyId: String): GitHubSyncResponse {
@@ -9909,6 +9923,11 @@ class DesktopAppService(
                     }
                     .take(3)
         }
+        val verificationBundle = verificationBundleService.buildForIssue(
+            state = state,
+            issue = issue,
+            queueItem = scopedQueueItems.maxByOrNull { it.updatedAt }
+        )
         val promptBody = when (issue.kind.lowercase()) {
             "planning" -> buildCeoPlanningPrompt(state, issue, profile)
             "review" -> buildString {
@@ -9948,6 +9967,8 @@ class DesktopAppService(
                     appendLine("Acceptance criteria:")
                     issue.acceptanceCriteria.forEach { appendLine("- $it") }
                 }
+                appendLine()
+                appendVerificationBundle(verificationBundle)
                 appendLine()
                 appendLine("Review instructions:")
                 appendLine("- Review only the completed execution work listed above.")
@@ -10007,6 +10028,8 @@ class DesktopAppService(
                     appendLine("Acceptance criteria:")
                     issue.acceptanceCriteria.forEach { appendLine("- $it") }
                 }
+                appendLine()
+                appendVerificationBundle(verificationBundle)
                 appendLine()
                 appendLine("Approval instructions:")
                 appendLine("- Review the completed execution and review outcomes listed above.")
@@ -10089,6 +10112,8 @@ class DesktopAppService(
                     appendLine("Done when:")
                     issue.acceptanceCriteria.forEach { appendLine("- $it") }
                 }
+                appendLine()
+                appendVerificationBundle(verificationBundle)
                 memoryBundle?.let { memory ->
                     appendLine()
                     appendLine("Company memory:")
@@ -10214,6 +10239,24 @@ class DesktopAppService(
                 }
             }.trim()
         )
+    }
+
+    private fun StringBuilder.appendVerificationBundle(bundle: VerificationBundle) {
+        appendLine("Verification bundle:")
+        if (bundle.acceptanceCriteria.isNotEmpty()) {
+            appendLine("- acceptanceCriteria=${bundle.acceptanceCriteria.size}")
+        }
+        bundle.signals.forEach { signal ->
+            appendLine("- ${signal.key}: ${signal.status} (${summarizeForPrompt(signal.detail, 180)})")
+        }
+        bundle.evidenceSummary?.let { summary ->
+            appendLine("Evidence summary:")
+            appendLine(summarizeForPrompt(summary, 320))
+        }
+        bundle.knowledgeSummary?.let { summary ->
+            appendLine("Knowledge summary:")
+            appendLine(summarizeForPrompt(summary, 320))
+        }
     }
 
     private fun summarizeForPrompt(text: String, maxChars: Int): String {

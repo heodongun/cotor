@@ -166,6 +166,23 @@ private class KnowledgeInspectCommand : CliktCommand(name = "inspect"), KoinComp
     }
 }
 
+class VerificationCommand : CliktCommand(name = "verification", help = "Inspect verification bundles for workflow issues.") {
+    init {
+        subcommands(VerificationInspectCommand())
+    }
+
+    override fun run() = Unit
+}
+
+private class VerificationInspectCommand : CliktCommand(name = "inspect"), KoinComponent {
+    private val desktopService: DesktopAppService by inject()
+    private val issueId by option("--issue").required()
+
+    override fun run() = runBlocking {
+        echo(platformJson.encodeToString(desktopService.verificationBundle(issueId)))
+    }
+}
+
 class McpCommand : CliktCommand(name = "mcp", help = "Serve read-only MCP runtime endpoints over the app-server.") {
     init {
         subcommands(McpServeCommand())

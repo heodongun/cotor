@@ -16,6 +16,7 @@
 - Legacy checkpoint import bridge
 - `cotor resume inspect|continue|fork|approve`
 - `cotor policy`, `cotor evidence`, `cotor github`, `cotor knowledge`, `cotor mcp`
+- `cotor verification inspect`
 - app-server durable runtime endpoints for list/inspect/continue/fork/approve
 - app-server/web read-only inspect endpoints for policy, evidence, GitHub provider state, and knowledge
 

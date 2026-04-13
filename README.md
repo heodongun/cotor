@@ -42,6 +42,7 @@ Current subcommand support:
 - `evidence run`, `evidence file`
 - `github sync`, `github inspect-pr`, `github list`
 - `knowledge inspect`
+- `verification inspect`
 - `mcp serve --readonly`
 
 Current template types:

@@ -54,6 +54,7 @@ import com.cotor.runtime.durable.DurableRuntimeService
 import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
 import com.cotor.stats.StatsManager
+import com.cotor.verification.VerificationBundleService
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.OutputValidator
 import com.cotor.validation.output.SyntaxValidator
@@ -86,6 +87,7 @@ val cotorModule = module {
     single<ActionInterceptor> { get<PolicyEngine>() }
     single { GitHubControlPlaneStore() }
     single { GitHubControlPlaneService(get(), get(), get()) }
+    single { VerificationBundleService(get(), get()) }
     single {
         ActionExecutionService(
             actionStore = com.cotor.runtime.actions.ActionStore(),
@@ -100,7 +102,19 @@ val cotorModule = module {
     // same process manager, config loading, and executor pipeline as the CLI.
     single { DesktopStateStore() }
     single { GitWorkspaceService(get(), get(), get(), get(), get()) }
-    single { DesktopAppService(get(), get(), get(), get(), runtimeBindingService = get(), gitHubControlPlaneService = get(), knowledgeService = get(), durableRuntimeService = get()) }
+    single {
+        DesktopAppService(
+            get(),
+            get(),
+            get(),
+            get(),
+            runtimeBindingService = get(),
+            gitHubControlPlaneService = get(),
+            knowledgeService = get(),
+            durableRuntimeService = get(),
+            verificationBundleService = get()
+        )
+    }
     single { DesktopTuiSessionService(get(), get(), get(), get()) }
 
     // Security

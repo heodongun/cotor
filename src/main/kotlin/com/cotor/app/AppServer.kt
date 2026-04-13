@@ -646,6 +646,15 @@ internal fun Application.cotorAppModule(
                 }
             }
 
+            route("/verification") {
+                get("/issues/{issueId}") {
+                    if (!requireToken(token)) return@get
+                    val issueId = call.parameters["issueId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    call.respond(desktopService.verificationBundle(issueId))
+                }
+            }
+
             post("/mcp") {
                 if (!requireToken(token)) return@post
                 val request = call.receive<JsonElement>()
