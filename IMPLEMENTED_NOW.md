@@ -12,6 +12,7 @@
 - Read-only MCP runtime exposure through the localhost app-server
 - Company runtime binding now maps company issues and review queue items to durable run ids, approval pauses, and provider block reasons
 - GitHub sync now pushes failing/passing check transitions back into review queue and execution issue state
+- GitHub sync now also settles merged and closed pull requests back into review queue, approval, and execution issue state
 - Legacy checkpoint import bridge
 - `cotor resume inspect|continue|fork|approve`
 - `cotor policy`, `cotor evidence`, `cotor github`, `cotor knowledge`, `cotor mcp`

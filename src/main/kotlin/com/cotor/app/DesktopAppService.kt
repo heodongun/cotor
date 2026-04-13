@@ -1241,6 +1241,10 @@ class DesktopAppService(
             }
 
             val refreshedByIssueId = refreshedMetadata.associateBy { it.first.issueId }
+            val mergedIssueIds = mutableSetOf<String>()
+            val closedIssueIds = mutableSetOf<String>()
+            val recoveredIssueIds = mutableSetOf<String>()
+            val failingIssueIds = mutableSetOf<String>()
             val updatedIssues = state.issues.map { issue ->
                 val queueItem = refreshedByIssueId[issue.id] ?: return@map issue
                 val existingQueueItem = queueItem.first
@@ -1250,9 +1254,16 @@ class DesktopAppService(
                 val passingChecks = checksExplicitlyPassing(refreshed.checksSummary)
                 val nextStatus = when {
                     pullRequestState == "MERGED" -> IssueStatus.DONE
+                    pullRequestState == "CLOSED" -> IssueStatus.BLOCKED
                     pullRequestState == "OPEN" && failingChecks && issue.status in setOf(IssueStatus.IN_REVIEW, IssueStatus.READY_FOR_CEO) -> IssueStatus.BLOCKED
                     issue.status == IssueStatus.BLOCKED && passingChecks -> recoveredIssueStatus(issue, existingQueueItem)
                     else -> issue.status
+                }
+                when {
+                    pullRequestState == "MERGED" -> mergedIssueIds += issue.id
+                    pullRequestState == "CLOSED" -> closedIssueIds += issue.id
+                    pullRequestState == "OPEN" && failingChecks -> failingIssueIds += issue.id
+                    issue.status == IssueStatus.BLOCKED && passingChecks -> recoveredIssueIds += issue.id
                 }
                 issue.copy(
                     status = nextStatus,
@@ -1262,12 +1273,14 @@ class DesktopAppService(
                     mergeResult = if (pullRequestState == "MERGED") "MERGED" else issue.mergeResult,
                     providerBlockReason = when {
                         pullRequestState == "MERGED" -> null
+                        pullRequestState == "CLOSED" -> "GitHub sync found that the linked pull request was closed before merge."
                         failingChecks -> refreshed.checksSummary?.takeIf { it.isNotBlank() } ?: issue.providerBlockReason
                         passingChecks -> null
                         else -> issue.providerBlockReason
                     },
                     transitionReason = when {
                         pullRequestState == "MERGED" -> "GitHub sync confirmed that the linked PR merged."
+                        pullRequestState == "CLOSED" -> "GitHub sync found that the linked PR was closed before merge."
                         pullRequestState == "OPEN" && failingChecks -> "GitHub sync found failing required checks on the linked PR."
                         issue.status == IssueStatus.BLOCKED && passingChecks -> "GitHub sync confirmed that required checks recovered."
                         else -> issue.transitionReason
@@ -1282,6 +1295,7 @@ class DesktopAppService(
                 val passingChecks = checksExplicitlyPassing(refreshed.checksSummary)
                 val nextStatus = when {
                     pullRequestState == "MERGED" -> ReviewQueueStatus.MERGED
+                    pullRequestState == "CLOSED" -> ReviewQueueStatus.CHANGES_REQUESTED
                     pullRequestState == "OPEN" && failingChecks -> ReviewQueueStatus.FAILED_CHECKS
                     item.status == ReviewQueueStatus.FAILED_CHECKS && passingChecks -> recoveredReviewQueueStatus(item)
                     else -> item.status
@@ -1293,12 +1307,29 @@ class DesktopAppService(
                     mergeability = refreshed.mergeability ?: item.mergeability,
                     providerBlockReason = when {
                         pullRequestState == "MERGED" -> null
+                        pullRequestState == "CLOSED" -> "GitHub sync found that the linked pull request was closed before merge."
                         failingChecks -> refreshed.checksSummary?.takeIf { it.isNotBlank() } ?: item.providerBlockReason
                         passingChecks -> null
                         else -> item.providerBlockReason
                     },
                     updatedAt = System.currentTimeMillis()
                 )
+            }
+            val approvalIssuesToComplete = updatedReviewQueue
+                .filter { it.status == ReviewQueueStatus.MERGED && !it.approvalIssueId.isNullOrBlank() }
+                .mapNotNull { it.approvalIssueId }
+                .toSet()
+            val issuesWithApprovalSettled = updatedIssues.map { issue ->
+                if (issue.id in approvalIssuesToComplete) {
+                    issue.copy(
+                        status = IssueStatus.DONE,
+                        providerBlockReason = null,
+                        transitionReason = "GitHub sync confirmed merge completion for the approved pull request.",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                } else {
+                    issue
+                }
             }
 
             refreshedMetadata.forEach { (item, metadata) ->
@@ -1335,10 +1366,44 @@ class DesktopAppService(
                 }
             }
 
-            val nextState = state.copy(
-                issues = updatedIssues,
+            var nextState = state.copy(
+                issues = issuesWithApprovalSettled,
                 reviewQueue = updatedReviewQueue
-            ).withDerivedMetrics()
+            )
+            if (mergedIssueIds.isNotEmpty()) {
+                nextState = nextState.recordCompanyActivity(
+                    companyId = companyId,
+                    source = "github-sync",
+                    title = "Merged pull requests",
+                    detail = "GitHub sync confirmed merged PRs for ${mergedIssueIds.size} issue(s)."
+                )
+            }
+            if (closedIssueIds.isNotEmpty()) {
+                nextState = nextState.recordCompanyActivity(
+                    companyId = companyId,
+                    source = "github-sync",
+                    title = "Closed pull requests",
+                    detail = "GitHub sync found closed pull requests for ${closedIssueIds.size} issue(s).",
+                    severity = "warning"
+                )
+            }
+            if (failingIssueIds.isNotEmpty()) {
+                nextState = nextState.recordSignal(
+                    source = "github-sync",
+                    message = "GitHub sync found failing checks for ${failingIssueIds.size} issue(s).",
+                    severity = "warning",
+                    companyId = companyId
+                )
+            }
+            if (recoveredIssueIds.isNotEmpty()) {
+                nextState = nextState.recordSignal(
+                    source = "github-sync",
+                    message = "GitHub sync recovered passing checks for ${recoveredIssueIds.size} blocked issue(s).",
+                    severity = "info",
+                    companyId = companyId
+                )
+            }
+            nextState = nextState.withDerivedMetrics()
             stateStore.save(nextState)
             knowledgeService.synchronizeFromState(nextState)
             refreshedMetadata.size
