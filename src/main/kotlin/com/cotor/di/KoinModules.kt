@@ -10,10 +10,13 @@ package com.cotor.di
 
 import com.cotor.analysis.DefaultResultAnalyzer
 import com.cotor.analysis.ResultAnalyzer
+import com.cotor.checkpoint.CheckpointManager
 import com.cotor.app.DesktopAppService
 import com.cotor.app.DesktopStateStore
 import com.cotor.app.DesktopTuiSessionService
 import com.cotor.app.GitWorkspaceService
+import com.cotor.app.defaultDesktopAppHome
+import com.cotor.app.runtime.CompanyRuntimeBindingService
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.config.FileConfigRepository
 import com.cotor.data.config.JsonParser
@@ -41,9 +44,21 @@ import com.cotor.monitoring.PipelineRunTracker
 import com.cotor.monitoring.ResourceMonitor
 import com.cotor.monitoring.StructuredLogger
 import com.cotor.presentation.formatter.*
+import com.cotor.policy.PolicyEngine
+import com.cotor.policy.RiskApprovalInterceptor
+import com.cotor.providers.github.GitHubControlPlaneStore
+import com.cotor.providers.github.GitHubControlPlaneService
+import com.cotor.provenance.ProvenanceService
+import com.cotor.knowledge.KnowledgeService
+import com.cotor.runtime.actions.ActionInterceptor
+import com.cotor.runtime.actions.ActionExecutionService
+import com.cotor.runtime.durable.DurableResumeCoordinator
+import com.cotor.runtime.durable.DurableRuntimeService
+import com.cotor.runtime.durable.DurableRuntimeStore
 import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
 import com.cotor.stats.StatsManager
+import com.cotor.verification.VerificationBundleService
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.OutputValidator
 import com.cotor.validation.output.SyntaxValidator
@@ -68,11 +83,52 @@ val cotorModule = module {
     single<AgentRegistry> { InMemoryAgentRegistry() }
     single<ProcessManager> { CoroutineProcessManager(get()) }
     single<PluginLoader> { ReflectionPluginLoader(get()) }
+    single {
+        val appHome = defaultDesktopAppHome()
+        DurableRuntimeService(
+            checkpointManager = CheckpointManager(appHome.resolve("checkpoints").toString()),
+            runtimeStore = DurableRuntimeStore(appHome.resolve("runtime"))
+        )
+    }
+    single { DurableResumeCoordinator(get(), get(), get(), get()) }
+    single { ProvenanceService() }
+    single { KnowledgeService() }
+    single { PolicyEngine() }
+    single<ActionInterceptor>(qualifier = org.koin.core.qualifier.named("policy")) { get<PolicyEngine>() }
+    single<ActionInterceptor>(qualifier = org.koin.core.qualifier.named("risk")) { RiskApprovalInterceptor() }
+    single { GitHubControlPlaneStore() }
+    single { GitHubControlPlaneService(get(), get(), get()) }
+    single { VerificationBundleService(get(), get(), com.cotor.verification.VerificationStore()) }
+    single {
+        ActionExecutionService(
+            actionStore = com.cotor.runtime.actions.ActionStore(),
+            durableRuntimeService = get(),
+            provenanceService = get(),
+            interceptors = listOf(
+                get(org.koin.core.qualifier.named("policy")),
+                get(org.koin.core.qualifier.named("risk"))
+            ),
+            logger = get()
+        )
+    }
+    single { CompanyRuntimeBindingService(get(), com.cotor.runtime.actions.ActionStore(), get(), get()) }
     // Desktop-only services are registered here so the app-server can reuse the
     // same process manager, config loading, and executor pipeline as the CLI.
     single { DesktopStateStore() }
-    single { GitWorkspaceService(get(), get(), get()) }
-    single { DesktopAppService(get(), get(), get(), get()) }
+    single { GitWorkspaceService(get(), get(), get(), get(), get()) }
+    single {
+        DesktopAppService(
+            get(),
+            get(),
+            get(),
+            get(),
+            runtimeBindingService = get(),
+            gitHubControlPlaneService = get(),
+            knowledgeService = get(),
+            durableRuntimeService = get(),
+            verificationBundleService = get()
+        )
+    }
     single { DesktopTuiSessionService(get(), get(), get(), get()) }
 
     // Security
@@ -94,13 +150,13 @@ val cotorModule = module {
     single<SecurityValidator> { DefaultSecurityValidator(get(), get()) }
 
     // Domain Layer
-    single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get(), get()) }
+    single<AgentExecutor> { DefaultAgentExecutor(get(), get(), get(), get(), get(), get(), get()) }
     single<ResultAnalyzer> { DefaultResultAnalyzer() }
     single<ResultAggregator> { DefaultResultAggregator(get()) }
     single<SyntaxValidator> { SyntaxValidator() }
     single<OutputValidator> { DefaultOutputValidator(get()) }
     single<StatsManager> { StatsManager() }
-    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get(), get(), observability = get()) }
+    single<PipelineOrchestrator> { DefaultPipelineOrchestrator(get(), get(), get(), get(), get(), get(), get(), observability = get(), durableRuntimeService = get()) }
     single(createdAtStart = true) { PipelineRunTracker(get()) }
 
     // Event System

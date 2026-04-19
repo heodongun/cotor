@@ -166,7 +166,7 @@ private class CompanyDeleteCommand : CompanyServiceCommand(name = "delete") {
 private class CompanyDashboardCommand : CompanyServiceCommand(name = "dashboard") {
     private val companyId by option("--company-id")
     override fun run() = runBlocking {
-        printJson(desktopService.companyDashboard(companyId), CompanyDashboardResponse.serializer())
+        printJson(desktopService.companyDashboardReadOnly(companyId), CompanyDashboardResponse.serializer())
     }
 }
 
@@ -415,7 +415,7 @@ private class CompanyIssueCreateCommand : CompanyServiceCommand(name = "create")
 private class CompanyIssueShowCommand : CompanyServiceCommand(name = "show") {
     private val issueId by argument("issueId")
     override fun run() = runBlocking {
-        val issue = desktopService.getIssue(issueId)
+        val issue = desktopService.getIssueProjected(issueId)
             ?: error("Issue not found: $issueId")
         printJson(issue, CompanyIssue.serializer())
     }
@@ -438,13 +438,13 @@ private class CompanyIssueDelegateCommand : CompanyServiceCommand(name = "delega
 private class CompanyIssueRunCommand : CompanyServiceCommand(name = "run") {
     private val issueId by argument("issueId")
     override fun run() = runBlocking {
-        printJson(desktopService.runIssue(issueId), CompanyIssue.serializer())
+        printJson(desktopService.runIssueAndAwaitSettlement(issueId), CompanyIssue.serializer())
     }
 }
 
 private class CompanyReviewCommand : CliktCommand(name = "review", help = "Manage review queue") {
     init {
-        subcommands(CompanyReviewListCommand(), CompanyReviewMergeCommand())
+        subcommands(CompanyReviewListCommand(), CompanyReviewQaCommand(), CompanyReviewCeoCommand(), CompanyReviewMergeCommand())
     }
     override fun run() = Unit
 }
@@ -460,6 +460,24 @@ private class CompanyReviewMergeCommand : CompanyServiceCommand(name = "merge") 
     private val itemId by argument("itemId")
     override fun run() = runBlocking {
         printJson(desktopService.mergeReviewQueueItem(itemId), ReviewQueueItem.serializer())
+    }
+}
+
+private class CompanyReviewQaCommand : CompanyServiceCommand(name = "qa") {
+    private val itemId by argument("itemId")
+    private val verdict by option("--verdict").choice("PASS", "CHANGES_REQUESTED").required()
+    private val feedback by option("--feedback")
+    override fun run() = runBlocking {
+        printJson(desktopService.submitQaReviewVerdict(itemId, verdict, feedback), ReviewQueueItem.serializer())
+    }
+}
+
+private class CompanyReviewCeoCommand : CompanyServiceCommand(name = "ceo") {
+    private val itemId by argument("itemId")
+    private val verdict by option("--verdict").choice("APPROVE", "CHANGES_REQUESTED").required()
+    private val feedback by option("--feedback")
+    override fun run() = runBlocking {
+        printJson(desktopService.submitCeoReviewVerdict(itemId, verdict, feedback), ReviewQueueItem.serializer())
     }
 }
 

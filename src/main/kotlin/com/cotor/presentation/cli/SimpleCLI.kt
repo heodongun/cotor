@@ -11,10 +11,13 @@ package com.cotor.presentation.cli
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
+import com.cotor.model.PipelineContext
+import com.cotor.runtime.durable.DurableRuntimeFlags
 import com.cotor.validation.PipelineValidator
 import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.util.UUID
 import kotlin.io.path.Path
 
 /**
@@ -59,7 +62,17 @@ class SimpleCLI : KoinComponent {
             println("🚀 Running: $pipelineName")
             println()
 
-            val result = orchestrator.executePipeline(pipeline)
+            val pipelineContext = PipelineContext(
+                pipelineId = UUID.randomUUID().toString(),
+                pipelineName = pipeline.name,
+                totalStages = pipeline.stages.size
+            ).also { context ->
+                context.metadata["configPath"] = configFile
+                if (DurableRuntimeFlags.isEnabled()) {
+                    DurableRuntimeFlags.enable(context)
+                }
+            }
+            val result = orchestrator.executePipeline(pipeline, context = pipelineContext)
 
             // Simple output
             println()

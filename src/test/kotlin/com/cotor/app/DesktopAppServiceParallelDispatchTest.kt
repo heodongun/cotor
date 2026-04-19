@@ -57,93 +57,97 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
             commandAvailability = { command -> command == "opencode" }
         )
 
-        val company = service.createCompany(
-            name = "Shared CLI Co",
-            rootPath = repoRoot.toString(),
-            defaultBaseBranch = "master"
-        )
-        val seededAgents = service.listCompanyAgentDefinitions(company.id)
-        service.batchUpdateCompanyAgentDefinitions(
-            companyId = company.id,
-            agentIds = seededAgents.take(2).map { it.id },
-            agentCli = "opencode",
-            model = "opencode/qwen3.6-plus-free"
-        )
-
-        val state = stateStore.load()
-        val workspace = state.workspaces.first { it.repositoryId == company.repositoryId }
-        val projectContext = state.projectContexts.first { it.companyId == company.id }
-        val profiles = service.listOrgProfiles().filter { it.companyId == company.id && it.enabled }.take(2)
-        profiles shouldHaveSize 2
-        profiles.all { it.executionAgentName == "opencode" } shouldBe true
-
-        val now = System.currentTimeMillis()
-        val goal = CompanyGoal(
-            id = "goal-shared-cli",
-            companyId = company.id,
-            projectContextId = projectContext.id,
-            title = "Parallel shared-cli execution",
-            description = "Start two runnable issues on the same execution CLI.",
-            status = GoalStatus.ACTIVE,
-            autonomyEnabled = true,
-            createdAt = now,
-            updatedAt = now
-        )
-        val issueOne = CompanyIssue(
-            id = "issue-shared-cli-1",
-            companyId = company.id,
-            projectContextId = projectContext.id,
-            goalId = goal.id,
-            workspaceId = workspace.id,
-            title = "Issue One",
-            description = "First parallel issue.",
-            status = IssueStatus.DELEGATED,
-            priority = 1,
-            kind = "execution",
-            assigneeProfileId = profiles[0].id,
-            createdAt = now,
-            updatedAt = now
-        )
-        val issueTwo = CompanyIssue(
-            id = "issue-shared-cli-2",
-            companyId = company.id,
-            projectContextId = projectContext.id,
-            goalId = goal.id,
-            workspaceId = workspace.id,
-            title = "Issue Two",
-            description = "Second parallel issue.",
-            status = IssueStatus.DELEGATED,
-            priority = 1,
-            kind = "execution",
-            assigneeProfileId = profiles[1].id,
-            createdAt = now,
-            updatedAt = now
-        )
-        stateStore.save(
-            state.copy(
-                goals = state.goals + goal,
-                issues = state.issues + listOf(issueOne, issueTwo)
+        try {
+            val company = service.createCompany(
+                name = "Shared CLI Co",
+                rootPath = repoRoot.toString(),
+                defaultBaseBranch = "master"
             )
-        )
+            val seededAgents = service.listCompanyAgentDefinitions(company.id)
+            service.batchUpdateCompanyAgentDefinitions(
+                companyId = company.id,
+                agentIds = seededAgents.take(2).map { it.id },
+                agentCli = "opencode",
+                model = "opencode/qwen3.6-plus-free"
+            )
 
-        service.startCompanyRuntime(company.id)
-        service.runCompanyRuntimeTick(company.id)
+            val state = stateStore.load()
+            val workspace = state.workspaces.first { it.repositoryId == company.repositoryId }
+            val projectContext = state.projectContexts.first { it.companyId == company.id }
+            val profiles = service.listOrgProfiles().filter { it.companyId == company.id && it.enabled }.take(2)
+            profiles shouldHaveSize 2
+            profiles.all { it.executionAgentName == "opencode" } shouldBe true
 
-        withTimeout(5_000) {
-            while (true) {
-                val current = stateStore.load()
-                val startedTasks = current.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) }
-                if (startedTasks.size == 2) {
-                    return@withTimeout
+            val now = System.currentTimeMillis()
+            val goal = CompanyGoal(
+                id = "goal-shared-cli",
+                companyId = company.id,
+                projectContextId = projectContext.id,
+                title = "Parallel shared-cli execution",
+                description = "Start two runnable issues on the same execution CLI.",
+                status = GoalStatus.ACTIVE,
+                autonomyEnabled = true,
+                createdAt = now,
+                updatedAt = now
+            )
+            val issueOne = CompanyIssue(
+                id = "issue-shared-cli-1",
+                companyId = company.id,
+                projectContextId = projectContext.id,
+                goalId = goal.id,
+                workspaceId = workspace.id,
+                title = "Issue One",
+                description = "First parallel issue.",
+                status = IssueStatus.DELEGATED,
+                priority = 1,
+                kind = "execution",
+                assigneeProfileId = profiles[0].id,
+                createdAt = now,
+                updatedAt = now
+            )
+            val issueTwo = CompanyIssue(
+                id = "issue-shared-cli-2",
+                companyId = company.id,
+                projectContextId = projectContext.id,
+                goalId = goal.id,
+                workspaceId = workspace.id,
+                title = "Issue Two",
+                description = "Second parallel issue.",
+                status = IssueStatus.DELEGATED,
+                priority = 1,
+                kind = "execution",
+                assigneeProfileId = profiles[1].id,
+                createdAt = now,
+                updatedAt = now
+            )
+            stateStore.save(
+                state.copy(
+                    goals = state.goals + goal,
+                    issues = state.issues + listOf(issueOne, issueTwo)
+                )
+            )
+
+            service.startCompanyRuntime(company.id)
+            service.runCompanyRuntimeTick(company.id)
+
+            withTimeout(5_000) {
+                while (true) {
+                    val current = stateStore.load()
+                    val startedTasks = current.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) }
+                    if (startedTasks.size == 2) {
+                        return@withTimeout
+                    }
+                    delay(25)
                 }
-                delay(25)
             }
-        }
 
-        val finalState = stateStore.load()
-        finalState.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) }.size shouldBe 2
-        finalState.issues
-            .filter { it.id in setOf(issueOne.id, issueTwo.id) }
-            .all { issue -> issue.status != IssueStatus.DELEGATED && issue.status != IssueStatus.PLANNED && issue.status != IssueStatus.BACKLOG } shouldBe true
+            val finalState = stateStore.load()
+            finalState.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) }.size shouldBe 2
+            finalState.issues
+                .filter { it.id in setOf(issueOne.id, issueTwo.id) }
+                .all { issue -> issue.status != IssueStatus.DELEGATED && issue.status != IssueStatus.PLANNED && issue.status != IssueStatus.BACKLOG } shouldBe true
+        } finally {
+            service.shutdown()
+        }
     }
 })

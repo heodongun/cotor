@@ -8,6 +8,7 @@ package com.cotor.checkpoint
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.app.defaultDesktopAppHome
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
@@ -21,6 +22,25 @@ import java.time.temporal.ChronoUnit
 class CheckpointManagerTest : FunSpec({
     val checkpointDir = ".cotor/test-checkpoints"
     lateinit var checkpointManager: CheckpointManager
+
+    test("default checkpoint manager writes under desktop app home") {
+        val pipelineId = "default-root-${System.currentTimeMillis()}"
+        val manager = CheckpointManager()
+
+        manager.saveCheckpoint(
+            pipelineId = pipelineId,
+            pipelineName = "Default Root Pipeline",
+            completedStages = emptyList(),
+            cotorVersion = "1.0.0",
+            gitCommit = "abc",
+            os = "macOS",
+            jvm = "17"
+        )
+
+        val expected = defaultDesktopAppHome().resolve("checkpoints").resolve("$pipelineId.json").toFile()
+        expected.exists() shouldBe true
+        expected.delete() shouldBe true
+    }
 
     beforeTest {
         checkpointManager = CheckpointManager(checkpointDir)

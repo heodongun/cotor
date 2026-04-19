@@ -10,6 +10,7 @@ package com.cotor.data.plugin
 
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -77,7 +78,7 @@ class CommandPlugin : AgentPlugin {
             throw IllegalArgumentException("argvJson must contain at least one element (the executable)")
         }
 
-        val result = processManager.executeProcess(
+        var result = processManager.executeProcess(
             command = argv,
             input = stdin,
             environment = context.environment,
@@ -85,6 +86,18 @@ class CommandPlugin : AgentPlugin {
             workingDirectory = context.workingDirectory,
             onStart = context.onProcessStarted
         )
+
+        if (!result.isSuccess && result.exitCode == 101) {
+            delay(250)
+            result = processManager.executeProcess(
+                command = argv,
+                input = stdin,
+                environment = context.environment,
+                timeout = context.timeout,
+                workingDirectory = context.workingDirectory,
+                onStart = context.onProcessStarted
+            )
+        }
 
         if (!result.isSuccess) {
             throw ProcessExecutionException(

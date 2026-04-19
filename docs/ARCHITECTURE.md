@@ -64,7 +64,16 @@ sequenceDiagram
 - **Resilience**: checkpoint + resume로 중단 후 복구 가능
 - **Observability**: 모니터 이벤트를 통해 CLI/TUI/Web에서 동일한 실행 상태 표시
 
-## 5) Company workflow invariants
+## 5) Runtime Control Layers
+
+- `com.cotor.runtime.actions` : agent/git/github side effects를 하나의 action substrate로 수렴
+- `com.cotor.policy` : action allow/deny/approval 결정을 수행하고 audit log를 남김
+- `com.cotor.provenance` : run/checkpoint/action/file/pr 사이의 evidence graph를 저장
+- `com.cotor.providers.github` : PR state, mergeability, status-check summary를 file-backed control-plane으로 유지
+- `com.cotor.knowledge` : review outcome, mergeability, decision-like signals를 structured memory로 저장
+- `AppServer` / `WebServer` : durable runtime, policy, evidence, GitHub, knowledge를 read surface로 노출
+
+## 6) Company workflow invariants
 
 The company automation layer has stricter workflow invariants than the generic pipeline runner.
 

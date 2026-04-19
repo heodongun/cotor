@@ -47,6 +47,11 @@ echo ""
 COTOR_PATH="$PROJECT_ROOT/shell/cotor"
 chmod +x "$COTOR_PATH"
 
+# Install a direct launcher into a common user bin directory when possible.
+USER_BIN_DIR="$HOME/.local/bin"
+mkdir -p "$USER_BIN_DIR"
+ln -sf "$COTOR_PATH" "$USER_BIN_DIR/cotor"
+
 # Determine shell config file
 if [ -n "$ZSH_VERSION" ]; then
     SHELL_CONFIG="$HOME/.zshrc"
@@ -58,13 +63,15 @@ fi
 
 echo "📝 Installation complete!"
 echo ""
-echo "To use Cotor from anywhere, add this to your $SHELL_CONFIG:"
+echo "A direct launcher was installed at: $USER_BIN_DIR/cotor"
 echo ""
-echo "  alias cotor='$COTOR_PATH'"
+echo "If $USER_BIN_DIR is already on PATH, you can use:"
 echo ""
-echo "Or add Cotor to your PATH:"
+echo "  cotor version"
 echo ""
-echo "  export PATH=\"\$PATH:$(dirname "$COTOR_PATH")\"" 
+echo "If not, add this to your $SHELL_CONFIG:"
+echo ""
+echo "  export PATH=\"$USER_BIN_DIR:\$PATH\""
 echo ""
 echo "Then run: source $SHELL_CONFIG"
 echo ""

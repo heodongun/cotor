@@ -14,6 +14,13 @@ import kotlinx.serialization.Serializable
  * Request payload for registering an existing local git checkout.
  */
 @Serializable
+data class CompanyMemorySnapshotResponse(
+    val companyMemory: String,
+    val workflowMemory: String,
+    val agentMemory: String
+)
+
+@Serializable
 data class OpenRepositoryRequest(
     val path: String
 )
@@ -202,6 +209,22 @@ data class TestBackendRequest(
 )
 
 @Serializable
+data class DurableContinueRequest(
+    val configPath: String? = null
+)
+
+@Serializable
+data class DurableForkRequest(
+    val checkpointId: String,
+    val configPath: String? = null
+)
+
+@Serializable
+data class DurableApproveRequest(
+    val checkpointId: String? = null
+)
+
+@Serializable
 data class CompanyEventEnvelope(
     val event: CompanyEvent,
     val dashboard: DashboardResponse? = null,
@@ -328,6 +351,13 @@ data class BudgetResponse(
     val todaySpentCents: Int = 0,
     val monthSpentCents: Int = 0,
     val budgetPaused: Boolean = false
+)
+
+@Serializable
+data class IssueRuntimeProjection(
+    val issue: CompanyIssue,
+    val reviewQueueItem: ReviewQueueItem? = null,
+    val runtime: CompanyRuntimeSnapshot
 )
 
 @Serializable

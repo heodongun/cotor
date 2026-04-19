@@ -17,7 +17,7 @@ Smoke test: `cotor version`
 
 Top-level commands registered in `Main.kt`:
 
-`init`, `run`, `dash`, `interactive`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `list`, `web`, `app-server`, `lint`, `explain`, `plugin`, `agent`, `company`, `auth`, `version`, `completion`
+`init`, `run`, `dash`, `interactive`, `validate`, `test`, `template`, `resume`, `checkpoint`, `stats`, `doctor`, `status`, `list`, `web`, `app-server`, `lint`, `explain`, `plugin`, `agent`, `company`, `auth`, `policy`, `evidence`, `github`, `knowledge`, `mcp`, `version`, `completion`
 
 Important entry behavior:
 
@@ -38,6 +38,13 @@ Current subcommand support:
 - `company ...` for company/agent/goal/issue/review/runtime/backend/linear/context/message operations
 - `plugin init`
 - `checkpoint gc`
+- `policy validate`, `policy simulate`
+- `evidence run`, `evidence file`
+- `github sync`, `github inspect-pr`, `github list`, `github events`
+- `knowledge inspect`
+- `verification inspect`
+- `runtime inspect`
+- `mcp serve --readonly`
 
 Current template types:
 
@@ -99,6 +106,17 @@ cotor app-server --port 8787
 open "/Applications/Cotor Desktop.app"
 ```
 
+Experimental durable runtime:
+
+```bash
+export COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1
+cotor run <pipeline> -c cotor.yaml
+cotor resume inspect <run-id>
+cotor resume continue <run-id> --config cotor.yaml
+cotor resume fork <run-id> --from <checkpoint-id> --config cotor.yaml
+cotor resume approve <run-id> --checkpoint <checkpoint-id>
+```
+
 ## macOS Desktop
 
 After `brew install cotor`, install the packaged desktop app with:
@@ -119,10 +137,12 @@ From a source checkout, the same commands still rebuild the desktop app locally 
 Current desktop model:
 
 - top-level `Company` and `TUI` shell modes
-- `Company` mode for multi-company operations, agent roster, goals, issue board/canvas, activity feed, and runtime controls
+- `Company` mode for multi-company operations, agent roster, goals, issue board/canvas, activity feed, runtime controls, and a dedicated `Meeting Room` surface
+- right-side `Chat Control` rail with live conversation/context, backend memory snapshot, confirmation-first proposal flow, and lightweight lead/worker agent routing
 - `Company` summary keeps runtime health, blocked workflow count, review attention, and the latest error/action inside the main summary banner instead of a separate tall status card
 - `Company` summary now also shows estimated spend plus daily/monthly cost guardrails for the selected company runtime
 - `Company` mode now uses event-driven live updates as the primary path, so activity, issues, review state, and runtime status update without a manual refresh in normal operation
+- `Meeting Room` now exposes a dedicated live floor map with a synthesized wall feed, seat-based agent table, and review desk summary instead of hiding that view below the summary fold
 - company issue execution details now surface agent CLI, selected model, backend kind, process id, assigned prompt, stdout/stderr, branch, PR link, and publish summary instead of only change metadata
 - company runtime now wakes immediately on issue/task/review transitions and can dispatch multiple runnable issues in parallel even when different roles share the same execution CLI
 - CEO merge only marks local workflow state as merged after GitHub refresh confirms the PR is actually `MERGED`
@@ -150,6 +170,9 @@ The current build includes a working local operations layer:
 - decompose goals into issues
 - delegate and run issues
 - populate and merge ready review queue items
+- inspect the dedicated Meeting Room page with synthesized runtime/backend/review/session wall events and animated seat-based agent presence
+- use the Chat Control rail to preview and explicitly confirm real goal creation, goal decomposition, issue creation, issue delegation, issue execution, QA/CEO verdicts, merge, runtime control, backend control, and company-agent creation
+- choose the lead AI and worker roster directly from the Chat Control rail before staging a confirmed company request
 - inspect compact runtime status, blocked/review attention, and recent company activity from the company summary page
 - inspect estimated company spend and adjust daily/monthly runtime guardrails without leaving the company console
 - start and stop a local autonomous runtime loop per company
@@ -165,9 +188,13 @@ Current limits in this build:
 
 - the app uses a Linear-style board inside Cotor; it is not a live external Linear sync
 - runtime automation is intentionally minimal
-- policy engine and full PR/CI sync are not implemented yet
-- company context persistence exists as local `.cotor/companies/...` snapshots, but it is still a lightweight knowledge layer
-- `resume` inspects checkpoints but does not resume execution yet
+- policy engine is v1 and currently focuses on readably simulating and enforcing action-level allow/deny/approval decisions rather than a full external policy language
+- risk approval is v1 and currently uses action-kind/path/network heuristics rather than a full repository diff risk model
+- GitHub control plane is v1 and currently syncs PR state, mergeability, and status-check summaries through `gh`, not a webhook-driven GitHub App
+- verification bundles persist contract/outcome state locally, but verifier-agent enforcement is still prompt-driven rather than a separate verifier runtime
+- runtime projection surfaces expose issue-level `runtimeDisposition`, but the runtime scheduler is still heuristic rather than fully market/simulation driven
+- company context persistence now includes structured evidence and knowledge stores under `.cotor/provenance/` and `.cotor/knowledge/`, but retrieval is still read-oriented
+- `resume` supports experimental durable inspect/continue/fork/approve flows when `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1` is enabled
 
 Inspect `.cotor/companies/` in the working folder to review the persisted company state.
 

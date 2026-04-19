@@ -1,8 +1,10 @@
 package com.cotor.presentation.web
 
 import com.cotor.app.CompanyDashboardResponse
+import com.cotor.app.CompanyIssue
 import com.cotor.app.DesktopAppService
 import com.cotor.app.IssueAgentExecutionDetail
+import com.cotor.app.IssueStatus
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
@@ -13,6 +15,7 @@ import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import java.nio.file.Files
 
@@ -86,7 +89,7 @@ class WebServerTest : FunSpec({
         val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
         val desktopService = mockk<DesktopAppService>(relaxed = true)
         val editorDir = Files.createTempDirectory("cotor-web-test")
-        coEvery { desktopService.companyDashboard() } returns CompanyDashboardResponse()
+        coEvery { desktopService.companyDashboardReadOnly() } returns CompanyDashboardResponse()
 
         testApplication {
             application {
@@ -109,6 +112,54 @@ class WebServerTest : FunSpec({
             response.status.value shouldBe 200
             response.bodyAsText() shouldContain "\"companies\""
             response.bodyAsText() shouldContain "\"runtime\""
+            coVerify(exactly = 1) { desktopService.companyDashboardReadOnly() }
+            coVerify(exactly = 0) { desktopService.companyDashboard() }
+        }
+    }
+
+    test("company issue detail api is served through the projected issue path") {
+        val configRepository = mockk<ConfigRepository>(relaxed = true)
+        val agentRegistry = mockk<AgentRegistry>(relaxed = true)
+        val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
+        val desktopService = mockk<DesktopAppService>(relaxed = true)
+        val editorDir = Files.createTempDirectory("cotor-web-issue-test")
+        coEvery { desktopService.getIssueProjected("issue-1") } returns CompanyIssue(
+            id = "issue-1",
+            companyId = "company-1",
+            projectContextId = "project-1",
+            goalId = "goal-1",
+            workspaceId = "workspace-1",
+            title = "Issue",
+            description = "desc",
+            status = IssueStatus.IN_PROGRESS,
+            runtimeDisposition = "RUNNABLE",
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        testApplication {
+            application {
+                cotorWebModule(
+                    configRepository = configRepository,
+                    agentRegistry = agentRegistry,
+                    orchestrator = orchestrator,
+                    desktopService = desktopService,
+                    editorDir = editorDir,
+                    readOnly = false,
+                    buildTemplates = { emptyList() },
+                    listSavedPipelines = { emptyList() },
+                    loadPipelineDetail = { null },
+                    savePipeline = { editorDir.resolve("saved.yaml") },
+                    buildTimelinePayload = { _, _ -> emptyList() }
+                )
+            }
+
+            val response = client.get("/api/company/companies/company-1/issues/issue-1")
+            response.status.value shouldBe 200
+            response.bodyAsText() shouldContain "\"id\":\"issue-1\""
+            response.bodyAsText() shouldContain "\"runtimeDisposition\":\"RUNNABLE\""
+            io.mockk.coVerify(exactly = 1) { desktopService.getIssueProjected("issue-1") }
+            io.mockk.coVerify(exactly = 0) { desktopService.getIssue("issue-1") }
         }
     }
 

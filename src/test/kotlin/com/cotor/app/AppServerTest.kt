@@ -20,7 +20,9 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import io.mockk.clearMocks
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
@@ -30,6 +32,10 @@ import java.util.concurrent.TimeUnit
 class AppServerTest : FunSpec({
     val desktopService = mockk<DesktopAppService>(relaxed = true)
     val tuiSessionService = mockk<DesktopTuiSessionService>(relaxed = true)
+
+    beforeTest {
+        clearMocks(desktopService, tuiSessionService, answers = false, recordedCalls = true)
+    }
 
     test("health and ready probes stay available without auth") {
         testApplication {
@@ -87,6 +93,64 @@ class AppServerTest : FunSpec({
             response.bodyAsText() shouldContain "\"title\":\"Cotor Help\""
             response.bodyAsText() shouldContain "cotor help web"
             response.bodyAsText() shouldContain "cotor help ai"
+        }
+    }
+
+    test("dashboard route returns the top-level dashboard when authorized") {
+        coEvery { desktopService.dashboard() } returns DashboardResponse(
+            repositories = emptyList(),
+            workspaces = emptyList(),
+            tasks = emptyList(),
+            settings = DesktopSettings(
+                appHome = "/tmp/cotor-app-home",
+                managedReposRoot = "/tmp/cotor-managed-repos",
+                availableAgents = listOf("opencode")
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/dashboard") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"repositories\":[]"
+        }
+    }
+
+    test("company memory snapshot route returns backend memory payload when authorized") {
+        coEvery { desktopService.companyMemorySnapshot("company-1", "issue-1", null) } returns CompanyMemorySnapshotResponse(
+            companyMemory = "Company memory",
+            workflowMemory = "Workflow memory",
+            agentMemory = "Agent memory"
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/companies/company-1/memory-snapshot?issueId=issue-1") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"companyMemory\":\"Company memory\""
+            response.bodyAsText() shouldContain "\"workflowMemory\":\"Workflow memory\""
+            response.bodyAsText() shouldContain "\"agentMemory\":\"Agent memory\""
+            coVerify(exactly = 1) { desktopService.companyMemorySnapshot("company-1", "issue-1", null) }
         }
     }
 
@@ -189,6 +253,456 @@ class AppServerTest : FunSpec({
             }
             stop.status shouldBe HttpStatusCode.OK
             stop.bodyAsText() shouldContain "\"status\":\"STOPPED\""
+        }
+    }
+
+    test("mcp company_summary uses the read-only dashboard path") {
+        coEvery { desktopService.companyDashboardReadOnly("company-1") } returns CompanyDashboardResponse()
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "tools/call",
+                      "params": {
+                        "name": "company_summary",
+                        "arguments": {
+                          "companyId": "company-1"
+                        }
+                      }
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            coVerify(exactly = 1) { desktopService.companyDashboardReadOnly("company-1") }
+            coVerify(exactly = 0) { desktopService.companyDashboard("company-1") }
+        }
+    }
+
+    test("mcp companies resource uses the read-only dashboard path") {
+        coEvery { desktopService.companyDashboardReadOnly() } returns CompanyDashboardResponse(
+            companies = listOf(
+                Company(
+                    id = "company-1",
+                    name = "Cotor",
+                    rootPath = "/tmp/cotor",
+                    repositoryId = "repo-1",
+                    defaultBaseBranch = "main",
+                    createdAt = 1L,
+                    updatedAt = 1L
+                )
+            )
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "resources/read",
+                      "params": {
+                        "uri": "cotor://companies"
+                      }
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            coVerify(exactly = 1) { desktopService.companyDashboardReadOnly() }
+            coVerify(exactly = 0) { desktopService.companyDashboard() }
+        }
+    }
+
+    test("mcp tools list marks read-only tools explicitly") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "tools/list"
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"name\":\"company_summary\""
+            response.bodyAsText() shouldContain "\"name\":\"company_memory_snapshot\""
+            response.bodyAsText() shouldContain "\"readOnlyHint\":true"
+            response.bodyAsText() shouldContain "\"name\":\"company_runtime_start\""
+            response.bodyAsText() shouldContain "\"name\":\"company_runtime_stop\""
+            response.bodyAsText() shouldContain "\"name\":\"company_review_qa\""
+            response.bodyAsText() shouldContain "\"name\":\"company_review_ceo\""
+        }
+    }
+
+    test("mcp initialize advertises a read-only surface explicitly") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "initialize"
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"readOnlySurface\":true"
+            response.bodyAsText() shouldContain "\"listChanged\":false"
+            response.bodyAsText() shouldContain "\"subscribe\":false"
+        }
+    }
+
+    test("mcp runtime control tools mutate company runtime explicitly") {
+        coEvery { desktopService.startCompanyRuntime("company-1") } returns CompanyRuntimeSnapshot(
+            companyId = "company-1",
+            status = CompanyRuntimeStatus.RUNNING,
+            lastAction = "started"
+        )
+        coEvery { desktopService.stopCompanyRuntime("company-1") } returns CompanyRuntimeSnapshot(
+            companyId = "company-1",
+            status = CompanyRuntimeStatus.STOPPED,
+            lastAction = "stopped"
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val startResponse = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "tools/call",
+                      "params": {
+                        "name": "company_runtime_start",
+                        "arguments": { "companyId": "company-1" }
+                      }
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            val stopResponse = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 2,
+                      "method": "tools/call",
+                      "params": {
+                        "name": "company_runtime_stop",
+                        "arguments": { "companyId": "company-1" }
+                      }
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            startResponse.status shouldBe HttpStatusCode.OK
+            stopResponse.status shouldBe HttpStatusCode.OK
+            startResponse.bodyAsText() shouldContain "RUNNING"
+            stopResponse.bodyAsText() shouldContain "STOPPED"
+            coVerify(exactly = 1) { desktopService.startCompanyRuntime("company-1") }
+            coVerify(exactly = 1) { desktopService.stopCompanyRuntime("company-1") }
+        }
+    }
+
+    test("mcp review verdict tools mutate review queue state explicitly") {
+        coEvery { desktopService.submitQaReviewVerdict("queue-1", "PASS", "Looks good") } returns ReviewQueueItem(
+            id = "queue-1",
+            issueId = "issue-1",
+            runId = "run-1",
+            status = ReviewQueueStatus.READY_FOR_CEO,
+            qaVerdict = "PASS",
+            qaFeedback = "Looks good",
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+        coEvery { desktopService.submitCeoReviewVerdict("queue-2", "APPROVE", "Ship it") } returns ReviewQueueItem(
+            id = "queue-2",
+            issueId = "issue-2",
+            runId = "run-2",
+            status = ReviewQueueStatus.MERGED,
+            ceoVerdict = "APPROVE",
+            ceoFeedback = "Ship it",
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val qaResponse = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "tools/call",
+                      "params": {
+                        "name": "company_review_qa",
+                        "arguments": { "queueItemId": "queue-1", "verdict": "PASS", "feedback": "Looks good" }
+                      }
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            val ceoResponse = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 2,
+                      "method": "tools/call",
+                      "params": {
+                        "name": "company_review_ceo",
+                        "arguments": { "queueItemId": "queue-2", "verdict": "APPROVE", "feedback": "Ship it" }
+                      }
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            qaResponse.status shouldBe HttpStatusCode.OK
+            ceoResponse.status shouldBe HttpStatusCode.OK
+            qaResponse.bodyAsText() shouldContain "READY_FOR_CEO"
+            ceoResponse.bodyAsText() shouldContain "MERGED"
+            coVerify(exactly = 1) { desktopService.submitQaReviewVerdict("queue-1", "PASS", "Looks good") }
+            coVerify(exactly = 1) { desktopService.submitCeoReviewVerdict("queue-2", "APPROVE", "Ship it") }
+        }
+    }
+
+    test("review queue verdict routes submit qa and ceo verdicts when authorized") {
+        coEvery { desktopService.submitQaReviewVerdict("queue-1", "PASS", "Looks good") } returns ReviewQueueItem(
+            id = "queue-1",
+            issueId = "issue-1",
+            runId = "run-1",
+            status = ReviewQueueStatus.READY_FOR_CEO,
+            qaVerdict = "PASS",
+            qaFeedback = "Looks good",
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+        coEvery { desktopService.submitCeoReviewVerdict("queue-2", "APPROVE", "Ship it") } returns ReviewQueueItem(
+            id = "queue-2",
+            issueId = "issue-2",
+            runId = "run-2",
+            status = ReviewQueueStatus.MERGED,
+            ceoVerdict = "APPROVE",
+            ceoFeedback = "Ship it",
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val qaResponse = client.post("/api/app/review-queue/queue-1/qa") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody("""{"verdict":"PASS","feedback":"Looks good"}""")
+            }
+
+            val ceoResponse = client.post("/api/app/review-queue/queue-2/ceo") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody("""{"verdict":"APPROVE","feedback":"Ship it"}""")
+            }
+
+            qaResponse.status shouldBe HttpStatusCode.OK
+            ceoResponse.status shouldBe HttpStatusCode.OK
+            qaResponse.bodyAsText() shouldContain "\"qaVerdict\":\"PASS\""
+            ceoResponse.bodyAsText() shouldContain "\"ceoVerdict\":\"APPROVE\""
+            coVerify(exactly = 1) { desktopService.submitQaReviewVerdict("queue-1", "PASS", "Looks good") }
+            coVerify(exactly = 1) { desktopService.submitCeoReviewVerdict("queue-2", "APPROVE", "Ship it") }
+        }
+    }
+
+    test("review queue merge route merges approved pull requests when authorized") {
+        coEvery { desktopService.mergeReviewQueueItem("queue-3") } returns ReviewQueueItem(
+            id = "queue-3",
+            issueId = "issue-3",
+            runId = "run-3",
+            status = ReviewQueueStatus.MERGED,
+            ceoVerdict = "APPROVE",
+            pullRequestState = "MERGED",
+            mergeCommitSha = "abc123",
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/review-queue/queue-3/merge") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"status\":\"MERGED\""
+            response.bodyAsText() shouldContain "\"mergeCommitSha\":\"abc123\""
+            coVerify(exactly = 1) { desktopService.mergeReviewQueueItem("queue-3") }
+        }
+    }
+
+    test("mcp company_memory_snapshot returns the unified memory snapshot") {
+        coEvery { desktopService.companyMemorySnapshot("company-1", "issue-1", null) } returns CompanyMemorySnapshotResponse(
+            companyMemory = "company=Cotor",
+            workflowMemory = "goal=Improve onboarding",
+            agentMemory = "role=CEO"
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 3,
+                      "method": "tools/call",
+                      "params": {
+                        "name": "company_memory_snapshot",
+                        "arguments": { "companyId": "company-1", "issueId": "issue-1" }
+                      }
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "company=Cotor"
+            response.bodyAsText() shouldContain "goal=Improve onboarding"
+            response.bodyAsText() shouldContain "role=CEO"
+            coVerify(exactly = 1) { desktopService.companyMemorySnapshot("company-1", "issue-1", null) }
+        }
+    }
+
+    test("mcp resources list marks read-only resources explicitly") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "resources/list"
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"uri\":\"cotor://companies\""
+            response.bodyAsText() shouldContain "\"readOnlyHint\":true"
         }
     }
 
@@ -421,7 +935,7 @@ class AppServerTest : FunSpec({
             issueResponse.status shouldBe HttpStatusCode.OK
             issueResponse.bodyAsText() shouldContain "\"id\":\"issue-1\""
 
-            coEvery { desktopService.getIssue("issue-1") } returns CompanyIssue(
+            coEvery { desktopService.getIssueProjected("issue-1") } returns CompanyIssue(
                 id = "issue-1",
                 companyId = "company-1",
                 projectContextId = "project-1",
@@ -454,6 +968,8 @@ class AppServerTest : FunSpec({
             issueDetailResponse.bodyAsText() shouldContain "\"pullRequestNumber\":99"
             issueDetailResponse.bodyAsText() shouldContain "\"qaVerdict\":\"PASS\""
             issueDetailResponse.bodyAsText() shouldContain "\"ceoVerdict\":\"APPROVE\""
+            coVerify(exactly = 1) { desktopService.getIssueProjected("issue-1") }
+            coVerify(exactly = 0) { desktopService.getIssue("issue-1") }
         }
     }
 
@@ -866,7 +1382,7 @@ class AppServerTest : FunSpec({
     }
 
     test("company dashboard route returns a company-scoped live snapshot when authorized") {
-        coEvery { desktopService.companyDashboard("company-1") } returns CompanyDashboardResponse(
+        coEvery { desktopService.companyDashboardReadOnly("company-1") } returns CompanyDashboardResponse(
             companies = listOf(
                 Company(
                     id = "company-1",
@@ -952,6 +1468,8 @@ class AppServerTest : FunSpec({
             response.bodyAsText() shouldContain "\"todaySpentCents\":245"
             response.bodyAsText() shouldContain "\"monthSpentCents\":1180"
             response.bodyAsText() shouldContain "\"budgetPausedAt\":5"
+            coVerify(exactly = 1) { desktopService.companyDashboardReadOnly("company-1") }
+            coVerify(exactly = 0) { desktopService.companyDashboard("company-1") }
         }
     }
 

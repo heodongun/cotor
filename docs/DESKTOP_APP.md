@@ -98,9 +98,11 @@ The current macOS shell has two top-level modes.
 - `Company`
   - company selector
   - company creation bound to one root folder
+  - direct `Meeting Room` navigation for a live company floor map with an event wall, active seats, and a review desk
   - agent-definition composer
   - goal list and goal creation
   - Linear-style issue board/canvas inside the app
+  - right-side `Chat Control` rail that shows live messages/context, backend memory snapshot, confirmation-first proposal previews, and lightweight lead/worker agent routing controls
 - company activity feed with live event-driven updates
 - live company updates use the company event stream plus a focused company dashboard snapshot, not a heavyweight full refresh on every event
 - issue execution detail cards now show agent CLI, selected model, backend kind, process id, assigned prompt, stdout/stderr, branch, PR link, and publish summary for each issue-linked run
@@ -172,6 +174,9 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - mirror company issues and progress to Linear when company-scoped Linear sync is enabled
 - inspect linked tasks and runs
 - populate and merge review queue items
+- inspect a dedicated Meeting Room view with synthesized runtime/backend/review/session wall events plus seat/review desk summaries
+- use the Chat Control rail to preview and explicitly confirm goal creation, goal decomposition, issue creation, issue delegation, issue execution, QA/CEO verdicts, merge, runtime control, backend control, and company-agent creation
+- choose the lead AI and worker roster directly from the Chat Control rail before staging a confirmed request
 - inspect company activity without manual refresh in normal company mode
 - inspect runtime health, blocked/review attention, and the latest runtime signal from the compact company summary banner
 - inspect estimated spend and adjust daily/monthly cost guardrails without leaving the company console
@@ -187,6 +192,6 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 
 - macOS shell only
 - Linear sync is company-scoped and mirrors Cotor-managed issues outward; it does not yet import existing Linear issues back into Cotor
-- runtime automation does not yet include the planned policy engine
-- review and PR sync are local-state driven in this build, not full live GitHub/CI orchestration
-- `resume` remains a checkpoint inspection flow, not full run resumption
+- runtime automation now includes a policy engine v1 for action allow/deny/approval decisions, but it is still file-backed and experimental
+- review and PR sync now include a GitHub control-plane v1 with PR state, mergeability, and status-check summary syncing through `gh`
+- `resume` now supports experimental durable inspect/continue/fork/approve flows, but company-wide issue/review continuation is still incomplete

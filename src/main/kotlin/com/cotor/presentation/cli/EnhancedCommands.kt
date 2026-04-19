@@ -15,12 +15,14 @@ import com.cotor.error.ErrorMessages
 import com.cotor.error.UserFriendlyError
 import com.cotor.event.*
 import com.cotor.event.EventBus
+import com.cotor.model.PipelineContext
 import com.cotor.monitoring.PipelineMonitor
 import com.cotor.monitoring.StageState
 import com.cotor.monitoring.TimelineCollector
 import com.cotor.presentation.formatter.OutputFormatter
 import com.cotor.presentation.timeline.StageTimelineEntry
 import com.cotor.presentation.timeline.StageTimelineState
+import com.cotor.runtime.durable.DurableRuntimeFlags
 import com.cotor.validation.PipelineValidator
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
@@ -36,6 +38,7 @@ import kotlinx.coroutines.runBlocking
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.nio.file.Path
+import java.util.UUID
 import kotlin.io.path.Path
 import kotlin.io.path.exists
 import kotlin.math.roundToInt
@@ -158,8 +161,18 @@ class EnhancedRunCommand :
                     terminal.println()
                 }
 
+                val pipelineContext = PipelineContext(
+                    pipelineId = UUID.randomUUID().toString(),
+                    pipelineName = pipeline.name,
+                    totalStages = pipeline.stages.size
+                ).also { context ->
+                    context.metadata["configPath"] = configPath.toString()
+                    if (DurableRuntimeFlags.isEnabled()) {
+                        DurableRuntimeFlags.enable(context)
+                    }
+                }
                 val timelineResult = timelineCollector.runWithTimeline(pipeline.name) {
-                    orchestrator.executePipeline(pipeline, fromStage)
+                    orchestrator.executePipeline(pipeline, fromStage, pipelineContext)
                 }
                 val pipelineDuration = timelineResult.totalDurationMs ?: timelineResult.result.totalDuration
                 val result = timelineResult.result.copy(totalDuration = pipelineDuration)

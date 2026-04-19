@@ -11,6 +11,9 @@ package com.cotor.data.plugin
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
 import com.cotor.model.OpenCodeDefaults
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -115,7 +118,7 @@ class CodexPlugin : AgentPlugin {
         val prompt = context.input ?: throw IllegalArgumentException("Input prompt is required")
         val authMode = context.parameters["auth_mode"]?.trim()?.lowercase()
         val baseEnvironment = if (authMode == "oauth") {
-            context.environment + mapOf("CODEX_HOME" to managedCodexOAuthHome(context.environment).toString())
+            context.environment + mapOf("CODEX_HOME" to effectiveCodexOAuthHome(context.environment).toString())
         } else {
             context.environment
         }
@@ -126,7 +129,7 @@ class CodexPlugin : AgentPlugin {
             context.parameters["model"]?.trim()?.takeIf { it.isNotEmpty() }
                 ?: resolveConfiguredCodexModel(baseEnvironment)
         )
-        val isolateCodexHome = shouldIsolateCodexMcpConfig(context)
+        val isolateCodexHome = shouldIsolateCodexMcpConfig(context) && authMode != "oauth"
 
         // Codex writes its last assistant message to a file more reliably than stdout
         // when the CLI emits extra progress/logging lines, so we preserve that path.
@@ -185,8 +188,14 @@ class CodexPlugin : AgentPlugin {
                 processId = result.processId
             )
         } finally {
-            Files.deleteIfExists(outputFile)
-            isolatedCodexHome?.toFile()?.deleteRecursively()
+            runCatching {
+                withTimeoutOrNull(2_000) {
+                    withContext(Dispatchers.IO) {
+                        Files.deleteIfExists(outputFile)
+                        isolatedCodexHome?.let { cleanupCodexHome(it) }
+                    }
+                }
+            }
         }
     }
 
@@ -262,6 +271,23 @@ class CodexPlugin : AgentPlugin {
         return Path.of(home).resolve(".cotor").resolve("auth").resolve("codex-oauth")
     }
 
+    private fun effectiveCodexOAuthHome(environment: Map<String, String>): Path {
+        val managed = managedCodexOAuthHome(environment)
+        val native = resolveCodexHome(environment)
+        val managedAuth = managed.resolve("auth.json")
+        val nativeAuth = native?.resolve("auth.json")
+
+        return when {
+            nativeAuth != null && Files.exists(nativeAuth) && Files.exists(managedAuth) -> {
+                val managedUpdatedAt = Files.getLastModifiedTime(managedAuth).toMillis()
+                val nativeUpdatedAt = Files.getLastModifiedTime(nativeAuth).toMillis()
+                if (nativeUpdatedAt > managedUpdatedAt) native else managed
+            }
+            nativeAuth != null && Files.exists(nativeAuth) -> native
+            else -> managed
+        }
+    }
+
     private fun buildIsolatedCodexConfig(): String = """
         [features]
         rmcp_client = false
@@ -273,6 +299,15 @@ class CodexPlugin : AgentPlugin {
 
     private fun shouldIsolateCodexMcpConfig(context: ExecutionContext): Boolean =
         !context.taskId.isNullOrBlank()
+
+    private fun cleanupCodexHome(path: Path) {
+        if (!Files.exists(path)) return
+        Files.walk(path)
+            .sorted(Comparator.reverseOrder())
+            .forEach { candidate ->
+                runCatching { Files.deleteIfExists(candidate) }
+            }
+    }
 }
 
 /**
@@ -446,6 +481,13 @@ class OpenCodePlugin : AgentPlugin {
         )
 
         var model = requestedModel
+        if (requestedModel != null) {
+            model = resolvePreferredOpenCodeModel(
+                processManager = processManager,
+                context = context,
+                requestedModel = requestedModel
+            )
+        }
         var result = executeOpenCodeRun(
             prompt = prompt,
             model = model,
@@ -523,6 +565,28 @@ class OpenCodePlugin : AgentPlugin {
         context: ExecutionContext,
         rejectedModel: String
     ): String? {
+        val models = discoverAvailableOpenCodeModels(processManager, context)
+        if (models.isEmpty()) return null
+        return models.firstOrNull { it != rejectedModel && it.endsWith("-free") }
+            ?: models.firstOrNull { it != rejectedModel }
+    }
+
+    private suspend fun resolvePreferredOpenCodeModel(
+        processManager: ProcessManager,
+        context: ExecutionContext,
+        requestedModel: String
+    ): String {
+        val models = discoverAvailableOpenCodeModels(processManager, context)
+        if (models.isEmpty() || requestedModel in models) {
+            return requestedModel
+        }
+        return models.firstOrNull { it.endsWith("-free") } ?: models.first()
+    }
+
+    private suspend fun discoverAvailableOpenCodeModels(
+        processManager: ProcessManager,
+        context: ExecutionContext
+    ): List<String> {
         val result = processManager.executeProcess(
             command = listOf("opencode", "models", "opencode"),
             input = null,
@@ -531,13 +595,11 @@ class OpenCodePlugin : AgentPlugin {
             workingDirectory = context.workingDirectory,
             onStart = null
         )
-        if (!result.isSuccess) return null
-        val models = result.stdout.lineSequence()
+        if (!result.isSuccess) return emptyList()
+        return result.stdout.lineSequence()
             .map { it.trim() }
             .filter { it.startsWith("opencode/") }
-            .filter { it != rejectedModel }
             .toList()
-        return models.firstOrNull { it.endsWith("-free") } ?: models.firstOrNull()
     }
 
     private fun extractOpenCodeError(result: ProcessResult): String? {

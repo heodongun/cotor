@@ -27,6 +27,7 @@ import java.nio.file.Path
 class OpenCodePluginTest : FunSpec({
     test("passes explicit model to opencode run") {
         val plugin = OpenCodePlugin()
+        var sawModelsLookup = false
         val processManager = object : ProcessManager {
             override suspend fun executeProcess(
                 command: List<String>,
@@ -36,13 +37,24 @@ class OpenCodePluginTest : FunSpec({
                 workingDirectory: Path?,
                 onStart: ((Long) -> Unit)?
             ): ProcessResult {
-                command shouldBe listOf("opencode", "run", "--model", "opencode/qwen3.6-plus-free", "--format", "json", "hello")
-                return ProcessResult(
-                    exitCode = 0,
-                    stdout = "",
-                    stderr = "",
-                    isSuccess = true
-                )
+                return when (command) {
+                    listOf("opencode", "models", "opencode") -> {
+                        sawModelsLookup = true
+                        ProcessResult(
+                            exitCode = 0,
+                            stdout = "opencode/qwen3.6-plus-free\nopencode/minimax-m2.5-free\n",
+                            stderr = "",
+                            isSuccess = true
+                        )
+                    }
+                    listOf("opencode", "run", "--model", "opencode/qwen3.6-plus-free", "--format", "json", "hello") -> ProcessResult(
+                        exitCode = 0,
+                        stdout = "",
+                        stderr = "",
+                        isSuccess = true
+                    )
+                    else -> error("unexpected command: $command")
+                }
             }
         }
 
@@ -56,6 +68,8 @@ class OpenCodePluginTest : FunSpec({
             ),
             processManager
         )
+
+        sawModelsLookup shouldBe true
     }
 
     test("throws ProcessExecutionException with exit code and streams on failure") {
@@ -69,15 +83,21 @@ class OpenCodePluginTest : FunSpec({
                 workingDirectory: Path?,
                 onStart: ((Long) -> Unit)?
             ): ProcessResult {
-                // Assert the wrapper builds the expected argv and then simulate
-                // a non-zero child process result without launching the real CLI.
-                command shouldBe listOf("opencode", "run", "--model", OpenCodeDefaults.DEFAULT_MODEL, "--format", "json", "hello")
-                return ProcessResult(
-                    exitCode = 2,
-                    stdout = "partial output",
-                    stderr = "cli error",
-                    isSuccess = false
-                )
+                return when (command) {
+                    listOf("opencode", "models", "opencode") -> ProcessResult(
+                        exitCode = 1,
+                        stdout = "",
+                        stderr = "models lookup unavailable",
+                        isSuccess = false
+                    )
+                    listOf("opencode", "run", "--model", OpenCodeDefaults.DEFAULT_MODEL, "--format", "json", "hello") -> ProcessResult(
+                        exitCode = 2,
+                        stdout = "partial output",
+                        stderr = "cli error",
+                        isSuccess = false
+                    )
+                    else -> error("unexpected command: $command")
+                }
             }
         }
 
@@ -112,8 +132,14 @@ class OpenCodePluginTest : FunSpec({
                 timeout: Long,
                 workingDirectory: Path?,
                 onStart: ((Long) -> Unit)?
-            ): ProcessResult =
-                ProcessResult(
+            ): ProcessResult = when (command) {
+                listOf("opencode", "models", "opencode") -> ProcessResult(
+                    exitCode = 1,
+                    stdout = "",
+                    stderr = "models lookup unavailable",
+                    isSuccess = false
+                )
+                listOf("opencode", "run", "--model", OpenCodeDefaults.DEFAULT_MODEL, "--format", "json", "hello") -> ProcessResult(
                     exitCode = 0,
                     stdout = """
                         {"type":"step_start","timestamp":1,"sessionID":"session-1"}
@@ -124,6 +150,8 @@ class OpenCodePluginTest : FunSpec({
                     stderr = "",
                     isSuccess = true
                 )
+                else -> error("unexpected command: $command")
+            }
         }
 
         val result = plugin.execute(
@@ -163,15 +191,6 @@ class OpenCodePluginTest : FunSpec({
                         runCount += 1
                         when (runCount) {
                             1 -> {
-                                command shouldBe listOf("opencode", "run", "--model", OpenCodeDefaults.DEFAULT_MODEL, "--format", "json", "hello")
-                                ProcessResult(
-                                    exitCode = 0,
-                                    stdout = """{"type":"error","error":{"data":{"message":"Model not found: ${OpenCodeDefaults.DEFAULT_MODEL}."}}}""",
-                                    stderr = "",
-                                    isSuccess = true
-                                )
-                            }
-                            2 -> {
                                 command shouldBe listOf("opencode", "run", "--model", "opencode/minimax-m2.5-free", "--format", "json", "hello")
                                 ProcessResult(
                                     exitCode = 0,
@@ -200,8 +219,59 @@ class OpenCodePluginTest : FunSpec({
             processManager
         )
 
-        runCount shouldBe 2
+        runCount shouldBe 1
         result.output shouldBe "fixed"
         result.processId shouldBe 88L
+    }
+
+    test("preflights an unavailable explicit opencode model before the first run") {
+        val plugin = OpenCodePlugin()
+        val commands = mutableListOf<List<String>>()
+        val processManager = object : ProcessManager {
+            override suspend fun executeProcess(
+                command: List<String>,
+                input: String?,
+                environment: Map<String, String>,
+                timeout: Long,
+                workingDirectory: Path?,
+                onStart: ((Long) -> Unit)?
+            ): ProcessResult {
+                commands += command
+                return when (command) {
+                    listOf("opencode", "models", "opencode") -> ProcessResult(
+                        exitCode = 0,
+                        stdout = "opencode/minimax-m2.5-free\nopencode/gpt-5-nano\n",
+                        stderr = "",
+                        isSuccess = true
+                    )
+                    listOf("opencode", "run", "--model", "opencode/minimax-m2.5-free", "--format", "json", "hello") -> ProcessResult(
+                        exitCode = 0,
+                        stdout = """{"type":"text","text":"fixed"}""",
+                        stderr = "",
+                        isSuccess = true,
+                        processId = 101L
+                    )
+                    else -> error("unexpected command: $command")
+                }
+            }
+        }
+
+        val result = plugin.execute(
+            ExecutionContext(
+                agentName = "opencode",
+                input = "hello",
+                timeout = 1_000,
+                parameters = mapOf("model" to OpenCodeDefaults.DEFAULT_MODEL),
+                environment = emptyMap()
+            ),
+            processManager
+        )
+
+        commands shouldBe listOf(
+            listOf("opencode", "models", "opencode"),
+            listOf("opencode", "run", "--model", "opencode/minimax-m2.5-free", "--format", "json", "hello")
+        )
+        result.output shouldBe "fixed"
+        result.processId shouldBe 101L
     }
 })

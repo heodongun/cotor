@@ -176,6 +176,8 @@ jobs:
             --tests 'com.cotor.app.DesktopAppServiceDashboardRuntimeTest' \
             --tests 'com.cotor.app.DesktopAppServiceMergeConfirmationTest' \
             --tests 'com.cotor.app.DesktopAppServiceParallelDispatchTest' \
+            --tests 'com.cotor.app.DesktopAppServiceRequeueOrphanedTest' \
+            --tests 'com.cotor.app.DesktopAppServiceTimeoutFollowUpTest' \
             -x jacocoTestReport -x jacocoTestCoverageVerification
         timeout-minutes: 320
 

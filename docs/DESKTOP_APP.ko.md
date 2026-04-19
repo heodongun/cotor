@@ -102,9 +102,11 @@ cotor delete
 
 - 회사 선택기
 - 하나의 루트 폴더에 묶이는 회사 생성
+- 이벤트 월, 실행 좌석, 리뷰 데스크를 한 화면에서 보는 실시간 회사 플로어 맵용 `미팅룸` 직접 탐색
 - 에이전트 정의 작성
 - 목표 목록과 목표 생성
 - 앱 내부의 Linear 스타일 이슈 보드/캔버스
+- 라이브 메시지/컨텍스트, 백엔드 메모리 스냅샷, 확인 우선 proposal preview, 리더/워커 AI 라우팅 제어를 함께 보여주는 오른쪽 `채팅 컨트롤` 레일
 - 이벤트 기반으로 바로 갱신되는 회사 활동 피드
 - 회사 live update는 무거운 전체 refresh 대신 company event stream + 회사 전용 dashboard snapshot으로 상태를 반영
 - 이슈 실행 상세 카드는 이제 각 issue-linked run마다 에이전트 CLI, 선택 모델, 백엔드 종류, 프로세스 ID, 할당 프롬프트, stdout/stderr, 브랜치, PR 링크, 퍼블리시 요약을 함께 보여줌
@@ -178,6 +180,9 @@ cotor delete
 - 회사 단위 Linear sync가 켜져 있으면 바깥 Linear로 이슈/진행 상태 미러링
 - 연결된 태스크와 실행 이력 조회
 - 리뷰 큐 아이템 생성 및 머지 처리
+- runtime/backend/review/session 상태를 합성한 이벤트 월과 좌석/리뷰 데스크 요약이 포함된 전용 미팅룸 보기
+- 채팅 컨트롤 레일에서 목표 생성, 목표 분해, 이슈 생성, 이슈 위임, 이슈 실행, QA/CEO 판정, 머지, 런타임 제어, 백엔드 제어, 회사 에이전트 생성을 미리 보고 명시적으로 확인한 뒤 적용
+- 확인용 요청을 준비하기 전에 채팅 컨트롤 레일에서 리더 AI와 워커 roster를 직접 선택
 - 정상적인 회사 모드에서는 수동 새로고침 없이 회사 활동 조회
 - 압축형 회사 요약 배너에서 런타임 건강도, 차단/리뷰 주의, 최근 런타임 신호 조회
 - 회사 콘솔 안에서 추정 비용을 확인하고 일/월 비용 상한을 조정
@@ -193,6 +198,6 @@ cotor delete
 
 - macOS 셸만 지원합니다.
 - Linear sync는 회사 단위 outward mirror이며, 기존 Linear 이슈를 다시 Cotor로 가져오지는 않습니다.
-- 런타임 자동화에는 아직 계획된 정책 엔진이 없습니다.
-- 리뷰/PR 동기화는 현재 로컬 상태 중심이며, 완전한 GitHub/CI live orchestration은 아닙니다.
-- `resume`은 여전히 체크포인트 조회 성격이고 전체 실행 재개는 아닙니다.
+- 런타임 자동화에는 action 단위 allow/deny/approval를 다루는 정책 엔진 v1이 들어갔지만, 아직 file-backed 실험 기능입니다.
+- 리뷰/PR 동기화에는 `gh` 기반 GitHub control-plane v1이 들어가서 PR 상태, mergeability, status-check summary를 읽어옵니다.
+- `resume`은 이제 실험적 durable inspect/continue/fork/approve 흐름을 지원하지만, 회사 전체 issue/review 재개는 아직 완전하지 않습니다.

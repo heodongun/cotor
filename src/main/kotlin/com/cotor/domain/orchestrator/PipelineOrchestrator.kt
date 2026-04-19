@@ -21,6 +21,10 @@ import com.cotor.model.*
 import com.cotor.monitoring.NoopObservabilityService
 import com.cotor.monitoring.ObservabilityService
 import com.cotor.recovery.RecoveryExecutor
+import com.cotor.runtime.durable.DurableRuntimeContext
+import com.cotor.runtime.durable.DurableRuntimeFlags
+import com.cotor.runtime.durable.DurableRuntimeService
+import com.cotor.runtime.durable.ReplayMode
 import com.cotor.stats.StatsManager
 import com.cotor.validation.PipelineTemplateValidator
 import com.cotor.validation.output.OutputValidator
@@ -28,6 +32,7 @@ import kotlinx.coroutines.*
 import org.slf4j.Logger
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.EmptyCoroutineContext
 
 /**
  * Interface for pipeline orchestration
@@ -82,8 +87,52 @@ class DefaultPipelineOrchestrator(
     private val statsManager: StatsManager,
     private val checkpointManager: CheckpointManager = CheckpointManager(),
     private val templateValidator: PipelineTemplateValidator = PipelineTemplateValidator(TemplateEngine()),
-    private val observability: ObservabilityService = NoopObservabilityService
+    private val observability: ObservabilityService = NoopObservabilityService,
+    private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService()
 ) : PipelineOrchestrator {
+    constructor(
+        agentExecutor: AgentExecutor,
+        resultAggregator: ResultAggregator,
+        eventBus: EventBus,
+        logger: Logger,
+        agentRegistry: com.cotor.data.registry.AgentRegistry,
+        outputValidator: OutputValidator,
+        statsManager: StatsManager
+    ) : this(
+        agentExecutor = agentExecutor,
+        resultAggregator = resultAggregator,
+        eventBus = eventBus,
+        logger = logger,
+        agentRegistry = agentRegistry,
+        outputValidator = outputValidator,
+        statsManager = statsManager,
+        checkpointManager = CheckpointManager(),
+        templateValidator = PipelineTemplateValidator(TemplateEngine()),
+        observability = NoopObservabilityService
+    )
+
+    constructor(
+        agentExecutor: AgentExecutor,
+        resultAggregator: ResultAggregator,
+        eventBus: EventBus,
+        logger: Logger,
+        agentRegistry: com.cotor.data.registry.AgentRegistry,
+        outputValidator: OutputValidator,
+        statsManager: StatsManager,
+        checkpointManager: CheckpointManager,
+        templateValidator: PipelineTemplateValidator
+    ) : this(
+        agentExecutor = agentExecutor,
+        resultAggregator = resultAggregator,
+        eventBus = eventBus,
+        logger = logger,
+        agentRegistry = agentRegistry,
+        outputValidator = outputValidator,
+        statsManager = statsManager,
+        checkpointManager = checkpointManager,
+        templateValidator = templateValidator,
+        observability = NoopObservabilityService
+    )
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()
     private val templateEngine = TemplateEngine()
@@ -129,6 +178,7 @@ class DefaultPipelineOrchestrator(
         }
 
         logger.info("Starting pipeline: ${pipeline.name} (ID: $pipelineId)")
+        durableRuntimeService.beginPipelineRun(pipeline, pipelineContext, fromStageId)
         val pipelineObservation = observability.startPipeline(pipelineId, pipeline.name, pipeline.stages.size)
         pipelineObservation?.let {
             pipelineContext.metadata["traceId"] = it.traceContext.traceId
@@ -161,10 +211,25 @@ class DefaultPipelineOrchestrator(
                     }
                 }
 
-                val result: AggregatedResult? = if (pipeline.executionTimeoutMs != null) {
-                    withTimeoutOrNull(pipeline.executionTimeoutMs) { executePipelineBlock() }
+                val durableContext = if (DurableRuntimeFlags.isEnabled(pipelineContext)) {
+                    DurableRuntimeContext(
+                        runId = pipelineContext.metadata["durableRunId"]?.toString() ?: pipelineId,
+                        replayMode = pipelineContext.metadata["replayMode"]?.toString()?.let {
+                            runCatching { ReplayMode.valueOf(it) }.getOrDefault(ReplayMode.LIVE)
+                        } ?: ReplayMode.LIVE,
+                        sourceRunId = pipelineContext.metadata["sourceRunId"]?.toString(),
+                        sourceCheckpointId = pipelineContext.metadata["sourceCheckpointId"]?.toString(),
+                        configPath = pipelineContext.metadata["configPath"]?.toString()
+                    )
                 } else {
-                    executePipelineBlock()
+                    null
+                }
+                val result: AggregatedResult? = withContext(durableContext ?: EmptyCoroutineContext) {
+                    if (pipeline.executionTimeoutMs != null) {
+                        withTimeoutOrNull(pipeline.executionTimeoutMs) { executePipelineBlock() }
+                    } else {
+                        executePipelineBlock()
+                    }
                 }
 
                 val finalResult = result
@@ -186,6 +251,7 @@ class DefaultPipelineOrchestrator(
 
                 // Save checkpoint for resume functionality
                 saveCheckpoint(pipelineId, pipeline.name, pipelineContext)
+                durableRuntimeService.completeRun(pipelineContext)
 
                 finalResult
             } catch (e: Exception) {
@@ -196,6 +262,7 @@ class DefaultPipelineOrchestrator(
                 }
                 observability.failPipeline(pipelineObservation, e)
                 eventBus.emit(PipelineFailedEvent(pipelineId, e))
+                durableRuntimeService.failRun(pipelineContext)
                 throw e
             } finally {
                 activePipelines.remove(pipelineId)
@@ -435,6 +502,7 @@ class DefaultPipelineOrchestrator(
     ): AgentResult {
         val stageObservation = observability.startStage(pipelineId, stage.id, stage.agent?.name)
         eventBus.emit(StageStartedEvent(stage.id, pipelineId))
+        durableRuntimeService.recordStageStarted(pipelineContext, stage)
         val agentName = stage.agent?.name ?: stage.id
 
         val result: AgentResult? = try {
@@ -455,6 +523,8 @@ class DefaultPipelineOrchestrator(
                 metadata = emptyMap()
             )
             pipelineContext.addStageResult(stage.id, failureResult)
+            saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
+            durableRuntimeService.recordStageFailed(pipelineContext, stage, failureResult)
             observability.failStage(stageObservation, e)
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, e))
             throw e
@@ -475,6 +545,8 @@ class DefaultPipelineOrchestrator(
                 )
             )
             pipelineContext.addStageResult(stage.id, timeoutResult)
+            saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
+            durableRuntimeService.recordStageFailed(pipelineContext, stage, timeoutResult)
             observability.failStage(stageObservation, RuntimeException(errorMessage))
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, RuntimeException(errorMessage)))
 
@@ -487,9 +559,13 @@ class DefaultPipelineOrchestrator(
         pipelineContext.addStageResult(stage.id, result)
 
         if (result.isSuccess) {
+            saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
+            durableRuntimeService.recordStageCompleted(pipelineContext, stage, result)
             observability.completeStage(stageObservation, result)
             eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
         } else {
+            saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
+            durableRuntimeService.recordStageFailed(pipelineContext, stage, result)
             val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
             observability.failStage(stageObservation, error)
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
@@ -536,6 +612,8 @@ class DefaultPipelineOrchestrator(
             )
 
             pipelineContext.addStageResult(stage.id, result)
+            saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
+            durableRuntimeService.recordStageCompleted(pipelineContext, stage, result)
             observability.completeStage(stageObservation, result)
             eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
             return DecisionStageResult(result, outcome)
@@ -605,6 +683,8 @@ class DefaultPipelineOrchestrator(
             )
 
             pipelineContext.addStageResult(stage.id, result)
+            saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
+            durableRuntimeService.recordStageCompleted(pipelineContext, stage, result)
 
             val nextIndex = if (shouldRepeat) {
                 pipelineContext.metadata[iterationKey] = completedIterations + 1
@@ -642,8 +722,8 @@ class DefaultPipelineOrchestrator(
         context: PipelineContext
     ) {
         try {
-            val completedStages = context.stageResults.map { (stageId, result) ->
-                result.toCheckpoint(stageId)
+            val completedStages = context.stageResults.entries.map { entry ->
+                entry.value.toCheckpoint(entry.key)
             }
 
             if (completedStages.isNotEmpty()) {

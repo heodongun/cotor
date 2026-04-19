@@ -13,10 +13,12 @@ import com.cotor.data.config.ConfigRepository
 import com.cotor.data.config.CotorProperties
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
+import com.cotor.model.PipelineContext
 import com.cotor.monitoring.PipelineRunSnapshot
 import com.cotor.monitoring.PipelineRunStatus
 import com.cotor.monitoring.PipelineRunTracker
 import com.cotor.presentation.formatter.OutputFormatter
+import com.cotor.runtime.durable.DurableRuntimeFlags
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
@@ -35,6 +37,7 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.nio.file.Files
 import java.util.Locale
+import java.util.UUID
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -517,7 +520,17 @@ class RunCommand : CotorCommand() {
 
             // Execute pipeline
             echo("Executing pipeline: $pipelineName")
-            val result = orchestrator.executePipeline(pipeline)
+            val pipelineContext = PipelineContext(
+                pipelineId = UUID.randomUUID().toString(),
+                pipelineName = pipeline.name,
+                totalStages = pipeline.stages.size
+            ).also { context ->
+                context.metadata["configPath"] = configPath.toString()
+                if (DurableRuntimeFlags.isEnabled()) {
+                    DurableRuntimeFlags.enable(context)
+                }
+            }
+            val result = orchestrator.executePipeline(pipeline, context = pipelineContext)
 
             // Format and output results
             val formatter = outputFormatters[outputFormat]

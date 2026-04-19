@@ -12,6 +12,7 @@ import com.cotor.data.process.resolveExecutablePath
 import java.net.HttpURLConnection
 import java.net.ServerSocket
 import java.net.URL
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
@@ -32,6 +33,11 @@ class CodexAppServerManager {
         val baseUrl: String,
         val port: Int,
         val startedAt: Long
+    )
+
+    internal data class PreparedManagedLaunch(
+        val builder: ProcessBuilder,
+        val logDir: Path
     )
 
     private val processes = ConcurrentHashMap<String, ManagedProcess>()
@@ -112,21 +118,8 @@ class CodexAppServerManager {
             val command = listOf(executable.toString()) + config.args.map { argument ->
                 argument.replace("{port}", port.toString())
             }
-            val builder = ProcessBuilder(command)
-            val workingDirectory = config.workingDirectory?.takeIf { it.isNotBlank() }?.let { Path.of(it).toFile() }
-            if (workingDirectory != null) {
-                builder.directory(workingDirectory)
-            }
-            val environment = builder.environment()
-            val inheritedPath = environment["PATH"]
-            val executableParent = executable.parent?.toString()
-            if (!executableParent.isNullOrBlank()) {
-                environment["PATH"] = listOfNotNull(executableParent, inheritedPath)
-                    .flatMap { it.split(java.io.File.pathSeparator) }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .joinToString(java.io.File.pathSeparator)
-            }
+            val preparedLaunch = prepareManagedLaunch(command, executable, config)
+            val builder = preparedLaunch.builder
             return try {
                 val process = builder.start()
                 val baseUrl = "http://127.0.0.1:$port"
@@ -148,6 +141,32 @@ class CodexAppServerManager {
     fun restart(companyId: String, config: BackendConnectionConfig): ManagedCodexServerStatus {
         stop(companyId)
         return ensureStarted(companyId, config)
+    }
+
+    internal fun prepareManagedLaunch(
+        command: List<String>,
+        executable: Path,
+        config: BackendConnectionConfig
+    ): PreparedManagedLaunch {
+        val builder = ProcessBuilder(command)
+        val workingDirectory = config.workingDirectory?.takeIf { it.isNotBlank() }?.let { Path.of(it).toFile() }
+        if (workingDirectory != null) {
+            builder.directory(workingDirectory)
+        }
+        val codexLogDir = Files.createTempDirectory("cotor-codex-app-server")
+        builder.redirectOutput(codexLogDir.resolve("stdout.log").toFile())
+        builder.redirectError(codexLogDir.resolve("stderr.log").toFile())
+        val environment = builder.environment()
+        val inheritedPath = environment["PATH"]
+        val executableParent = executable.parent?.toString()
+        if (!executableParent.isNullOrBlank()) {
+            environment["PATH"] = listOfNotNull(executableParent, inheritedPath)
+                .flatMap { it.split(java.io.File.pathSeparator) }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .joinToString(java.io.File.pathSeparator)
+        }
+        return PreparedManagedLaunch(builder, codexLogDir)
     }
 
     fun stop(companyId: String) {

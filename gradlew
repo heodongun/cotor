@@ -112,6 +112,16 @@ case "$( uname )" in                #(
   NONSTOP* )        nonstop=true ;;
 esac
 
+if "$darwin"; then
+    if [ -z "$JAVA_HOME" ] || [ ! -x "$JAVA_HOME/bin/java" ]; then
+        RESOLVED_JAVA_HOME=$( /usr/libexec/java_home -v 17 2>/dev/null ) || RESOLVED_JAVA_HOME=
+        if [ -n "$RESOLVED_JAVA_HOME" ]; then
+            JAVA_HOME=$RESOLVED_JAVA_HOME
+            export JAVA_HOME
+        fi
+    fi
+fi
+
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
 
