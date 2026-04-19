@@ -10,20 +10,28 @@ import java.util.UUID
 
 class A2aRouter(
     private val desktopService: DesktopAppService,
-    private val sessionStore: A2aSessionStore = A2aSessionStore(),
-    private val dedupeStore: A2aDedupeStore = A2aDedupeStore()
+    private val sessionStore: A2aSessionStore = A2aSessionStore(persistenceStore = A2aSessionPersistenceStore()),
+    private val dedupeStore: A2aDedupeStore = A2aDedupeStore(persistenceStore = A2aDedupePersistenceStore()),
+    private val artifactStore: A2aArtifactStore = A2aArtifactStore()
 ) {
     private val json = Json {
         encodeDefaults = true
         ignoreUnknownKeys = true
     }
-    private val artifacts = mutableListOf<A2aArtifactRegistration>()
 
     fun openSession(request: A2aHelloRequest, now: Long = System.currentTimeMillis()): A2aWelcomeResponse {
         val session = sessionStore.open(request, now)
         return A2aWelcomeResponse(
             sessionId = session.id,
             heartbeatIntervalMs = sessionStore.heartbeatIntervalMs(),
+            serverTs = now
+        )
+    }
+
+    fun heartbeat(sessionId: String, now: Long = System.currentTimeMillis()): A2aHeartbeatResponse {
+        val session = sessionStore.touch(sessionId, now)
+        return A2aHeartbeatResponse(
+            sessionId = session.id,
             serverTs = now
         )
     }
@@ -35,11 +43,16 @@ class A2aRouter(
             dedupeStatus = "accepted",
             serverTs = now
         )
-        val (accepted, ack) = dedupeStore.remember(envelope.dedupeKey, freshAck)
+        val dedupeScope = "${envelope.tenant.companyId}:${envelope.dedupeKey}"
+        val (accepted, ack) = dedupeStore.remember(dedupeScope, freshAck)
         if (!accepted) {
             return A2aAckResponse(
                 ack = ack.copy(dedupeStatus = "already_processed")
             )
+        }
+        if (envelope.type == "sync.snapshot.request") {
+            enqueueSnapshotResponse(envelope, now)
+            return A2aAckResponse(ack = ack)
         }
         persistInternalMessage(envelope)
         recipientsFor(envelope).forEach { session ->
@@ -59,7 +72,7 @@ class A2aRouter(
     }
 
     suspend fun snapshot(request: A2aSnapshotRequest, now: Long = System.currentTimeMillis()): A2aSnapshotResponse {
-        val dashboard = desktopService.companyDashboard(request.tenant.companyId)
+        val dashboard = desktopService.companyDashboardReadOnly(request.tenant.companyId)
         val snapshot = buildJsonObject {
             put("companyId", request.tenant.companyId)
             put("serverTs", now)
@@ -81,9 +94,21 @@ class A2aRouter(
             runId = request.runId,
             createdAt = now
         )
-        artifacts += artifact
+        artifactStore.append(artifact)
         return A2aArtifactRegistrationResponse(artifact = artifact)
     }
+
+    fun listArtifacts(
+        tenant: A2aTenant,
+        issueId: String? = null,
+        taskId: String? = null,
+        runId: String? = null
+    ): A2aArtifactListResponse {
+        val filtered = artifactStore.list(tenant, issueId, taskId, runId)
+        return A2aArtifactListResponse(artifacts = filtered)
+    }
+
+    internal fun artifactCount(): Int = artifactStore.count()
 
     private fun validateEnvelope(envelope: A2aEnvelope, now: Long) {
         require(envelope.v == "a2a.v1") { "Unsupported protocol version: ${envelope.v}" }
@@ -109,55 +134,133 @@ class A2aRouter(
             ?: body?.get("message")?.toString()?.trim('"')
             ?: title
         when (envelope.type) {
-            "message.note" -> {
-                desktopService.addContextEntry(
+            "task.assign" -> {
+                desktopService.ingestA2aTaskAssignment(
+                    companyId = envelope.tenant.companyId,
+                    fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
+                    toAgentName = envelope.to.firstOrNull()?.let { it.roleName ?: it.agentId },
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId
+                )
+            }
+            "task.accept" -> {
+                desktopService.ingestAgentNote(
                     companyId = envelope.tenant.companyId,
                     agentName = envelope.from.roleName ?: envelope.from.agentId,
-                    kind = "note",
                     title = title,
                     content = content,
                     issueId = issueId,
                     goalId = goalId,
                     visibility = "goal"
+                )
+            }
+            "message.note" -> {
+                desktopService.ingestAgentNote(
+                    companyId = envelope.tenant.companyId,
+                    agentName = envelope.from.roleName ?: envelope.from.agentId,
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId,
+                    visibility = "goal"
+                )
+            }
+            "message.warning" -> {
+                desktopService.ingestAgentWarning(
+                    companyId = envelope.tenant.companyId,
+                    agentName = envelope.from.roleName ?: envelope.from.agentId,
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId
                 )
             }
             "message.handoff" -> {
-                desktopService.addContextEntry(
+                desktopService.ingestAgentHandoff(
                     companyId = envelope.tenant.companyId,
-                    agentName = envelope.from.roleName ?: envelope.from.agentId,
-                    kind = "handoff",
+                    fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
+                    toAgentName = envelope.to.firstOrNull()?.let { it.roleName ?: it.agentId },
                     title = title,
                     content = content,
                     issueId = issueId,
-                    goalId = goalId,
-                    visibility = "goal"
+                    goalId = goalId
                 )
-                envelope.to.firstOrNull()?.let { target ->
-                    desktopService.sendMessage(
-                        companyId = envelope.tenant.companyId,
-                        fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
-                        toAgentName = target.roleName ?: target.agentId,
-                        kind = "handoff",
-                        subject = title,
-                        body = content,
-                        issueId = issueId,
-                        goalId = goalId
-                    )
-                }
             }
             "message.escalation" -> {
-                envelope.to.firstOrNull()?.let { target ->
-                    desktopService.sendMessage(
-                        companyId = envelope.tenant.companyId,
-                        fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
-                        toAgentName = target.roleName ?: target.agentId,
-                        kind = "escalation",
-                        subject = title,
-                        body = content,
-                        issueId = issueId,
-                        goalId = goalId
-                    )
-                }
+                desktopService.ingestAgentEscalation(
+                    companyId = envelope.tenant.companyId,
+                    fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
+                    toAgentName = envelope.to.firstOrNull()?.let { it.roleName ?: it.agentId },
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId
+                )
+            }
+            "message.feedback" -> {
+                desktopService.ingestAgentFeedback(
+                    companyId = envelope.tenant.companyId,
+                    fromAgentName = envelope.from.roleName ?: envelope.from.agentId,
+                    toAgentName = envelope.to.firstOrNull()?.let { it.roleName ?: it.agentId },
+                    title = title,
+                    content = content,
+                    issueId = issueId,
+                    goalId = goalId
+                )
+            }
+            "review.verdict" -> {
+                val queueItemId = envelope.correlation?.reviewQueueItemId
+                    ?: body?.get("queueItemId")?.toString()?.trim('"')
+                    ?: throw IllegalArgumentException("review.verdict requires correlation.reviewQueueItemId or body.queueItemId")
+                val stage = body?.get("stage")?.toString()?.trim('"')
+                    ?: throw IllegalArgumentException("review.verdict requires body.stage")
+                val verdict = body["verdict"]?.toString()?.trim('"')
+                    ?: throw IllegalArgumentException("review.verdict requires body.verdict")
+                val feedback = body["feedback"]?.toString()?.trim('"')
+                desktopService.ingestA2aReviewVerdict(
+                    companyId = envelope.tenant.companyId,
+                    queueItemId = queueItemId,
+                    stage = stage,
+                    verdict = verdict,
+                    feedback = feedback
+                )
+            }
+            "review.request" -> {
+                val reviewIssueId = envelope.correlation?.issueId
+                    ?: body?.get("issueId")?.toString()?.trim('"')
+                    ?: throw IllegalArgumentException("review.request requires correlation.issueId or body.issueId")
+                val taskId = envelope.correlation?.taskId
+                    ?: body?.get("taskId")?.toString()?.trim('"')
+                val runId = envelope.correlation?.runId
+                    ?: body?.get("runId")?.toString()?.trim('"')
+                desktopService.ingestA2aReviewRequest(
+                    companyId = envelope.tenant.companyId,
+                    issueId = reviewIssueId,
+                    taskId = taskId,
+                    runId = runId
+                )
+            }
+            "run.update" -> {
+                val runId = envelope.correlation?.runId
+                    ?: body?.get("runId")?.toString()?.trim('"')
+                    ?: throw IllegalArgumentException("run.update requires correlation.runId or body.runId")
+                val status = body?.get("status")?.toString()?.trim('"')
+                    ?: throw IllegalArgumentException("run.update requires body.status")
+                val output = body?.get("output")?.toString()?.trim('"')
+                val error = body?.get("error")?.toString()?.trim('"')
+                val processId = body?.get("processId")?.toString()?.trim('"')?.toLongOrNull()
+                val durationMs = body?.get("durationMs")?.toString()?.trim('"')?.toLongOrNull()
+                desktopService.ingestA2aRunUpdate(
+                    companyId = envelope.tenant.companyId,
+                    runId = runId,
+                    status = status,
+                    output = output,
+                    error = error,
+                    processId = processId,
+                    durationMs = durationMs
+                )
             }
         }
     }
@@ -178,6 +281,42 @@ class A2aRouter(
         }
     }
 
+    private suspend fun enqueueSnapshotResponse(requestEnvelope: A2aEnvelope, now: Long) {
+        val snapshot = snapshot(A2aSnapshotRequest(tenant = requestEnvelope.tenant), now)
+        val responseEnvelope = A2aEnvelope(
+            v = "a2a.v1",
+            id = UUID.randomUUID().toString(),
+            type = "sync.snapshot.response",
+            ts = now,
+            tenant = requestEnvelope.tenant,
+            from = A2aParty(
+                agentId = "cotor-app-server",
+                roleName = "Cotor App Server",
+                executionAgentName = "app-server"
+            ),
+            to = listOf(requestEnvelope.from),
+            correlation = requestEnvelope.correlation,
+            causation = A2aCausation(messageId = requestEnvelope.id),
+            dedupeKey = "${requestEnvelope.dedupeKey}:snapshot-response",
+            ttlMs = requestEnvelope.ttlMs,
+            body = snapshot.snapshot
+        )
+        requesterSessionsFor(requestEnvelope).forEach { session ->
+            sessionStore.enqueue(session.id, responseEnvelope, now)
+        }
+    }
+
+    private fun requesterSessionsFor(envelope: A2aEnvelope): List<A2aSession> {
+        return sessionStore.sessionsForTenant(envelope.tenant).filter { session ->
+            session.agentId.equals(envelope.from.agentId, ignoreCase = true) ||
+                (
+                    !session.executionAgentName.isNullOrBlank() &&
+                        !envelope.from.executionAgentName.isNullOrBlank() &&
+                        session.executionAgentName.equals(envelope.from.executionAgentName, ignoreCase = true)
+                    )
+        }
+    }
+
     companion object {
         val SUPPORTED_MESSAGE_TYPES = setOf(
             "task.assign",
@@ -186,7 +325,9 @@ class A2aRouter(
             "review.request",
             "review.verdict",
             "message.note",
+            "message.warning",
             "message.handoff",
+            "message.feedback",
             "message.escalation",
             "sync.snapshot.request",
             "sync.snapshot.response"

@@ -26,6 +26,17 @@ fun Route.installA2aRoutes(
             }
         }
 
+        post("/sessions/{sessionId}/heartbeat") {
+            if (!authorize(token)) return@post
+            val sessionId = call.parameters["sessionId"]
+                ?: return@post call.respond(HttpStatusCode.BadRequest, a2aError("missing_session", "sessionId is required"))
+            runCatching {
+                call.respond(router.heartbeat(sessionId))
+            }.getOrElse { error ->
+                respondA2aError(error)
+            }
+        }
+
         post("/messages") {
             if (!authorize(token)) return@post
             val request = call.receive<A2aEnvelope>()
@@ -68,6 +79,20 @@ fun Route.installA2aRoutes(
                 respondA2aError(error)
             }
         }
+
+        get("/artifacts") {
+            if (!authorize(token)) return@get
+            val companyId = call.request.queryParameters["company_id"]
+                ?: return@get call.respond(HttpStatusCode.BadRequest, a2aError("invalid_request", "company_id is required"))
+            val issueId = call.request.queryParameters["issue_id"]
+            val taskId = call.request.queryParameters["task_id"]
+            val runId = call.request.queryParameters["run_id"]
+            runCatching {
+                call.respond(router.listArtifacts(A2aTenant(companyId = companyId), issueId, taskId, runId))
+            }.getOrElse { error ->
+                respondA2aError(error)
+            }
+        }
     }
 }
 
@@ -78,6 +103,7 @@ private suspend fun RoutingContext.respondA2aError(error: Throwable) {
         message.startsWith("Unsupported message type") -> "unsupported_type"
         message.startsWith("Unsupported protocol version") -> "unsupported_version"
         message.startsWith("Unknown session") -> "unknown_session"
+        error is IllegalArgumentException -> "invalid_request"
         message.contains("required") -> "invalid_request"
         else -> "internal_error"
     }

@@ -68,6 +68,13 @@ data class A2aWelcomeResponse(
 )
 
 @Serializable
+data class A2aHeartbeatResponse(
+    val ok: Boolean = true,
+    val sessionId: String,
+    val serverTs: Long
+)
+
+@Serializable
 data class A2aAck(
     val messageId: String,
     val dedupeStatus: String,
@@ -153,6 +160,12 @@ data class A2aArtifactRegistration(
 data class A2aArtifactRegistrationResponse(
     val ok: Boolean = true,
     val artifact: A2aArtifactRegistration
+)
+
+@Serializable
+data class A2aArtifactListResponse(
+    val ok: Boolean = true,
+    val artifacts: List<A2aArtifactRegistration>
 )
 
 @Serializable
