@@ -20,6 +20,21 @@ class RiskApprovalInterceptorTest : FunSpec({
         (requirement.score.total >= 80) shouldBe true
     }
 
+    test("github merge skips extra approval for pre-approved review flow") {
+        val interceptor = RiskApprovalInterceptor()
+        val requirement = interceptor.evaluate(
+            ActionRequest(
+                kind = ActionKind.GITHUB_MERGE,
+                label = "github.merge:12",
+                networkTarget = "github.com",
+                metadata = mapOf("preApprovedReviewFlow" to "true")
+            )
+        )
+
+        requirement.required shouldBe false
+        requirement.score.total shouldBe 20
+    }
+
     test("low risk http request stays below threshold") {
         val interceptor = RiskApprovalInterceptor()
         val requirement = interceptor.evaluate(

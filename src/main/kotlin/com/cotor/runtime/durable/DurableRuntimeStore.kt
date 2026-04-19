@@ -5,13 +5,14 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 class DurableRuntimeStore(
-    private val rootDir: Path = Path.of(".cotor", "runtime")
+    private val rootDir: Path = defaultDurableRuntimeRoot()
 ) {
     private val json = Json {
         prettyPrint = true
@@ -49,4 +50,20 @@ class DurableRuntimeStore(
         runCatching { Files.deleteIfExists(runPath(runId)) }.getOrDefault(false)
 
     private fun runPath(runId: String): Path = runsDir().resolve("$runId.json")
+}
+
+private fun defaultDurableRuntimeRoot(): Path {
+    val overriddenHome = sequenceOf(
+        System.getenv("COTOR_DESKTOP_APP_HOME"),
+        System.getenv("COTOR_APP_HOME")
+    )
+        .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+        .map { Paths.get(it).toAbsolutePath().normalize() }
+        .firstOrNull()
+    val appHome = overriddenHome
+        ?: Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize()
+            .resolve("Library")
+            .resolve("Application Support")
+            .resolve("CotorDesktop")
+    return appHome.resolve("runtime")
 }

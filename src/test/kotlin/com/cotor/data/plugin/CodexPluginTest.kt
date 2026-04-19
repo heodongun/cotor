@@ -187,7 +187,7 @@ class CodexPluginTest : FunSpec({
         result.output shouldBe "normalized-model"
     }
 
-    test("disables inherited codex MCP servers for task-scoped execution") {
+    test("disables inherited codex MCP servers for task-scoped non-oauth execution") {
         val plugin = CodexPlugin()
         val fakeHome = Files.createTempDirectory("codex-plugin-home")
         val fakeCodexHome = Files.createDirectories(fakeHome.resolve(".codex"))
@@ -244,5 +244,96 @@ class CodexPluginTest : FunSpec({
 
         result.output shouldBe "isolated"
         Files.exists(isolatedCodexHome!!) shouldBe false
+    }
+
+    test("reuses the managed oauth home for task-scoped oauth execution") {
+        val plugin = CodexPlugin()
+        val fakeHome = Files.createTempDirectory("codex-plugin-oauth-home")
+        val managedHome = Files.createDirectories(fakeHome.resolve(".cotor").resolve("auth").resolve("codex-oauth"))
+        Files.writeString(managedHome.resolve("auth.json"), """{"refresh_token":"test-refresh"}""")
+        var effectiveCodexHome: Path? = null
+        val processManager = object : ProcessManager {
+            override suspend fun executeProcess(
+                command: List<String>,
+                input: String?,
+                environment: Map<String, String>,
+                timeout: Long,
+                workingDirectory: Path?,
+                onStart: ((Long) -> Unit)?
+            ): ProcessResult {
+                effectiveCodexHome = environment["CODEX_HOME"]?.let(Path::of)
+                effectiveCodexHome shouldBe managedHome
+                Files.exists(managedHome.resolve("auth.json")) shouldBe true
+                val outputIndex = command.indexOf("--output-last-message")
+                Files.writeString(Path.of(command[outputIndex + 1]), "oauth-shared-home")
+                return ProcessResult(
+                    exitCode = 0,
+                    stdout = "",
+                    stderr = "",
+                    isSuccess = true
+                )
+            }
+        }
+
+        val result = plugin.execute(
+            ExecutionContext(
+                agentName = "codex",
+                input = "hello",
+                timeout = 1_000,
+                parameters = mapOf("auth_mode" to "oauth"),
+                environment = mapOf("HOME" to fakeHome.toString()),
+                taskId = "task-oauth-123"
+            ),
+            processManager
+        )
+
+        result.output shouldBe "oauth-shared-home"
+        Files.exists(managedHome) shouldBe true
+    }
+
+    test("prefers the newer native codex auth home over an older managed oauth copy") {
+        val plugin = CodexPlugin()
+        val fakeHome = Files.createTempDirectory("codex-plugin-prefer-native-home")
+        val managedHome = Files.createDirectories(fakeHome.resolve(".cotor").resolve("auth").resolve("codex-oauth"))
+        val nativeHome = Files.createDirectories(fakeHome.resolve(".codex"))
+        Files.writeString(managedHome.resolve("auth.json"), """{"refresh_token":"managed-stale"}""")
+        Thread.sleep(10)
+        Files.writeString(nativeHome.resolve("auth.json"), """{"refresh_token":"native-fresh"}""")
+        var effectiveCodexHome: Path? = null
+        val processManager = object : ProcessManager {
+            override suspend fun executeProcess(
+                command: List<String>,
+                input: String?,
+                environment: Map<String, String>,
+                timeout: Long,
+                workingDirectory: Path?,
+                onStart: ((Long) -> Unit)?
+            ): ProcessResult {
+                effectiveCodexHome = environment["CODEX_HOME"]?.let(Path::of)
+                effectiveCodexHome shouldBe nativeHome
+                val outputIndex = command.indexOf("--output-last-message")
+                Files.writeString(Path.of(command[outputIndex + 1]), "oauth-native-home")
+                return ProcessResult(
+                    exitCode = 0,
+                    stdout = "",
+                    stderr = "",
+                    isSuccess = true
+                )
+            }
+        }
+
+        val result = plugin.execute(
+            ExecutionContext(
+                agentName = "codex",
+                input = "hello",
+                timeout = 1_000,
+                parameters = mapOf("auth_mode" to "oauth"),
+                environment = mapOf("HOME" to fakeHome.toString()),
+                taskId = "task-oauth-native-123"
+            ),
+            processManager
+        )
+
+        result.output shouldBe "oauth-native-home"
     }
 })

@@ -41,13 +41,23 @@ class CompanyRuntimeBindingService(
             .map { it.runId }
             .filter { it.isNotBlank() }
             .toSet()
-        val runs = durableRuntimeService.listRuns().filter { run ->
-            run.runId in boundRunIds ||
-                run.checkpoints.any { node -> node.metadata["companyId"] == companyId } ||
-                run.sideEffects.any { effect -> effect.metadata["companyId"] == companyId }
+        val directRuns = boundRunIds.mapNotNull(durableRuntimeService::inspectRun)
+        val runs = if (boundRunIds.isNotEmpty() && directRuns.size == boundRunIds.size) {
+            directRuns
+        } else {
+            (directRuns + durableRuntimeService.listRuns().filter { run ->
+                run.runId in boundRunIds ||
+                    run.checkpoints.any { node -> node.metadata["companyId"] == companyId } ||
+                    run.sideEffects.any { effect -> effect.metadata["companyId"] == companyId }
+            }).distinctBy { it.runId }
         }
         val githubPullRequests = gitHubControlPlaneService.listPullRequests(companyId)
-        val actionLogs = actionStore.listSnapshots()
+        val directActionLogs = boundRunIds.mapNotNull(actionStore::load)
+        val actionLogs = if (boundRunIds.isNotEmpty() && directActionLogs.size == boundRunIds.size) {
+            directActionLogs
+        } else {
+            (directActionLogs + actionStore.listSnapshots()).distinctBy { it.runId }
+        }
 
         val resumableRunIds = runs
             .filter { it.status != DurableRunStatus.COMPLETED }

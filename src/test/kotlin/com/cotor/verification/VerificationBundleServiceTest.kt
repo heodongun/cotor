@@ -83,4 +83,46 @@ class VerificationBundleServiceTest : FunSpec({
         bundle.evidenceSummary?.contains("file:src/App.kt") shouldBe true
         bundle.knowledgeSummary?.contains("Prior QA finding") shouldBe true
     }
+
+    test("buildForIssue is read-only and does not append observations") {
+        val appHome = Files.createTempDirectory("verification-bundle-readonly-test")
+        val store = VerificationStore { appHome }
+        val service = VerificationBundleService(
+            provenanceService = ProvenanceService(ProvenanceStore { appHome }),
+            knowledgeService = KnowledgeService(KnowledgeStore { appHome }),
+            store = store
+        )
+        val issue = CompanyIssue(
+            id = "issue-2",
+            goalId = "goal-2",
+            workspaceId = "workspace-2",
+            title = "Issue",
+            description = "desc",
+            status = IssueStatus.IN_REVIEW,
+            acceptanceCriteria = listOf("Pass CI"),
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+        val queueItem = ReviewQueueItem(
+            id = "review-2",
+            issueId = "issue-2",
+            runId = "run-2",
+            status = ReviewQueueStatus.AWAITING_QA,
+            checksSummary = "ci=COMPLETED/SUCCESS",
+            mergeability = "CLEAN",
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+
+        service.buildForIssue(DesktopAppState(), issue, queueItem)
+        service.buildForIssue(DesktopAppState(), issue, queueItem)
+
+        store.loadOutcome(issue.id) shouldBe null
+        store.loadObservations(issue.id) shouldBe emptyList()
+
+        service.persistForIssue(DesktopAppState(), issue, queueItem)
+
+        store.loadOutcome(issue.id)?.issueId shouldBe issue.id
+        store.loadObservations(issue.id).isNotEmpty() shouldBe true
+    }
 })

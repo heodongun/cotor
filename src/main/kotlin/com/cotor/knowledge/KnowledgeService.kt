@@ -152,14 +152,21 @@ class KnowledgeService(
 
     private fun mergeRecords(existing: List<KnowledgeRecord>, incoming: List<KnowledgeRecord>): List<KnowledgeRecord> {
         val merged = linkedMapOf<String, KnowledgeRecord>()
+        val structuralKeys = linkedMapOf<String, MutableList<KnowledgeRecord>>()
         (existing + incoming).forEach { record ->
-            val key = "${record.subjectType}|${record.subjectId}|${record.kind}|${record.title}"
-            val previous = merged[key]
-            merged[key] = when {
-                previous == null -> record
-                previous.content == record.content -> record.copy(conflictStatus = previous.conflictStatus)
+            val structuralKey = "${record.subjectType}|${record.subjectId}|${record.kind}|${record.title}"
+            val contentKey = "$structuralKey|${record.content}"
+            val siblings = structuralKeys.getOrPut(structuralKey) { mutableListOf() }
+            val resolved = when {
+                siblings.any { it.content == record.content } -> {
+                    val previous = siblings.last { it.content == record.content }
+                    record.copy(conflictStatus = previous.conflictStatus)
+                }
+                siblings.isEmpty() -> record
                 else -> record.copy(conflictStatus = KnowledgeConflictStatus.CONFLICTING)
             }
+            merged[contentKey] = resolved
+            siblings += resolved
         }
         return merged.values.sortedByDescending { it.createdAt }
     }

@@ -12,6 +12,7 @@ import kotlin.io.path.writeText
 class ActionStore(
     private val appHomeProvider: () -> Path = { defaultDesktopAppHome() }
 ) {
+    private val lock = Any()
     private val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true
@@ -36,42 +37,49 @@ class ActionStore(
     }
 
     fun load(runId: String): ActionLogSnapshot? {
-        val file = actionsDir().resolve("$runId.json")
-        if (!file.exists()) {
-            return null
+        return synchronized(lock) {
+            val file = actionsDir().resolve("$runId.json")
+            if (!file.exists()) {
+                return@synchronized null
+            }
+            runCatching {
+                json.decodeFromString(ActionLogSnapshot.serializer(), file.readText())
+            }.getOrNull()
         }
-        return runCatching {
-            json.decodeFromString(ActionLogSnapshot.serializer(), file.readText())
-        }.getOrNull()
     }
 
     fun append(runId: String, record: ActionExecutionRecord): ActionLogSnapshot {
-        val current = load(runId) ?: ActionLogSnapshot(runId = runId)
-        val updated = current.copy(
-            records = current.records + record,
-            updatedAt = System.currentTimeMillis()
-        )
-        save(updated)
-        return updated
+        return synchronized(lock) {
+            val current = load(runId) ?: ActionLogSnapshot(runId = runId)
+            val updated = current.copy(
+                records = current.records + record,
+                updatedAt = System.currentTimeMillis()
+            )
+            save(updated)
+            updated
+        }
     }
 
     fun replace(runId: String, recordId: String, transform: (ActionExecutionRecord) -> ActionExecutionRecord): ActionLogSnapshot {
-        val current = load(runId) ?: ActionLogSnapshot(runId = runId)
-        val updated = current.copy(
-            records = current.records.map { record ->
-                if (record.id == recordId) transform(record) else record
-            },
-            updatedAt = System.currentTimeMillis()
-        )
-        save(updated)
-        return updated
+        return synchronized(lock) {
+            val current = load(runId) ?: ActionLogSnapshot(runId = runId)
+            val updated = current.copy(
+                records = current.records.map { record ->
+                    if (record.id == recordId) transform(record) else record
+                },
+                updatedAt = System.currentTimeMillis()
+            )
+            save(updated)
+            updated
+        }
     }
 
     private fun save(snapshot: ActionLogSnapshot) {
-        val dir = actionsDir()
-        dir.createDirectories()
-        val file = dir.resolve("${snapshot.runId}.json")
-        file.writeText(json.encodeToString(ActionLogSnapshot.serializer(), snapshot))
+        synchronized(lock) {
+            val dir = actionsDir()
+            dir.createDirectories()
+            val file = dir.resolve("${snapshot.runId}.json")
+            file.writeText(json.encodeToString(ActionLogSnapshot.serializer(), snapshot))
+        }
     }
 }
-

@@ -215,10 +215,13 @@ class DesktopStateStore(
             issues = decodeList("issues", CompanyIssue.serializer()),
             issueDependencies = decodeList("issueDependencies", IssueDependency.serializer()),
             orgProfiles = decodeList("orgProfiles", OrgAgentProfile.serializer()),
+            workflowPipelines = decodeList("workflowPipelines", WorkflowPipelineDefinition.serializer()),
             workflowTopologies = decodeList("workflowTopologies", WorkflowTopologySnapshot.serializer()),
             goalDecisions = decodeList("goalDecisions", GoalOrchestrationDecision.serializer()),
             reviewQueue = decodeList("reviewQueue", ReviewQueueItem.serializer()),
             companyActivity = decodeList("companyActivity", CompanyActivityItem.serializer()),
+            agentContextEntries = decodeList("agentContextEntries", AgentContextEntry.serializer()),
+            agentMessages = decodeList("agentMessages", AgentMessage.serializer()),
             opsMetrics = decodeObject("opsMetrics", OpsMetricSnapshot.serializer(), OpsMetricSnapshot()),
             signals = decodeList("signals", OpsSignal.serializer()),
             backendSettings = decodeObject("backendSettings", DesktopBackendSettings.serializer(), DesktopBackendSettings()),
@@ -425,7 +428,7 @@ class DesktopStateStore(
                 .filter { it.status != IssueStatus.DONE && it.status != IssueStatus.CANCELED }
                 .mapTo(linkedSetOf()) { it.id }
             copy(
-                tasks = retainedTasks.map(::compactTaskForPersistence),
+                tasks = retainedTasks.map { compactTaskForPersistence(it, unresolvedIssueIds) },
                 runs = retainedRuns.map(::compactRunForPersistence),
                 reviewQueue = reviewQueue.filter { it.issueId in retainedReviewQueueIssueIds },
                 companyActivity = companyActivity.sortedByDescending { it.createdAt }.take(200),
@@ -442,8 +445,12 @@ class DesktopStateStore(
             }
         )
 
-    private fun compactTaskForPersistence(task: AgentTask): AgentTask {
-        if (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED) {
+    private fun compactTaskForPersistence(task: AgentTask, unresolvedIssueIds: Set<String>): AgentTask {
+        if (
+            task.status == DesktopTaskStatus.RUNNING ||
+            task.status == DesktopTaskStatus.QUEUED ||
+            task.issueId in unresolvedIssueIds
+        ) {
             return task
         }
         return task.copy(

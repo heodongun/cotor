@@ -1,5 +1,6 @@
 package com.cotor.runtime.durable
 
+import com.cotor.app.defaultDesktopAppHome
 import com.cotor.checkpoint.CheckpointManager
 import com.cotor.checkpoint.StageCheckpoint
 import com.cotor.model.Pipeline
@@ -15,6 +16,24 @@ import java.nio.file.Files
 import java.time.Instant
 
 class DurableRuntimeServiceTest : FunSpec({
+    test("default durable runtime store writes under desktop app home") {
+        val runId = "default-root-${System.currentTimeMillis()}"
+        val store = DurableRuntimeStore()
+        val snapshot = DurableRunSnapshot(
+            runId = runId,
+            pipelineName = "default-root-pipeline",
+            status = DurableRunStatus.RUNNING,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+
+        store.saveRun(snapshot)
+
+        val expected = defaultDesktopAppHome().resolve("runtime").resolve("runs").resolve("$runId.json")
+        Files.exists(expected) shouldBe true
+        store.deleteRun(runId) shouldBe true
+    }
+
     test("inspectRun imports a legacy checkpoint into the durable graph") {
         val checkpointDir = Files.createTempDirectory("durable-runtime-legacy-checkpoint")
         val runtimeDir = Files.createTempDirectory("durable-runtime-store")

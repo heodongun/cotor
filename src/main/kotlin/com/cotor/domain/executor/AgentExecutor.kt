@@ -68,6 +68,28 @@ class DefaultAgentExecutor(
     private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService(),
     private val actionExecutionService: ActionExecutionService = ActionExecutionService(durableRuntimeService = durableRuntimeService, logger = logger)
 ) : AgentExecutor {
+    private data class RuntimeServices(
+        val durableRuntimeService: DurableRuntimeService,
+        val actionExecutionService: ActionExecutionService
+    )
+
+    private constructor(
+        processManager: ProcessManager,
+        pluginLoader: PluginLoader,
+        securityValidator: SecurityValidator,
+        logger: Logger,
+        observability: ObservabilityService,
+        runtimeServices: RuntimeServices
+    ) : this(
+        processManager = processManager,
+        pluginLoader = pluginLoader,
+        securityValidator = securityValidator,
+        logger = logger,
+        observability = observability,
+        durableRuntimeService = runtimeServices.durableRuntimeService,
+        actionExecutionService = runtimeServices.actionExecutionService
+    )
+
     constructor(
         processManager: ProcessManager,
         pluginLoader: PluginLoader,
@@ -79,8 +101,7 @@ class DefaultAgentExecutor(
         securityValidator = securityValidator,
         logger = logger,
         observability = NoopObservabilityService,
-        durableRuntimeService = DurableRuntimeService(),
-        actionExecutionService = ActionExecutionService(durableRuntimeService = DurableRuntimeService(), logger = logger)
+        runtimeServices = defaultRuntimeServices(logger)
     )
 
     constructor(
@@ -95,9 +116,21 @@ class DefaultAgentExecutor(
         securityValidator = securityValidator,
         logger = logger,
         observability = observability,
-        durableRuntimeService = DurableRuntimeService(),
-        actionExecutionService = ActionExecutionService(durableRuntimeService = DurableRuntimeService(), logger = logger)
+        runtimeServices = defaultRuntimeServices(logger)
     )
+
+    companion object {
+        private fun defaultRuntimeServices(logger: Logger): RuntimeServices {
+            val durableRuntimeService = DurableRuntimeService()
+            return RuntimeServices(
+                durableRuntimeService = durableRuntimeService,
+                actionExecutionService = ActionExecutionService(
+                    durableRuntimeService = durableRuntimeService,
+                    logger = logger
+                )
+            )
+        }
+    }
 
     private val isDesktopTui = System.getenv("COTOR_DESKTOP_TUI") == "1"
 

@@ -14,6 +14,13 @@ import kotlinx.serialization.Serializable
  * Request payload for registering an existing local git checkout.
  */
 @Serializable
+data class CompanyMemorySnapshotResponse(
+    val companyMemory: String,
+    val workflowMemory: String,
+    val agentMemory: String
+)
+
+@Serializable
 data class OpenRepositoryRequest(
     val path: String
 )

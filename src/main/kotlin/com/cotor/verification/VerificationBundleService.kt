@@ -23,8 +23,35 @@ class VerificationBundleService(
         val evidenceRefs = buildArtifactRefs(issue, effectiveQueue)
         val observations = buildObservations(issue, effectiveQueue)
         val outcome = evaluate(contract, observations, evidenceRefs)
+
+        return bundleFromEvaluation(issue, contract, observations, outcome, evidenceRefs)
+    }
+
+    fun persistForIssue(
+        state: DesktopAppState,
+        issue: CompanyIssue,
+        queueItem: ReviewQueueItem? = null
+    ): VerificationBundle {
+        val effectiveQueue = queueItem ?: state.reviewQueue
+            .filter { it.issueId == issue.id }
+            .maxByOrNull { it.updatedAt }
+        val contract = buildContract(issue, effectiveQueue)
+        val evidenceRefs = buildArtifactRefs(issue, effectiveQueue)
+        val observations = buildObservations(issue, effectiveQueue)
+        val outcome = evaluate(contract, observations, evidenceRefs)
         store.saveOutcome(outcome)
         observations.forEach { observation -> store.appendObservation(issue.id, observation) }
+
+        return bundleFromEvaluation(issue, contract, observations, outcome, evidenceRefs)
+    }
+
+    private fun bundleFromEvaluation(
+        issue: CompanyIssue,
+        contract: VerificationContract,
+        observations: List<VerificationObservation>,
+        outcome: VerificationOutcome,
+        evidenceRefs: List<VerificationArtifactRef>
+    ): VerificationBundle {
 
         val evidenceSummary = evidenceRefs.takeIf { it.isNotEmpty() }
             ?.joinToString(" | ") { ref -> "${ref.kind}:${ref.label}" }

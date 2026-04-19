@@ -13,6 +13,7 @@ import kotlin.io.path.writeText
 class VerificationStore(
     private val appHomeProvider: () -> Path = { defaultDesktopAppHome() }
 ) {
+    private val lock = Any()
     private val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true
@@ -26,33 +27,41 @@ class VerificationStore(
     private fun observationFile(issueId: String): Path = dir().resolve("$issueId.observations.json")
 
     fun saveOutcome(outcome: VerificationOutcome) {
-        val root = dir()
-        root.createDirectories()
-        outcomeFile(outcome.issueId).writeText(json.encodeToString(VerificationOutcome.serializer(), outcome))
+        synchronized(lock) {
+            val root = dir()
+            root.createDirectories()
+            outcomeFile(outcome.issueId).writeText(json.encodeToString(VerificationOutcome.serializer(), outcome))
+        }
     }
 
     fun loadOutcome(issueId: String): VerificationOutcome? {
-        val path = outcomeFile(issueId)
-        if (!path.exists()) return null
-        return runCatching { json.decodeFromString(VerificationOutcome.serializer(), path.readText()) }.getOrNull()
+        return synchronized(lock) {
+            val path = outcomeFile(issueId)
+            if (!path.exists()) return@synchronized null
+            runCatching { json.decodeFromString(VerificationOutcome.serializer(), path.readText()) }.getOrNull()
+        }
     }
 
     fun appendObservation(issueId: String, observation: VerificationObservation) {
-        val current = loadObservations(issueId)
-        val updated = (current + observation).takeLast(50)
-        val root = dir()
-        root.createDirectories()
-        observationFile(issueId).writeText(
-            json.encodeToString(ListSerializer(VerificationObservation.serializer()), updated)
-        )
+        synchronized(lock) {
+            val current = loadObservations(issueId)
+            val updated = (current + observation).takeLast(50)
+            val root = dir()
+            root.createDirectories()
+            observationFile(issueId).writeText(
+                json.encodeToString(ListSerializer(VerificationObservation.serializer()), updated)
+            )
+        }
     }
 
     fun loadObservations(issueId: String): List<VerificationObservation> {
-        val path = observationFile(issueId)
-        if (!path.exists()) return emptyList()
-        return runCatching {
-            json.decodeFromString(ListSerializer(VerificationObservation.serializer()), path.readText())
-        }.getOrDefault(emptyList())
+        return synchronized(lock) {
+            val path = observationFile(issueId)
+            if (!path.exists()) return@synchronized emptyList()
+            runCatching {
+                json.decodeFromString(ListSerializer(VerificationObservation.serializer()), path.readText())
+            }.getOrDefault(emptyList())
+        }
     }
 
     fun listOutcomes(): List<VerificationOutcome> {

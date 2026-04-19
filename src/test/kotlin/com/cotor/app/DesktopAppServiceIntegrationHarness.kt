@@ -5,6 +5,7 @@ import com.cotor.data.config.JsonParser
 import com.cotor.data.config.YamlParser
 import com.cotor.data.process.CoroutineProcessManager
 import com.cotor.domain.executor.AgentExecutor
+import com.cotor.model.AgentExecutionMetadata
 import com.cotor.knowledge.KnowledgeService
 import com.cotor.knowledge.KnowledgeStore
 import com.cotor.policy.PolicyEngine
@@ -22,6 +23,7 @@ import com.cotor.verification.VerificationBundleService
 import com.cotor.verification.VerificationStore
 import io.mockk.coEvery
 import io.mockk.mockk
+import io.mockk.spyk
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -37,23 +39,26 @@ data class DesktopAppServiceIntegrationHarness(
 )
 
 fun createDesktopAppServiceIntegrationHarness(
-    agentResultFactory: () -> com.cotor.model.AgentResult,
-    commandAvailability: (String) -> Boolean = { true }
+    agentResultFactory: (AgentExecutionMetadata?) -> com.cotor.model.AgentResult,
+    commandAvailability: (String) -> Boolean = { true },
+    gitWorkspaceServiceTransform: (GitWorkspaceService) -> GitWorkspaceService = { it },
+    appHome: Path? = null,
+    repositoryRoot: Path? = null
 ): DesktopAppServiceIntegrationHarness {
     val logger = LoggerFactory.getLogger("DesktopAppServiceIntegrationHarness")
-    val appHome = Files.createTempDirectory("cotor-integration-home")
-    val repositoryRoot = Files.createTempDirectory("cotor-integration-repo")
-    val stateStore = DesktopStateStore { appHome }
+    val resolvedAppHome = appHome ?: Files.createTempDirectory("cotor-integration-home")
+    val resolvedRepositoryRoot = repositoryRoot ?: Files.createTempDirectory("cotor-integration-repo")
+    val stateStore = DesktopStateStore { resolvedAppHome }
     val processManager = CoroutineProcessManager(logger)
-    val checkpointManager = com.cotor.checkpoint.CheckpointManager(appHome.resolve("checkpoints").toString())
+    val checkpointManager = com.cotor.checkpoint.CheckpointManager(resolvedAppHome.resolve("checkpoints").toString())
     val durableRuntimeService = DurableRuntimeService(
         checkpointManager = checkpointManager,
-        runtimeStore = DurableRuntimeStore(appHome.resolve("runtime"))
+        runtimeStore = DurableRuntimeStore(resolvedAppHome.resolve("runtime"))
     )
-    val actionStore = ActionStore { appHome }
-    val provenanceService = ProvenanceService(ProvenanceStore { appHome })
-    val knowledgeService = KnowledgeService(KnowledgeStore { appHome })
-    val policyEngine = PolicyEngine(PolicyStore { appHome })
+    val actionStore = ActionStore { resolvedAppHome }
+    val provenanceService = ProvenanceService(ProvenanceStore { resolvedAppHome })
+    val knowledgeService = KnowledgeService(KnowledgeStore { resolvedAppHome })
+    val policyEngine = PolicyEngine(PolicyStore { resolvedAppHome })
     val actionExecutionService = ActionExecutionService(
         actionStore = actionStore,
         durableRuntimeService = durableRuntimeService,
@@ -61,23 +66,24 @@ fun createDesktopAppServiceIntegrationHarness(
         interceptors = listOf(policyEngine, RiskApprovalInterceptor()),
         logger = logger
     )
-    val gitWorkspaceService = GitWorkspaceService(
+    val baseGitWorkspaceService = GitWorkspaceService(
         processManager = processManager,
         stateStore = stateStore,
         logger = logger,
         durableRuntimeService = durableRuntimeService,
         actionExecutionService = actionExecutionService
     )
+    val gitWorkspaceService = gitWorkspaceServiceTransform(baseGitWorkspaceService)
     val agentExecutor = mockk<AgentExecutor>()
-    coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers { agentResultFactory() }
-    coEvery { agentExecutor.executeWithRetry(any(), any(), any(), any()) } answers { agentResultFactory() }
+    coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers { agentResultFactory(thirdArg()) }
+    coEvery { agentExecutor.executeWithRetry(any(), any(), any(), any()) } answers { agentResultFactory(thirdArg()) }
     val verificationBundleService = VerificationBundleService(
         provenanceService = provenanceService,
         knowledgeService = knowledgeService,
-        store = VerificationStore { appHome }
+        store = VerificationStore { resolvedAppHome }
     )
     val gitHubControlPlaneService = GitHubControlPlaneService(
-        store = GitHubControlPlaneStore { appHome },
+        store = GitHubControlPlaneStore { resolvedAppHome },
         provenanceService = provenanceService,
         knowledgeService = knowledgeService
     )
@@ -102,8 +108,8 @@ fun createDesktopAppServiceIntegrationHarness(
     )
 
     return DesktopAppServiceIntegrationHarness(
-        appHome = appHome,
-        repositoryRoot = repositoryRoot,
+        appHome = resolvedAppHome,
+        repositoryRoot = resolvedRepositoryRoot,
         stateStore = stateStore,
         gitWorkspaceService = gitWorkspaceService,
         agentExecutor = agentExecutor,

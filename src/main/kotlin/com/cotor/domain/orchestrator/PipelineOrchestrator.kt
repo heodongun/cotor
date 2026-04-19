@@ -108,8 +108,7 @@ class DefaultPipelineOrchestrator(
         statsManager = statsManager,
         checkpointManager = CheckpointManager(),
         templateValidator = PipelineTemplateValidator(TemplateEngine()),
-        observability = NoopObservabilityService,
-        durableRuntimeService = DurableRuntimeService()
+        observability = NoopObservabilityService
     )
 
     constructor(
@@ -132,8 +131,7 @@ class DefaultPipelineOrchestrator(
         statsManager = statsManager,
         checkpointManager = checkpointManager,
         templateValidator = templateValidator,
-        observability = NoopObservabilityService,
-        durableRuntimeService = DurableRuntimeService()
+        observability = NoopObservabilityService
     )
 
     private val activePipelines = ConcurrentHashMap<String, Deferred<AggregatedResult>>()

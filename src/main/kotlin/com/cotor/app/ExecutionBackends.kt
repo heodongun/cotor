@@ -75,9 +75,9 @@ class CodexAppServerBackend(
     override val kind: ExecutionBackendKind = ExecutionBackendKind.CODEX_APP_SERVER
     override val displayName: String = "Codex App Server"
     override val capabilities: ExecutionBackendCapabilities = ExecutionBackendCapabilities(
-        canStreamEvents = true,
-        canResumeRuns = true,
-        canSpawnParallelAgents = true,
+        canStreamEvents = false,
+        canResumeRuns = false,
+        canSpawnParallelAgents = false,
         canPublishPullRequests = true
     )
 

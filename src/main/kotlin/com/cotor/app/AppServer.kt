@@ -254,7 +254,6 @@ internal fun Application.cotorAppModule(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
-    val a2aRouter = A2aRouter(desktopService)
     install(ContentNegotiation) {
         json(ktorJson)
     }
@@ -736,7 +735,7 @@ internal fun Application.cotorAppModule(
             route("/company") {
                 get {
                     if (!requireToken(token)) return@get
-                    call.respond(desktopService.companyDashboard())
+                    call.respond(desktopService.companyDashboardReadOnly())
                 }
 
                 route("/goals") {
@@ -807,7 +806,7 @@ internal fun Application.cotorAppModule(
                         if (!requireToken(token)) return@get
                         val issueId = call.parameters["issueId"]
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
-                        val issue = desktopService.getIssue(issueId)
+                        val issue = desktopService.getIssueProjected(issueId)
                             ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found: $issueId"))
                         call.respond(issue)
                     }
@@ -936,7 +935,18 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@get
                     val companyId = call.parameters["companyId"]
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
-                    call.respond(desktopService.companyDashboard(companyId))
+                    call.respond(desktopService.companyDashboardReadOnly(companyId))
+                }
+
+                get("/{companyId}/memory-snapshot") {
+                    if (!requireToken(token)) return@get
+                    val companyId = call.parameters["companyId"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
+                    val issueId = call.request.queryParameters["issueId"]
+                    val agentProfileId = call.request.queryParameters["agentProfileId"]
+                    respondDesktopRequest {
+                        desktopService.companyMemorySnapshot(companyId, issueId, agentProfileId)
+                    }
                 }
 
                 patch("/{companyId}") {
@@ -1225,7 +1235,7 @@ internal fun Application.cotorAppModule(
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "companyId is required"))
                         val issueId = call.parameters["issueId"]
                             ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
-                        val issue = desktopService.getIssue(issueId)?.takeIf { it.companyId == companyId }
+                        val issue = desktopService.getIssueProjected(issueId)?.takeIf { it.companyId == companyId }
                             ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found: $issueId"))
                         call.respond(issue)
                     }
@@ -1543,6 +1553,16 @@ internal fun Application.cotorAppModule(
                     }
                 }
 
+                patch("/{issueId}/assignee") {
+                    if (!requireToken(token)) return@patch
+                    val issueId = call.parameters["issueId"]
+                        ?: return@patch call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
+                    val request = call.receive<IssueAssigneeUpdateRequest>()
+                    respondDesktopRequest {
+                        desktopService.updateIssueAssignee(issueId, request.assigneeProfileId)
+                    }
+                }
+
                 post("/{issueId}/run") {
                     if (!requireToken(token)) return@post
                     val issueId = call.parameters["issueId"]
@@ -1557,6 +1577,26 @@ internal fun Application.cotorAppModule(
                 get {
                     if (!requireToken(token)) return@get
                     call.respond(desktopService.listReviewQueue())
+                }
+
+                post("/{itemId}/qa") {
+                    if (!requireToken(token)) return@post
+                    val itemId = call.parameters["itemId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "itemId is required"))
+                    val request = call.receive<ReviewQueueVerdictRequest>()
+                    respondDesktopRequest {
+                        desktopService.submitQaReviewVerdict(itemId, request.verdict, request.feedback)
+                    }
+                }
+
+                post("/{itemId}/ceo") {
+                    if (!requireToken(token)) return@post
+                    val itemId = call.parameters["itemId"]
+                        ?: return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "itemId is required"))
+                    val request = call.receive<ReviewQueueVerdictRequest>()
+                    respondDesktopRequest {
+                        desktopService.submitCeoReviewVerdict(itemId, request.verdict, request.feedback)
+                    }
                 }
 
                 post("/{itemId}/merge") {
@@ -1720,8 +1760,16 @@ private suspend fun handleReadonlyMcpRequest(
                     put(
                         "capabilities",
                         buildJsonObject {
-                            put("tools", buildJsonObject { })
-                            put("resources", buildJsonObject { })
+                            put("tools", buildJsonObject {
+                                put("listChanged", JsonPrimitive(false))
+                            })
+                            put("resources", buildJsonObject {
+                                put("subscribe", JsonPrimitive(false))
+                                put("listChanged", JsonPrimitive(false))
+                            })
+                            put("annotations", buildJsonObject {
+                                put("readOnlySurface", JsonPrimitive(true))
+                            })
                         }
                     )
                 }
@@ -1731,14 +1779,19 @@ private suspend fun handleReadonlyMcpRequest(
             put(
                 "tools",
                     buildJsonArray {
-                        add(mcpToolDescriptor("company_summary", "Return the company dashboard summary."))
-                        add(mcpToolDescriptor("issue_list", "Return issues for one company."))
-                        add(mcpToolDescriptor("durable_run_inspect", "Inspect one durable runtime run."))
-                        add(mcpToolDescriptor("approval_queue", "Return runs waiting for approval."))
-                        add(mcpToolDescriptor("evidence_summary", "Return evidence bundle for a run or file."))
-                        add(mcpToolDescriptor("verification_bundle", "Return verification bundle for one issue."))
-                        add(mcpToolDescriptor("github_company_events", "Return GitHub provider events for one company."))
-                        add(mcpToolDescriptor("runtime_projection", "Return projected runtime state for one issue."))
+                        add(mcpToolDescriptor("company_summary", "Return the company dashboard summary.", readOnly = true))
+                        add(mcpToolDescriptor("issue_list", "Return issues for one company.", readOnly = true))
+                        add(mcpToolDescriptor("durable_run_inspect", "Inspect one durable runtime run.", readOnly = true))
+                        add(mcpToolDescriptor("approval_queue", "Return runs waiting for approval.", readOnly = true))
+                        add(mcpToolDescriptor("evidence_summary", "Return evidence bundle for a run or file.", readOnly = true))
+                        add(mcpToolDescriptor("verification_bundle", "Return verification bundle for one issue.", readOnly = true))
+                        add(mcpToolDescriptor("company_memory_snapshot", "Return the unified company/workflow/agent memory snapshot.", readOnly = true))
+                        add(mcpToolDescriptor("github_company_events", "Return GitHub provider events for one company.", readOnly = true))
+                        add(mcpToolDescriptor("runtime_projection", "Return projected runtime state for one issue.", readOnly = true))
+                        add(mcpToolDescriptor("company_runtime_start", "Start one company runtime.", readOnly = false))
+                        add(mcpToolDescriptor("company_runtime_stop", "Stop one company runtime.", readOnly = false))
+                        add(mcpToolDescriptor("company_review_qa", "Submit a QA review verdict for one review queue item.", readOnly = false))
+                        add(mcpToolDescriptor("company_review_ceo", "Submit a CEO review verdict for one review queue item.", readOnly = false))
                     }
                 )
             })
@@ -1749,13 +1802,13 @@ private suspend fun handleReadonlyMcpRequest(
             val content = when (toolName) {
                 "company_summary" -> {
                     val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
-                    mcpJson.encodeToString(CompanyDashboardResponse.serializer(), desktopService.companyDashboard(companyId))
+                    mcpJson.encodeToString(CompanyDashboardResponse.serializer(), desktopService.companyDashboardReadOnly(companyId))
                 }
                 "issue_list" -> {
                     val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
                     mcpJson.encodeToString(
                         ListSerializer(CompanyIssue.serializer()),
-                        desktopService.companyDashboard(companyId).issues
+                        desktopService.companyDashboardReadOnly(companyId).issues
                     )
                 }
                 "durable_run_inspect" -> {
@@ -1767,7 +1820,7 @@ private suspend fun handleReadonlyMcpRequest(
                 }
                 "approval_queue" -> {
                     val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
-                    val dashboard = desktopService.companyDashboard(companyId)
+                    val dashboard = desktopService.companyDashboardReadOnly(companyId)
                     mcpJson.encodeToString(ListSerializer(String.serializer()), dashboard.runtime.pendingApprovalRunIds)
                 }
                 "evidence_summary" -> {
@@ -1784,6 +1837,13 @@ private suspend fun handleReadonlyMcpRequest(
                         ?: return mcpError(id, -32602, "issueId is required")
                     mcpJson.encodeToString(com.cotor.verification.VerificationBundle.serializer(), desktopService.verificationBundle(issueId))
                 }
+                "company_memory_snapshot" -> {
+                    val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "companyId is required")
+                    val issueId = arguments["issueId"]?.jsonPrimitive?.contentOrNull
+                    val agentProfileId = arguments["agentProfileId"]?.jsonPrimitive?.contentOrNull
+                    mcpJson.encodeToString(CompanyMemorySnapshotResponse.serializer(), desktopService.companyMemorySnapshot(companyId, issueId, agentProfileId))
+                }
                 "github_company_events" -> {
                     val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
                     mcpJson.encodeToString(
@@ -1795,6 +1855,32 @@ private suspend fun handleReadonlyMcpRequest(
                     val issueId = arguments["issueId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "issueId is required")
                     mcpJson.encodeToString(IssueRuntimeProjection.serializer(), desktopService.issueRuntimeProjection(issueId))
+                }
+                "company_runtime_start" -> {
+                    val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "companyId is required")
+                    mcpJson.encodeToString(CompanyRuntimeSnapshot.serializer(), desktopService.startCompanyRuntime(companyId))
+                }
+                "company_runtime_stop" -> {
+                    val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "companyId is required")
+                    mcpJson.encodeToString(CompanyRuntimeSnapshot.serializer(), desktopService.stopCompanyRuntime(companyId))
+                }
+                "company_review_qa" -> {
+                    val queueItemId = arguments["queueItemId"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "queueItemId is required")
+                    val verdict = arguments["verdict"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "verdict is required")
+                    val feedback = arguments["feedback"]?.jsonPrimitive?.contentOrNull
+                    mcpJson.encodeToString(ReviewQueueItem.serializer(), desktopService.submitQaReviewVerdict(queueItemId, verdict, feedback))
+                }
+                "company_review_ceo" -> {
+                    val queueItemId = arguments["queueItemId"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "queueItemId is required")
+                    val verdict = arguments["verdict"]?.jsonPrimitive?.contentOrNull
+                        ?: return mcpError(id, -32602, "verdict is required")
+                    val feedback = arguments["feedback"]?.jsonPrimitive?.contentOrNull
+                    mcpJson.encodeToString(ReviewQueueItem.serializer(), desktopService.submitCeoReviewVerdict(queueItemId, verdict, feedback))
                 }
                 else -> return mcpError(id, -32601, "Unknown MCP tool: $toolName")
             }
@@ -1810,12 +1896,14 @@ private suspend fun handleReadonlyMcpRequest(
                         buildJsonObject {
                             put("uri", JsonPrimitive("cotor://companies"))
                             put("name", JsonPrimitive("Companies"))
+                            put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
                         }
                     )
                     add(
                         buildJsonObject {
                             put("uri", JsonPrimitive("cotor://durable-runs"))
                             put("name", JsonPrimitive("Durable Runs"))
+                            put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
                         }
                     )
                 }
@@ -1827,7 +1915,7 @@ private suspend fun handleReadonlyMcpRequest(
             val content = when (uri) {
                 "cotor://companies" -> mcpJson.encodeToString(
                     ListSerializer(Company.serializer()),
-                    desktopService.companyDashboard().companies
+                    desktopService.companyDashboardReadOnly().companies
                 )
                 "cotor://durable-runs" -> mcpJson.encodeToString(
                     ListSerializer(DurableRunSnapshot.serializer()),
@@ -1854,9 +1942,10 @@ private suspend fun handleReadonlyMcpRequest(
     }
 }
 
-private fun mcpToolDescriptor(name: String, description: String): JsonElement = buildJsonObject {
+private fun mcpToolDescriptor(name: String, description: String, readOnly: Boolean): JsonElement = buildJsonObject {
     put("name", JsonPrimitive(name))
     put("description", JsonPrimitive(description))
+    put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(readOnly)) })
     put("inputSchema", buildJsonObject {
         put("type", JsonPrimitive("object"))
         put("properties", buildJsonObject { })
@@ -1984,3 +2073,14 @@ private fun Any?.toJsonElement(): JsonElement = when (this) {
     }
     else -> JsonPrimitive(toString())
 }
+
+@Serializable
+private data class ReviewQueueVerdictRequest(
+    val verdict: String,
+    val feedback: String? = null
+)
+
+@Serializable
+private data class IssueAssigneeUpdateRequest(
+    val assigneeProfileId: String? = null
+)

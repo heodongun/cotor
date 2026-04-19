@@ -10,10 +10,12 @@ package com.cotor.di
 
 import com.cotor.analysis.DefaultResultAnalyzer
 import com.cotor.analysis.ResultAnalyzer
+import com.cotor.checkpoint.CheckpointManager
 import com.cotor.app.DesktopAppService
 import com.cotor.app.DesktopStateStore
 import com.cotor.app.DesktopTuiSessionService
 import com.cotor.app.GitWorkspaceService
+import com.cotor.app.defaultDesktopAppHome
 import com.cotor.app.runtime.CompanyRuntimeBindingService
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.config.FileConfigRepository
@@ -52,6 +54,7 @@ import com.cotor.runtime.actions.ActionInterceptor
 import com.cotor.runtime.actions.ActionExecutionService
 import com.cotor.runtime.durable.DurableResumeCoordinator
 import com.cotor.runtime.durable.DurableRuntimeService
+import com.cotor.runtime.durable.DurableRuntimeStore
 import com.cotor.security.DefaultSecurityValidator
 import com.cotor.security.SecurityValidator
 import com.cotor.stats.StatsManager
@@ -80,7 +83,13 @@ val cotorModule = module {
     single<AgentRegistry> { InMemoryAgentRegistry() }
     single<ProcessManager> { CoroutineProcessManager(get()) }
     single<PluginLoader> { ReflectionPluginLoader(get()) }
-    single { DurableRuntimeService() }
+    single {
+        val appHome = defaultDesktopAppHome()
+        DurableRuntimeService(
+            checkpointManager = CheckpointManager(appHome.resolve("checkpoints").toString()),
+            runtimeStore = DurableRuntimeStore(appHome.resolve("runtime"))
+        )
+    }
     single { DurableResumeCoordinator(get(), get(), get(), get()) }
     single { ProvenanceService() }
     single { KnowledgeService() }

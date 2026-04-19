@@ -15,13 +15,14 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
 import java.io.File
+import java.nio.file.Paths
 import java.time.Instant
 
 /**
  * Manages pipeline checkpoints for resume functionality
  */
 class CheckpointManager(
-    private val checkpointDir: String = ".cotor/checkpoints"
+    private val checkpointDir: String = defaultCheckpointDir()
 ) {
     private val json = Json {
         prettyPrint = true
@@ -169,6 +170,22 @@ class CheckpointManager(
         }
         return deletedCount
     }
+}
+
+private fun defaultCheckpointDir(): String {
+    val overriddenHome = sequenceOf(
+        System.getenv("COTOR_DESKTOP_APP_HOME"),
+        System.getenv("COTOR_APP_HOME")
+    )
+        .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+        .map { Paths.get(it).toAbsolutePath().normalize() }
+        .firstOrNull()
+    val appHome = overriddenHome
+        ?: Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize()
+            .resolve("Library")
+            .resolve("Application Support")
+            .resolve("CotorDesktop")
+    return appHome.resolve("checkpoints").toString()
 }
 
 /**

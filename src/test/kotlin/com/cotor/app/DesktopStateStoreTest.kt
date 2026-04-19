@@ -164,6 +164,85 @@ class DesktopStateStoreTest : FunSpec({
         Files.readString(appHome.resolve("runtime").resolve("backend").resolve("state-load.log")) shouldContain "Recovered state with lenient decode"
     }
 
+    test("lenient recovery preserves workflow pipelines, agent context entries, and agent messages") {
+        val appHome = Files.createTempDirectory("desktop-state-store-lenient-preserve-home")
+        val store = DesktopStateStore { appHome }
+        val state = DesktopAppState(
+            companies = listOf(
+                Company(
+                    id = "company-1",
+                    name = "Preserved Company",
+                    rootPath = "/tmp/preserved-company",
+                    repositoryId = "repo-1",
+                    defaultBaseBranch = "master",
+                    createdAt = 1L,
+                    updatedAt = 1L
+                )
+            ),
+            workflowPipelines = listOf(
+                WorkflowPipelineDefinition(
+                    id = "pipeline-1",
+                    companyId = "company-1",
+                    name = "Execution flow",
+                    stages = emptyList(),
+                    createdAt = 1L,
+                    updatedAt = 1L
+                )
+            ),
+            agentContextEntries = listOf(
+                AgentContextEntry(
+                    id = "context-1",
+                    companyId = "company-1",
+                    agentName = "CEO",
+                    kind = "note",
+                    title = "Keep this",
+                    content = "Preserve note across lenient recovery.",
+                    visibility = "company",
+                    createdAt = 1L
+                )
+            ),
+            agentMessages = listOf(
+                AgentMessage(
+                    id = "message-1",
+                    companyId = "company-1",
+                    fromAgentName = "CEO",
+                    toAgentName = "Builder",
+                    kind = "handoff",
+                    subject = "Preserve this",
+                    body = "Preserve message across lenient recovery.",
+                    createdAt = 1L
+                )
+            ),
+            tasks = listOf(
+                AgentTask(
+                    id = "task-1",
+                    workspaceId = "workspace-1",
+                    title = "Invalid task",
+                    prompt = "prompt",
+                    agents = listOf("codex"),
+                    status = DesktopTaskStatus.COMPLETED,
+                    createdAt = 1L,
+                    updatedAt = 1L
+                )
+            )
+        )
+
+        store.save(state)
+        val statePath = appHome.resolve("state.json")
+        val corruptedPayload = statePath.readText().replaceFirst(
+            "\"status\": \"COMPLETED\"",
+            "\"status\": \"NOT_A_REAL_STATUS\""
+        )
+        Files.writeString(statePath, corruptedPayload)
+
+        val recovered = store.load()
+
+        recovered.tasks shouldBe emptyList()
+        recovered.workflowPipelines.map { it.id } shouldBe listOf("pipeline-1")
+        recovered.agentContextEntries.map { it.id } shouldBe listOf("context-1")
+        recovered.agentMessages.map { it.id } shouldBe listOf("message-1")
+    }
+
     test("save compacts terminal task prompts and run outputs for faster future loads") {
         val appHome = Files.createTempDirectory("desktop-state-store-compact-home")
         val store = DesktopStateStore { appHome }
@@ -218,5 +297,46 @@ class DesktopStateStoreTest : FunSpec({
         persisted.shouldNotContain(longPrompt)
         persisted.shouldNotContain(longOutput)
         persisted.shouldNotContain("\"plan\": {")
+    }
+
+    test("save preserves full prompts for unresolved issue tasks") {
+        val appHome = Files.createTempDirectory("desktop-state-store-unresolved-prompt-home")
+        val store = DesktopStateStore { appHome }
+        val longPrompt = "prompt-".repeat(800)
+        val state = DesktopAppState(
+            issues = listOf(
+                CompanyIssue(
+                    id = "issue-1",
+                    companyId = "company-1",
+                    projectContextId = "project-1",
+                    goalId = "goal-1",
+                    workspaceId = "workspace-1",
+                    title = "Retryable issue",
+                    description = "Still unresolved.",
+                    status = IssueStatus.BLOCKED,
+                    createdAt = 1L,
+                    updatedAt = 1L
+                )
+            ),
+            tasks = listOf(
+                AgentTask(
+                    id = "task-1",
+                    workspaceId = "workspace-1",
+                    issueId = "issue-1",
+                    title = "Blocked task",
+                    prompt = longPrompt,
+                    agents = listOf("codex"),
+                    status = DesktopTaskStatus.FAILED,
+                    createdAt = 1L,
+                    updatedAt = 1L
+                )
+            )
+        )
+
+        store.save(state)
+        val persisted = appHome.resolve("state.json").readText()
+
+        persisted.shouldContain(longPrompt.take(200))
+        persisted.shouldNotContain("[compacted ")
     }
 })
