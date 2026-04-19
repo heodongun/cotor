@@ -89,7 +89,7 @@ class BoardControllerTest {
         val post2 = PostSummaryResponse.fromEntity(dummyPost2)
         val page = PageImpl(listOf(post1, post2), PageRequest.of(0, 10), 2)
 
-        every { boardService.getPosts(any()) } returns page
+        every { boardService.getPosts(any(), any()) } returns page
 
         mockMvc.perform(get(baseUrl)
             .param("page", "0")
@@ -138,7 +138,7 @@ class BoardControllerTest {
         every { boardService.updatePost(postId, any(), userId) } returns response
 
         mockMvc.perform(put("$baseUrl/{id}", postId)
-            .param("userId", userId.toString())
+            .header("X-USER-ID", userId)
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isOk)
@@ -156,7 +156,7 @@ class BoardControllerTest {
         every { boardService.updatePost(postId, any(), userId) } throws PermissionDeniedException("Permission denied")
 
         mockMvc.perform(put("$baseUrl/{id}", postId)
-            .param("userId", userId.toString())
+            .header("X-USER-ID", userId)
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isForbidden)
@@ -173,7 +173,7 @@ class BoardControllerTest {
         every { boardService.updatePost(postId, any(), userId) } throws VersionConflictException("Version conflict")
 
         mockMvc.perform(put("$baseUrl/{id}", postId)
-            .param("userId", userId.toString())
+            .header("X-USER-ID", userId)
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isConflict)
@@ -189,7 +189,7 @@ class BoardControllerTest {
         every { boardService.deletePost(postId, userId) } answers { nothing }
 
         mockMvc.perform(delete("$baseUrl/{id}", postId)
-            .param("userId", userId.toString()))
+            .header("X-USER-ID", userId))
             .andExpect(status().isNoContent)
     }
 
@@ -202,7 +202,7 @@ class BoardControllerTest {
         every { boardService.deletePost(postId, userId) } throws PermissionDeniedException("Permission denied")
 
         mockMvc.perform(delete("$baseUrl/{id}", postId)
-            .param("userId", userId.toString()))
+            .header("X-USER-ID", userId))
             .andExpect(status().isForbidden)
             .andExpect(jsonPath("$.code").value("PERMISSION_DENIED"))
     }
