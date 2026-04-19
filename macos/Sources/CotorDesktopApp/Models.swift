@@ -50,6 +50,12 @@ struct CompanyRecord: Codable, Identifiable, Hashable {
     let updatedAt: Int64
 }
 
+struct CompanyMemorySnapshotPayload: Codable, Hashable {
+    let companyMemory: String
+    let workflowMemory: String
+    let agentMemory: String
+}
+
 struct CreateCompanyResponsePayload: Codable, Hashable {
     let company: CompanyRecord
     let githubPublishStatus: GitHubPublishStatusPayload
@@ -974,6 +980,11 @@ struct UpdateGoalPayload: Codable {
     let autonomyEnabled: Bool?
 }
 
+struct ReviewQueueVerdictPayload: Codable {
+    let verdict: String
+    let feedback: String?
+}
+
 struct CreateIssuePayload: Codable {
     let goalId: String
     let title: String
@@ -1108,7 +1119,7 @@ struct MockSeed {
                 localPath: "/Users/demo/cotor",
                 sourceKind: "LOCAL",
                 remoteUrl: "https://github.com/heodongun/cotor.git",
-                defaultBranch: "master",
+                defaultBranch: "main",
                 createdAt: 0,
                 updatedAt: 0
             )
@@ -1117,8 +1128,8 @@ struct MockSeed {
             WorkspaceRecord(
                 id: "ws-demo",
                 repositoryId: "repo-demo",
-                name: "cotor · master",
-                baseBranch: "master",
+                name: "cotor · main",
+                baseBranch: "main",
                 createdAt: 0,
                 updatedAt: 0
             )
@@ -1181,7 +1192,7 @@ struct MockSeed {
                 name: "Cotor",
                 rootPath: "/Users/demo/cotor",
                 repositoryId: "repo-demo",
-                defaultBaseBranch: "master",
+                defaultBaseBranch: "main",
                 backendKind: "LOCAL_COTOR",
                 linearSyncEnabled: false,
                 linearConfigOverride: nil,
@@ -1553,7 +1564,7 @@ struct MockSeed {
             agentId: "claude",
             agentName: "claude",
             repoRoot: "/Users/demo/cotor",
-            baseBranch: "master",
+            baseBranch: "main",
             branchName: "codex/cotor/superset-shell/claude",
             worktreePath: "/Users/demo/cotor/.cotor/worktrees/task-demo/claude",
             status: "RUNNING",
@@ -1575,7 +1586,7 @@ struct MockSeed {
             agentId: "codex",
             agentName: "codex",
             repoRoot: "/Users/demo/cotor",
-            baseBranch: "master",
+            baseBranch: "main",
             branchName: "codex/cotor/superset-shell/codex",
             worktreePath: "/Users/demo/cotor/.cotor/worktrees/task-demo/codex",
             status: "COMPLETED",
@@ -1609,7 +1620,7 @@ struct MockSeed {
         repositoryId: "repo-demo",
         repositoryPath: "/Users/demo/cotor",
         agentName: "claude",
-        baseBranch: "master",
+        baseBranch: "main",
         status: "RUNNING",
         transcript: """
 Launching Cotor TUI in /Users/demo/cotor
@@ -1637,7 +1648,7 @@ you>
     static let changes = ChangeSummaryPayload(
         runId: "run-codex",
         branchName: "codex/cotor/superset-shell/codex",
-        baseBranch: "master",
+        baseBranch: "main",
         patch: """
 diff --git a/src/main/kotlin/com/cotor/app/AppServer.kt b/src/main/kotlin/com/cotor/app/AppServer.kt
 + added desktop dashboard routes

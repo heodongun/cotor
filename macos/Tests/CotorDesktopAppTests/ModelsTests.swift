@@ -4,6 +4,20 @@ import Testing
 
 struct ModelsTests {
     @Test
+    func companySidebarDisclosureStateStartsCollapsed() {
+        var state = CompanySidebarDisclosureState()
+
+        #expect(state.isCompanyDraftExpanded == false)
+        #expect(state.isAdvancedSettingsExpanded == false)
+
+        state.isCompanyDraftExpanded = true
+        #expect(state.isCompanyDraftExpanded)
+
+        state.isAdvancedSettingsExpanded = true
+        #expect(state.isAdvancedSettingsExpanded)
+    }
+
+    @Test
     func companyRuntimeSnapshotDetectsManualStop() {
         let runtime = CompanyRuntimeSnapshotRecord(
             companyId: "company-1",

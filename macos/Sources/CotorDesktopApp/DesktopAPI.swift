@@ -33,6 +33,17 @@ struct DesktopAPI {
         try await get(path: "api/app/companies/\(companyId)/dashboard")
     }
 
+    func companyMemorySnapshot(companyId: String, issueId: String?, agentProfileId: String?) async throws -> CompanyMemorySnapshotPayload {
+        var query: [URLQueryItem] = []
+        if let issueId, !issueId.isEmpty {
+            query.append(URLQueryItem(name: "issueId", value: issueId))
+        }
+        if let agentProfileId, !agentProfileId.isEmpty {
+            query.append(URLQueryItem(name: "agentProfileId", value: agentProfileId))
+        }
+        return try await get(path: "api/app/companies/\(companyId)/memory-snapshot", query: query)
+    }
+
     func health() async throws -> Bool {
         struct HealthPayload: Decodable {
             let status: String?
@@ -380,6 +391,10 @@ struct DesktopAPI {
         )
     }
 
+    func decomposeGoal(goalId: String) async throws -> [IssueRecord] {
+        try await post(path: "api/app/goals/\(goalId)/decompose", body: EmptyPayload())
+    }
+
     func deleteIssue(companyId: String, issueId: String) async throws -> IssueRecord {
         try await delete(path: "api/app/companies/\(companyId)/issues/\(issueId)")
     }
@@ -472,6 +487,28 @@ struct DesktopAPI {
 
     func runIssue(issueId: String) async throws -> IssueRecord {
         try await post(path: "api/app/issues/\(issueId)/run", body: EmptyPayload())
+    }
+
+    func delegateIssue(issueId: String) async throws -> IssueRecord {
+        try await post(path: "api/app/issues/\(issueId)/delegate", body: EmptyPayload())
+    }
+
+    func submitQaReviewVerdict(itemId: String, verdict: String, feedback: String?) async throws -> ReviewQueueItemRecord {
+        try await post(
+            path: "api/app/review-queue/\(itemId)/qa",
+            body: ReviewQueueVerdictPayload(verdict: verdict, feedback: feedback)
+        )
+    }
+
+    func submitCeoReviewVerdict(itemId: String, verdict: String, feedback: String?) async throws -> ReviewQueueItemRecord {
+        try await post(
+            path: "api/app/review-queue/\(itemId)/ceo",
+            body: ReviewQueueVerdictPayload(verdict: verdict, feedback: feedback)
+        )
+    }
+
+    func mergeReviewQueueItem(itemId: String) async throws -> ReviewQueueItemRecord {
+        try await post(path: "api/app/review-queue/\(itemId)/merge", body: EmptyPayload())
     }
 
     /// Ask the backend to start executing an already-created task.

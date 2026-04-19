@@ -14,9 +14,9 @@ private enum DesktopLayoutMode {
 
     init(width: CGFloat) {
         switch width {
-        case ..<980:
+        case ..<860:
             self = .compact
-        case ..<1440:
+        case ..<1360:
             self = .stacked
         default:
             self = .wide
@@ -57,6 +57,7 @@ private enum GoalSurface: CaseIterable, Identifiable {
 
 private enum CompanySidebarSurface: CaseIterable, Identifiable {
     case company
+    case room
     case goals
     case agents
     case issues
@@ -65,12 +66,104 @@ private enum CompanySidebarSurface: CaseIterable, Identifiable {
         switch self {
         case .company:
             return "company"
+        case .room:
+            return "room"
         case .goals:
             return "goals"
         case .agents:
             return "agents"
         case .issues:
             return "issues"
+        }
+    }
+}
+
+private enum CompanyOverviewSurface: CaseIterable, Identifiable {
+    case summary
+    case meetingRoom
+
+    var id: String {
+        switch self {
+        case .summary:
+            return "summary"
+        case .meetingRoom:
+            return "meeting-room"
+        }
+    }
+}
+
+struct CompanySidebarDisclosureState {
+    var isCompanyDraftExpanded = false
+    var isAdvancedSettingsExpanded = false
+    var isAgentAdvancedDetailsExpanded = false
+}
+
+private enum CompanyConversationHistoryItem: Identifiable {
+    case activity(CompanyActivityItemRecord)
+    case message(AgentMessageRecord)
+    case context(AgentContextEntryRecord)
+
+    var id: String {
+        switch self {
+        case let .activity(item):
+            return "activity-\(item.id)"
+        case let .message(message):
+            return "message-\(message.id)"
+        case let .context(entry):
+            return "context-\(entry.id)"
+        }
+    }
+
+    var createdAt: Int64 {
+        switch self {
+        case let .activity(item):
+            return item.createdAt
+        case let .message(message):
+            return message.createdAt
+        case let .context(entry):
+            return entry.createdAt
+        }
+    }
+}
+
+private struct MeetingRoomSyntheticEvent: Identifiable {
+    let id: String
+    let createdAt: Int64
+    let eyebrow: String
+    let title: String
+    let detail: String
+    let tint: Color
+}
+
+private enum MeetingRoomWallItem: Identifiable {
+    case activity(CompanyActivityItemRecord)
+    case message(AgentMessageRecord)
+    case context(AgentContextEntryRecord)
+    case synthetic(MeetingRoomSyntheticEvent)
+
+    var id: String {
+        switch self {
+        case let .activity(item):
+            return "activity-\(item.id)"
+        case let .message(message):
+            return "message-\(message.id)"
+        case let .context(entry):
+            return "context-\(entry.id)"
+        case let .synthetic(event):
+            return "synthetic-\(event.id)"
+        }
+    }
+
+    var createdAt: Int64 {
+        switch self {
+        case let .activity(item):
+            return item.createdAt
+        case let .message(message):
+            return message.createdAt
+        case let .context(entry):
+            return entry.createdAt
+        case let .synthetic(event):
+            return event.createdAt
         }
     }
 }
@@ -154,6 +247,8 @@ struct ContentView: View {
     @State private var compactSurface: CompactSurface = .console
     @State private var companySurface: CompanySidebarSurface = .company
     @State private var searchText = ""
+    @State private var companyChatDraft = ""
+    @State private var companyChatApplyReviewDraft = ""
 
     private var l: AppLanguage { store.language }
 
@@ -297,7 +392,14 @@ struct ContentView: View {
                     companySurface: companySurface,
                     scrollsInternally: false
                 )
-                .frame(minWidth: ShellMetrics.contentMinWidth, maxWidth: .infinity, alignment: .top)
+                .frame(minWidth: layoutMode == .wide ? ShellMetrics.contentMinWidth : 0, maxWidth: .infinity, alignment: .top)
+
+                CompanyChatControlRail(
+                    layoutMode: layoutMode,
+                    draft: $companyChatDraft,
+                    applyReviewDraft: $companyChatApplyReviewDraft
+                )
+                .frame(width: layoutMode == .wide ? 360 : 312, alignment: .top)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(.trailing, 2)
@@ -487,6 +589,7 @@ private struct SidebarView: View {
     let searchText: String
     @Binding var companySurface: CompanySidebarSurface
     var scrollsInternally: Bool = true
+    @State private var companySidebarDisclosureState = CompanySidebarDisclosureState()
     private var l: AppLanguage { store.language }
 
     private var filteredGoals: [GoalRecord] {
@@ -572,6 +675,8 @@ private struct SidebarView: View {
             switch companySurface {
             case .company:
                 companySection
+            case .room:
+                companySection
             case .goals:
                 VStack(alignment: .leading, spacing: 14) {
                     goalSection
@@ -641,6 +746,13 @@ private struct SidebarView: View {
                     subtitle: l("Folder, runtime, and overview", "폴더, 런타임, 개요"),
                     systemImage: "building.2",
                     badge: nil
+                )
+                companyNavButton(
+                    .room,
+                    title: l("Meeting Room", "미팅룸"),
+                    subtitle: l("Live wall, seats, and review desk", "라이브 월, 좌석, 리뷰 데스크"),
+                    systemImage: "person.2.wave.2",
+                    badge: "\(store.dashboard.runningAgentSessions.count)"
                 )
                 companyNavButton(
                     .goals,
@@ -856,9 +968,24 @@ private struct SidebarView: View {
 
     private var companySection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            companySelectionSection
+            companyQuickActionsSection
+            companyDraftSection
+            advancedCompanySettingsSection
+        }
+        .onAppear {
+            store.syncSelectedCompanyBudgetFormState()
+        }
+        .onChange(of: store.selectedCompanyID) { _, _ in
+            store.syncSelectedCompanyBudgetFormState()
+        }
+    }
+
+    private var companySelectionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
             sectionTitle(
-                title: l("Company", "회사"),
-                subtitle: l("One company maps to one folder and one runtime.", "회사 하나가 폴더 하나와 런타임 하나를 가집니다.")
+                title: l("Companies", "회사 목록"),
+                subtitle: l("Choose the company you want to operate first. Drafting and advanced setup stay folded until needed.", "운영할 회사를 먼저 고르고, 생성 초안과 고급 설정은 필요할 때만 펼쳐 보이게 합니다.")
             )
 
             HStack(spacing: 8) {
@@ -890,71 +1017,285 @@ private struct SidebarView: View {
                     }
                 }
             }
+        }
+        .padding(14)
+        .shellInset()
+    }
 
-            TextField(l("Company name", "회사 이름"), text: $store.newCompanyName)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(spacing: 8) {
-                TextField(l("Company root path", "회사 루트 경로"), text: $store.newCompanyRootPath)
-                    .textFieldStyle(.roundedBorder)
-
-                Button {
-                    store.openCompanyRootPicker()
-                } label: {
-                    Label(l("Choose Folder", "폴더 선택"), systemImage: "folder")
+    private var companyDraftSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(ShellMotion.spring) {
+                    companySidebarDisclosureState.isCompanyDraftExpanded.toggle()
                 }
-                .buttonStyle(ShellTopBarButtonStyle(prominent: false))
-            }
-
-            if !store.availableBranches.isEmpty {
-                Picker(l("New workspace base branch", "새 워크스페이스 기준 브랜치"), selection: $store.pendingWorkspaceBaseBranch) {
-                    ForEach(store.availableBranches, id: \.self) { branch in
-                        Text(branch).tag(branch)
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(l("New Company Draft", "새 회사 초안"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+                        Text(l("Keep company creation inputs tucked away until you actually want to stage a new company.", "새 회사를 실제로 준비할 때만 생성 입력을 펼쳐 보이게 합니다."))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(ShellPalette.muted)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: companySidebarDisclosureState.isCompanyDraftExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(ShellPalette.muted)
+                        .padding(.top, 2)
                 }
-                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(l("Optional cost guardrails (USD)", "선택 사항: 비용 상한 (USD)"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(ShellPalette.muted)
-                HStack(spacing: 8) {
-                    TextField(l("Daily cap", "일 상한"), text: $store.newCompanyDailyBudgetInput)
-                        .textFieldStyle(.roundedBorder)
-                    TextField(l("Monthly cap", "월 상한"), text: $store.newCompanyMonthlyBudgetInput)
-                        .textFieldStyle(.roundedBorder)
-                }
-            }
+            if companySidebarDisclosureState.isCompanyDraftExpanded {
+                companySubpanel {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField(l("Company name", "회사 이름"), text: $store.newCompanyName)
+                            .textFieldStyle(.roundedBorder)
 
-            if let company = store.selectedCompany {
-                Picker(l("Company execution backend", "회사 실행 백엔드"), selection: Binding(
-                    get: { company.backendKind },
-                    set: { newValue in
-                        Task { await store.updateSelectedCompanyBackend(kind: newValue) }
-                    }
-                )) {
-                    Text("Local Cotor").tag("LOCAL_COTOR")
-                    Text("Codex App Server").tag("CODEX_APP_SERVER")
-                }
-                .pickerStyle(.menu)
+                        HStack(spacing: 8) {
+                            TextField(l("Company root path", "회사 루트 경로"), text: $store.newCompanyRootPath)
+                                .textFieldStyle(.roundedBorder)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(l("Estimated AI spend guardrail", "추정 AI 비용 가드레일"))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(ShellPalette.text)
-                            Text(l("Blank means no cap. Runtime pauses when an estimated budget window is exhausted.", "비워두면 상한이 없습니다. 추정 예산 창을 소진하면 런타임이 멈춥니다."))
-                                .font(.system(size: 11, weight: .medium))
+                            Button {
+                                store.openCompanyRootPicker()
+                            } label: {
+                                Label(l("Choose Folder", "폴더 선택"), systemImage: "folder")
+                            }
+                            .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                        }
+
+                        if !store.availableBranches.isEmpty {
+                            Picker(l("New workspace base branch", "새 워크스페이스 기준 브랜치"), selection: $store.pendingWorkspaceBaseBranch) {
+                                ForEach(store.availableBranches, id: \.self) { branch in
+                                    Text(branch).tag(branch)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(l("Optional cost guardrails (USD)", "선택 사항: 비용 상한 (USD)"))
+                                .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(ShellPalette.muted)
-                        }
-                        Spacer()
-                        if let runtime = store.selectedRuntime, runtime.isBudgetPaused {
-                            ShellTag(text: l("Cap reached", "상한 도달"), tint: ShellPalette.warning)
+                            HStack(spacing: 8) {
+                                TextField(l("Daily cap", "일 상한"), text: $store.newCompanyDailyBudgetInput)
+                                    .textFieldStyle(.roundedBorder)
+                                TextField(l("Monthly cap", "월 상한"), text: $store.newCompanyMonthlyBudgetInput)
+                                    .textFieldStyle(.roundedBorder)
+                            }
                         }
                     }
+                }
+            }
+        }
+    }
 
+    private var companyQuickActionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle(
+                title: l("Quick Actions", "빠른 동작"),
+                subtitle: l("Create from the draft and control the selected company runtime from one compact area.", "초안으로 회사를 만들고 선택한 회사 런타임을 한곳에서 빠르게 제어합니다.")
+            )
+
+            companySubpanel {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let company = store.selectedCompany {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(company.name)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(ShellPalette.text)
+                                    Text(company.rootPath)
+                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(ShellPalette.muted)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 8)
+                                if let runtime = store.selectedRuntime {
+                                    ShellStatusPill(text: l.status(runtime.status), tint: companyRuntimeTint(runtime.status))
+                                }
+                            }
+
+                            HStack(spacing: 8) {
+                                ShellTag(text: company.defaultBaseBranch, tint: ShellPalette.accentWarm)
+                                ShellTag(
+                                    text: company.backendKind == "CODEX_APP_SERVER"
+                                        ? l("Codex App Server", "Codex App Server")
+                                        : l("Local Cotor", "Local Cotor"),
+                                    tint: ShellPalette.accent
+                                )
+                            }
+                        }
+                    } else {
+                        Text(l("Select a company to start, stop, or delete it. You can still prepare a new company above.", "회사를 선택하면 시작/중지/삭제를 바로 실행할 수 있습니다. 위에서 새 회사 준비는 계속할 수 있습니다."))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(ShellPalette.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Button {
+                        Task { await store.createCompany() }
+                    } label: {
+                        Label(l("Create Company", "회사 생성"), systemImage: "building.2.crop.circle")
+                            .frame(maxWidth: .infinity)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.newCompanyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.newCompanyRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if let message = store.companyGitHubStatusMessage, !message.isEmpty {
+                        Text(message)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(ShellPalette.warning)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 8),
+                        GridItem(.flexible(), spacing: 8),
+                        GridItem(.flexible(), spacing: 8),
+                    ], spacing: 8) {
+                        Button {
+                            Task { await store.startSelectedCompanyRuntime() }
+                        } label: {
+                            Label(l("Start", "시작"), systemImage: "play.fill")
+                                .frame(maxWidth: .infinity)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                        .disabled(store.selectedCompany == nil)
+
+                        Button {
+                            Task { await store.stopSelectedCompanyRuntime() }
+                        } label: {
+                            Label(l("Stop", "중지"), systemImage: "stop.fill")
+                                .frame(maxWidth: .infinity)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                        .disabled(store.selectedCompany == nil)
+
+                        Button {
+                            Task { await store.deleteSelectedCompany() }
+                        } label: {
+                            Label(l("Delete", "삭제"), systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                        .disabled(store.selectedCompany == nil)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .shellInset()
+    }
+
+    private var advancedCompanySettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(ShellMotion.spring) {
+                    companySidebarDisclosureState.isAdvancedSettingsExpanded.toggle()
+                }
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(l("Advanced Company Settings", "고급 회사 설정"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+                        Text(l("Hide backend, budget, and Linear controls until you need them.", "필요할 때만 백엔드, 예산, Linear 제어를 펼쳐 보이도록 숨깁니다."))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(ShellPalette.muted)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if let company = store.selectedCompany {
+                        ShellTag(text: company.name, tint: ShellPalette.panelRaised)
+                    }
+
+                    Image(systemName: companySidebarDisclosureState.isAdvancedSettingsExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(ShellPalette.muted)
+                        .padding(.top, 2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if companySidebarDisclosureState.isAdvancedSettingsExpanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    companyBackendSettingsPanel
+                    companyBudgetSettingsPanel
+                    companyLinearSettingsPanel
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(14)
+        .shellInset()
+    }
+
+    private var companyBackendSettingsPanel: some View {
+        companySubpanel {
+            VStack(alignment: .leading, spacing: 8) {
+                panelHeading(
+                    title: l("Execution Backend", "실행 백엔드"),
+                    subtitle: l("Pick which runtime executes the selected company.", "선택한 회사를 어떤 런타임으로 실행할지 정합니다.")
+                )
+
+                if let company = store.selectedCompany {
+                    Picker(l("Company execution backend", "회사 실행 백엔드"), selection: Binding(
+                        get: { company.backendKind },
+                        set: { newValue in
+                            Task { await store.updateSelectedCompanyBackend(kind: newValue) }
+                        }
+                    )) {
+                        Text("Local Cotor").tag("LOCAL_COTOR")
+                        Text("Codex App Server").tag("CODEX_APP_SERVER")
+                    }
+                    .pickerStyle(.menu)
+                } else {
+                    Text(l("Select a company to adjust its backend.", "백엔드를 조정할 회사를 먼저 선택하세요."))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+                }
+            }
+        }
+    }
+
+    private var companyBudgetSettingsPanel: some View {
+        companySubpanel {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(l("Estimated AI spend guardrail", "추정 AI 비용 가드레일"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+                        Text(l("Blank means no cap. Runtime pauses when an estimated budget window is exhausted.", "비워두면 상한이 없습니다. 추정 예산 창을 소진하면 런타임이 멈춥니다."))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(ShellPalette.muted)
+                    }
+                    Spacer()
+                    if let runtime = store.selectedRuntime, runtime.isBudgetPaused {
+                        ShellTag(text: l("Cap reached", "상한 도달"), tint: ShellPalette.warning)
+                    }
+                }
+
+                if let company = store.selectedCompany {
                     if let runtime = store.selectedRuntime {
                         HStack(spacing: 8) {
                             ShellTag(
@@ -994,24 +1335,32 @@ private struct SidebarView: View {
                             .lineLimit(1)
                     }
                     .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                } else {
+                    Text(l("Select a company to edit budget guardrails.", "비용 가드레일을 수정하려면 회사를 먼저 선택하세요."))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
                 }
-                .padding(12)
-                .background(ShellPalette.panelAlt)
-                .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+            }
+        }
+    }
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Toggle(isOn: $store.companyLinearSyncEnabled) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(l("Optional: share progress to Linear", "선택 사항: 진행 상황을 Linear에 공유"))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(ShellPalette.text)
-                            Text(l("Turn this on only if you want Cotor issues and updates to appear in Linear too.", "원할 때만 켜서 Cotor 이슈와 업데이트를 Linear에도 보이게 합니다."))
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(ShellPalette.muted)
-                        }
+    private var companyLinearSettingsPanel: some View {
+        companySubpanel {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: $store.companyLinearSyncEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(l("Optional: share progress to Linear", "선택 사항: 진행 상황을 Linear에 공유"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+                        Text(l("Turn this on only if you want Cotor issues and updates to appear in Linear too.", "원할 때만 켜서 Cotor 이슈와 업데이트를 Linear에도 보이게 합니다."))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(ShellPalette.muted)
                     }
-                    .toggleStyle(.switch)
+                }
+                .toggleStyle(.switch)
+                .disabled(store.selectedCompany == nil)
 
+                if store.selectedCompany != nil {
                     TextField(l("Linear endpoint", "Linear 엔드포인트"), text: $store.companyLinearEndpoint)
                         .textFieldStyle(.roundedBorder)
 
@@ -1042,83 +1391,78 @@ private struct SidebarView: View {
                         .buttonStyle(ShellTopBarButtonStyle(prominent: false))
                         .disabled(!(store.selectedCompany?.linearSyncEnabled ?? false) && !store.companyLinearSyncEnabled)
                     }
-
-                    if let message = store.companyLinearStatusMessage, !message.isEmpty {
-                        Text(message)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(ShellPalette.muted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                } else {
+                    Text(l("Select a company to adjust Linear sync.", "Linear 동기화를 조정하려면 회사를 먼저 선택하세요."))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
                 }
-                .padding(12)
-                .background(ShellPalette.panelAlt)
-                .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
-            }
 
-            VStack(spacing: 8) {
-                Button {
-                    Task { await store.createCompany() }
-                } label: {
-                    Label(l("Create Company", "회사 생성"), systemImage: "building.2.crop.circle")
-                        .frame(maxWidth: .infinity)
-                        .lineLimit(1)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(store.newCompanyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.newCompanyRootPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                if let message = store.companyGitHubStatusMessage, !message.isEmpty {
+                if let message = store.companyLinearStatusMessage, !message.isEmpty {
                     Text(message)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(ShellPalette.warning)
+                        .foregroundStyle(ShellPalette.muted)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 8),
-                    GridItem(.flexible(), spacing: 8),
-                    GridItem(.flexible(), spacing: 8),
-                ], spacing: 8) {
-                    Button {
-                        Task { await store.startSelectedCompanyRuntime() }
-                    } label: {
-                        Label(l("Start", "시작"), systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
-                    .disabled(store.selectedCompany == nil)
-
-                    Button {
-                        Task { await store.stopSelectedCompanyRuntime() }
-                    } label: {
-                        Label(l("Stop", "중지"), systemImage: "stop.fill")
-                            .frame(maxWidth: .infinity)
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
-                    .disabled(store.selectedCompany == nil)
-
-                    Button {
-                        Task { await store.deleteSelectedCompany() }
-                    } label: {
-                        Label(l("Delete", "삭제"), systemImage: "trash")
-                            .frame(maxWidth: .infinity)
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
-                    .disabled(store.selectedCompany == nil)
                 }
             }
         }
-        .padding(14)
-        .shellInset()
-        .onAppear {
-            store.syncSelectedCompanyBudgetFormState()
+    }
+
+    private func panelHeading(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(ShellPalette.text)
+            Text(subtitle)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(ShellPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .onChange(of: store.selectedCompanyID) { _, _ in
-            store.syncSelectedCompanyBudgetFormState()
+    }
+
+    private func agentFieldBlock<Content: View>(
+        title: String,
+        helper: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(ShellPalette.text)
+            Text(helper)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(ShellPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            content()
         }
+    }
+
+    private func agentTextEditorBlock(title: String, helper: String, text: Binding<String>) -> some View {
+        agentFieldBlock(title: title, helper: helper) {
+            TextEditor(text: text)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 96)
+                .padding(8)
+                .background(ShellPalette.panelAlt)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(ShellPalette.line, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
+    private func companySubpanel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                    .fill(ShellPalette.panelAlt)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                    .stroke(ShellPalette.line, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
     }
 
     private var goalSection: some View {
@@ -1264,147 +1608,235 @@ private struct SidebarView: View {
                 subtitle: l("Define one agent once, then let the CEO route work and handoffs dynamically.", "에이전트를 한 번 정의하면 CEO가 그 정의를 바탕으로 동적으로 handoff와 라우팅을 만듭니다.")
             )
 
-            HStack(spacing: 10) {
-                TextField(l("Title", "직함"), text: $store.newCompanyAgentTitle)
-                    .textFieldStyle(.roundedBorder)
+            companySubpanel {
+                VStack(alignment: .leading, spacing: 12) {
+                    panelHeading(
+                        title: l("Basic Settings", "기본 설정"),
+                        subtitle: l("Name the role, choose the execution CLI, and describe what this agent owns.", "역할 이름을 정하고 실행 CLI를 고른 뒤 이 에이전트가 맡을 책임을 설명합니다.")
+                    )
 
-                Picker(l("AI CLI", "AI CLI"), selection: Binding(
-                    get: {
-                        if store.newCompanyAgentCli.isEmpty {
-                            return store.preferredCliAgent
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], alignment: .leading, spacing: 10) {
+                        agentFieldBlock(
+                            title: l("Title", "직함"),
+                            helper: l("Human-facing role name shown in the roster.", "조직도와 목록에 표시되는 사람 친화적 역할 이름입니다.")
+                        ) {
+                            TextField(l("Title", "직함"), text: $store.newCompanyAgentTitle)
+                                .textFieldStyle(.roundedBorder)
                         }
-                        return store.newCompanyAgentCli
-                    },
-                    set: { store.newCompanyAgentCli = $0 }
-                )) {
-                    ForEach(store.availableCliAgents, id: \.self) { agent in
-                        Text(agent).tag(agent)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 150)
-                .disabled(store.availableCliAgents.isEmpty)
 
-                TextField(l("Model (optional)", "모델 (선택)"), text: $store.newCompanyAgentModel)
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            TextField(l("Role summary", "역할 설명"), text: $store.newCompanyAgentRole)
-                .textFieldStyle(.roundedBorder)
-
-            TextField(l("Specialties (comma separated)", "전문 분야 (쉼표로 구분)"), text: $store.newCompanyAgentSpecialties)
-                .textFieldStyle(.roundedBorder)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(l("A2A handoff notes", "A2A handoff 메모"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(ShellPalette.muted)
-                TextEditor(text: $store.newCompanyAgentCollaborationNotes)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 72)
-                    .padding(8)
-                    .background(ShellPalette.panelAlt)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(ShellPalette.line, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(l("Agent memory seed", "에이전트 메모 시드"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(ShellPalette.muted)
-                TextEditor(text: $store.newCompanyAgentMemoryNotes)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 72)
-                    .padding(8)
-                    .background(ShellPalette.panelAlt)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(ShellPalette.line, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-
-            if !store.availableCompanyAgentCollaborators.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(l("Preferred collaborators", "선호 협업 에이전트"))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(ShellPalette.muted)
-
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
-                        ForEach(store.availableCompanyAgentCollaborators) { collaborator in
-                            let isSelected = store.newCompanyAgentPreferredCollaboratorIDs.contains(collaborator.id)
-                            Button {
-                                if isSelected {
-                                    store.newCompanyAgentPreferredCollaboratorIDs.remove(collaborator.id)
-                                } else {
-                                    store.newCompanyAgentPreferredCollaboratorIDs.insert(collaborator.id)
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                                        .font(.system(size: 11, weight: .semibold))
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(collaborator.title)
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .lineLimit(1)
-                                        Text(collaborator.agentCli)
-                                            .font(.system(size: 10, weight: .medium))
-                                            .foregroundStyle(ShellPalette.text.opacity(0.72))
-                                            .lineLimit(1)
+                        agentFieldBlock(
+                            title: l("AI CLI", "AI CLI"),
+                            helper: l("Which CLI executes this agent's work.", "이 에이전트의 작업을 실제로 실행할 CLI입니다.")
+                        ) {
+                            Picker(l("AI CLI", "AI CLI"), selection: Binding(
+                                get: {
+                                    if store.newCompanyAgentCli.isEmpty {
+                                        return store.preferredCliAgent
                                     }
-                                    Spacer(minLength: 0)
+                                    return store.newCompanyAgentCli
+                                },
+                                set: { store.newCompanyAgentCli = $0 }
+                            )) {
+                                ForEach(store.availableCliAgents, id: \.self) { agent in
+                                    Text(agent).tag(agent)
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 9)
-                                .background(isSelected ? ShellPalette.panelRaised : ShellPalette.panelAlt)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(isSelected ? ShellPalette.accent : ShellPalette.line, lineWidth: 1)
-                                )
                             }
-                            .buttonStyle(.plain)
-                            .contentShape(Rectangle())
+                            .pickerStyle(.menu)
+                            .disabled(store.availableCliAgents.isEmpty)
+                        }
+
+                        agentFieldBlock(
+                            title: l("Model Override", "모델 override"),
+                            helper: l("Optional provider model for this role only.", "이 역할에만 적용할 선택형 provider 모델입니다.")
+                        ) {
+                            TextField(l("Model (optional)", "모델 (선택)"), text: $store.newCompanyAgentModel)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    }
+
+                    agentFieldBlock(
+                        title: l("Role Summary", "역할 설명"),
+                        helper: l("Short assignment guidance the CEO uses when routing work.", "CEO가 작업을 배정할 때 참고하는 짧은 역할 설명입니다.")
+                    ) {
+                        TextField(l("Role summary", "역할 설명"), text: $store.newCompanyAgentRole)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    agentFieldBlock(
+                        title: l("Specialties", "전문 분야"),
+                        helper: l("Comma-separated strengths surfaced in roster and routing views.", "조직도와 라우팅에서 보일 강점을 쉼표로 구분해 적습니다.")
+                    ) {
+                        TextField(l("Specialties (comma separated)", "전문 분야 (쉼표로 구분)"), text: $store.newCompanyAgentSpecialties)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    agentFieldBlock(
+                        title: l("Availability", "활성 상태"),
+                        helper: l("Disable the agent without deleting its definition.", "정의를 지우지 않고 이 에이전트만 비활성화합니다.")
+                    ) {
+                        Toggle(isOn: $store.newCompanyAgentEnabled) {
+                            Text(l("Enabled", "활성화"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(ShellPalette.text)
+                        }
+                        .toggleStyle(.switch)
+                    }
+                }
+            }
+
+            companySubpanel {
+                VStack(alignment: .leading, spacing: 10) {
+                    panelHeading(
+                        title: store.editingCompanyAgentID == nil ? l("Save Draft", "초안 저장") : l("Edit Actions", "수정 동작"),
+                        subtitle: l("Keep the main save and cancel actions visible before you scroll into longer notes.", "긴 메모 영역으로 내려가기 전에 저장과 취소 동작을 바로 볼 수 있게 둡니다.")
+                    )
+
+                    HStack(alignment: .center, spacing: 8) {
+                        if store.editingCompanyAgentID != nil {
+                            ShellTag(text: l("Editing", "수정 중"), tint: ShellPalette.accentWarm)
+                        } else {
+                            ShellTag(text: l("New Agent", "새 에이전트"), tint: ShellPalette.accent)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        if let company = store.selectedCompany {
+                            ShellTag(text: company.name, tint: ShellPalette.panelRaised)
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            Task { await store.createCompanyAgent() }
+                        } label: {
+                            Label(
+                                store.editingCompanyAgentID == nil ? l("Add Agent", "에이전트 추가") : l("Save Changes", "변경 저장"),
+                                systemImage: store.editingCompanyAgentID == nil ? "person.crop.circle.badge.plus" : "checkmark.circle"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            store.selectedCompany == nil ||
+                            store.newCompanyAgentTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                            store.newCompanyAgentCli.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                            store.newCompanyAgentRole.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        )
+
+                        if store.editingCompanyAgentID != nil {
+                            Button {
+                                store.cancelEditingCompanyAgent()
+                            } label: {
+                                Label(l("Cancel", "취소"), systemImage: "xmark")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(ShellTopBarButtonStyle(prominent: false))
                         }
                     }
                 }
             }
 
-            Toggle(isOn: $store.newCompanyAgentEnabled) {
-                Text(l("Enabled", "활성화"))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ShellPalette.text)
-            }
-            .toggleStyle(.switch)
-
-            HStack(spacing: 8) {
-                Button {
-                    Task { await store.createCompanyAgent() }
-                } label: {
-                    Label(
-                        store.editingCompanyAgentID == nil ? l("Add Agent", "에이전트 추가") : l("Save Changes", "변경 저장"),
-                        systemImage: store.editingCompanyAgentID == nil ? "person.crop.circle.badge.plus" : "checkmark.circle"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(
-                    store.selectedCompany == nil ||
-                    store.newCompanyAgentTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    store.newCompanyAgentCli.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    store.newCompanyAgentRole.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            companySubpanel {
+                agentTextEditorBlock(
+                    title: l("Agent Memory Seed", "에이전트 메모 시드"),
+                    helper: l("Seed reusable context, reminders, or background notes that should follow this role.", "이 역할을 따라다닐 재사용 컨텍스트, 리마인더, 배경 메모를 남깁니다."),
+                    text: $store.newCompanyAgentMemoryNotes
                 )
+            }
 
-                if store.editingCompanyAgentID != nil {
-                    Button {
-                        store.cancelEditingCompanyAgent()
-                    } label: {
-                        Label(l("Cancel", "취소"), systemImage: "xmark")
-                            .frame(maxWidth: .infinity)
+            VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    withAnimation(ShellMotion.spring) {
+                        companySidebarDisclosureState.isAgentAdvancedDetailsExpanded.toggle()
                     }
-                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(l("Advanced Routing & Handoffs", "고급 라우팅 및 handoff"))
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(ShellPalette.text)
+                            Text(l("Hide internal routing, A2A handoff notes, and collaborator tuning until you need them.", "필요할 때만 내부 라우팅, A2A handoff 메모, 협업 튜닝을 펼쳐 보이도록 숨깁니다."))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(ShellPalette.muted)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        if !store.newCompanyAgentCollaborationNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !store.newCompanyAgentPreferredCollaboratorIDs.isEmpty {
+                            ShellTag(text: l("Configured", "설정됨"), tint: ShellPalette.accentWarm)
+                        }
+
+                        Image(systemName: companySidebarDisclosureState.isAgentAdvancedDetailsExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(ShellPalette.muted)
+                            .padding(.top, 2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if companySidebarDisclosureState.isAgentAdvancedDetailsExpanded {
+                    VStack(alignment: .leading, spacing: 10) {
+                        companySubpanel {
+                            agentTextEditorBlock(
+                                title: l("A2A Handoff Notes", "A2A handoff 메모"),
+                                helper: l("Internal guidance for when this role should hand work to another agent or ask for help.", "이 역할이 다른 에이전트로 작업을 넘기거나 도움을 요청해야 하는 시점을 위한 내부 가이드입니다."),
+                                text: $store.newCompanyAgentCollaborationNotes
+                            )
+                        }
+
+                        if !store.availableCompanyAgentCollaborators.isEmpty {
+                            companySubpanel {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    panelHeading(
+                                        title: l("Preferred Collaborators", "선호 협업 에이전트"),
+                                        subtitle: l("Bias internal routing toward specific peers without removing any manual choice.", "수동 선택 기능은 유지한 채 내부 라우팅이 특정 동료를 더 우선하도록 조정합니다.")
+                                    )
+
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
+                                        ForEach(store.availableCompanyAgentCollaborators) { collaborator in
+                                            let isSelected = store.newCompanyAgentPreferredCollaboratorIDs.contains(collaborator.id)
+                                            Button {
+                                                if isSelected {
+                                                    store.newCompanyAgentPreferredCollaboratorIDs.remove(collaborator.id)
+                                                } else {
+                                                    store.newCompanyAgentPreferredCollaboratorIDs.insert(collaborator.id)
+                                                }
+                                            } label: {
+                                                HStack(spacing: 8) {
+                                                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                                        .font(.system(size: 11, weight: .semibold))
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(collaborator.title)
+                                                            .font(.system(size: 11, weight: .semibold))
+                                                            .lineLimit(1)
+                                                        Text(collaborator.agentCli)
+                                                            .font(.system(size: 10, weight: .medium))
+                                                            .foregroundStyle(ShellPalette.text.opacity(0.72))
+                                                            .lineLimit(1)
+                                                    }
+                                                    Spacer(minLength: 0)
+                                                }
+                                                .padding(.horizontal, 10)
+                                                .padding(.vertical, 9)
+                                                .background(isSelected ? ShellPalette.panelRaised : ShellPalette.panelAlt)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                        .stroke(isSelected ? ShellPalette.accent : ShellPalette.line, lineWidth: 1)
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                            .contentShape(Rectangle())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
 
@@ -1930,6 +2362,12 @@ private func valueLine(label: String, value: String) -> some View {
     }
 }
 
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
 private struct AgentWorkSummaryRow: View {
     let agent: CompanyAgentDefinitionRecord
     let profile: OrgAgentProfileRecord?
@@ -1977,6 +2415,1507 @@ private struct AgentWorkSummaryRow: View {
                 .stroke(ShellPalette.line, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+    }
+}
+
+private struct MeetingRoomZoneCard<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let tint: Color
+    @ViewBuilder let content: Content
+
+    init(title: String, subtitle: String, tint: Color, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.tint = tint
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 7, height: 7)
+                    .padding(.top, 3)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title.uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.8)
+                        .foregroundStyle(ShellPalette.text)
+                    Text(subtitle)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(ShellPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            content
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(ShellPalette.panelAlt)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                .stroke(tint.opacity(0.22), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous))
+    }
+}
+
+private struct MeetingRoomFeedRow: View {
+    let eyebrow: String
+    let title: String
+    let detail: String?
+    let meta: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(eyebrow)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(tint.opacity(0.14))
+                    .clipShape(Capsule())
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Text(meta)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(ShellPalette.faint)
+                    .lineLimit(1)
+            }
+
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(ShellPalette.text)
+                .lineLimit(2)
+
+            if let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(ShellPalette.muted)
+                    .lineLimit(3)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(ShellPalette.panelDeeper)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+    }
+}
+
+private struct MeetingRoomSeatCard: View {
+    let title: String
+    let subtitle: String
+    let status: String
+    let tint: Color
+
+    private var isActive: Bool {
+        ["RUNNING", "IN_PROGRESS", "STARTING", "QUEUED"].contains(status.uppercased())
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            MeetingRoomDotAgentAvatar(tint: tint, isActive: isActive)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(ShellPalette.text)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    StatusSummaryPill(text: status, tint: tint)
+                }
+
+                Text(subtitle)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(ShellPalette.muted)
+                    .lineLimit(2)
+
+                HStack(spacing: 6) {
+                    ShellTag(text: "seat", tint: ShellPalette.panelRaised)
+                    ShellTag(text: "live", tint: tint.opacity(0.8))
+                }
+            }
+        }
+        .padding(8)
+        .frame(width: 144, height: 74, alignment: .topLeading)
+        .background(ShellPalette.panelAlt)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                .stroke(tint.opacity(0.3), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+    }
+}
+
+private struct MeetingRoomDotAgentAvatar: View {
+    let tint: Color
+    let isActive: Bool
+    @State private var isAnimating = false
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                Circle()
+                    .fill(ShellPalette.panelDeeper)
+                    .frame(width: 26, height: 26)
+                    .overlay(
+                        Circle()
+                            .stroke(tint.opacity(0.35), lineWidth: 1)
+                    )
+
+                VStack(spacing: 3) {
+                    HStack(spacing: 4) {
+                        Circle().fill(ShellPalette.text).frame(width: 3, height: 3)
+                        Circle().fill(ShellPalette.text).frame(width: 3, height: 3)
+                    }
+                    RoundedRectangle(cornerRadius: 1, style: .continuous)
+                        .fill(tint)
+                        .frame(width: 10, height: 2)
+                        .scaleEffect(x: isAnimating ? 1.0 : 0.82, y: 1, anchor: .center)
+                }
+            }
+            .offset(y: isActive && isAnimating ? -1.5 : 0)
+
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(tint.opacity(0.92))
+                .frame(width: 20, height: 16)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .stroke(ShellPalette.lineStrong.opacity(0.5), lineWidth: 1)
+                )
+
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(ShellPalette.panelDeeper)
+                .frame(width: 26, height: 8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .stroke(ShellPalette.line, lineWidth: 1)
+                )
+        }
+        .frame(width: 30, height: 52, alignment: .top)
+        .overlay(alignment: .topTrailing) {
+            Circle()
+                .fill(tint)
+                .frame(width: 5, height: 5)
+                .opacity(isActive ? (isAnimating ? 1 : 0.35) : 0.45)
+        }
+        .animation(
+            isActive ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default,
+            value: isAnimating
+        )
+        .onAppear {
+            guard isActive else { return }
+            isAnimating = true
+        }
+        .onChange(of: isActive) { _, newValue in
+            isAnimating = newValue
+        }
+    }
+}
+
+private enum LocalProposalKind {
+    case goal
+    case goalAutonomy
+    case decomposition
+    case issue
+    case delegation
+    case execution
+    case qa
+    case review
+    case runtime
+    case agent
+    case backend
+    case generalNote
+
+    var tint: Color {
+        switch self {
+        case .goal:
+            return ShellPalette.accent
+        case .goalAutonomy:
+            return ShellPalette.success
+        case .decomposition:
+            return ShellPalette.accentWarm
+        case .issue:
+            return ShellPalette.warning
+        case .delegation:
+            return ShellPalette.accentWarm
+        case .execution:
+            return ShellPalette.success
+        case .qa:
+            return ShellPalette.accentWarm
+        case .review:
+            return ShellPalette.success
+        case .runtime:
+            return ShellPalette.accentWarm
+        case .agent:
+            return ShellPalette.accent
+        case .backend:
+            return ShellPalette.warning
+        case .generalNote:
+            return ShellPalette.faint
+        }
+    }
+
+    func label(_ language: AppLanguage) -> String {
+        switch self {
+        case .goal:
+            return language("Goal", "목표")
+        case .goalAutonomy:
+            return language("Goal Autonomy", "목표 자율")
+        case .decomposition:
+            return language("Decomposition", "분해")
+        case .issue:
+            return language("Issue", "이슈")
+        case .delegation:
+            return language("Delegation", "위임")
+        case .execution:
+            return language("Execution", "실행")
+        case .qa:
+            return language("QA", "QA")
+        case .review:
+            return language("Review", "리뷰")
+        case .runtime:
+            return language("Runtime", "런타임")
+        case .agent:
+            return language("Agent", "에이전트")
+        case .backend:
+            return language("Backend", "백엔드")
+        case .generalNote:
+            return language("General Note", "일반 메모")
+        }
+    }
+
+    func summary(_ language: AppLanguage) -> String {
+        switch self {
+        case .goal:
+            return language("Looks like a goal-level proposal.", "목표 수준 제안으로 보입니다.")
+        case .goalAutonomy:
+            return language("Looks like a request to toggle the selected goal's autonomy mode.", "선택한 목표의 자율 모드를 바꾸라는 요청으로 보입니다.")
+        case .decomposition:
+            return language("Looks like a request to break the selected goal into issues.", "선택한 목표를 이슈로 분해하라는 요청으로 보입니다.")
+        case .issue:
+            return language("Looks like an issue-level action draft.", "이슈 수준 액션 초안으로 보입니다.")
+        case .delegation:
+            return language("Looks like a request to route the selected issue to the company roster.", "선택한 이슈를 회사 roster로 라우팅하라는 요청으로 보입니다.")
+        case .execution:
+            return language("Looks like a request to run the selected issue.", "선택한 이슈를 실행하라는 요청으로 보입니다.")
+        case .qa:
+            return language("Looks like a QA or verification note.", "QA 또는 검증 메모로 보입니다.")
+        case .review:
+            return language("Looks like a review or approval step.", "리뷰 또는 승인 단계로 보입니다.")
+        case .runtime:
+            return language("Looks like a runtime control action.", "런타임 제어 액션으로 보입니다.")
+        case .agent:
+            return language("Looks like an agent creation or staffing request.", "에이전트 생성 또는 배치 요청으로 보입니다.")
+        case .backend:
+            return language("Looks like a backend process control action.", "백엔드 프로세스 제어 액션으로 보입니다.")
+        case .generalNote:
+            return language("Reads like a general room note for later review.", "나중에 검토할 일반 메모처럼 읽힙니다.")
+        }
+    }
+}
+
+private struct LocalProposalPreview {
+    let kind: LocalProposalKind
+    let targetScope: String
+    let riskLevel: String
+    let nextStep: String
+    let confirmationReason: String
+}
+
+private struct CompanyChatControlRail: View {
+    @EnvironmentObject private var store: DesktopStore
+    let layoutMode: DesktopLayoutMode
+    @Binding var draft: String
+    @Binding var applyReviewDraft: String
+    @State private var isApplyingGoalProposal = false
+
+    private var l: AppLanguage { store.language }
+
+    private var trimmedDraft: String {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var scopedMessages: [AgentMessageRecord] {
+        let companyID = store.selectedCompanyID
+        if let issueID = store.selectedIssueID {
+            return store.dashboard.agentMessages
+                .filter { (companyID == nil || $0.companyId == companyID) && $0.issueId == issueID }
+                .sorted { $0.createdAt > $1.createdAt }
+        }
+
+        return store.dashboard.agentMessages
+            .filter { companyID == nil || $0.companyId == companyID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var scopedContextEntries: [AgentContextEntryRecord] {
+        let companyID = store.selectedCompanyID
+        if let issueID = store.selectedIssueID {
+            return store.dashboard.agentContextEntries
+                .filter { (companyID == nil || $0.companyId == companyID) && ($0.issueId == issueID || $0.visibility == "company") }
+                .sorted { $0.createdAt > $1.createdAt }
+        }
+
+        return store.dashboard.agentContextEntries
+            .filter { companyID == nil || $0.companyId == companyID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var conversationHistory: [CompanyConversationHistoryItem] {
+        Array(
+            (scopedMessages.map { CompanyConversationHistoryItem.message($0) } +
+                scopedContextEntries.map { CompanyConversationHistoryItem.context($0) })
+                .sorted { $0.createdAt > $1.createdAt }
+                .prefix(layoutMode == .wide ? 14 : 10)
+        )
+    }
+
+    private var scopeChip: String {
+        if let issue = store.selectedIssue {
+            return l("Issue scope", "이슈 범위") + ": " + issue.title
+        }
+        if let company = store.selectedCompany {
+            return l("Company scope", "회사 범위") + ": " + company.name
+        }
+        return l("Live company scope", "실시간 회사 범위")
+    }
+
+    private var memorySummaryRows: [(String, String, Color)] {
+        let companyValue = store.companyMemorySnapshot?.companyMemory ?? (store.selectedCompany?.name ?? l("No company selected", "선택된 회사 없음"))
+        let workflowValue = store.companyMemorySnapshot?.workflowMemory ?? {
+            if let issue = store.selectedIssue {
+                return issue.title + " · " + l.status(issue.status)
+            }
+            if let goal = store.selectedGoal {
+                return goal.title + " · " + l.status(goal.status)
+            }
+            return l("No active goal or issue selected", "활성 목표/이슈 없음")
+        }()
+        let agentValue = store.companyMemorySnapshot?.agentMemory ?? {
+            let lead = store.workflowLeadAgent.isEmpty ? (store.dashboard.settings.availableAgents.first ?? "—") : store.workflowLeadAgent
+            let count = store.dashboard.runningAgentSessions.count
+            return lead + " · " + l("live", "실행중") + " \(count)"
+        }()
+        return [
+            (l("Company memory", "회사 메모리"), companyValue, ShellPalette.accent),
+            (l("Workflow memory", "워크플로 메모리"), workflowValue, ShellPalette.warning),
+            (l("Agent memory", "에이전트 메모리"), agentValue, ShellPalette.accentWarm)
+        ]
+    }
+
+    private var memorySnapshotRequestKey: String {
+        [store.selectedCompanyID ?? store.selectedCompany?.id ?? "none", store.selectedIssueID ?? "none"].joined(separator: ":")
+    }
+
+    private var stagedProposalPreview: LocalProposalPreview? {
+        let stagedDraft = applyReviewDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stagedDraft.isEmpty else { return nil }
+
+        let kind = classifyProposal(stagedDraft)
+        return LocalProposalPreview(
+            kind: kind,
+            targetScope: likelyTargetScope(for: kind),
+            riskLevel: proposalRiskLevel(for: kind),
+            nextStep: proposalNextStep(for: kind),
+            confirmationReason: confirmationReason(for: kind)
+        )
+    }
+
+    private var stagedGoalProposal: ChatGoalProposal? {
+        guard stagedProposalPreview?.kind == .goal else { return nil }
+        return store.chatGoalProposal(from: applyReviewDraft)
+    }
+
+    private var stagedGoalAutonomyProposal: ChatGoalAutonomyProposal? {
+        guard stagedProposalPreview?.kind == .goalAutonomy else { return nil }
+        return store.chatGoalAutonomyProposal(from: applyReviewDraft)
+    }
+
+    private var stagedGoalDecompositionProposal: ChatGoalDecompositionProposal? {
+        guard stagedProposalPreview?.kind == .decomposition else { return nil }
+        return store.chatGoalDecompositionProposal(from: applyReviewDraft)
+    }
+
+    private var stagedIssueProposal: ChatIssueProposal? {
+        guard stagedProposalPreview?.kind == .issue else { return nil }
+        return store.chatIssueProposal(from: applyReviewDraft)
+    }
+
+    private var stagedDelegationProposal: ChatDelegationProposal? {
+        guard stagedProposalPreview?.kind == .delegation else { return nil }
+        return store.chatDelegationProposal(from: applyReviewDraft)
+    }
+
+    private var stagedReviewProposal: ChatReviewProposal? {
+        guard let preview = stagedProposalPreview else { return nil }
+        switch preview.kind {
+        case .qa:
+            return store.chatReviewProposal(from: applyReviewDraft, kind: "qa")
+        case .review:
+            return store.chatReviewProposal(from: applyReviewDraft, kind: "ceo")
+        default:
+            return nil
+        }
+    }
+
+    private var stagedMergeProposal: ChatMergeProposal? {
+        guard stagedProposalPreview?.kind == .review else { return nil }
+        return store.chatMergeProposal(from: applyReviewDraft)
+    }
+
+    private var stagedRuntimeProposal: ChatRuntimeProposal? {
+        guard stagedProposalPreview?.kind == .runtime else { return nil }
+        return store.chatRuntimeProposal(from: applyReviewDraft)
+    }
+
+    private var stagedAgentProposal: ChatAgentProposal? {
+        guard stagedProposalPreview?.kind == .agent else { return nil }
+        return store.chatAgentProposal(from: applyReviewDraft)
+    }
+
+    private var stagedBackendProposal: ChatBackendProposal? {
+        guard stagedProposalPreview?.kind == .backend else { return nil }
+        return store.chatBackendProposal(from: applyReviewDraft)
+    }
+
+    private var canApplyGoalProposal: Bool {
+        stagedGoalProposal != nil && store.selectedCompany != nil && !isApplyingGoalProposal
+    }
+
+    private var canApplyGoalAutonomyProposal: Bool {
+        guard let proposal = stagedGoalAutonomyProposal,
+              let goal = store.selectedGoal,
+              !isApplyingGoalProposal else {
+            return false
+        }
+        return proposal.mode == .enable ? !goal.autonomyEnabled : goal.autonomyEnabled
+    }
+
+    private var canApplyGoalDecompositionProposal: Bool {
+        stagedGoalDecompositionProposal != nil && store.selectedGoal != nil && !isApplyingGoalProposal
+    }
+
+    private var canApplyIssueProposal: Bool {
+        stagedIssueProposal != nil && store.selectedCompany != nil && !isApplyingGoalProposal
+    }
+
+    private var canApplyDelegationProposal: Bool {
+        guard stagedDelegationProposal != nil,
+              let issue = store.selectedIssue,
+              !isApplyingGoalProposal else {
+            return false
+        }
+        let status = issue.status.uppercased()
+        return status != "DELEGATED" && status != "DONE"
+    }
+
+    private var canApplyReviewProposal: Bool {
+        stagedReviewProposal != nil && stagedMergeProposal == nil && store.selectedReviewQueueItem != nil && !isApplyingGoalProposal
+    }
+
+    private var canApplyMergeProposal: Bool {
+        guard stagedMergeProposal != nil,
+              let item = store.selectedReviewQueueItem,
+              !isApplyingGoalProposal else {
+            return false
+        }
+        let prOpen = item.pullRequestState?.uppercased() == "OPEN"
+        let mergeable = item.mergeability?.uppercased()
+        let readyVerdict = item.ceoVerdict?.uppercased() == "APPROVE" || item.status == "READY_TO_MERGE"
+        return prOpen && readyVerdict && (mergeable == nil || mergeable == "CLEAN")
+    }
+
+    private var canApplyRuntimeProposal: Bool {
+        guard let proposal = stagedRuntimeProposal,
+              let company = store.selectedCompany,
+              !isApplyingGoalProposal else {
+            return false
+        }
+        let runtime = store.dashboard.companyRuntimes.first(where: { $0.companyId == company.id })
+        let isRunning = runtime?.status.uppercased() == "RUNNING"
+        switch proposal.action {
+        case .start:
+            return !isRunning
+        case .stop:
+            return isRunning
+        }
+    }
+
+    private var canApplyAgentProposal: Bool {
+        stagedAgentProposal != nil && store.selectedCompany != nil && !isApplyingGoalProposal
+    }
+
+    private var canApplyBackendProposal: Bool {
+        guard let proposal = stagedBackendProposal,
+              store.selectedCompany != nil,
+              !isApplyingGoalProposal else {
+            return false
+        }
+        let status = store.codexBackendStatus ?? store.dashboard.backendStatuses.first
+        let lifecycle = status?.lifecycleState.uppercased()
+        switch proposal.action {
+        case .start:
+            return lifecycle != "RUNNING"
+        case .stop:
+            return lifecycle == "RUNNING"
+        case .restart:
+            return lifecycle == "RUNNING" || lifecycle == "STARTING"
+        }
+    }
+
+    private var selectedLeadAgentLabel: String {
+        store.workflowLeadAgent.isEmpty ? (store.dashboard.settings.availableAgents.first ?? "—") : store.workflowLeadAgent
+    }
+
+    private var selectedWorkerAgentLabel: String {
+        let workers = Array(store.agentSelection.subtracting([selectedLeadAgentLabel])).sorted()
+        return workers.isEmpty ? l("No extra workers", "추가 워커 없음") : workers.joined(separator: ", ")
+    }
+
+    private var routingParticipants: [(String, String, Color)] {
+        store.dashboard.settings.availableAgents
+            .filter { store.agentSelection.contains($0) || $0 == selectedLeadAgentLabel }
+            .map { agent in
+                let matchingSession = store.dashboard.runningAgentSessions.first {
+                    ($0.agentName == agent) || ($0.roleName == agent)
+                }
+                if let matchingSession {
+                    return (agent, l.status(matchingSession.status), statusTint(for: matchingSession.status))
+                }
+                if agent == selectedLeadAgentLabel {
+                    return (agent, l("Lead", "리더"), ShellPalette.accent)
+                }
+                return (agent, l("Idle", "대기"), ShellPalette.faint)
+            }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            sourceStrip
+            memoryStrip
+            conversationZone
+            composerZone
+        }
+        .shellCard(accent: ShellPalette.lineStrong)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(l("Chat Control", "채팅 컨트롤"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ShellPalette.text)
+                Text(
+                    l(
+                        "Current agent traffic, recent context, and a confirmation-first request draft.",
+                        "현재 에이전트 대화, 최근 컨텍스트, 그리고 확인 우선 요청 초안을 함께 봅니다."
+                    )
+                )
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(ShellPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            StatusSummaryPill(text: l("LIVE STATE", "실시간 상태"), tint: ShellPalette.accent)
+        }
+    }
+
+    private var sourceStrip: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ShellTag(text: scopeChip, tint: ShellPalette.accent)
+                    ShellTag(text: l("Messages", "메시지") + " \(scopedMessages.count)", tint: ShellPalette.accentWarm)
+                    ShellTag(text: l("Context", "컨텍스트") + " \(scopedContextEntries.count)", tint: ShellPalette.warning)
+                }
+                .padding(.vertical, 2)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(l("Chat Agent Routing", "채팅 에이전트 라우팅"))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(ShellPalette.faint)
+
+                Picker(l("Lead AI", "리더 AI"), selection: Binding(
+                    get: { store.workflowLeadAgent.isEmpty ? (store.dashboard.settings.availableAgents.first ?? "") : store.workflowLeadAgent },
+                    set: { store.setWorkflowLeadAgent($0) }
+                )) {
+                    ForEach(store.dashboard.settings.availableAgents, id: \.self) { agent in
+                        Text(agent).tag(agent)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                FlowLayout(items: store.dashboard.settings.availableAgents, selected: store.agentSelection) { agent in
+                    store.toggleWorkflowAgent(agent)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(l("Active participants", "활성 참가자"))
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .tracking(0.6)
+                        .foregroundStyle(ShellPalette.faint)
+
+                    ForEach(routingParticipants, id: \.0) { participant in
+                        HStack(spacing: 8) {
+                            Text(participant.0)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(ShellPalette.text)
+                            Spacer(minLength: 8)
+                            StatusSummaryPill(text: participant.1, tint: participant.2)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var memoryStrip: some View {
+        MeetingRoomZoneCard(
+            title: l("Memory Snapshot", "메모리 스냅샷"),
+            subtitle: l(
+                "What the current room already knows before you confirm a real action.",
+                "실제 액션을 확인하기 전에 현재 방이 이미 알고 있는 상태를 요약합니다."
+            ),
+            tint: ShellPalette.accentWarm
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(memorySummaryRows.enumerated()), id: \.offset) { _, row in
+                    proposalSummaryRow(label: row.0, value: row.1, tint: row.2)
+                }
+            }
+            .task(id: memorySnapshotRequestKey) {
+                await store.loadSelectedCompanyMemorySnapshot()
+            }
+        }
+    }
+
+    private var conversationZone: some View {
+        MeetingRoomZoneCard(
+            title: l("Conversation History", "대화 히스토리"),
+            subtitle: l(
+                "Read-only from the current live company snapshot. Messages and context share the same history stream.",
+                "현재 라이브 회사 스냅샷을 읽기 전용으로 보여줍니다. 메시지와 컨텍스트를 하나의 히스토리 스트림으로 봅니다."
+            ),
+            tint: ShellPalette.accent
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                if conversationHistory.isEmpty {
+                    EmptyStateView(
+                        image: "bubble.left.and.text.bubble.right",
+                        title: l("No live conversation yet", "아직 실시간 대화가 없습니다"),
+                        subtitle: l(
+                            "When agents start coordinating or pinning context, that activity will appear here.",
+                            "에이전트가 조율을 시작하거나 컨텍스트를 고정하면 이 영역에 표시됩니다."
+                        )
+                    )
+                    .frame(minHeight: 180)
+                } else {
+                    ForEach(conversationHistory) { item in
+                        historyRow(item)
+                    }
+                }
+            }
+        }
+    }
+
+    private var composerZone: some View {
+        MeetingRoomZoneCard(
+            title: l("Compose Request", "요청 초안"),
+            subtitle: l(
+                "Draft against the current room state, then stop at an explicit apply review before any real mutation runs.",
+                "현재 방 상태를 기준으로 초안을 쓰고, 실제 상태 변경이 실행되기 전에 명시적인 적용 검토 단계에서 멈춥니다."
+            ),
+            tint: ShellPalette.warning
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $draft)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(ShellPalette.text)
+                        .frame(minHeight: layoutMode == .wide ? 124 : 108)
+                        .padding(8)
+                        .scrollContentBackground(.hidden)
+                        .background(ShellPalette.panelDeeper)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                                .stroke(ShellPalette.line, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+
+                    if draft.isEmpty {
+                        Text(
+                            l(
+                                "Draft a company request here. Confirmed proposal types can now execute real company actions from this rail.",
+                                "회사 요청 초안을 여기에 작성하세요. 이제 확인된 제안 유형은 이 레일에서 실제 회사 액션을 실행할 수 있습니다."
+                            )
+                        )
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ShellPalette.faint)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 20)
+                        .allowsHitTesting(false)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        applyReviewDraft = trimmedDraft
+                    } label: {
+                        Label(l("Stage Apply Review", "적용 검토 준비"), systemImage: "checklist.checked")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                    .disabled(trimmedDraft.isEmpty)
+
+                    Button {
+                        draft = ""
+                        applyReviewDraft = ""
+                    } label: {
+                        Label(l("Clear", "지우기"), systemImage: "xmark")
+                    }
+                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+                    .disabled(draft.isEmpty && applyReviewDraft.isEmpty)
+                }
+
+                applyReviewPanel
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func historyRow(_ item: CompanyConversationHistoryItem) -> some View {
+        switch item {
+        case let .activity(activity):
+            MeetingRoomFeedRow(
+                eyebrow: activity.source.uppercased(),
+                title: activity.title,
+                detail: activity.detail,
+                meta: relativeTimestamp(activity.createdAt),
+                tint: statusTint(for: activity.severity)
+            )
+        case let .message(message):
+            MeetingRoomFeedRow(
+                eyebrow: message.fromAgentName + " → " + (message.toAgentName ?? l("room", "room")),
+                title: message.subject.isEmpty ? l("Agent message", "에이전트 메시지") : message.subject,
+                detail: message.body,
+                meta: relativeTimestamp(message.createdAt),
+                tint: message.kind.lowercased() == "escalation" ? ShellPalette.warning : ShellPalette.accent
+            )
+        case let .context(entry):
+            MeetingRoomFeedRow(
+                eyebrow: "\(entry.agentName) · \(entry.kind.uppercased())",
+                title: entry.title,
+                detail: entry.content,
+                meta: relativeTimestamp(entry.createdAt),
+                tint: entry.visibility == "company" ? ShellPalette.accentWarm : ShellPalette.warning
+            )
+        }
+    }
+
+    private var applyReviewPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(l("Apply?", "적용할까요?"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(ShellPalette.text)
+                    Text(
+                        l(
+                            "Explicit confirmation comes before any future mutation path.",
+                            "향후 상태 변경이 생기더라도 먼저 명시적인 확인을 거칩니다."
+                        )
+                    )
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                }
+
+                Spacer(minLength: 8)
+
+                StatusSummaryPill(text: l("CONFIRM FIRST", "확인 우선"), tint: ShellPalette.warning)
+            }
+
+            if applyReviewDraft.isEmpty {
+                Text(
+                    l(
+                        "Stage a draft to preview the approval step. Supported proposal types can execute real backend-backed actions only after explicit confirmation.",
+                        "초안을 준비하면 승인 단계를 미리 볼 수 있습니다. 지원되는 제안 유형은 명시적 확인 뒤에만 실제 백엔드 액션을 실행할 수 있습니다."
+                    )
+                )
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(ShellPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                if let preview = stagedProposalPreview {
+                    proposalSummaryCard(preview)
+                }
+
+                proposalSummaryRow(
+                    label: l("Lead AI", "리더 AI"),
+                    value: selectedLeadAgentLabel,
+                    tint: ShellPalette.accent
+                )
+                proposalSummaryRow(
+                    label: l("Worker roster", "워커 roster"),
+                    value: selectedWorkerAgentLabel,
+                    tint: ShellPalette.success
+                )
+
+                if let goalProposal = stagedGoalProposal {
+                    proposalSummaryCard(
+                        LocalProposalPreview(
+                            kind: .goal,
+                            targetScope: l("Selected company · \(store.selectedCompany?.name ?? "—")", "선택한 회사 · \(store.selectedCompany?.name ?? "—")"),
+                            riskLevel: l("High · creates a real company goal immediately after confirmation.", "높음 · 확인 직후 실제 회사 목표를 생성합니다."),
+                            nextStep: l("Create one goal with the first draft line as the title and the full draft as the description.", "초안의 첫 줄을 제목으로, 전체 초안을 설명으로 사용해 목표 하나를 생성합니다."),
+                            confirmationReason: l("This rail still infers structure from free-form text, so the final explicit confirmation protects against creating the wrong goal in the current company.", "이 레일은 여전히 자유 텍스트에서 구조를 추정하므로, 현재 회사에 잘못된 목표를 만드는 일을 막기 위해 마지막 명시적 확인이 필요합니다.")
+                        )
+                    )
+
+                    proposalSummaryRow(
+                        label: l("Confirmed goal title", "확정될 목표 제목"),
+                        value: goalProposal.title,
+                        tint: ShellPalette.success
+                    )
+                }
+
+                if let goalAutonomyProposal = stagedGoalAutonomyProposal {
+                    proposalSummaryRow(
+                        label: l("Autonomy action", "자율 액션"),
+                        value: goalAutonomyProposal.mode == .enable ? l("Set selected goal to AUTO", "선택한 목표를 자동으로 설정") : l("Set selected goal to MANUAL", "선택한 목표를 수동으로 설정"),
+                        tint: ShellPalette.success
+                    )
+                    proposalSummaryRow(
+                        label: l("Operator note", "운영 메모"),
+                        value: goalAutonomyProposal.summary,
+                        tint: ShellPalette.warning
+                    )
+                }
+
+                if let decompositionProposal = stagedGoalDecompositionProposal {
+                    proposalSummaryRow(
+                        label: l("Decomposition action", "분해 액션"),
+                        value: l("Break the selected goal into explicit issues", "선택한 목표를 명시적인 이슈로 분해"),
+                        tint: ShellPalette.accentWarm
+                    )
+                    proposalSummaryRow(
+                        label: l("Operator note", "운영 메모"),
+                        value: decompositionProposal.summary,
+                        tint: ShellPalette.warning
+                    )
+                }
+
+                if let delegationProposal = stagedDelegationProposal {
+                    proposalSummaryRow(
+                        label: l("Delegation action", "위임 액션"),
+                        value: l("Route the selected issue into the company roster", "선택한 이슈를 회사 roster로 라우팅"),
+                        tint: ShellPalette.accentWarm
+                    )
+                    proposalSummaryRow(
+                        label: l("Operator note", "운영 메모"),
+                        value: delegationProposal.summary,
+                        tint: ShellPalette.warning
+                    )
+                }
+
+                if let issueProposal = stagedIssueProposal {
+                    proposalSummaryRow(
+                        label: l("Target goal", "대상 목표"),
+                        value: store.dashboard.goals.first(where: { $0.id == issueProposal.goalId })?.title ?? issueProposal.goalId,
+                        tint: ShellPalette.accent
+                    )
+                    proposalSummaryRow(
+                        label: l("Confirmed issue title", "확정될 이슈 제목"),
+                        value: issueProposal.title,
+                        tint: ShellPalette.success
+                    )
+                }
+
+                if let reviewProposal = stagedReviewProposal {
+                    proposalSummaryRow(
+                        label: l("Review stage", "리뷰 단계"),
+                        value: reviewProposal.stage == .qa ? l("QA", "QA") : l("CEO", "CEO"),
+                        tint: ShellPalette.warning
+                    )
+                    proposalSummaryRow(
+                        label: l("Confirmed verdict", "확정될 판정"),
+                        value: l.status(reviewProposal.verdict),
+                        tint: ShellPalette.success
+                    )
+                }
+
+                if let mergeProposal = stagedMergeProposal {
+                    proposalSummaryRow(
+                        label: l("Merge action", "머지 액션"),
+                        value: l("Merge the selected approved pull request", "선택한 승인된 풀 리퀘스트 머지"),
+                        tint: ShellPalette.success
+                    )
+                    proposalSummaryRow(
+                        label: l("Operator note", "운영 메모"),
+                        value: mergeProposal.summary,
+                        tint: ShellPalette.warning
+                    )
+                }
+
+                if let runtimeProposal = stagedRuntimeProposal {
+                    proposalSummaryRow(
+                        label: l("Runtime action", "런타임 액션"),
+                        value: runtimeProposal.action == .start ? l("Start selected company runtime", "선택한 회사 런타임 시작") : l("Stop selected company runtime", "선택한 회사 런타임 중지"),
+                        tint: ShellPalette.accentWarm
+                    )
+                }
+
+                if let agentProposal = stagedAgentProposal {
+                    proposalSummaryRow(
+                        label: l("Agent title", "에이전트 직함"),
+                        value: agentProposal.title,
+                        tint: ShellPalette.accent
+                    )
+                    proposalSummaryRow(
+                        label: l("Specialties", "전문 분야"),
+                        value: agentProposal.specialties.joined(separator: " · "),
+                        tint: ShellPalette.success
+                    )
+                }
+
+                if let backendProposal = stagedBackendProposal {
+                    proposalSummaryRow(
+                        label: l("Backend action", "백엔드 액션"),
+                        value: backendProposal.action.rawValue.uppercased(),
+                        tint: ShellPalette.warning
+                    )
+                }
+
+                Text(applyReviewDraft)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(ShellPalette.text)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(
+                    stagedGoalProposal != nil
+                        ? l(
+                            "Goal proposals are the first live slice here. Confirming will create one real goal in the selected company, while the other proposal types remain preview-only.",
+                            "여기서 처음으로 실제 동작하는 범위는 목표 제안입니다. 확인하면 선택한 회사에 실제 목표 하나를 만들고, 다른 제안 유형은 계속 미리보기 전용으로 남습니다."
+                        )
+                        : stagedGoalAutonomyProposal != nil
+                        ? l(
+                            "Goal autonomy proposals are live for the selected goal. Confirmation still gates AUTO/MANUAL changes so chat cannot silently alter the company loop policy.",
+                            "목표 자율 제안은 선택된 목표에서 실제로 동작합니다. 채팅이 회사 루프 정책을 조용히 바꾸지 않도록 자동/수동 변경도 여전히 확인을 거칩니다."
+                        )
+                        : stagedGoalDecompositionProposal != nil
+                        ? l(
+                            "Goal decomposition proposals are live for the selected goal. Confirmation still gates issue generation so chat cannot silently fan out new work.",
+                            "목표 분해 제안은 선택된 목표에서 실제로 동작합니다. 채팅이 새 작업을 조용히 늘리지 않도록 목표 분해도 여전히 확인을 거칩니다."
+                        )
+                        : stagedDelegationProposal != nil
+                        ? l(
+                            "Delegation proposals are live for the selected issue. Confirmation still gates routing so chat cannot silently reassign work to the roster.",
+                            "위임 제안은 선택된 이슈에서 실제로 동작합니다. 채팅이 작업을 조용히 roster로 재배치하지 않도록 위임도 여전히 확인을 거칩니다."
+                        )
+                        : stagedMergeProposal != nil
+                        ? l(
+                            "Merge proposals are live for selected review items that are already approved and merge-ready. Confirmation still gates the final publish-side action.",
+                            "머지 제안은 이미 승인되고 머지 가능한 선택된 리뷰 항목에서 실제로 동작합니다. 최종 퍼블리시 측 액션은 여전히 확인으로 한 번 더 제어됩니다."
+                        )
+                        : stagedRuntimeProposal != nil
+                        ? l(
+                            "Runtime proposals are live for the selected company. Confirmation still gates start and stop so chat control cannot silently flip the company loop.",
+                            "런타임 제안은 선택된 회사에서 실제로 동작합니다. 채팅 제어가 회사 루프를 조용히 바꾸지 않도록 시작과 중지도 여전히 확인을 거칩니다."
+                        )
+                        : stagedAgentProposal != nil
+                        ? l(
+                            "Agent proposals are live for the selected company. Confirmation still gates staffing changes so chat drafts cannot silently rewrite the company roster.",
+                            "에이전트 제안은 선택된 회사에서 실제로 동작합니다. 채팅 초안이 회사 roster를 조용히 바꾸지 않도록 인원 변경도 여전히 확인을 거칩니다."
+                        )
+                        : stagedBackendProposal != nil
+                        ? l(
+                            "Backend proposals are live for the selected company. Confirmation still gates process control so chat cannot silently flip the app-server backend state.",
+                            "백엔드 제안은 선택된 회사에서 실제로 동작합니다. 채팅이 앱 서버 백엔드 상태를 조용히 바꾸지 않도록 프로세스 제어도 여전히 확인을 거칩니다."
+                        )
+                        : stagedReviewProposal != nil
+                        ? l(
+                            "Review proposals are also live now. Confirming will submit a real verdict to the selected review queue item, while issue drafts still remain preview-only.",
+                            "이제 리뷰 제안도 실제로 동작합니다. 확인하면 선택한 리뷰 큐 항목에 실제 판정을 제출하고, 이슈 초안은 계속 미리보기 전용으로 남습니다."
+                        )
+                        : stagedIssueProposal != nil
+                        ? l(
+                            "Issue proposals are live too. Confirming will create one real issue under the currently selected goal, while unsupported action types still remain preview-only.",
+                            "이제 이슈 제안도 실제로 동작합니다. 확인하면 현재 선택한 목표 아래에 실제 이슈 하나를 만들고, 아직 지원하지 않는 액션 유형은 계속 미리보기 전용으로 남습니다."
+                        )
+                        : l(
+                            "This proposal type is still preview-only. The rail keeps the approval-first shape visible without pretending the backend can already apply every chat action.",
+                            "이 제안 유형은 아직 미리보기 전용입니다. 데스크톱 레일은 모든 채팅 액션을 이미 적용할 수 있는 것처럼 보이지 않도록 승인 우선 형태만 보여줍니다."
+                        )
+                )
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(ShellPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button {
+                        applyReviewDraft = ""
+                    } label: {
+                        Label(l("Discard Review", "검토 취소"), systemImage: "trash")
+                    }
+                    .buttonStyle(ShellTopBarButtonStyle(prominent: false))
+
+                    Button {
+                        Task {
+                            isApplyingGoalProposal = true
+                            defer { isApplyingGoalProposal = false }
+                            if let goalProposal = stagedGoalProposal {
+                                let saved = await store.applyChatGoalProposal(goalProposal)
+                                guard saved != nil else { return }
+                            } else if let goalAutonomyProposal = stagedGoalAutonomyProposal {
+                                let saved = await store.applyChatGoalAutonomyProposal(goalAutonomyProposal)
+                                guard saved != nil else { return }
+                            } else if let decompositionProposal = stagedGoalDecompositionProposal {
+                                let saved = await store.applyChatGoalDecompositionProposal(decompositionProposal)
+                                guard saved != nil else { return }
+                            } else if let delegationProposal = stagedDelegationProposal {
+                                let saved = await store.applyChatDelegationProposal(delegationProposal)
+                                guard saved != nil else { return }
+                            } else if let issueProposal = stagedIssueProposal {
+                                let saved = await store.applyChatIssueProposal(issueProposal)
+                                guard saved != nil else { return }
+                            } else if let mergeProposal = stagedMergeProposal {
+                                let saved = await store.applyChatMergeProposal(mergeProposal)
+                                guard saved != nil else { return }
+                            } else if let runtimeProposal = stagedRuntimeProposal {
+                                let saved = await store.applyChatRuntimeProposal(runtimeProposal)
+                                guard saved != nil else { return }
+                            } else if let agentProposal = stagedAgentProposal {
+                                let saved = await store.applyChatAgentProposal(agentProposal)
+                                guard saved != nil else { return }
+                            } else if let backendProposal = stagedBackendProposal {
+                                let saved = await store.applyChatBackendProposal(backendProposal)
+                                guard saved != nil else { return }
+                            } else if let reviewProposal = stagedReviewProposal {
+                                let saved = await store.applyChatReviewProposal(reviewProposal)
+                                guard saved != nil else { return }
+                            } else {
+                                return
+                            }
+                            draft = ""
+                            applyReviewDraft = ""
+                        }
+                    } label: {
+                        Label(
+                            stagedGoalProposal != nil
+                                ? (isApplyingGoalProposal ? l("Creating Goal…", "목표 생성 중…") : l("Confirm & Create Goal", "확인 후 목표 생성"))
+                                : stagedGoalAutonomyProposal != nil
+                                ? (isApplyingGoalProposal ? l("Updating Goal Mode…", "목표 모드 변경 중…") : l("Confirm Goal Mode", "목표 모드 확인"))
+                                : stagedGoalDecompositionProposal != nil
+                                ? (isApplyingGoalProposal ? l("Decomposing Goal…", "목표 분해 중…") : l("Confirm & Decompose Goal", "확인 후 목표 분해"))
+                                : stagedDelegationProposal != nil
+                                ? (isApplyingGoalProposal ? l("Delegating Issue…", "이슈 위임 중…") : l("Confirm & Delegate Issue", "확인 후 이슈 위임"))
+                                : stagedIssueProposal != nil
+                                ? (isApplyingGoalProposal ? l("Creating Issue…", "이슈 생성 중…") : l("Confirm & Create Issue", "확인 후 이슈 생성"))
+                                : stagedMergeProposal != nil
+                                ? (isApplyingGoalProposal ? l("Merging PR…", "PR 머지 중…") : l("Confirm & Merge PR", "확인 후 PR 머지"))
+                                : stagedRuntimeProposal != nil
+                                ? (isApplyingGoalProposal
+                                    ? (stagedRuntimeProposal?.action == .start ? l("Starting Runtime…", "런타임 시작 중…") : l("Stopping Runtime…", "런타임 중지 중…"))
+                                    : (stagedRuntimeProposal?.action == .start ? l("Confirm & Start Runtime", "확인 후 런타임 시작") : l("Confirm & Stop Runtime", "확인 후 런타임 중지")))
+                                : stagedAgentProposal != nil
+                                ? (isApplyingGoalProposal ? l("Creating Agent…", "에이전트 생성 중…") : l("Confirm & Create Agent", "확인 후 에이전트 생성"))
+                                : stagedBackendProposal != nil
+                                ? (isApplyingGoalProposal
+                                    ? (stagedBackendProposal?.action == .restart ? l("Restarting Backend…", "백엔드 재시작 중…") : stagedBackendProposal?.action == .stop ? l("Stopping Backend…", "백엔드 중지 중…") : l("Starting Backend…", "백엔드 시작 중…"))
+                                    : (stagedBackendProposal?.action == .restart ? l("Confirm & Restart Backend", "확인 후 백엔드 재시작") : stagedBackendProposal?.action == .stop ? l("Confirm & Stop Backend", "확인 후 백엔드 중지") : l("Confirm & Start Backend", "확인 후 백엔드 시작")))
+                                : stagedReviewProposal != nil
+                                ? (isApplyingGoalProposal ? l("Submitting Verdict…", "판정 제출 중…") : l("Confirm & Submit Verdict", "확인 후 판정 제출"))
+                                : l("Confirm & Apply (future)", "확인 후 적용 (추후)"),
+                            systemImage: (stagedGoalProposal != nil || stagedGoalAutonomyProposal != nil || stagedGoalDecompositionProposal != nil || stagedDelegationProposal != nil || stagedReviewProposal != nil) ? "checkmark.circle.fill" : "lock.fill"
+                        )
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(ShellTopBarButtonStyle(prominent: true))
+                    .disabled(!(canApplyGoalProposal || canApplyGoalAutonomyProposal || canApplyGoalDecompositionProposal || canApplyDelegationProposal || canApplyIssueProposal || canApplyReviewProposal || canApplyMergeProposal || canApplyRuntimeProposal || canApplyAgentProposal || canApplyBackendProposal))
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ShellPalette.panelDeeper)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+    }
+
+    private func proposalSummaryCard(_ preview: LocalProposalPreview) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(l("Proposal Preview", "제안 미리보기").uppercased())
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.8)
+                        .foregroundStyle(ShellPalette.text)
+                    Text(preview.kind.summary(l))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(ShellPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                StatusSummaryPill(text: preview.kind.label(l).uppercased(), tint: preview.kind.tint)
+            }
+
+            proposalSummaryRow(
+                label: l("Type", "유형"),
+                value: preview.kind.label(l),
+                tint: preview.kind.tint
+            )
+
+            proposalSummaryRow(
+                label: l("Likely target scope", "예상 대상 범위"),
+                value: preview.targetScope,
+                tint: ShellPalette.accent
+            )
+
+            proposalSummaryRow(
+                label: l("Risk level", "위험도"),
+                value: preview.riskLevel,
+                tint: ShellPalette.warning
+            )
+
+            proposalSummaryRow(
+                label: l("Next step after approval", "승인 후 다음 단계"),
+                value: preview.nextStep,
+                tint: ShellPalette.success
+            )
+
+            proposalSummaryRow(
+                label: l("Why explicit confirmation stays required", "왜 명시적 확인이 계속 필요한가"),
+                value: preview.confirmationReason,
+                tint: ShellPalette.warning
+            )
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ShellPalette.panelAlt)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                .stroke(preview.kind.tint.opacity(0.24), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+    }
+
+    private func proposalSummaryRow(label: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 6, height: 6)
+                Text(label.uppercased())
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(ShellPalette.faint)
+            }
+
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(ShellPalette.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func classifyProposal(_ draft: String) -> LocalProposalKind {
+        let normalized = " " + draft.lowercased()
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ") + " "
+
+        let qaScore = keywordScore(in: normalized, keywords: [
+            " qa ", " test", " verify", " verification", " regression", " acceptance", " pass", " fail"
+        ])
+        let reviewScore = keywordScore(in: normalized, keywords: [
+            " review", " approve", " approval", " reviewer", " sign-off", " sign off", " merge", " pull request", " review queue"
+        ])
+        let runtimeScore = keywordScore(in: normalized, keywords: [
+            " runtime", " start company", " stop company", " pause runtime", " resume runtime"
+        ])
+        let agentScore = keywordScore(in: normalized, keywords: [
+            " agent ", " qa agent", " review agent", " reviewer ", " tester "
+        ])
+        let backendScore = keywordScore(in: normalized, keywords: [
+            " backend ", " app server ", " codex backend ", " restart backend ", " stop backend ", " start backend "
+        ])
+        let goalAutonomyScore = keywordScore(in: normalized, keywords: [
+            " enable autonomy ", " disable autonomy ", " turn autonomy on ", " turn autonomy off ", " enable auto mode ", " disable auto mode ", " make this goal autonomous ", " make this goal manual "
+        ])
+        let decompositionScore = keywordScore(in: normalized, keywords: [
+            " break this goal ", " decompose this goal ", " split this goal ", " generate issues for this goal ", " break selected goal "
+        ])
+        let delegationScore = keywordScore(in: normalized, keywords: [
+            " delegate this issue ", " assign this issue ", " route this issue ", " delegate selected issue ", " assign selected issue "
+        ])
+        let goalScore = keywordScore(in: normalized, keywords: [
+            " goal", " objective", " roadmap", " milestone", " outcome", " strategy", " north star", " plan"
+        ])
+        let issueScore = keywordScore(in: normalized, keywords: [
+            " issue", " task", " bug", " blocker", " implement", " fix", " ship", " ticket"
+        ])
+
+        if qaScore > 0 && qaScore >= reviewScore && qaScore >= goalScore && qaScore >= issueScore {
+            return .qa
+        }
+        if reviewScore > 0 && reviewScore >= goalScore && reviewScore >= issueScore {
+            return .review
+        }
+        if runtimeScore > 0 && runtimeScore >= goalScore && runtimeScore >= issueScore {
+            return .runtime
+        }
+        if agentScore > 0 && agentScore >= goalScore && agentScore >= issueScore {
+            return .agent
+        }
+        if backendScore > 0 && backendScore >= goalScore && backendScore >= issueScore {
+            return .backend
+        }
+        if goalAutonomyScore > 0 && goalAutonomyScore >= goalScore && goalAutonomyScore >= issueScore {
+            return .goalAutonomy
+        }
+        if decompositionScore > 0 && decompositionScore >= goalScore && decompositionScore >= issueScore {
+            return .decomposition
+        }
+        if delegationScore > 0 && delegationScore >= goalScore && delegationScore >= issueScore {
+            return .delegation
+        }
+        if goalScore > 0 && goalScore >= issueScore {
+            return .goal
+        }
+        if issueScore > 0 {
+            return .issue
+        }
+        return .generalNote
+    }
+
+    private func keywordScore(in text: String, keywords: [String]) -> Int {
+        keywords.reduce(into: 0) { partialResult, keyword in
+            if text.contains(keyword) {
+                partialResult += 1
+            }
+        }
+    }
+
+    private func likelyTargetScope(for kind: LocalProposalKind) -> String {
+        switch kind {
+        case .goal:
+            if let goal = store.selectedGoal {
+                return l("Selected goal · \(goal.title)", "선택한 목표 · \(goal.title)")
+            }
+            if let issue = store.selectedIssue,
+               let goal = store.dashboard.goals.first(where: { $0.id == issue.goalId }) {
+                return l("Parent goal · \(goal.title)", "상위 목표 · \(goal.title)")
+            }
+            if let company = store.selectedCompany {
+                return l("Company roadmap · \(company.name)", "회사 로드맵 · \(company.name)")
+            }
+        case .goalAutonomy:
+            if let goal = store.selectedGoal {
+                return l("Selected goal autonomy · \(goal.title)", "선택한 목표 자율 · \(goal.title)")
+            }
+        case .decomposition:
+            if let goal = store.selectedGoal {
+                return l("Selected goal breakdown · \(goal.title)", "선택한 목표 분해 · \(goal.title)")
+            }
+        case .issue:
+            if let issue = store.selectedIssue {
+                return l("Selected issue · \(issue.title)", "선택한 이슈 · \(issue.title)")
+            }
+            if let goal = store.selectedGoal {
+                return l("Issue lane under goal · \(goal.title)", "목표 아래 이슈 레인 · \(goal.title)")
+            }
+        case .delegation:
+            if let issue = store.selectedIssue {
+                return l("Selected issue routing · \(issue.title)", "선택한 이슈 라우팅 · \(issue.title)")
+            }
+        case .execution:
+            if let issue = store.selectedIssue {
+                return l("Selected issue execution · \(issue.title)", "선택한 이슈 실행 · \(issue.title)")
+            }
+        case .qa:
+            if let issue = store.selectedIssue {
+                return l("QA pass on issue · \(issue.title)", "이슈 QA 패스 · \(issue.title)")
+            }
+            if let goal = store.selectedGoal {
+                return l("Goal verification pass · \(goal.title)", "목표 검증 패스 · \(goal.title)")
+            }
+        case .review:
+            if let issue = store.selectedIssue, store.selectedReviewQueueItem != nil {
+                return l("Selected review item · \(issue.title)", "선택한 리뷰 항목 · \(issue.title)")
+            }
+            if let issue = store.selectedIssue {
+                return l("Selected issue review lane · \(issue.title)", "선택한 이슈 리뷰 레인 · \(issue.title)")
+            }
+        case .runtime:
+            if let company = store.selectedCompany {
+                return l("Selected company runtime · \(company.name)", "선택한 회사 런타임 · \(company.name)")
+            }
+        case .agent:
+            if let company = store.selectedCompany {
+                return l("Selected company roster · \(company.name)", "선택한 회사 roster · \(company.name)")
+            }
+        case .backend:
+            if let company = store.selectedCompany {
+                return l("Selected company backend · \(company.name)", "선택한 회사 백엔드 · \(company.name)")
+            }
+        case .generalNote:
+            if let issue = store.selectedIssue {
+                return l("Current issue room · \(issue.title)", "현재 이슈 룸 · \(issue.title)")
+            }
+            if let goal = store.selectedGoal {
+                return l("Current goal room · \(goal.title)", "현재 목표 룸 · \(goal.title)")
+            }
+        }
+
+        if let company = store.selectedCompany {
+            return l("Current company room · \(company.name)", "현재 회사 룸 · \(company.name)")
+        }
+
+        return l("Current live company selection", "현재 라이브 회사 선택 범위")
+    }
+
+    private func confirmationReason(for kind: LocalProposalKind) -> String {
+        switch kind {
+        case .goal:
+            return l(
+                "This looks like a goal change. The rail can now create a goal only after explicit confirmation, but it still infers structure from free-form text and current selection.",
+                "이 내용은 목표 변경처럼 보입니다. 이제 이 레일은 명시적 확인 뒤에만 목표를 만들 수 있지만, 여전히 자유 텍스트와 현재 선택 상태에서 구조를 추정합니다."
+            )
+        case .goalAutonomy:
+            return l(
+                "This looks like a goal autonomy change. The rail can now turn the selected goal's autonomous follow-up on or off after explicit confirmation.",
+                "이 내용은 목표 자율 변경처럼 보입니다. 이제 이 레일은 명시적 확인 뒤에 선택한 목표의 자율 후속 진행을 켜거나 끌 수 있습니다."
+            )
+        case .decomposition:
+            return l(
+                "This looks like a decomposition request. The rail can now break the selected goal into issues after explicit confirmation.",
+                "이 내용은 분해 요청처럼 보입니다. 이제 이 레일은 명시적 확인 뒤에 선택한 목표를 이슈로 분해할 수 있습니다."
+            )
+        case .issue:
+            return l(
+                "This reads like an issue action. The rail can now create an issue after explicit confirmation, but it still infers the title and target from free-form text plus current selection.",
+                "이 내용은 이슈 액션처럼 읽힙니다. 이제 이 레일은 명시적 확인 뒤에 이슈를 만들 수 있지만, 여전히 자유 텍스트와 현재 선택 상태를 바탕으로 제목과 대상을 추정합니다."
+            )
+        case .delegation:
+            return l(
+                "This reads like a delegation request. The rail can now route the selected issue through the company roster after explicit confirmation.",
+                "이 내용은 위임 요청처럼 읽힙니다. 이제 이 레일은 명시적 확인 뒤에 선택한 이슈를 회사 roster로 라우팅할 수 있습니다."
+            )
+        case .execution:
+            return l(
+                "This reads like an execution request. The rail can now run the selected issue after explicit confirmation.",
+                "이 내용은 실행 요청처럼 읽힙니다. 이제 이 레일은 명시적 확인 뒤에 선택한 이슈를 실행할 수 있습니다."
+            )
+        case .qa:
+            return l(
+                "This looks like QA feedback. The rail can now submit a QA verdict after explicit confirmation, but it still infers that verdict from free-form text and current selection.",
+                "이 내용은 QA 피드백처럼 보입니다. 이제 이 레일은 명시적 확인 뒤에 QA 판정을 제출할 수 있지만, 여전히 자유 텍스트와 현재 선택 상태에서 그 판정을 추정합니다."
+            )
+        case .review:
+            return l(
+                "This looks like a review or approval step. The rail can now submit a CEO verdict after explicit confirmation, but merge and publish actions still stay outside this chat path.",
+                "이 내용은 리뷰 또는 승인 단계처럼 보입니다. 이제 이 레일은 명시적 확인 뒤에 CEO 판정을 제출할 수 있지만, 머지와 배포 액션은 여전히 이 채팅 경로 밖에 남습니다."
+            )
+        case .runtime:
+            return l(
+                "This looks like a runtime control step. The rail can now start or stop the selected company runtime after explicit confirmation.",
+                "이 내용은 런타임 제어 단계처럼 보입니다. 이제 이 레일은 명시적 확인 뒤에 선택한 회사 런타임을 시작하거나 중지할 수 있습니다."
+            )
+        case .agent:
+            return l(
+                "This looks like an agent staffing step. The rail can now create a company agent after explicit confirmation, but it still infers the role from free-form text.",
+                "이 내용은 에이전트 배치 단계처럼 보입니다. 이제 이 레일은 명시적 확인 뒤에 회사 에이전트를 만들 수 있지만, 여전히 자유 텍스트에서 역할을 추정합니다."
+            )
+        case .backend:
+            return l(
+                "This looks like a backend control step. The rail can now start, stop, or restart the selected company backend after explicit confirmation.",
+                "이 내용은 백엔드 제어 단계처럼 보입니다. 이제 이 레일은 명시적 확인 뒤에 선택한 회사 백엔드를 시작, 중지, 재시작할 수 있습니다."
+            )
+        case .generalNote:
+            return l(
+                "The draft stays a read-mostly note until a real apply contract exists. Explicit confirmation remains required because the UI can preview intent, but it cannot safely mutate company state.",
+                "실제 적용 계약이 생기기 전까지 이 초안은 읽기 중심 메모로 남습니다. UI는 의도를 미리 보여줄 수는 있어도 회사 상태를 안전하게 바꿀 수 없기 때문에 명시적 확인이 계속 필요합니다."
+            )
+        }
+    }
+
+    private func proposalRiskLevel(for kind: LocalProposalKind) -> String {
+        switch kind {
+        case .goal:
+            return l("High · changes company direction and can spawn many downstream actions.", "높음 · 회사 방향과 하위 작업 다수를 바꿀 수 있습니다.")
+        case .goalAutonomy:
+            return l("Medium · changes whether the selected goal keeps generating autonomous follow-up work.", "중간 · 선택한 목표가 자율 후속 작업을 계속 생성할지 바꿉니다.")
+        case .decomposition:
+            return l("High · expands one goal into multiple new execution issues.", "높음 · 하나의 목표를 여러 새 실행 이슈로 확장합니다.")
+        case .issue:
+            return l("Medium · likely creates or reshapes one execution item.", "중간 · 하나의 실행 이슈를 만들거나 바꿀 가능성이 큽니다.")
+        case .delegation:
+            return l("Medium · changes who owns the selected issue next.", "중간 · 다음에 누가 선택한 이슈를 맡는지 바꿉니다.")
+        case .execution:
+            return l("High · starts real work on the selected issue.", "높음 · 선택한 이슈에서 실제 작업을 시작합니다.")
+        case .qa, .review:
+            return l("Medium · can alter review or approval state for existing work.", "중간 · 기존 작업의 리뷰/승인 상태를 바꿀 수 있습니다.")
+        case .runtime:
+            return l("Medium · changes whether the selected company loop is running.", "중간 · 선택한 회사 루프의 실행 여부를 바꿉니다.")
+        case .agent:
+            return l("Medium · changes the selected company staffing roster.", "중간 · 선택한 회사의 인력 구성을 바꿉니다.")
+        case .backend:
+            return l("Medium · changes the selected company backend process state.", "중간 · 선택한 회사 백엔드 프로세스 상태를 바꿉니다.")
+        case .generalNote:
+            return l("Low · usually captured as a note until you explicitly apply it.", "낮음 · 명시적으로 적용하기 전까지는 메모로 남을 가능성이 큽니다.")
+        }
+    }
+
+    private func proposalNextStep(for kind: LocalProposalKind) -> String {
+        switch kind {
+        case .goal:
+            return l("Preview a goal proposal, then create one real company goal only after explicit confirmation.", "목표 제안을 미리 보고, 명시적 확인 뒤에만 실제 회사 목표 하나를 생성합니다.")
+        case .goalAutonomy:
+            return l("Preview a goal autonomy action, then change the selected goal's AUTO/MANUAL mode only after explicit confirmation.", "목표 자율 액션을 미리 보고, 명시적 확인 뒤에만 선택한 목표의 자동/수동 모드를 바꿉니다.")
+        case .decomposition:
+            return l("Preview a decomposition action, then break the selected goal into issues only after explicit confirmation.", "분해 액션을 미리 보고, 명시적 확인 뒤에만 선택한 목표를 이슈로 분해합니다.")
+        case .issue:
+            return l("Preview an issue draft, then create one real issue only after explicit confirmation.", "이슈 초안을 미리 보고, 명시적 확인 뒤에만 실제 이슈 하나를 생성합니다.")
+        case .delegation:
+            return l("Preview a delegation action, then route the selected issue only after explicit confirmation.", "위임 액션을 미리 보고, 명시적 확인 뒤에만 선택한 이슈를 라우팅합니다.")
+        case .execution:
+            return l("Preview an execution action, then run the selected issue only after explicit confirmation.", "실행 액션을 미리 보고, 명시적 확인 뒤에만 선택한 이슈를 실행합니다.")
+        case .qa:
+            return l("Preview a QA-style action, then submit a real QA verdict only after explicit confirmation.", "QA 성격의 액션을 미리 보고, 명시적 확인 뒤에만 실제 QA 판정을 제출합니다.")
+        case .review:
+            return l("Preview a review/approval action, then submit a real CEO verdict only after explicit confirmation.", "리뷰/승인 액션을 미리 보고, 명시적 확인 뒤에만 실제 CEO 판정을 제출합니다.")
+        case .runtime:
+            return l("Preview a runtime control action, then start or stop the selected company loop only after explicit confirmation.", "런타임 제어 액션을 미리 보고, 명시적 확인 뒤에만 선택한 회사 루프를 시작하거나 중지합니다.")
+        case .agent:
+            return l("Preview an agent staffing action, then create the company agent only after explicit confirmation.", "에이전트 배치 액션을 미리 보고, 명시적 확인 뒤에만 회사 에이전트를 생성합니다.")
+        case .backend:
+            return l("Preview a backend process action, then start, stop, or restart the selected company backend only after explicit confirmation.", "백엔드 프로세스 액션을 미리 보고, 명시적 확인 뒤에만 선택한 회사 백엔드를 시작, 중지, 재시작합니다.")
+        case .generalNote:
+            return l("Preview a room note and keep it read-only until you intentionally turn it into an action.", "방 메모로 미리 보여주고, 의도적으로 액션으로 바꾸기 전까지는 읽기 전용으로 둡니다.")
+        }
     }
 }
 
@@ -2342,6 +4281,7 @@ private struct CenterPaneView: View {
     let companySurface: CompanySidebarSurface
     var scrollsInternally: Bool = true
     @State private var goalSurface: GoalSurface = .board
+    @State private var companyOverviewSurface: CompanyOverviewSurface = .summary
     @State private var detailDrawerOpen = false
     @State private var issueComposerExpanded = false
     @State private var presentedGoal: GoalRecord?
@@ -2456,6 +4396,151 @@ private struct CenterPaneView: View {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    private var meetingRoomReviewItems: [ReviewQueueItemRecord] {
+        store.dashboard.reviewQueue
+            .filter { store.selectedCompanyID == nil || $0.companyId == store.selectedCompanyID }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var meetingRoomMessages: [AgentMessageRecord] {
+        store.dashboard.agentMessages
+            .filter { store.selectedCompanyID == nil || $0.companyId == store.selectedCompanyID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var meetingRoomContextEntries: [AgentContextEntryRecord] {
+        store.dashboard.agentContextEntries
+            .filter { store.selectedCompanyID == nil || $0.companyId == store.selectedCompanyID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var meetingRoomTableSessions: [RunningAgentSessionRecord] {
+        Array(runningSessions.prefix(4))
+    }
+
+    private var meetingRoomWallActivity: [CompanyActivityItemRecord] {
+        Array(store.activity.prefix(2))
+    }
+
+    private var meetingRoomSyntheticWallEvents: [MeetingRoomSyntheticEvent] {
+        var events: [MeetingRoomSyntheticEvent] = []
+
+        if let runtime = store.dashboard.companyRuntimes
+            .filter({ store.selectedCompanyID == nil || $0.companyId == store.selectedCompanyID })
+            .sorted(by: {
+                let lhs = $0.lastTickAt ?? $0.lastStartedAt ?? $0.lastStoppedAt ?? $0.manuallyStoppedAt ?? 0
+                let rhs = $1.lastTickAt ?? $1.lastStartedAt ?? $1.lastStoppedAt ?? $1.manuallyStoppedAt ?? 0
+                return lhs > rhs
+            })
+            .first {
+            let runtimeTimestamp = runtime.lastTickAt ?? runtime.lastStartedAt ?? runtime.lastStoppedAt ?? runtime.manuallyStoppedAt ?? 0
+            events.append(
+                MeetingRoomSyntheticEvent(
+                    id: "runtime-\(runtime.companyId ?? "unknown")",
+                    createdAt: runtimeTimestamp,
+                    eyebrow: l("RUNTIME", "런타임"),
+                    title: l("Company loop \(runtime.status)", "회사 루프 \(runtime.status)"),
+                    detail: runtime.lastAction ?? runtime.backendMessage ?? runtime.lastError ?? l("Runtime heartbeat updated.", "런타임 heartbeat가 갱신되었습니다."),
+                    tint: statusTint(for: runtime.status)
+                )
+            )
+        }
+
+        for status in store.dashboard.backendStatuses.prefix(2) {
+            events.append(
+                MeetingRoomSyntheticEvent(
+                    id: "backend-\(status.kind)",
+                    createdAt: Int64(Date().timeIntervalSince1970 * 1000),
+                    eyebrow: l("BACKEND", "백엔드"),
+                    title: "\(status.displayName) · \(status.lifecycleState)",
+                    detail: status.message ?? status.lastError ?? "\(status.health) · \(status.kind)",
+                    tint: statusTint(for: status.lifecycleState)
+                )
+            )
+        }
+
+        for review in meetingRoomReviewItems.prefix(2) {
+            events.append(
+                MeetingRoomSyntheticEvent(
+                    id: "review-\(review.id)",
+                    createdAt: review.updatedAt,
+                    eyebrow: l("REVIEW", "리뷰"),
+                    title: meetingRoomIssueTitle(for: review.issueId),
+                    detail: meetingRoomReviewDetail(for: review),
+                    tint: reviewTint(review.status)
+                )
+            )
+        }
+
+        for session in runningSessions.prefix(2) {
+            let headline = session.outputSnippet?.trimmingCharacters(in: .whitespacesAndNewlines)
+            events.append(
+                MeetingRoomSyntheticEvent(
+                    id: "session-\(session.runId)",
+                    createdAt: session.updatedAt,
+                    eyebrow: l("AGENT", "에이전트"),
+                    title: "\(session.agentName) · \(session.status)",
+                    detail: headline?.isEmpty == false ? headline! : (session.roleName ?? session.branchName),
+                    tint: statusTint(for: session.status)
+                )
+            )
+        }
+
+        return events.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private var meetingRoomWallItems: [MeetingRoomWallItem] {
+        Array(
+            (meetingRoomWallActivity.map { MeetingRoomWallItem.activity($0) } +
+                meetingRoomContextEntries.prefix(3).map { MeetingRoomWallItem.context($0) } +
+                meetingRoomMessages.prefix(3).map { MeetingRoomWallItem.message($0) } +
+                meetingRoomSyntheticWallEvents.prefix(6).map { MeetingRoomWallItem.synthetic($0) })
+                .sorted { $0.createdAt > $1.createdAt }
+                .prefix(8)
+        )
+    }
+
+    private var meetingRoomCurrentAgendaTitle: String {
+        if let issue = store.selectedIssue {
+            return issue.title
+        }
+        if let goal = store.selectedGoal {
+            return goal.title
+        }
+        return l("No active agenda selected", "활성 안건이 없습니다")
+    }
+
+    private var meetingRoomCurrentAgendaDetail: String {
+        if let issue = store.selectedIssue {
+            return l("Issue · \(l.status(issue.status)) · \(issue.kind.uppercased())", "이슈 · \(l.status(issue.status)) · \(issue.kind.uppercased())")
+        }
+        if let goal = store.selectedGoal {
+            return l("Goal · \(l.status(goal.status))", "목표 · \(l.status(goal.status))")
+        }
+        return l("Select a goal or issue to anchor the room.", "방의 기준이 될 목표나 이슈를 선택하세요.")
+    }
+
+    private var meetingRoomNextActionLabel: String {
+        if let review = meetingRoomReviewItems.first {
+            return l("Review desk is waiting on \(l.status(review.status)).", "리뷰 데스크가 \(l.status(review.status)) 상태를 기다리고 있습니다.")
+        }
+        if let session = runningSessions.first {
+            return l("\(session.roleName ?? session.agentName) is currently \(l.status(session.status)).", "\(session.roleName ?? session.agentName)이(가) 현재 \(l.status(session.status)) 상태입니다.")
+        }
+        if let issue = store.selectedIssue {
+            return l("Next action tracks the selected issue: \(l.status(issue.status)).", "다음 액션은 선택한 이슈의 상태를 따릅니다: \(l.status(issue.status)).")
+        }
+        return l("No active next action yet.", "아직 활성 다음 액션이 없습니다.")
+    }
+
+    private var meetingRoomReviewDeskItems: [ReviewQueueItemRecord] {
+        Array(meetingRoomReviewItems.prefix(3))
+    }
+
+    private var meetingRoomLatestMessages: [AgentMessageRecord] {
+        Array(meetingRoomMessages.prefix(2))
+    }
+
     private var filteredIssues: [IssueRecord] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = store.issues.sorted { $0.updatedAt > $1.updatedAt }
@@ -2523,12 +4608,26 @@ private struct CenterPaneView: View {
         switch companySurface {
         case .company:
             companyOverviewPage
+        case .room:
+            companyMeetingRoomPage
         case .goals:
             goalOverviewPage
         case .agents:
             organizationOverviewPage
         case .issues:
             issuePage
+        }
+    }
+
+    private var companyMeetingRoomPage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            companyPageHeader(
+                title: l("Meeting Room", "미팅룸"),
+                subtitle: l("Watch the live company floor map with wall events, active seats, and review load in one place.", "이벤트 월, 실행 좌석, 리뷰 부담을 한 곳에서 보는 실시간 회사 플로어 맵입니다.")
+            )
+            companyMeetingRoomPanel
+            companyRunningAgentsPanel
+            companyActivityFeed
         }
     }
 
@@ -2627,44 +4726,68 @@ private struct CenterPaneView: View {
                 title: l("Company Summary", "회사 요약"),
                 subtitle: l("Use this page as the summary room for what the company is doing right now.", "회사가 지금 무엇을 하고 있는지 보는 요약방입니다.")
             )
-            operationsBanner
-            if store.companyStreamStatusMessage != nil || store.backendStatusMessage != nil {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let stream = store.companyStreamStatusMessage, !stream.isEmpty {
-                        StatusSummaryPill(text: stream, tint: ShellPalette.warning)
-                    }
-                    if let backend = store.backendStatusMessage, !backend.isEmpty {
-                        StatusSummaryPill(text: backend, tint: ShellPalette.warning)
-                    }
+            HStack(spacing: 8) {
+                Button {
+                    companyOverviewSurface = .summary
+                } label: {
+                    Text(l("Summary", "요약"))
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(ShellTopBarButtonStyle(prominent: companyOverviewSurface == .summary))
+
+                Button {
+                    companyOverviewSurface = .meetingRoom
+                } label: {
+                    Text(l("Meeting Room", "미팅룸"))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ShellTopBarButtonStyle(prominent: companyOverviewSurface == .meetingRoom))
             }
 
-            if layoutMode == .wide {
-                HStack(alignment: .top, spacing: 12) {
-                    companyCurrentIssuesPanel
-                    companyAgentWorkPanel
-                }
+            if companyOverviewSurface == .meetingRoom {
+                companyMeetingRoomPanel
+                companyRunningAgentsPanel
+                companyActivityFeed
             } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    companyCurrentIssuesPanel
-                    companyAgentWorkPanel
+                operationsBanner
+                if store.companyStreamStatusMessage != nil || store.backendStatusMessage != nil {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let stream = store.companyStreamStatusMessage, !stream.isEmpty {
+                            StatusSummaryPill(text: stream, tint: ShellPalette.warning)
+                        }
+                        if let backend = store.backendStatusMessage, !backend.isEmpty {
+                            StatusSummaryPill(text: backend, tint: ShellPalette.warning)
+                        }
+                    }
                 }
-            }
 
-            if layoutMode == .wide {
-                HStack(alignment: .top, spacing: 12) {
-                    companyRunningAgentsPanel
-                    companyDecisionPanel
+                if layoutMode == .wide {
+                    HStack(alignment: .top, spacing: 12) {
+                        companyCurrentIssuesPanel
+                        companyAgentWorkPanel
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        companyCurrentIssuesPanel
+                        companyAgentWorkPanel
+                    }
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    companyRunningAgentsPanel
-                    companyDecisionPanel
-                }
-            }
 
-            companyLinearPanel
-            companyActivityFeed
+                if layoutMode == .wide {
+                    HStack(alignment: .top, spacing: 12) {
+                        companyRunningAgentsPanel
+                        companyDecisionPanel
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 12) {
+                        companyRunningAgentsPanel
+                        companyDecisionPanel
+                    }
+                }
+
+                companyLinearPanel
+                companyActivityFeed
+            }
         }
     }
 
@@ -3222,6 +5345,275 @@ private struct CenterPaneView: View {
         .shellInset()
     }
 
+    private var companyMeetingRoomPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(l("Meeting Room", "미팅룸"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ShellPalette.text)
+                    Text(
+                        l(
+                            "Read-only floor map of live company activity. The wall mirrors events, the table mirrors active agents, and the desk mirrors review load.",
+                            "현재 회사 활동을 읽기 전용으로 보는 플로어 맵입니다. 벽은 이벤트, 테이블은 실행 중인 에이전트, 데스크는 리뷰 부담을 보여줍니다."
+                        )
+                    )
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ShellPalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                StatusSummaryPill(text: l("READ ONLY", "읽기 전용"), tint: ShellPalette.accent)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ShellTag(text: "\(l("Table", "테이블")) \(runningSessions.count)", tint: ShellPalette.accentWarm)
+                    ShellTag(text: "\(l("Desk", "데스크")) \(meetingRoomReviewItems.count)", tint: ShellPalette.warning)
+                    ShellTag(text: "\(l("Wall", "이벤트")) \(meetingRoomWallItems.count)", tint: ShellPalette.accent)
+                    ShellTag(text: "\(l("Messages", "메시지")) \(meetingRoomMessages.count)", tint: ShellPalette.accent)
+                    ShellTag(text: "\(l("Context", "컨텍스트")) \(meetingRoomContextEntries.count)", tint: ShellPalette.accentWarm)
+                }
+                .padding(.vertical, 2)
+            }
+
+            MeetingRoomZoneCard(
+                title: l("Current Agenda", "현재 안건"),
+                subtitle: l("The room’s active focus before you scan the live wall and desks.", "이벤트 월과 데스크를 보기 전에 방이 지금 집중하는 안건입니다."),
+                tint: ShellPalette.accentWarm
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    agendaSummaryRow(label: l("Focus", "집중 대상"), value: meetingRoomCurrentAgendaTitle, tint: ShellPalette.accent)
+                    agendaSummaryRow(label: l("State", "상태"), value: meetingRoomCurrentAgendaDetail, tint: ShellPalette.warning)
+                    agendaSummaryRow(label: l("Next action", "다음 액션"), value: meetingRoomNextActionLabel, tint: ShellPalette.success)
+                    agendaSummaryRow(label: l("Lead AI", "리더 AI"), value: workflowLeader, tint: ShellPalette.accentWarm)
+                }
+            }
+
+            if layoutMode == .compact {
+                VStack(alignment: .leading, spacing: 10) {
+                    meetingRoomEventWallZone
+                    meetingRoomCenterTableZone
+                    meetingRoomReviewDeskZone
+                }
+            } else {
+                HStack(alignment: .top, spacing: 10) {
+                    meetingRoomEventWallZone
+                        .frame(width: layoutMode == .stacked ? 220 : 236, alignment: .top)
+                    meetingRoomCenterTableZone
+                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .top)
+                    meetingRoomReviewDeskZone
+                        .frame(width: layoutMode == .stacked ? 220 : 236, alignment: .top)
+                }
+            }
+        }
+        .padding(14)
+        .shellInset()
+    }
+
+    @ViewBuilder
+    private func agendaSummaryRow(label: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(0.6)
+                .foregroundStyle(tint)
+            Text(value)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(ShellPalette.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(ShellPalette.panelAlt)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                .stroke(tint.opacity(0.24), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
+    }
+
+    private var meetingRoomEventWallZone: some View {
+        MeetingRoomZoneCard(
+            title: l("Event Wall", "이벤트 월"),
+            subtitle: l("Recent activity and pinned context.", "최근 활동과 고정된 컨텍스트를 봅니다."),
+            tint: ShellPalette.accent
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                if meetingRoomWallItems.isEmpty {
+                    meetingRoomEmptyState(
+                        title: l("No room events yet", "아직 방 이벤트가 없습니다"),
+                        detail: l("Activity and shared context will pin to this wall as the company starts moving.", "회사가 움직이기 시작하면 활동과 공유 컨텍스트가 이 벽에 표시됩니다.")
+                    )
+                } else {
+                    ForEach(meetingRoomWallItems, id: \.id) { item in
+                        switch item {
+                        case let .activity(activity):
+                            MeetingRoomFeedRow(
+                                eyebrow: activity.source.uppercased(),
+                                title: activity.title,
+                                detail: activity.detail,
+                                meta: relativeTimestamp(activity.createdAt),
+                                tint: statusTint(for: activity.severity)
+                            )
+                        case let .message(message):
+                            let target = message.toAgentName ?? l("room", "room")
+                            MeetingRoomFeedRow(
+                                eyebrow: "\(message.fromAgentName) → \(target)",
+                                title: message.subject.isEmpty ? l("Agent message", "에이전트 메시지") : message.subject,
+                                detail: message.body,
+                                meta: relativeTimestamp(message.createdAt),
+                                tint: message.kind.lowercased() == "escalation" ? ShellPalette.warning : ShellPalette.accent
+                            )
+                        case let .context(entry):
+                            MeetingRoomFeedRow(
+                                eyebrow: "\(entry.agentName) · \(entry.kind.uppercased())",
+                                title: entry.title,
+                                detail: entry.content,
+                                meta: relativeTimestamp(entry.createdAt),
+                                tint: entry.visibility == "company" ? ShellPalette.accentWarm : ShellPalette.accent
+                            )
+                        case let .synthetic(event):
+                            MeetingRoomFeedRow(
+                                eyebrow: event.eyebrow,
+                                title: event.title,
+                                detail: event.detail,
+                                meta: relativeTimestamp(event.createdAt),
+                                tint: event.tint
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var meetingRoomCenterTableZone: some View {
+        MeetingRoomZoneCard(
+            title: l("Center Table", "중앙 테이블"),
+            subtitle: l("Live agent seats and the latest handoff traffic.", "실행 중인 에이전트 좌석과 최근 handoff 흐름입니다."),
+            tint: ShellPalette.accentWarm
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                GeometryReader { geometry in
+                    let tableWidth = min(max(geometry.size.width * (layoutMode == .compact ? 0.56 : 0.48), 160), 248)
+
+                    ZStack {
+                        RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                            .fill(ShellPalette.panelDeeper)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: ShellMetrics.radiusMedium, style: .continuous)
+                                    .stroke(ShellPalette.line, lineWidth: 1)
+                            )
+
+                        VStack(spacing: 18) {
+                            HStack(spacing: 12) {
+                                meetingRoomSeatSlot(meetingRoomTableSessions[safe: 0])
+                                Spacer(minLength: 12)
+                                meetingRoomSeatSlot(meetingRoomTableSessions[safe: 1])
+                            }
+                            HStack(spacing: 12) {
+                                meetingRoomSeatSlot(meetingRoomTableSessions[safe: 2])
+                                Spacer(minLength: 12)
+                                meetingRoomSeatSlot(meetingRoomTableSessions[safe: 3])
+                            }
+                        }
+                        .padding(12)
+
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(ShellPalette.panelAlt)
+                            .frame(width: tableWidth, height: 84)
+                            .overlay(
+                                VStack(spacing: 4) {
+                                    Text(l("CENTER TABLE", "중앙 테이블"))
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .tracking(0.8)
+                                        .foregroundStyle(ShellPalette.faint)
+                                    if runningSessions.isEmpty {
+                                        Text(l("No live agents", "실행 중인 에이전트 없음"))
+                                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(ShellPalette.text)
+                                        Text(l("Waiting for the next company dispatch.", "다음 회사 작업 배정을 기다리는 중입니다."))
+                                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(ShellPalette.muted)
+                                            .lineLimit(2)
+                                    } else {
+                                        Text("\(runningSessions.count) \(l("live seats", "실행 좌석"))")
+                                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                            .foregroundStyle(ShellPalette.text)
+                                        Text(meetingRoomTableHeadline)
+                                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(ShellPalette.muted)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.center)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(ShellPalette.lineStrong, lineWidth: 1)
+                            )
+                    }
+                }
+                .frame(height: 184)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(l("Latest Handoff", "최근 Handoff"))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .tracking(0.8)
+                        .foregroundStyle(ShellPalette.faint)
+
+                    if meetingRoomLatestMessages.isEmpty {
+                        meetingRoomEmptyState(
+                            title: l("No agent messages yet", "아직 에이전트 메시지가 없습니다"),
+                            detail: l("A2A updates will appear here once agents start coordinating in the company loop.", "에이전트들이 회사 루프에서 조율을 시작하면 A2A 업데이트가 여기에 표시됩니다.")
+                        )
+                    } else {
+                        ForEach(meetingRoomLatestMessages) { message in
+                            MeetingRoomFeedRow(
+                                eyebrow: "\(message.fromAgentName) → \(message.toAgentName ?? l("room", "room"))",
+                                title: message.subject.isEmpty ? l("Agent message", "에이전트 메시지") : message.subject,
+                                detail: message.body,
+                                meta: relativeTimestamp(message.createdAt),
+                                tint: message.kind.lowercased() == "escalation" ? ShellPalette.warning : ShellPalette.accent
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var meetingRoomReviewDeskZone: some View {
+        MeetingRoomZoneCard(
+            title: l("Review Desk", "리뷰 데스크"),
+            subtitle: l("What QA and CEO need to look at next.", "QA와 CEO가 다음에 봐야 할 대상을 보여줍니다."),
+            tint: ShellPalette.warning
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                if meetingRoomReviewDeskItems.isEmpty {
+                    meetingRoomEmptyState(
+                        title: l("Desk is clear", "데스크가 비어 있습니다"),
+                        detail: l("Review queue items will park here when a change is ready for QA or CEO attention.", "변경이 QA 또는 CEO 확인 준비가 되면 리뷰 큐 항목이 여기에 머뭅니다.")
+                    )
+                } else {
+                    ForEach(meetingRoomReviewDeskItems) { item in
+                        MeetingRoomFeedRow(
+                            eyebrow: item.pullRequestNumber.map { "PR #\($0)" } ?? l("Review Queue", "리뷰 큐"),
+                            title: meetingRoomIssueTitle(for: item.issueId),
+                            detail: meetingRoomReviewDetail(for: item),
+                            meta: relativeTimestamp(item.updatedAt),
+                            tint: reviewTint(item.status)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private var companyDecisionPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -3613,6 +6005,77 @@ private struct CenterPaneView: View {
         }
         .padding(16)
         .shellInset()
+    }
+
+    private var meetingRoomTableHeadline: String {
+        if let session = runningSessions.first {
+            if let snippet = session.outputSnippet?.trimmingCharacters(in: .whitespacesAndNewlines), !snippet.isEmpty {
+                return snippet
+            }
+            return meetingRoomIssueTitle(for: session.issueId)
+        }
+        return l("No active table notes.", "활성 테이블 메모가 없습니다.")
+    }
+
+    private func meetingRoomIssueTitle(for issueId: String?) -> String {
+        guard let issueId,
+              let issue = store.dashboard.issues.first(where: { $0.id == issueId }) else {
+            return l("Unlinked issue", "연결된 이슈 없음")
+        }
+        return issue.title
+    }
+
+    private func meetingRoomReviewDetail(for item: ReviewQueueItemRecord) -> String {
+        var fragments: [String] = [l.status(item.status)]
+
+        if let mergeability = item.mergeability, !mergeability.isEmpty {
+            fragments.append(mergeability)
+        }
+
+        if let checksSummary = item.checksSummary, !checksSummary.isEmpty {
+            fragments.append(checksSummary)
+        }
+
+        if !item.requestedReviewers.isEmpty {
+            fragments.append(item.requestedReviewers.joined(separator: ", "))
+        }
+
+        return fragments.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func meetingRoomSeatSlot(_ session: RunningAgentSessionRecord?) -> some View {
+        if let session {
+            MeetingRoomSeatCard(
+                title: session.roleName ?? session.agentName,
+                subtitle: meetingRoomIssueTitle(for: session.issueId) + " · " + relativeTimestamp(session.updatedAt),
+                status: l.status(session.status),
+                tint: statusTint(for: session.status)
+            )
+        } else {
+            Color.clear
+                .frame(width: 124, height: 56)
+        }
+    }
+
+    private func meetingRoomEmptyState(title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(ShellPalette.text)
+            Text(detail)
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(ShellPalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(ShellPalette.panelDeeper)
+        .overlay(
+            RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: ShellMetrics.radiusSmall, style: .continuous))
     }
 
     private var operationsBanner: some View {

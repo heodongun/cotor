@@ -27,6 +27,86 @@ enum AppShellMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+struct ChatGoalProposal: Equatable {
+    let title: String
+    let description: String
+}
+
+struct ChatIssueProposal: Equatable {
+    let goalId: String
+    let title: String
+    let description: String
+}
+
+struct ChatMergeProposal: Equatable {
+    let summary: String
+}
+
+struct ChatAgentProposal: Equatable {
+    let title: String
+    let agentCli: String
+    let model: String?
+    let roleSummary: String
+    let specialties: [String]
+    let collaborationInstructions: String?
+    let memoryNotes: String?
+    let enabled: Bool
+}
+
+enum ChatRuntimeAction: String, Equatable {
+    case start
+    case stop
+}
+
+struct ChatRuntimeProposal: Equatable {
+    let action: ChatRuntimeAction
+    let summary: String
+}
+
+enum ChatBackendAction: String, Equatable {
+    case start
+    case stop
+    case restart
+}
+
+struct ChatBackendProposal: Equatable {
+    let action: ChatBackendAction
+    let summary: String
+}
+
+struct ChatExecutionProposal: Equatable {
+    let summary: String
+}
+
+struct ChatDelegationProposal: Equatable {
+    let summary: String
+}
+
+struct ChatGoalDecompositionProposal: Equatable {
+    let summary: String
+}
+
+enum ChatGoalAutonomyMode: String, Equatable {
+    case enable
+    case disable
+}
+
+struct ChatGoalAutonomyProposal: Equatable {
+    let mode: ChatGoalAutonomyMode
+    let summary: String
+}
+
+enum ChatReviewStage: String, Equatable {
+    case qa
+    case ceo
+}
+
+struct ChatReviewProposal: Equatable {
+    let stage: ChatReviewStage
+    let verdict: String
+    let feedback: String?
+}
+
 /// Main view model for the macOS shell.
 ///
 /// It coordinates bootstrap, selection state, optimistic actions, and runtime
@@ -42,8 +122,8 @@ final class DesktopStore: ObservableObject {
     @Published var tuiSessions: [TuiSessionRecord] = []
     @Published var tuiSession: TuiSessionRecord?
     @Published var selectedTuiSessionID: String?
-    @Published var availableBranches: [String] = ["master"]
-    @Published var pendingWorkspaceBaseBranch = "master"
+    @Published var availableBranches: [String] = ["main"]
+    @Published var pendingWorkspaceBaseBranch = "main"
     @Published var selectedRepositoryID: String?
     @Published var selectedWorkspaceID: String?
     @Published var selectedCompanyID: String?
@@ -57,6 +137,7 @@ final class DesktopStore: ObservableObject {
     @Published var files: [FileTreeNodePayload] = []
     @Published var ports: [PortEntryPayload] = []
     @Published var browserURL: URL?
+    @Published var companyMemorySnapshot: CompanyMemorySnapshotPayload?
     @Published var language: AppLanguage
     @Published var theme: AppTheme
     @Published var isOffline = false
@@ -602,7 +683,7 @@ final class DesktopStore: ObservableObject {
             isOffline = false
             statusState = .connected(api.baseURL.absoluteString)
             if !didInitializeShellMode {
-                shellMode = dashboard.settings.defaultLaunchMode.lowercased() == "tui" ? .tui : .company
+                shellMode = .company
                 didInitializeShellMode = true
             }
             reconcileWorkflowLeadAgent()
@@ -818,7 +899,7 @@ final class DesktopStore: ObservableObject {
            !companyAgentDefinitions.contains(where: { $0.id == editingAgentID && $0.companyId == editingCompanyAgentCompanyID }) {
             resetCompanyAgentComposer()
         }
-        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? "master"
+        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? "main"
     }
 
     private func reconcileCompanySelection() {
@@ -859,7 +940,7 @@ final class DesktopStore: ObservableObject {
            !companyAgentDefinitions.contains(where: { $0.id == editingAgentID && $0.companyId == editingCompanyAgentCompanyID }) {
             resetCompanyAgentComposer()
         }
-        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? "master"
+        pendingWorkspaceBaseBranch = selectedWorkspace?.baseBranch ?? selectedCompany?.defaultBaseBranch ?? selectedRepository?.defaultBranch ?? "main"
     }
 
     private func syncIssueComposerState() {
@@ -910,6 +991,9 @@ final class DesktopStore: ObservableObject {
         }
         if let qwen = normalized.first(where: { $0.caseInsensitiveCompare("qwen") == .orderedSame }) {
             return qwen
+        }
+        if let codexOAuth = normalized.first(where: { $0.caseInsensitiveCompare("codex-oauth") == .orderedSame }) {
+            return codexOAuth
         }
         if let codex = normalized.first(where: { $0.caseInsensitiveCompare("codex") == .orderedSame }) {
             return codex
@@ -1246,6 +1330,612 @@ final class DesktopStore: ObservableObject {
             AppLogger.error("Save goal failed for company \(company.id): \(error.localizedDescription)")
             actionErrorMessage = error.localizedDescription
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func chatGoalProposal(from draft: String) -> ChatGoalProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let firstLine = trimmedDraft
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+
+        let rawTitle = firstLine ?? String(trimmedDraft.prefix(80))
+        let normalizedTitle = rawTitle
+            .replacingOccurrences(
+                of: #"^([\-*•]\s+|\d+[.)]\s+)"#,
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: #"^(goal\s*:\s*|목표\s*:\s*)"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackTitle = trimmedDraft
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = normalizedTitle.isEmpty ? String(fallbackTitle.prefix(80)) : normalizedTitle
+        guard !title.isEmpty else { return nil }
+
+        return ChatGoalProposal(title: title, description: trimmedDraft)
+    }
+
+    func chatIssueProposal(from draft: String) -> ChatIssueProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let goalId = selectedGoalID ?? selectedIssue?.goalId
+        guard let goalId else { return nil }
+        let firstLine = trimmedDraft
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let rawTitle = firstLine ?? String(trimmedDraft.prefix(80))
+        let normalizedTitle = rawTitle
+            .replacingOccurrences(
+                of: #"^([\-*•]\s+|\d+[.)]\s+)"#,
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: #"^(issue\s*:\s*|task\s*:\s*|ticket\s*:\s*|이슈\s*:\s*)"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackTitle = trimmedDraft
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = normalizedTitle.isEmpty ? String(fallbackTitle.prefix(80)) : normalizedTitle
+        guard !title.isEmpty else { return nil }
+
+        return ChatIssueProposal(goalId: goalId, title: title, description: trimmedDraft)
+    }
+
+    func applyChatGoalProposal(_ proposal: ChatGoalProposal) async -> GoalRecord? {
+        guard let company = selectedCompany else {
+            actionErrorMessage = language(
+                "Select a company before applying a goal proposal.",
+                "목표 제안을 적용하기 전에 회사를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            AppLogger.info("Applying chat goal proposal '\(proposal.title)' for company \(company.id).")
+            let saved = try await runWithEmbeddedBackendRecovery {
+                try await api.createGoal(
+                    companyId: company.id,
+                    title: proposal.title,
+                    description: proposal.description
+                )
+            }
+            selectedCompanyID = company.id
+            selectedGoalID = saved.id
+            AppLogger.info("Applied chat goal proposal '\(saved.title)' (\(saved.id)) for company \(company.id).")
+            await performNonCriticalGoalRefresh(saved, companyID: company.id)
+            return saved
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            AppLogger.error("Apply chat goal proposal failed for company \(company.id): \(error.localizedDescription)")
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatIssueProposal(_ proposal: ChatIssueProposal) async -> IssueRecord? {
+        guard let company = selectedCompany else {
+            actionErrorMessage = language(
+                "Select a company before applying an issue proposal.",
+                "이슈 제안을 적용하기 전에 회사를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let saved = try await runWithEmbeddedBackendRecovery {
+                try await api.createIssue(
+                    companyId: company.id,
+                    goalId: proposal.goalId,
+                    title: proposal.title,
+                    description: proposal.description
+                )
+            }
+            selectedCompanyID = saved.companyId
+            selectedGoalID = saved.goalId
+            selectedIssueID = saved.id
+            await performNonCriticalIssueRefresh(saved)
+            return saved
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func chatReviewProposal(from draft: String, kind: String) -> ChatReviewProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+
+        let verdict: String
+        if normalized.contains(" changes requested ") ||
+            normalized.contains(" request changes ") ||
+            normalized.contains(" changes needed ") ||
+            normalized.contains(" reject ") ||
+            normalized.contains(" rejected ") ||
+            normalized.contains(" fail ") ||
+            normalized.contains(" failed ") {
+            verdict = "CHANGES_REQUESTED"
+        } else if kind == "qa" {
+            verdict = "PASS"
+        } else {
+            verdict = "APPROVE"
+        }
+
+        return ChatReviewProposal(
+            stage: kind == "qa" ? .qa : .ceo,
+            verdict: verdict,
+            feedback: trimmedDraft
+        )
+    }
+
+    func chatMergeProposal(from draft: String) -> ChatMergeProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+        let mergeSignals = [" merge ", " ship it ", " merge it ", " land it ", " merge now ", " approve and merge "]
+        guard mergeSignals.contains(where: { normalized.contains($0) }) else { return nil }
+        return ChatMergeProposal(summary: trimmedDraft)
+    }
+
+    func chatRuntimeProposal(from draft: String) -> ChatRuntimeProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+
+        if [" stop runtime ", " pause runtime ", " stop company ", " stop the runtime ", " runtime off "].contains(where: { normalized.contains($0) }) {
+            return ChatRuntimeProposal(action: .stop, summary: trimmedDraft)
+        }
+        if [" start runtime ", " resume runtime ", " start company ", " start the runtime ", " runtime on "].contains(where: { normalized.contains($0) }) {
+            return ChatRuntimeProposal(action: .start, summary: trimmedDraft)
+        }
+        return nil
+    }
+
+    func chatAgentProposal(from draft: String) -> ChatAgentProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+        let agentSignals = [" agent ", " qa agent", " reviewer ", " review agent", " tester "]
+        guard agentSignals.contains(where: { normalized.contains($0) }) else { return nil }
+
+        let workflowLead = workflowLeadAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferredCli = preferredAgent(from: dashboard.settings.availableAgents) ?? (workflowLead.isEmpty ? nil : workflowLead) ?? "opencode"
+        if normalized.contains(" qa ") || normalized.contains(" review ") || normalized.contains(" test ") || normalized.contains(" verification ") {
+            return ChatAgentProposal(
+                title: language("QA Agent", "QA 에이전트"),
+                agentCli: preferredCli,
+                model: nil,
+                roleSummary: language("Own verification, review-queue decisions, and regression feedback for delivered work.", "전달된 작업에 대한 검증, 리뷰 큐 판정, 회귀 피드백을 담당합니다."),
+                specialties: ["qa", "review", "verification"],
+                collaborationInstructions: trimmedDraft,
+                memoryNotes: trimmedDraft,
+                enabled: true
+            )
+        }
+
+        return ChatAgentProposal(
+            title: language("New Agent", "새 에이전트"),
+            agentCli: preferredCli,
+            model: nil,
+            roleSummary: trimmedDraft,
+            specialties: ["general"],
+            collaborationInstructions: trimmedDraft,
+            memoryNotes: trimmedDraft,
+            enabled: true
+        )
+    }
+
+    func chatBackendProposal(from draft: String) -> ChatBackendProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+
+        if [" restart backend ", " reboot backend ", " restart app server ", " restart codex backend "].contains(where: { normalized.contains($0) }) {
+            return ChatBackendProposal(action: .restart, summary: trimmedDraft)
+        }
+        if [" stop backend ", " stop app server ", " backend off ", " stop codex backend "].contains(where: { normalized.contains($0) }) {
+            return ChatBackendProposal(action: .stop, summary: trimmedDraft)
+        }
+        if [" start backend ", " start app server ", " backend on ", " start codex backend "].contains(where: { normalized.contains($0) }) {
+            return ChatBackendProposal(action: .start, summary: trimmedDraft)
+        }
+        return nil
+    }
+
+    func chatExecutionProposal(from draft: String) -> ChatExecutionProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+        let signals = [" run this issue ", " execute this issue ", " start this issue ", " work on this issue ", " run selected issue "]
+        guard signals.contains(where: { normalized.contains($0) }) else { return nil }
+        return ChatExecutionProposal(summary: trimmedDraft)
+    }
+
+    func chatDelegationProposal(from draft: String) -> ChatDelegationProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+        let signals = [" delegate this issue ", " assign this issue ", " route this issue ", " delegate selected issue ", " assign selected issue "]
+        guard signals.contains(where: { normalized.contains($0) }) else { return nil }
+        return ChatDelegationProposal(summary: trimmedDraft)
+    }
+
+    func chatGoalDecompositionProposal(from draft: String) -> ChatGoalDecompositionProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+        let signals = [" break this goal ", " decompose this goal ", " split this goal ", " generate issues for this goal ", " break selected goal "]
+        guard signals.contains(where: { normalized.contains($0) }) else { return nil }
+        return ChatGoalDecompositionProposal(summary: trimmedDraft)
+    }
+
+    func chatGoalAutonomyProposal(from draft: String) -> ChatGoalAutonomyProposal? {
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else { return nil }
+        let normalized = " " + trimmedDraft.lowercased() + " "
+        if [" enable autonomy ", " turn autonomy on ", " enable auto mode ", " make this goal autonomous "].contains(where: { normalized.contains($0) }) {
+            return ChatGoalAutonomyProposal(mode: .enable, summary: trimmedDraft)
+        }
+        if [" disable autonomy ", " turn autonomy off ", " disable auto mode ", " make this goal manual "].contains(where: { normalized.contains($0) }) {
+            return ChatGoalAutonomyProposal(mode: .disable, summary: trimmedDraft)
+        }
+        return nil
+    }
+
+    func applyChatReviewProposal(_ proposal: ChatReviewProposal) async -> ReviewQueueItemRecord? {
+        guard let item = selectedReviewQueueItem else {
+            actionErrorMessage = language(
+                "Select a review queue item before applying a review proposal.",
+                "리뷰 제안을 적용하기 전에 리뷰 큐 항목을 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let updated = try await runWithEmbeddedBackendRecovery {
+                switch proposal.stage {
+                case .qa:
+                    return try await api.submitQaReviewVerdict(itemId: item.id, verdict: proposal.verdict, feedback: proposal.feedback)
+                case .ceo:
+                    return try await api.submitCeoReviewVerdict(itemId: item.id, verdict: proposal.verdict, feedback: proposal.feedback)
+                }
+            }
+            await refreshDashboard()
+            if let refreshedIssue = dashboard.issues.first(where: { $0.id == updated.issueId }) {
+                selectedCompanyID = refreshedIssue.companyId
+                selectedGoalID = refreshedIssue.goalId
+                selectedIssueID = refreshedIssue.id
+                selectedWorkspaceID = refreshedIssue.workspaceId
+            }
+            await refreshTaskDetails()
+            return updated
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatMergeProposal(_ proposal: ChatMergeProposal) async -> ReviewQueueItemRecord? {
+        guard let item = selectedReviewQueueItem else {
+            actionErrorMessage = language(
+                "Select a review queue item before applying a merge proposal.",
+                "머지 제안을 적용하기 전에 리뷰 큐 항목을 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let updated = try await runWithEmbeddedBackendRecovery {
+                try await api.mergeReviewQueueItem(itemId: item.id)
+            }
+            await refreshDashboard()
+            if let refreshedIssue = dashboard.issues.first(where: { $0.id == updated.issueId }) {
+                selectedCompanyID = refreshedIssue.companyId
+                selectedGoalID = refreshedIssue.goalId
+                selectedIssueID = refreshedIssue.id
+                selectedWorkspaceID = refreshedIssue.workspaceId
+            }
+            await refreshTaskDetails()
+            return updated
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatRuntimeProposal(_ proposal: ChatRuntimeProposal) async -> CompanyRuntimeSnapshotRecord? {
+        guard let company = selectedCompany else {
+            actionErrorMessage = language(
+                "Select a company before applying a runtime proposal.",
+                "런타임 제안을 적용하기 전에 회사를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let snapshot = try await runWithEmbeddedBackendRecovery {
+                switch proposal.action {
+                case .start:
+                    return try await api.startCompanyRuntime(companyId: company.id)
+                case .stop:
+                    return try await api.stopCompanyRuntime(companyId: company.id)
+                }
+            }
+            await refreshDashboard()
+            return dashboard.companyRuntimes.first(where: { $0.companyId == company.id }) ?? snapshot
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatAgentProposal(_ proposal: ChatAgentProposal) async -> CompanyAgentDefinitionRecord? {
+        guard let company = selectedCompany else {
+            actionErrorMessage = language(
+                "Select a company before applying an agent proposal.",
+                "에이전트 제안을 적용하기 전에 회사를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let saved = try await runWithEmbeddedBackendRecovery {
+                try await api.createCompanyAgent(
+                    companyId: company.id,
+                    title: proposal.title,
+                    agentCli: proposal.agentCli,
+                    model: proposal.model,
+                    roleSummary: proposal.roleSummary,
+                    specialties: proposal.specialties,
+                    collaborationInstructions: proposal.collaborationInstructions,
+                    preferredCollaboratorIds: [],
+                    memoryNotes: proposal.memoryNotes,
+                    enabled: proposal.enabled
+                )
+            }
+            await refreshDashboard()
+            selectedCompanyID = company.id
+            return saved
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatBackendProposal(_ proposal: ChatBackendProposal) async -> ExecutionBackendStatusPayload? {
+        guard let company = selectedCompany else {
+            actionErrorMessage = language(
+                "Select a company before applying a backend proposal.",
+                "백엔드 제안을 적용하기 전에 회사를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let status = try await runWithEmbeddedBackendRecovery {
+                switch proposal.action {
+                case .start:
+                    return try await api.startCompanyBackend(companyId: company.id)
+                case .stop:
+                    return try await api.stopCompanyBackend(companyId: company.id)
+                case .restart:
+                    return try await api.restartCompanyBackend(companyId: company.id)
+                }
+            }
+            await refreshDashboard()
+            return dashboard.backendStatuses.first(where: { $0.kind == status.kind }) ?? status
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatExecutionProposal(_ proposal: ChatExecutionProposal) async -> IssueRecord? {
+        guard let issue = selectedIssue else {
+            actionErrorMessage = language(
+                "Select an issue before applying an execution proposal.",
+                "실행 제안을 적용하기 전에 이슈를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let updated = try await runWithEmbeddedBackendRecovery {
+                try await api.runIssue(issueId: issue.id)
+            }
+            statusState = .taskStarted(updated.title)
+            objectWillChange.send()
+            await refreshDashboard()
+            await refreshTaskDetails()
+            await ensureTuiSession()
+            return updated
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatDelegationProposal(_ proposal: ChatDelegationProposal) async -> IssueRecord? {
+        guard let issue = selectedIssue else {
+            actionErrorMessage = language(
+                "Select an issue before applying a delegation proposal.",
+                "위임 제안을 적용하기 전에 이슈를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let updated = try await runWithEmbeddedBackendRecovery {
+                try await api.delegateIssue(issueId: issue.id)
+            }
+            await refreshDashboard()
+            await refreshTaskDetails()
+            return updated
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatGoalDecompositionProposal(_ proposal: ChatGoalDecompositionProposal) async -> [IssueRecord]? {
+        guard let goal = selectedGoal else {
+            actionErrorMessage = language(
+                "Select a goal before applying a decomposition proposal.",
+                "분해 제안을 적용하기 전에 목표를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let issues = try await runWithEmbeddedBackendRecovery {
+                try await api.decomposeGoal(goalId: goal.id)
+            }
+            await refreshDashboard()
+            return issues
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func applyChatGoalAutonomyProposal(_ proposal: ChatGoalAutonomyProposal) async -> GoalRecord? {
+        guard let goal = selectedGoal, let company = selectedCompany else {
+            actionErrorMessage = language(
+                "Select a goal before applying a goal autonomy proposal.",
+                "목표 자율 제안을 적용하기 전에 목표를 선택하세요."
+            )
+            return nil
+        }
+
+        do {
+            actionErrorMessage = nil
+            errorMessage = nil
+            let saved = try await runWithEmbeddedBackendRecovery {
+                try await api.updateGoal(
+                    companyId: company.id,
+                    goalId: goal.id,
+                    title: goal.title,
+                    description: goal.description,
+                    successMetrics: goal.successMetrics,
+                    autonomyEnabled: proposal.mode == .enable
+                )
+            }
+            await refreshDashboard()
+            selectedGoalID = saved.id
+            return saved
+        } catch is CancellationError {
+            actionErrorMessage = nil
+            errorMessage = nil
+            return nil
+        } catch {
+            actionErrorMessage = error.localizedDescription
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func loadSelectedCompanyMemorySnapshot() async {
+        guard let companyId = selectedCompanyID ?? selectedCompany?.id else {
+            companyMemorySnapshot = nil
+            return
+        }
+
+        do {
+            companyMemorySnapshot = try await runWithEmbeddedBackendRecovery {
+                try await api.companyMemorySnapshot(
+                    companyId: companyId,
+                    issueId: selectedIssueID,
+                    agentProfileId: nil
+                )
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            if companyMemorySnapshot == nil {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
