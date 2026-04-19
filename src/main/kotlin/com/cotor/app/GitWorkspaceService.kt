@@ -24,13 +24,22 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.slf4j.Logger
+import java.net.URI
+import java.net.URLEncoder
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.charset.StandardCharsets
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.invariantSeparatorsPathString
@@ -104,11 +113,26 @@ class GitWorkspaceService(
         processManager: ProcessManager,
         stateStore: DesktopStateStore,
         logger: Logger
-    ) : this(processManager, stateStore, logger, DurableRuntimeService(), ActionExecutionService(logger = logger))
+    ) : this(processManager, stateStore, logger, DurableRuntimeService())
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val httpClient = HttpClient.newBuilder().build()
 
     @Volatile private var cachedGitHubLogin: String? = null
+    @Volatile private var cachedGitHubToken: String? = null
+
+    private fun githubHttpEnabled(): Boolean {
+        val flag = System.getenv("COTOR_GITHUB_HTTP")?.trim()?.lowercase()
+        return flag == "1" || flag == "true"
+    }
+
+    private suspend fun githubApiPreferred(worktreePath: Path): Boolean {
+        if (!githubHttpEnabled()) return false
+        val repo = githubRepositoryRef(worktreePath) ?: return false
+        val token = githubAuthToken(worktreePath) ?: return false
+        if (token.isBlank()) return false
+        return repo.owner.isNotBlank() && repo.name.isNotBlank()
+    }
 
     companion object {
         private const val BOOTSTRAP_COMMIT_MESSAGE = "Initialize repository"
@@ -133,7 +157,7 @@ class GitWorkspaceService(
             resolveRepositoryRoot(normalized).also { ensureBootstrapCommit(it) }
         }.getOrElse {
             Files.createDirectories(normalized)
-            val branch = preferredDefaultBranch?.trim().takeUnless { it.isNullOrBlank() } ?: "master"
+            val branch = preferredDefaultBranch?.trim().takeUnless { it.isNullOrBlank() } ?: "main"
             runGit(normalized, "init", "-b", branch)
             ensureBootstrapCommit(normalized)
             normalized
@@ -367,7 +391,8 @@ class GitWorkspaceService(
         agentName: String,
         worktreePath: Path,
         branchName: String,
-        baseBranch: String
+        baseBranch: String,
+        requirePullRequest: Boolean = true
     ): PublishMetadata {
         var commitSha: String? = null
         var pushedBranch: String? = null
@@ -474,6 +499,21 @@ class GitWorkspaceService(
                     return@run PublishMetadata(
                         commitSha = commitSha,
                         error = "No changes to publish from $branchName against $baseBranch"
+                    )
+                }
+
+                if (!requirePullRequest) {
+                    return@run PublishMetadata(
+                        commitSha = commitSha,
+                        pushedBranch = branchName,
+                        pullRequestNumber = null,
+                        pullRequestUrl = null,
+                        pullRequestState = null,
+                        reviewState = null,
+                        checksSummary = null,
+                        mergeability = null,
+                        lastSyncTime = System.currentTimeMillis(),
+                        error = null
                     )
                 }
 
@@ -645,20 +685,42 @@ class GitWorkspaceService(
                     lastSyncTime = System.currentTimeMillis()
                 )
             }
-            val command = mutableListOf("gh", "pr", "review", pullRequestNumber.toString())
-            when (verdict) {
-                PullRequestReviewVerdict.COMMENT -> command += "--comment"
-                PullRequestReviewVerdict.APPROVE -> command += "--approve"
-                PullRequestReviewVerdict.REQUEST_CHANGES -> command += "--request-changes"
-            }
-            command += listOf("--body", body)
-            try {
-                runCommand(worktreePath, command)
-            } catch (error: ProcessExecutionException) {
-                if (verdict != PullRequestReviewVerdict.COMMENT && isSelfReviewBlocked(error)) {
-                    logger.info("Skipping GitHub ${verdict.name.lowercase()} review for self-authored PR #$pullRequestNumber because GitHub blocks self-review.")
-                } else {
-                    throw error
+            val repo = if (githubHttpEnabled()) runCatching { githubRepositoryRef(worktreePath) }.getOrNull() else null
+            val token = if (githubHttpEnabled() && repo != null) runCatching { githubAuthToken(worktreePath) }.getOrNull() else null
+            if (repo != null && token != null) {
+                githubApiJson(
+                    worktreePath = worktreePath,
+                    method = "POST",
+                    path = "/repos/${repo.owner}/${repo.name}/pulls/$pullRequestNumber/reviews",
+                    body = buildMap {
+                        put("body", body)
+                        put(
+                            "event",
+                            when (verdict) {
+                                PullRequestReviewVerdict.COMMENT -> "COMMENT"
+                                PullRequestReviewVerdict.APPROVE -> "APPROVE"
+                                PullRequestReviewVerdict.REQUEST_CHANGES -> "REQUEST_CHANGES"
+                            }
+                        )
+                    },
+                    token = token
+                )
+            } else {
+                val command = mutableListOf("gh", "pr", "review", pullRequestNumber.toString())
+                when (verdict) {
+                    PullRequestReviewVerdict.COMMENT -> command += "--comment"
+                    PullRequestReviewVerdict.APPROVE -> command += "--approve"
+                    PullRequestReviewVerdict.REQUEST_CHANGES -> command += "--request-changes"
+                }
+                command += listOf("--body", body)
+                try {
+                    runCommand(worktreePath, command)
+                } catch (error: ProcessExecutionException) {
+                    if (verdict != PullRequestReviewVerdict.COMMENT && isSelfReviewBlocked(error)) {
+                        logger.info("Skipping GitHub ${verdict.name.lowercase()} review for self-authored PR #$pullRequestNumber because GitHub blocks self-review.")
+                    } else {
+                        throw error
+                    }
                 }
             }
 
@@ -690,10 +752,22 @@ class GitWorkspaceService(
                 metadata = mapOf("pullRequestNumber" to pullRequestNumber.toString())
             )
         ) {
-            runCommand(
-                worktreePath,
-                listOf("gh", "pr", "comment", pullRequestNumber.toString(), "--body", body)
-            )
+            val repo = if (githubHttpEnabled()) runCatching { githubRepositoryRef(worktreePath) }.getOrNull() else null
+            val token = if (githubHttpEnabled() && repo != null) runCatching { githubAuthToken(worktreePath) }.getOrNull() else null
+            if (repo != null && token != null) {
+                githubApiJson(
+                    worktreePath = worktreePath,
+                    method = "POST",
+                    path = "/repos/${repo.owner}/${repo.name}/issues/$pullRequestNumber/comments",
+                    body = mapOf("body" to body),
+                    token = token
+                )
+            } else {
+                runCommand(
+                    worktreePath,
+                    listOf("gh", "pr", "comment", pullRequestNumber.toString(), "--body", body)
+                )
+            }
         }
     }
 
@@ -736,10 +810,22 @@ class GitWorkspaceService(
             }
 
             try {
-                runCommand(
-                    worktreePath,
-                    listOf("gh", "pr", "close", pullRequestNumber.toString())
-                )
+                val repo = if (githubHttpEnabled()) runCatching { githubRepositoryRef(worktreePath) }.getOrNull() else null
+                val token = if (githubHttpEnabled() && repo != null) runCatching { githubAuthToken(worktreePath) }.getOrNull() else null
+                if (repo != null && token != null) {
+                    githubApiJson(
+                        worktreePath = worktreePath,
+                        method = "PATCH",
+                        path = "/repos/${repo.owner}/${repo.name}/pulls/$pullRequestNumber",
+                        body = mapOf("state" to "closed"),
+                        token = token
+                    )
+                } else {
+                    runCommand(
+                        worktreePath,
+                        listOf("gh", "pr", "close", pullRequestNumber.toString())
+                    )
+                }
             } catch (error: ProcessExecutionException) {
                 if (isAlreadyClosed(error) || isAlreadyMerged(error)) {
                     logger.info("PR #$pullRequestNumber was already closed before Cotor refreshed local state.")
@@ -870,7 +956,11 @@ class GitWorkspaceService(
         }
     }
 
-    suspend fun mergePullRequest(worktreePath: Path, pullRequestNumber: Int): PullRequestMergeResult {
+    suspend fun mergePullRequest(
+        worktreePath: Path,
+        pullRequestNumber: Int,
+        preApprovedReviewFlow: Boolean = false
+    ): PullRequestMergeResult {
         return actionExecutionService.run(
             request = ActionRequest(
                 kind = ActionKind.GITHUB_MERGE,
@@ -878,7 +968,12 @@ class GitWorkspaceService(
                 scope = ActionScope.GLOBAL,
                 replaySafe = false,
                 approvalRequiredOnReplay = true,
-                metadata = mapOf("pullRequestNumber" to pullRequestNumber.toString())
+                metadata = buildMap {
+                    put("pullRequestNumber", pullRequestNumber.toString())
+                    if (preApprovedReviewFlow) {
+                        put("preApprovedReviewFlow", "true")
+                    }
+                }
             ),
             onSuccess = { result ->
                 ActionEvidence(
@@ -888,10 +983,22 @@ class GitWorkspaceService(
             }
         ) {
             try {
-                runCommand(
-                    worktreePath,
-                    listOf("gh", "pr", "merge", pullRequestNumber.toString(), "--merge")
-                )
+                val repo = if (githubHttpEnabled()) runCatching { githubRepositoryRef(worktreePath) }.getOrNull() else null
+                val token = if (githubHttpEnabled() && repo != null) runCatching { githubAuthToken(worktreePath) }.getOrNull() else null
+                if (repo != null && token != null) {
+                    githubApiJson(
+                        worktreePath = worktreePath,
+                        method = "PUT",
+                        path = "/repos/${repo.owner}/${repo.name}/pulls/$pullRequestNumber/merge",
+                        body = mapOf("merge_method" to "merge"),
+                        token = token
+                    )
+                } else {
+                    runCommand(
+                        worktreePath,
+                        listOf("gh", "pr", "merge", pullRequestNumber.toString(), "--merge")
+                    )
+                }
             } catch (error: ProcessExecutionException) {
                 if (isAlreadyMerged(error)) {
                     logger.info("PR #$pullRequestNumber was already merged before Cotor refreshed local state.")
@@ -1480,11 +1587,25 @@ class GitWorkspaceService(
 
     private suspend fun currentGitHubLogin(worktreePath: Path): String? {
         cachedGitHubLogin?.let { return it }
-        val login = runCatching {
-            ghOutput(worktreePath, "api", "user", "--jq", ".login")
-                .trim()
-                .takeIf { it.isNotBlank() }
-        }.getOrNull()
+        val login = if (githubApiPreferred(worktreePath)) {
+            githubHostsConfiguredUser()
+                ?: githubAuthToken(worktreePath)?.let { token ->
+                    runCatching {
+                        val raw = githubApiJson(
+                            worktreePath = worktreePath,
+                            path = "/user",
+                            token = token
+                        )
+                        raw.jsonObject["login"]?.jsonPrimitive?.contentOrNull
+                    }.getOrNull()
+                }
+        } else {
+            runCatching {
+                ghOutput(worktreePath, "api", "user", "--jq", ".login")
+                    .trim()
+                    .takeIf { it.isNotBlank() }
+            }.getOrNull()
+        }
         if (!login.isNullOrBlank()) {
             cachedGitHubLogin = login
         }
@@ -1528,6 +1649,19 @@ class GitWorkspaceService(
     }
 
     private suspend fun findOpenPullRequest(worktreePath: Path, branchName: String): PullRequestRef? {
+        if (githubHttpEnabled()) {
+            val repo = githubRepositoryRef(worktreePath)
+            val token = githubAuthToken(worktreePath)
+            if (repo != null && token != null) {
+                val encodedHead = URLEncoder.encode("${repo.owner}:$branchName", StandardCharsets.UTF_8)
+                val raw = githubApiJson(
+                    worktreePath = worktreePath,
+                    path = "/repos/${repo.owner}/${repo.name}/pulls?state=open&head=$encodedHead",
+                    token = token
+                )
+                return raw.jsonArray.map { pullRequestRefFromGitHubApi(it.jsonObject) }.firstOrNull()
+            }
+        }
         val raw = ghOutput(
             worktreePath,
             "pr",
@@ -1544,6 +1678,18 @@ class GitWorkspaceService(
     }
 
     private suspend fun listOpenPullRequests(worktreePath: Path): List<PullRequestRef> {
+        if (githubHttpEnabled()) {
+            val repo = githubRepositoryRef(worktreePath)
+            val token = githubAuthToken(worktreePath)
+            if (repo != null && token != null) {
+                val raw = githubApiJson(
+                    worktreePath = worktreePath,
+                    path = "/repos/${repo.owner}/${repo.name}/pulls?state=open&per_page=100",
+                    token = token
+                )
+                return raw.jsonArray.map { pullRequestRefFromGitHubApi(it.jsonObject) }
+            }
+        }
         val raw = ghOutput(
             worktreePath,
             "pr",
@@ -1565,6 +1711,25 @@ class GitWorkspaceService(
         title: String,
         body: String
     ): PullRequestRef {
+        if (githubHttpEnabled()) {
+            val repo = githubRepositoryRef(worktreePath)
+            val token = githubAuthToken(worktreePath)
+            if (repo != null && token != null) {
+                val created = githubApiJson(
+                    worktreePath = worktreePath,
+                    method = "POST",
+                    path = "/repos/${repo.owner}/${repo.name}/pulls",
+                    body = buildMap {
+                        put("title", title)
+                        put("head", branchName)
+                        put("base", baseBranch)
+                        put("body", body)
+                    },
+                    token = token
+                )
+                return pullRequestRefFromGitHubApi(created.jsonObject)
+            }
+        }
         ghOutput(
             worktreePath,
             "pr",
@@ -1590,6 +1755,18 @@ class GitWorkspaceService(
     }
 
     private suspend fun viewPullRequest(worktreePath: Path, pullRequestNumber: Int): PullRequestRef {
+        if (githubHttpEnabled()) {
+            val repo = githubRepositoryRef(worktreePath)
+            val token = githubAuthToken(worktreePath)
+            if (repo != null && token != null) {
+                val raw = githubApiJson(
+                    worktreePath = worktreePath,
+                    path = "/repos/${repo.owner}/${repo.name}/pulls/$pullRequestNumber",
+                    token = token
+                )
+                return pullRequestRefFromGitHubApi(raw.jsonObject)
+            }
+        }
         val raw = ghOutput(
             worktreePath,
             "pr",
@@ -1600,6 +1777,124 @@ class GitWorkspaceService(
         )
         return json.decodeFromString<PullRequestRef>(raw)
     }
+
+    private suspend fun githubApiJson(
+        worktreePath: Path,
+        path: String,
+        method: String = "GET",
+        body: Map<String, String>? = null,
+        token: String
+    ): JsonElement {
+        val requestBuilder = HttpRequest.newBuilder()
+            .uri(URI.create("https://api.github.com$path"))
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", "Bearer $token")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+
+        val request = when (method.uppercase()) {
+            "GET" -> requestBuilder.GET().build()
+            else -> requestBuilder.method(
+                method.uppercase(),
+                HttpRequest.BodyPublishers.ofString(
+                    buildJsonObject {
+                        (body ?: emptyMap()).forEach { (key, value) -> put(key, value) }
+                    }.toString()
+                )
+            ).header("Content-Type", "application/json").build()
+        }
+
+        val response = withContext(Dispatchers.IO) {
+            httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+        }
+        if (response.statusCode() !in 200..299) {
+            throw ProcessExecutionException(
+                message = "GitHub API request failed",
+                exitCode = response.statusCode(),
+                stdout = response.body(),
+                stderr = response.body()
+            )
+        }
+        return json.parseToJsonElement(response.body())
+    }
+
+    private suspend fun githubAuthToken(worktreePath: Path): String? {
+        cachedGitHubToken?.let { return it }
+        val fromEnv = System.getenv("GITHUB_TOKEN")?.takeIf { it.isNotBlank() }
+            ?: System.getenv("GH_TOKEN")?.takeIf { it.isNotBlank() }
+        if (fromEnv != null) {
+            cachedGitHubToken = fromEnv
+            return fromEnv
+        }
+        val configuredUser = githubHostsConfiguredUser()
+        if (!configuredUser.isNullOrBlank()) {
+            val fromKeychain = runCatching {
+                runCommand(
+                    workingDirectory = worktreePath,
+                    command = listOf("security", "find-generic-password", "-s", "gh:github.com", "-a", configuredUser, "-w"),
+                    failOnError = false,
+                    timeoutMs = 10_000
+                ).stdout.trim().takeIf { it.isNotBlank() }
+            }.getOrNull()
+            if (fromKeychain != null) {
+                cachedGitHubToken = fromKeychain
+                return fromKeychain
+            }
+        }
+        return runCatching {
+            ghOutput(worktreePath, "auth", "token").trim().takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    private fun githubHostsConfiguredUser(): String? {
+        val hostsFile = Path.of(System.getProperty("user.home"), ".config", "gh", "hosts.yml")
+        if (!Files.exists(hostsFile)) return null
+        return runCatching {
+            Files.readAllLines(hostsFile)
+                .firstOrNull { it.trim().startsWith("user:") }
+                ?.substringAfter(":")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    private suspend fun githubRepositoryRef(worktreePath: Path): GitHubRepositoryRef? {
+        val hasGitDir = Files.exists(worktreePath.resolve(".git"))
+        val hasGitFile = Files.exists(worktreePath.resolve(".git"))
+        if (!hasGitDir && !hasGitFile) return null
+        val originUrl = runCatching { originRemoteUrl(worktreePath) }.getOrNull() ?: return null
+        val https = Regex("https://github\\.com/([^/]+)/([^/.]+)(?:\\.git)?$")
+        val ssh = Regex("git@github\\.com:([^/]+)/([^/.]+)(?:\\.git)?$")
+        val match = https.matchEntire(originUrl) ?: ssh.matchEntire(originUrl)
+        return match?.let { GitHubRepositoryRef(owner = it.groupValues[1], name = it.groupValues[2]) }
+    }
+
+    private fun pullRequestRefFromGitHubApi(raw: JsonObject): PullRequestRef {
+        val head = raw["head"]?.jsonObject
+        val base = raw["base"]?.jsonObject
+        val user = raw["user"]?.jsonObject
+        val mergeCommitSha = raw["merge_commit_sha"]?.jsonPrimitive?.contentOrNull
+        return PullRequestRef(
+            number = raw["number"]?.jsonPrimitive?.content?.toIntOrNull(),
+            title = raw["title"]?.jsonPrimitive?.contentOrNull,
+            url = raw["html_url"]?.jsonPrimitive?.contentOrNull ?: "",
+            state = raw["state"]?.jsonPrimitive?.contentOrNull?.uppercase(),
+            reviewDecision = null,
+            mergeStateStatus = raw["mergeable_state"]?.jsonPrimitive?.contentOrNull?.uppercase(),
+            mergeable = raw["mergeable"]?.jsonPrimitive?.contentOrNull,
+            statusCheckRollup = null,
+            autoMergeRequest = raw["auto_merge"] ?: raw["autoMergeRequest"],
+            baseRefName = base?.get("ref")?.jsonPrimitive?.contentOrNull,
+            headRefName = head?.get("ref")?.jsonPrimitive?.contentOrNull,
+            updatedAt = raw["updated_at"]?.jsonPrimitive?.contentOrNull,
+            mergeCommit = mergeCommitSha?.let { MergeCommitRef(oid = it) },
+            author = PullRequestAuthorRef(login = user?.get("login")?.jsonPrimitive?.contentOrNull)
+        )
+    }
+
+    private data class GitHubRepositoryRef(
+        val owner: String,
+        val name: String
+    )
 
     private fun buildCommitMessage(taskTitle: String, agentName: String): String {
         val headline = taskTitle.trim().ifBlank { "Complete desktop task" }

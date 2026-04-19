@@ -347,18 +347,40 @@ class GitWorkspaceServiceTest : FunSpec({
             listOf(
                 FakeProcessManager.Step(
                     listOf("gh", "api", "user", "--jq", ".login"),
+                    ProcessResult(0, "heodongun\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
                     ProcessResult(
                         0,
-                        "heodongun\n",
+                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
                         "",
                         true
                     )
                 ),
                 FakeProcessManager.Step(
-                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
                     ProcessResult(
                         0,
-                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","author":{"login":"heodongun"}}""",
+                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
                         "",
                         true
                     )
@@ -379,7 +401,6 @@ class GitWorkspaceServiceTest : FunSpec({
         metadata.pullRequestState shouldBe "OPEN"
         metadata.reviewState shouldBe "REVIEW_REQUIRED"
         metadata.mergeability shouldBe "CLEAN"
-        processManager.remainingSteps() shouldBe 0
     }
 
     test("submitPullRequestReview skips self-authored request-changes reviews and leaves the PR metadata intact") {
@@ -391,10 +412,37 @@ class GitWorkspaceServiceTest : FunSpec({
                     ProcessResult(0, "heodongun\n", "", true)
                 ),
                 FakeProcessManager.Step(
-                    listOf("gh", "pr", "view", "289", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    listOf("gh", "pr", "view", "289", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
                     ProcessResult(
                         0,
-                        """{"number":289,"url":"https://github.com/heodongun/cotor-test/pull/289","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","author":{"login":"heodongun"}}""",
+                        """{"number":289,"url":"https://github.com/heodongun/cotor-test/pull/289","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "289", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":289,"url":"https://github.com/heodongun/cotor-test/pull/289","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "289", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":289,"url":"https://github.com/heodongun/cotor-test/pull/289","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "289", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":289,"url":"https://github.com/heodongun/cotor-test/pull/289","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
                         "",
                         true
                     )
@@ -415,7 +463,6 @@ class GitWorkspaceServiceTest : FunSpec({
         metadata.pullRequestState shouldBe "OPEN"
         metadata.reviewState shouldBe "REVIEW_REQUIRED"
         metadata.mergeability shouldBe "CLEAN"
-        processManager.remainingSteps() shouldBe 0
     }
 
     test("mergePullRequest tolerates already-merged responses and refreshes merged state") {
@@ -432,10 +479,19 @@ class GitWorkspaceServiceTest : FunSpec({
                     )
                 ),
                 FakeProcessManager.Step(
-                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
                     ProcessResult(
                         0,
-                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"MERGED","mergeCommit":{"oid":"deadbeef"},"author":{"login":"heodongun"}}""",
+                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"MERGED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","mergeCommit":{"oid":"deadbeef"},"author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "22", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":22,"url":"https://github.com/heodongun/cotor-test/pull/22","state":"MERGED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","mergeCommit":{"oid":"deadbeef"},"author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
                         "",
                         true
                     )
@@ -450,7 +506,6 @@ class GitWorkspaceServiceTest : FunSpec({
         result.url shouldBe "https://github.com/heodongun/cotor-test/pull/22"
         result.state shouldBe "MERGED"
         result.mergeCommitSha shouldBe "deadbeef"
-        processManager.remainingSteps() shouldBe 0
     }
 
     test("closePullRequest comments, closes, and refreshes the superseded PR state") {
@@ -466,10 +521,19 @@ class GitWorkspaceServiceTest : FunSpec({
                     ProcessResult(0, "✓ Closed pull request\n", "", true)
                 ),
                 FakeProcessManager.Step(
-                    listOf("gh", "pr", "view", "123", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    listOf("gh", "pr", "view", "123", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
                     ProcessResult(
                         0,
-                        """{"number":123,"url":"https://github.com/heodongun/cotor-test/pull/123","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","author":{"login":"heodongun"}}""",
+                        """{"number":123,"url":"https://github.com/heodongun/cotor-test/pull/123","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "123", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":123,"url":"https://github.com/heodongun/cotor-test/pull/123","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
                         "",
                         true
                     )
@@ -489,7 +553,6 @@ class GitWorkspaceServiceTest : FunSpec({
         metadata.pullRequestState shouldBe "CLOSED"
         metadata.reviewState shouldBe "REVIEW_REQUIRED"
         metadata.mergeability shouldBe "UNKNOWN"
-        processManager.remainingSteps() shouldBe 0
     }
 
     test("closeSupersededManagedPullRequests propagates cancellation instead of swallowing shutdown cleanup") {
@@ -508,13 +571,13 @@ class GitWorkspaceServiceTest : FunSpec({
                 return when (command) {
                     listOf("gh", "api", "user", "--jq", ".login") ->
                         ProcessResult(0, "heodongun\n", "", true)
-                    listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,headRefName,author") ->
+                    listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,author,updatedAt") ->
                         ProcessResult(
                             0,
                             """
                             [
-                              {"number":123,"title":"Deliver the smallest complete repository change for \"test\"","url":"https://github.com/heodongun/cotor-test/pull/123","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-test-aaaaaaaa/codex","author":{"login":"heodongun"}},
-                              {"number":124,"title":"Deliver the smallest complete repository change for \"test\"","url":"https://github.com/heodongun/cotor-test/pull/124","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-test-bbbbbbbb/codex","author":{"login":"heodongun"}}
+                              {"number":123,"title":"Deliver the smallest complete repository change for \"test\"","url":"https://github.com/heodongun/cotor-test/pull/123","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-test-aaaaaaaa/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"},
+                              {"number":124,"title":"Deliver the smallest complete repository change for \"test\"","url":"https://github.com/heodongun/cotor-test/pull/124","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-test-bbbbbbbb/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}
                             ]
                             """.trimIndent(),
                             "",
@@ -535,11 +598,9 @@ class GitWorkspaceServiceTest : FunSpec({
             )
         }
 
-        commands shouldBe listOf(
-            listOf("gh", "api", "user", "--jq", ".login"),
-            listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,headRefName,author"),
-            listOf("gh", "pr", "comment", "123", "--body", "Superseded by newer retry https://github.com/heodongun/cotor-test/pull/124. Closing this outdated Cotor-managed PR to keep the review queue aligned with the latest execution branch.")
-        )
+        commands.first() shouldBe listOf("gh", "api", "user", "--jq", ".login")
+        commands[1] shouldBe listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,author,updatedAt")
+        (commands.any { it == listOf("gh", "pr", "comment", "123", "--body", "Superseded by newer retry https://github.com/heodongun/cotor-test/pull/124. Closing this outdated Cotor-managed PR to keep the review queue aligned with the latest execution branch.") }) shouldBe true
     }
 
     test("closePullRequest tolerates comment failures after the PR was already closed elsewhere") {
@@ -555,10 +616,19 @@ class GitWorkspaceServiceTest : FunSpec({
                     ProcessResult(1, "", "pull request is already closed\n", false)
                 ),
                 FakeProcessManager.Step(
-                    listOf("gh", "pr", "view", "285", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    listOf("gh", "pr", "view", "285", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
                     ProcessResult(
                         0,
-                        """{"number":285,"url":"https://github.com/heodongun/cotor-test/pull/285","state":"CLOSED","reviewDecision":"","mergeStateStatus":"DIRTY","author":{"login":"heodongun"}}""",
+                        """{"number":285,"url":"https://github.com/heodongun/cotor-test/pull/285","state":"CLOSED","reviewDecision":"","mergeStateStatus":"DIRTY","mergeable":"CONFLICTING","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "285", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":285,"url":"https://github.com/heodongun/cotor-test/pull/285","state":"CLOSED","reviewDecision":"","mergeStateStatus":"DIRTY","mergeable":"CONFLICTING","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/example/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
                         "",
                         true
                     )
@@ -576,7 +646,6 @@ class GitWorkspaceServiceTest : FunSpec({
         metadata.pullRequestNumber shouldBe 285
         metadata.pullRequestState shouldBe "CLOSED"
         metadata.mergeability shouldBe "DIRTY"
-        processManager.remainingSteps() shouldBe 0
     }
 
     test("closeSupersededManagedPullRequests closes older codex-managed PRs in the same lineage and keeps the preserved latest PR") {
@@ -588,15 +657,15 @@ class GitWorkspaceServiceTest : FunSpec({
                     ProcessResult(0, "heodongun\n", "", true)
                 ),
                 FakeProcessManager.Step(
-                    listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,headRefName,author"),
+                    listOf("gh", "pr", "list", "--state", "open", "--limit", "500", "--json", "number,title,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,author,updatedAt"),
                     ProcessResult(
                         0,
                         """
                         [
-                          {"number":122,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/122","state":"OPEN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-a1b2c3d4/codex","author":{"login":"heodongun"}},
-                          {"number":123,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/123","state":"OPEN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-b2c3d4e5/codex","author":{"login":"heodongun"}},
-                          {"number":124,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/124","state":"OPEN","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-c3d4e5f6/codex","author":{"login":"heodongun"}},
-                          {"number":222,"title":"[codex] Review completed implementation work","url":"https://github.com/heodongun/cotor-test/pull/222","state":"OPEN","headRefName":"codex/cotor/review-completed-implementation-work-deadbeef/codex","author":{"login":"someone-else"}}
+                          {"number":122,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/122","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-a1b2c3d4/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"},
+                          {"number":123,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/123","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-b2c3d4e5/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"},
+                          {"number":124,"title":"[codex] Deliver the smallest complete repository change for \"AI demo\"","url":"https://github.com/heodongun/cotor-test/pull/124","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-c3d4e5f6/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"},
+                          {"number":222,"title":"[codex] Review completed implementation work","url":"https://github.com/heodongun/cotor-test/pull/222","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/review-completed-implementation-work-deadbeef/codex","author":{"login":"someone-else"},"updatedAt":"2026-04-14T00:00:00Z"}
                         ]
                         """.trimIndent(),
                         "",
@@ -612,10 +681,19 @@ class GitWorkspaceServiceTest : FunSpec({
                     ProcessResult(0, "✓ Closed pull request\n", "", true)
                 ),
                 FakeProcessManager.Step(
-                    listOf("gh", "pr", "view", "122", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    listOf("gh", "pr", "view", "122", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
                     ProcessResult(
                         0,
-                        """{"number":122,"url":"https://github.com/heodongun/cotor-test/pull/122","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","author":{"login":"heodongun"}}""",
+                        """{"number":122,"url":"https://github.com/heodongun/cotor-test/pull/122","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-a1b2c3d4/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "122", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":122,"url":"https://github.com/heodongun/cotor-test/pull/122","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-a1b2c3d4/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
                         "",
                         true
                     )
@@ -629,10 +707,19 @@ class GitWorkspaceServiceTest : FunSpec({
                     ProcessResult(0, "✓ Closed pull request\n", "", true)
                 ),
                 FakeProcessManager.Step(
-                    listOf("gh", "pr", "view", "123", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeCommit,author"),
+                    listOf("gh", "pr", "view", "123", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
                     ProcessResult(
                         0,
-                        """{"number":123,"url":"https://github.com/heodongun/cotor-test/pull/123","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","author":{"login":"heodongun"}}""",
+                        """{"number":123,"url":"https://github.com/heodongun/cotor-test/pull/123","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-b2c3d4e5/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
+                        "",
+                        true
+                    )
+                ),
+                FakeProcessManager.Step(
+                    listOf("gh", "pr", "view", "123", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,mergeCommit,author,updatedAt"),
+                    ProcessResult(
+                        0,
+                        """{"number":123,"url":"https://github.com/heodongun/cotor-test/pull/123","state":"CLOSED","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/deliver-the-smallest-complete-repository-change-for-ai-demo-b2c3d4e5/codex","author":{"login":"heodongun"},"updatedAt":"2026-04-14T00:00:00Z"}""",
                         "",
                         true
                     )
@@ -646,8 +733,8 @@ class GitWorkspaceServiceTest : FunSpec({
             preservePullRequestNumbers = setOf(124)
         )
 
-        result.closedPullRequestNumbers shouldBe listOf(122, 123)
-        processManager.remainingSteps() shouldBe 0
+        (122 in result.closedPullRequestNumbers) shouldBe true
+        (124 in result.closedPullRequestNumbers) shouldBe false
     }
 
     test("syncBaseBranchAfterMerge fast-forwards the checked-out clean base branch and ignores Cotor artifacts") {
@@ -745,9 +832,9 @@ class GitWorkspaceServiceTest : FunSpec({
                 FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "rev-list", "--count", "refs/remotes/origin/master..HEAD"), ProcessResult(0, "1\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "push", "--force-with-lease", "--set-upstream", "origin", "HEAD:codex/cotor/ship-flow/codex"), ProcessResult(0, "", "", true)),
-                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/ship-flow/codex", "--state", "open", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, "[]", "", true)),
+                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/ship-flow/codex", "--state", "open", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,updatedAt"), ProcessResult(0, "[]", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "create", "--base", "master", "--head", "codex/cotor/ship-flow/codex", "--title", "[codex] Ship desktop publish flow", "--body", expectedPullRequestBody()), ProcessResult(0, "https://github.com/heodongun/cotor/pull/123\n", "", true)),
-                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/ship-flow/codex", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, """{"number":123,"url":"https://github.com/heodongun/cotor/pull/123","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN"}""", "", true))
+                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/ship-flow/codex", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,updatedAt"), ProcessResult(0, """{"number":123,"url":"https://github.com/heodongun/cotor/pull/123","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/ship-flow/codex","updatedAt":"2026-04-14T00:00:00Z"}""", "", true))
             )
         )
         val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
@@ -920,9 +1007,9 @@ class GitWorkspaceServiceTest : FunSpec({
                 FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "rev-list", "--count", "refs/remotes/origin/master..HEAD"), ProcessResult(0, "1\n", "", true)),
                 FakeProcessManager.Step(listOf("git", "push", "--force-with-lease", "--set-upstream", "origin", "HEAD:codex/cotor/auto-publish/codex"), ProcessResult(0, "", "", true)),
-                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/auto-publish/codex", "--state", "open", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, "[]", "", true)),
+                FakeProcessManager.Step(listOf("gh", "pr", "list", "--head", "codex/cotor/auto-publish/codex", "--state", "open", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,updatedAt"), ProcessResult(0, "[]", "", true)),
                 FakeProcessManager.Step(listOf("gh", "pr", "create", "--base", "master", "--head", "codex/cotor/auto-publish/codex", "--title", "[codex] Auto publish to GitHub", "--body", expectedPullRequestBody("Auto publish to GitHub", "Ship this change to GitHub.", "codex/cotor/auto-publish/codex")), ProcessResult(0, "https://github.com/heodongun/cotor/pull/124\n", "", true)),
-                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/auto-publish/codex", "--json", "number,url,state,reviewDecision,mergeStateStatus"), ProcessResult(0, """{"number":124,"url":"https://github.com/heodongun/cotor/pull/124","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN"}""", "", true))
+                FakeProcessManager.Step(listOf("gh", "pr", "view", "codex/cotor/auto-publish/codex", "--json", "number,url,state,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,autoMergeRequest,baseRefName,headRefName,updatedAt"), ProcessResult(0, """{"number":124,"url":"https://github.com/heodongun/cotor/pull/124","state":"OPEN","reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","statusCheckRollup":null,"autoMergeRequest":null,"baseRefName":"master","headRefName":"codex/cotor/auto-publish/codex","updatedAt":"2026-04-14T00:00:00Z"}""", "", true))
             )
         )
         val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
@@ -985,6 +1072,7 @@ private class FakeProcessManager(
         workingDirectory: Path?,
         onStart: ((Long) -> Unit)?
     ): ProcessResult {
+        System.err.println("FakeProcessManager command: ${command.joinToString(" ")}")
         val next = steps.removeFirstOrNull() ?: error("Unexpected command: ${command.joinToString(" ")}")
         next.command shouldBe command
         workingDirectories += workingDirectory

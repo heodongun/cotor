@@ -41,7 +41,12 @@ class RiskApprovalInterceptor(
     fun evaluate(request: ActionRequest): ApprovalRequirement {
         val signals = mutableListOf<RiskSignal>()
         when (request.kind) {
-            ActionKind.GITHUB_MERGE -> signals += RiskSignal("github-merge", 90, "Merging a pull request changes repository state permanently.")
+            ActionKind.GITHUB_MERGE -> {
+                val preApprovedReviewFlow = request.metadata["preApprovedReviewFlow"]?.equals("true", ignoreCase = true) == true
+                if (!preApprovedReviewFlow) {
+                    signals += RiskSignal("github-merge", 90, "Merging a pull request changes repository state permanently.")
+                }
+            }
             ActionKind.GIT_PUBLISH -> signals += RiskSignal("git-publish", 70, "Publishing a branch or PR affects shared repository state.")
             ActionKind.SHELL_EXEC -> signals += RiskSignal("shell-exec", 40, "Shell execution may mutate local state.")
             ActionKind.SECRET_READ -> signals += RiskSignal("secret-read", 95, "Secret access is highly sensitive.")

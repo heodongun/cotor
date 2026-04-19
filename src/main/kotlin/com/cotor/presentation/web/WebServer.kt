@@ -605,7 +605,7 @@ internal fun Application.cotorWebModule(
 
         route("/api/company") {
             get("/dashboard") {
-                call.respond(desktopService.companyDashboard())
+                call.respond(desktopService.companyDashboardReadOnly())
             }
 
             get("/issues/{issueId}/execution-details") {
@@ -641,7 +641,7 @@ internal fun Application.cotorWebModule(
 
                 get("/{companyId}/dashboard") {
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-                    call.respond(desktopService.companyDashboard(companyId))
+                    call.respond(desktopService.companyDashboardReadOnly(companyId))
                 }
 
                 patch("/{companyId}") {
@@ -708,6 +708,14 @@ internal fun Application.cotorWebModule(
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     val goalId = call.request.queryParameters["goalId"]
                     call.respond(desktopService.listIssues(goalId, companyId))
+                }
+
+                get("/{companyId}/issues/{issueId}") {
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    val issueId = call.parameters["issueId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    val issue = desktopService.getIssueProjected(issueId)?.takeIf { it.companyId == companyId }
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found"))
+                    call.respond(issue)
                 }
 
                 get("/{companyId}/issues/{issueId}/execution-details") {
