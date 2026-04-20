@@ -19,7 +19,10 @@ struct DesktopAPI {
         // The desktop shell defaults to the standard localhost port but allows
         // overrides so developers can point it at a custom backend process.
         let rawURL = ProcessInfo.processInfo.environment["COTOR_APP_SERVER_URL"] ?? "http://127.0.0.1:8787"
-        self.baseURL = URL(string: rawURL) ?? URL(string: "http://127.0.0.1:8787")!
+        guard let fallbackURL = URL(string: "http://127.0.0.1:8787") else {
+            preconditionFailure("Default app server URL must be valid")
+        }
+        self.baseURL = URL(string: rawURL) ?? fallbackURL
         self.token = ProcessInfo.processInfo.environment["COTOR_APP_TOKEN"] ?? Self.embeddedAppToken
     }
 
