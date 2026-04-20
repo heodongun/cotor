@@ -291,7 +291,8 @@ class DesktopAppService(
     }
 
     suspend fun companyDashboardReadOnly(companyId: String? = null): CompanyDashboardResponse {
-        return companyDashboard(companyId)
+        val state = stateStore.load().withDerivedMetrics()
+        return companyDashboardSnapshot(state, companyId)
     }
 
     private fun companyDashboardSnapshot(
@@ -4416,7 +4417,7 @@ class DesktopAppService(
             val refreshed = gitWorkspaceService.refreshPullRequestMetadata(worktreePath, pullRequestNumber)
             current = current.copy(
                 url = refreshed.pullRequestUrl ?: current.url,
-                state = refreshed.pullRequestState ?: current.state
+                state = refreshed.pullRequestState?.takeIf { it.isNotBlank() } ?: current.state
             )
         }
         return current
@@ -4431,10 +4432,13 @@ class DesktopAppService(
         val currentItem = requireMergeReadyReviewQueueItem(state, itemId)
         val executionIssue = state.issues.firstOrNull { it.id == currentItem.issueId }
         val now = System.currentTimeMillis()
+        val confirmedState = mergeResult.state?.takeIf { it.isNotBlank() }
+            ?: approvedMetadata.pullRequestState?.takeIf { it.isNotBlank() }
+            ?: currentItem.pullRequestState
         val updatedItem = currentItem.copy(
             pullRequestNumber = approvedMetadata.pullRequestNumber ?: currentItem.pullRequestNumber,
             pullRequestUrl = approvedMetadata.pullRequestUrl ?: mergeResult.url ?: currentItem.pullRequestUrl,
-            pullRequestState = mergeResult.state ?: approvedMetadata.pullRequestState ?: currentItem.pullRequestState,
+            pullRequestState = confirmedState,
             mergeability = approvedMetadata.mergeability ?: currentItem.mergeability,
             ceoVerdict = currentItem.ceoVerdict ?: "APPROVE",
             ceoReviewedAt = currentItem.ceoReviewedAt ?: now,
@@ -8162,7 +8166,10 @@ class DesktopAppService(
     private fun normalizeCompanyAgentModel(agentCli: String, model: String?): String? {
         val trimmed = model?.trim()?.takeIf { it.isNotBlank() } ?: return null
         return when (agentCli.trim().lowercase()) {
-            "codex", "codex-exec", "codex-oauth" -> CodexDefaults.normalizeModel(trimmed)
+            "codex", "codex-exec", "codex-oauth" -> {
+                val normalized = CodexDefaults.normalizeModel(trimmed)
+                if (normalized?.startsWith("opencode/") == true) CodexDefaults.DEFAULT_MODEL else normalized
+            }
             "opencode" -> OpenCodeDefaults.normalizeModel(trimmed)
             else -> if (BuiltinAgentCatalog.get(agentCli)?.parameters?.containsKey("model") == true) trimmed else null
         }
@@ -11019,6 +11026,38 @@ class DesktopAppService(
         issue: CompanyIssue,
         profile: OrgAgentProfile
     ): CompanyMemorySnapshot = buildCompanyMemorySnapshot(state, company, projectContext, goal, issue, profile)
+
+    internal fun buildExecutionMemoryBundleForTesting(
+        state: DesktopAppState,
+        company: Company,
+        projectContext: CompanyProjectContext?,
+        goal: CompanyGoal?,
+        issue: CompanyIssue,
+        profile: OrgAgentProfile
+    ): CompanyMemorySnapshotResponse =
+        buildExecutionMemoryBundle(state, company, projectContext, goal, issue, profile).toResponse()
+
+    internal fun buildIssueExecutionPromptForTesting(
+        state: DesktopAppState,
+        issue: CompanyIssue,
+        profile: OrgAgentProfile
+    ): String = buildIssueExecutionPrompt(state, issue, profile)
+
+    internal fun buildCeoPlanningPromptForTesting(
+        state: DesktopAppState,
+        issue: CompanyIssue,
+        profile: OrgAgentProfile
+    ): String = buildCeoPlanningPrompt(state, issue, profile)
+
+    internal fun buildCompanyMemorySnapshotForTesting(
+        state: DesktopAppState,
+        company: Company,
+        projectContext: CompanyProjectContext?,
+        goal: CompanyGoal?,
+        issue: CompanyIssue,
+        profile: OrgAgentProfile
+    ): CompanyMemorySnapshotResponse =
+        buildCompanyMemorySnapshot(state, company, projectContext, goal, issue, profile).toResponse()
 
     private fun StringBuilder.appendVerificationBundle(bundle: VerificationBundle) {
         appendLine("Verification bundle:")

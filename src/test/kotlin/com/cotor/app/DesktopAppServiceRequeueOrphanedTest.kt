@@ -9,6 +9,8 @@ import com.cotor.model.ProcessResult
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -108,11 +110,21 @@ class DesktopAppServiceRequeueOrphanedTest : FunSpec({
                 )
             )
 
-            service.companyDashboard(company.id)
+            val latestIssue = withTimeout(5_000) {
+                while (true) {
+                    service.companyDashboardPrepared(company.id)
+                    val current = stateStore.load()
+                    val currentIssue = current.issues.first { it.id == issue.id }
+                    if (currentIssue.status == IssueStatus.PLANNED && currentIssue.updatedAt > issue.updatedAt) {
+                        return@withTimeout currentIssue
+                    }
+                    delay(25)
+                }
+                error("Unreachable")
+            }
 
-            val latestIssue = stateStore.load().issues.first { it.id == issue.id }
-            val issueTasks = stateStore.load().tasks.filter { it.issueId == issue.id }
-            (latestIssue.status != IssueStatus.BLOCKED || issueTasks.isNotEmpty() || latestIssue.updatedAt > issue.updatedAt) shouldBe true
+            latestIssue.status shouldBe IssueStatus.PLANNED
+            (latestIssue.updatedAt > issue.updatedAt) shouldBe true
         } finally {
             service.shutdown()
         }
