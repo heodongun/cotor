@@ -9,6 +9,7 @@ package com.cotor.app
  */
 
 import com.cotor.app.persistence.StateRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -284,7 +285,7 @@ class DesktopStateStore(
         }
     }
 
-    private fun <T> withStateFileLock(block: () -> T): T {
+    private suspend fun <T> withStateFileLock(block: () -> T): T {
         val lockPath = lockFile()
         val metadataPath = lockMetadataFile()
         lockPath.parent?.createDirectories()
@@ -323,7 +324,7 @@ class DesktopStateStore(
                             }
                         )
                     }
-                    Thread.sleep(STATE_LOCK_RETRY_DELAY_MS)
+                    delay(STATE_LOCK_RETRY_DELAY_MS)
                 }
                 error("Unreachable")
             }
