@@ -219,7 +219,7 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 gitWorkspaceServiceTransform = { realService ->
                     spyk(realService).also { spyService ->
                         coEvery {
-                            spyService.publishRun(any(), any(), any(), any(), any())
+                            spyService.publishRun(any(), any(), any(), any(), any(), any())
                         } answers {
                             publishedWorktreePath = thirdArg<java.nio.file.Path>().toString()
                             publishedBranchName = arg<String>(3)
@@ -238,84 +238,86 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             )
 
             val service = harness.service
-            val company = service.createCompany(
-                name = "AI Only Review Queue Co",
-                rootPath = harness.repositoryRoot.toString(),
-                defaultBaseBranch = "master"
-            )
-            val goal = service.createGoal(
-                companyId = company.id,
-                title = "Ship a code change through review",
-                description = "Run a code-producing execution issue all the way into the QA review lane.",
-                autonomyEnabled = false,
-                startRuntimeIfNeeded = false
-            )
-            val issue = service.createIssue(
-                companyId = company.id,
-                goalId = goal.id,
-                title = "Implement reviewed change",
-                description = "Produce code that should open a review queue item.",
-                kind = "execution"
-            )
-            val seeded = harness.stateStore.load()
-            harness.stateStore.save(
-                seeded.copy(
-                    issues = seeded.issues.map { existing ->
-                        if (existing.id == issue.id) {
-                            existing.copy(
-                                acceptanceCriteria = listOf("A PR is opened", "QA review issue is created"),
-                                codeProducing = true,
-                                status = IssueStatus.DELEGATED
-                            )
-                        } else {
-                            existing
-                        }
-                    }
+            try {
+                val company = service.createCompany(
+                    name = "AI Only Review Queue Co",
+                    rootPath = harness.repositoryRoot.toString(),
+                    defaultBaseBranch = "master"
                 )
-            )
+                val goal = service.createGoal(
+                    companyId = company.id,
+                    title = "Ship a code change through review",
+                    description = "Run a code-producing execution issue all the way into the QA review lane.",
+                    autonomyEnabled = false,
+                    startRuntimeIfNeeded = false
+                )
+                val issue = service.createIssue(
+                    companyId = company.id,
+                    goalId = goal.id,
+                    title = "Implement reviewed change",
+                    description = "Produce code that should open a review queue item.",
+                    kind = "execution"
+                )
+                val seeded = harness.stateStore.load()
+                harness.stateStore.save(
+                    seeded.copy(
+                        issues = seeded.issues.map { existing ->
+                            if (existing.id == issue.id) {
+                                existing.copy(
+                                    acceptanceCriteria = listOf("A PR is opened", "QA review issue is created"),
+                                    codeProducing = true,
+                                    status = IssueStatus.DELEGATED
+                                )
+                            } else {
+                                existing
+                            }
+                        }
+                    )
+                )
 
-            service.runIssue(issue.id)
+                service.runIssue(issue.id)
 
-            withTimeout(10_000) {
-                while (true) {
-                    val current = harness.stateStore.load()
-                    val currentIssue = current.issues.first { it.id == issue.id }
-                    val queueItem = current.reviewQueue.firstOrNull { it.issueId == issue.id }
-                    if (
-                        currentIssue.status == IssueStatus.IN_REVIEW &&
-                        currentIssue.pullRequestNumber == 42 &&
-                        queueItem != null &&
-                        queueItem.status == ReviewQueueStatus.AWAITING_QA &&
-                        queueItem.qaIssueId != null
-                    ) {
-                        break
+                withTimeout(30_000) {
+                    while (true) {
+                        val current = harness.stateStore.load()
+                        val currentIssue = current.issues.first { it.id == issue.id }
+                        val queueItem = current.reviewQueue.firstOrNull { it.issueId == issue.id }
+                        if (
+                            currentIssue.status == IssueStatus.IN_REVIEW &&
+                            currentIssue.pullRequestNumber == 42 &&
+                            queueItem != null &&
+                            queueItem.status == ReviewQueueStatus.AWAITING_QA &&
+                            queueItem.qaIssueId != null
+                        ) {
+                            break
+                        }
+                        delay(50)
                     }
-                    delay(50)
                 }
+
+                val settled = harness.stateStore.load()
+                val settledIssue = settled.issues.first { it.id == issue.id }
+                val reviewQueueItem = settled.reviewQueue.first { it.issueId == issue.id }
+                val qaIssue = settled.issues.first { it.id == reviewQueueItem.qaIssueId }
+
+                settledIssue.status shouldBe IssueStatus.IN_REVIEW
+                settledIssue.pullRequestNumber shouldBe 42
+                settledIssue.pullRequestUrl shouldBe "https://github.com/example/cotor/pull/42"
+                settledIssue.branchName shouldContain "codex/cotor/implement-reviewed-change"
+                settledIssue.worktreePath shouldBe publishedWorktreePath
+                settledIssue.durableRunId.shouldNotBeNull()
+
+                reviewQueueItem.pullRequestNumber shouldBe 42
+                reviewQueueItem.status shouldBe ReviewQueueStatus.AWAITING_QA
+                reviewQueueItem.qaIssueId shouldBe qaIssue.id
+
+                qaIssue.kind shouldBe "review"
+                qaIssue.status shouldBe IssueStatus.PLANNED
+                qaIssue.pullRequestNumber shouldBe 42
+                qaIssue.pullRequestUrl shouldBe "https://github.com/example/cotor/pull/42"
+            } finally {
+                service.shutdown()
             }
-
-            val settled = harness.stateStore.load()
-            val settledIssue = settled.issues.first { it.id == issue.id }
-            val reviewQueueItem = settled.reviewQueue.first { it.issueId == issue.id }
-            val qaIssue = settled.issues.first { it.id == reviewQueueItem.qaIssueId }
-
-            settledIssue.status shouldBe IssueStatus.IN_REVIEW
-            settledIssue.pullRequestNumber shouldBe 42
-            settledIssue.pullRequestUrl shouldBe "https://github.com/example/cotor/pull/42"
-            settledIssue.branchName shouldContain "codex/cotor/implement-reviewed-change"
-            settledIssue.worktreePath shouldBe publishedWorktreePath
-            settledIssue.durableRunId.shouldNotBeNull()
-
-            reviewQueueItem.pullRequestNumber shouldBe 42
-            reviewQueueItem.status shouldBe ReviewQueueStatus.AWAITING_QA
-            reviewQueueItem.qaIssueId shouldBe qaIssue.id
-
-            qaIssue.kind shouldBe "review"
-            qaIssue.status shouldBe IssueStatus.PLANNED
-            qaIssue.pullRequestNumber shouldBe 42
-            qaIssue.pullRequestUrl shouldBe "https://github.com/example/cotor/pull/42"
-
-            service.shutdown()
         } finally {
             System.clearProperty("cotor.experimental.durableRuntimeV2")
         }

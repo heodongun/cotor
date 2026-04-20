@@ -33,7 +33,7 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
                 worktreePath = worktreeRoot.resolve("$taskId-$agentName")
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { gitWorkspaceService.ensureGitHubPublishReady(any(), any()) } returns GitHubPublishReadiness(ready = true)
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
             val agent = invocation.args[0] as AgentConfig
