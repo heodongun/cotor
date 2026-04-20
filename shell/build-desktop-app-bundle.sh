@@ -51,12 +51,16 @@ if ! env \
     --disable-sandbox \
     -c release; then
     APP_BINARY="$(find_built_app_binary)"
-    if [[ -n "$APP_BINARY" && -f "$APP_BINARY" ]]; then
+    if [[ "${COTOR_ALLOW_STALE_SWIFT_BINARY:-0}" == "1" && -n "$APP_BINARY" && -f "$APP_BINARY" ]]; then
         echo "⚠️  Native macOS shell rebuild failed. Reusing the most recent cached release binary:"
         echo "   $APP_BINARY"
         echo "   This machine's Command Line Tools installation is broken (swift-package/llbuild mismatch)."
     else
-        echo "❌ Native macOS shell build failed and no cached release binary is available."
+        echo "❌ Native macOS shell build failed."
+        if [[ -n "$APP_BINARY" && -f "$APP_BINARY" ]]; then
+            echo "   A cached release binary exists, but reuse is disabled by default."
+            echo "   Set COTOR_ALLOW_STALE_SWIFT_BINARY=1 to opt into stale-binary reuse."
+        fi
         exit 1
     fi
 fi

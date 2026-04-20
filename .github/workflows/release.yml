@@ -182,7 +182,7 @@ jobs:
         timeout-minutes: 320
 
   build-jar:
-    needs: [detect-version, verify]
+    needs: [detect-version, verify, verify-app-company]
     if: ${{ needs.detect-version.outputs.should_release == 'true' }}
     runs-on: ubuntu-latest
 
@@ -214,11 +214,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-jar
-          path: build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar
+          path: |
+            build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar
+            build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar.sha256
           if-no-files-found: error
 
   build-dmg:
-    needs: [detect-version, verify]
+    needs: [detect-version, verify, verify-app-company]
     if: ${{ needs.detect-version.outputs.should_release == 'true' }}
     runs-on: macos-latest
 
@@ -243,7 +245,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-dmg
-          path: build/release/Cotor-${{ needs.detect-version.outputs.version }}.dmg
+          path: |
+            build/release/Cotor-${{ needs.detect-version.outputs.version }}.dmg
+            build/release/Cotor-${{ needs.detect-version.outputs.version }}.dmg.sha256
           if-no-files-found: error
 
   publish-release:
@@ -274,7 +278,9 @@ jobs:
         run: |
           gh release create "${{ needs.detect-version.outputs.tag }}" \
             "build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar" \
+            "build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar.sha256" \
             "build/release/Cotor-${{ needs.detect-version.outputs.version }}.dmg" \
+            "build/release/Cotor-${{ needs.detect-version.outputs.version }}.dmg.sha256" \
             --target "${{ github.sha }}" \
             --title "${{ needs.detect-version.outputs.tag }}" \
             --notes "Automated release for ${{ needs.detect-version.outputs.tag }}"

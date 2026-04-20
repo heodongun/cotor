@@ -188,7 +188,7 @@ internal fun runPackagedDesktopAction(
                 val downloadsDir = homeDirectoryProvider().resolve("Downloads")
                 listOf(
                     downloadsDir.resolve(BUNDLED_DESKTOP_APP_NAME),
-                    downloadsDir.resolve(BUNDLED_DESKTOP_ZIP_NAME)
+                    downloadsDir.resolve(BUNDLED_DESKTOP_DMG_NAME)
                 ).forEach { artifact ->
                     if (artifact.exists()) {
                         deleteRecursively(artifact)
@@ -352,7 +352,7 @@ private fun deleteRecursively(path: Path) {
 }
 
 internal const val BUNDLED_DESKTOP_APP_NAME = "Cotor Desktop.app"
-internal const val BUNDLED_DESKTOP_ZIP_NAME = "Cotor-Desktop-macOS.zip"
+internal const val BUNDLED_DESKTOP_DMG_NAME = "Cotor-Desktop-macOS.dmg"
 internal const val COTOR_BREW_TAP = "bssm-oss/cotor"
 internal const val COTOR_BREW_FORMULA = "bssm-oss/cotor/cotor"
 internal const val COTOR_BREW_TAP_URL = "https://github.com/bssm-oss/cotor.git"
