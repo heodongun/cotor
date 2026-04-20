@@ -56,6 +56,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
@@ -147,7 +148,14 @@ internal data class DesktopAppServerInstanceStatus(
 )
 
 internal class DesktopAppServerInstanceGuard(
-    private val appHomeProvider: () -> Path = { defaultDesktopAppHome() }
+    private val appHomeProvider: () -> Path = { defaultDesktopAppHome() },
+    private val channelOpener: (Path) -> FileChannel = { lockPath ->
+        FileChannel.open(
+            lockPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE
+        )
+    }
 ) {
     private var channel: FileChannel? = null
     private var lock: FileLock? = null
@@ -165,15 +173,21 @@ internal class DesktopAppServerInstanceGuard(
         runtimeDir.createDirectories()
         val lockPath = runtimeDir.resolve("app-server.instance.lock")
         val metadataPath = runtimeDir.resolve("app-server.instance.json")
-        val openedChannel = FileChannel.open(
-            lockPath,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.WRITE
-        )
+        val openedChannel = channelOpener(lockPath)
         val openedLock = try {
             openedChannel.tryLock()
         } catch (_: OverlappingFileLockException) {
-            null
+            openedChannel.close()
+            throw IllegalStateException(
+                "Desktop app-server lock is already held in this process for $appHome. " +
+                    "Lock=$lockPath"
+            )
+        } catch (error: IOException) {
+            openedChannel.close()
+            throw IllegalStateException(
+                "Failed to acquire desktop app-server lock at $lockPath for $appHome.",
+                error
+            )
         }
         if (openedLock == null) {
             val existing = runCatching { Files.readString(metadataPath) }.getOrDefault("unavailable")
