@@ -79,10 +79,10 @@ class CoroutineProcessManager(
             processBuilder.environment()["PATH"] = effectivePath
         }
 
-        logger.debug("Starting process: ${resolvedCommand.joinToString(" ")}")
+        logger.debug("Starting process: ${redactedCommandForLogs(resolvedCommand)}")
         val process = processBuilder.start()
         onStart?.invoke(process.pid())
-        logger.debug("Started process pid=${process.pid()} cwd=${workingDirectory ?: Path.of("").toAbsolutePath().normalize()} command=${resolvedCommand.joinToString(" ")}")
+        logger.debug("Started process pid=${process.pid()} cwd=${workingDirectory ?: Path.of("").toAbsolutePath().normalize()} command=${redactedCommandForLogs(resolvedCommand)}")
 
         val stdoutBuffer = StringBuffer()
         val stderrBuffer = StringBuffer()
@@ -167,6 +167,18 @@ class CoroutineProcessManager(
             joinReader(stdoutThread)
             joinReader(stderrThread)
             throw e
+        }
+    }
+}
+
+private fun redactedCommandForLogs(command: List<String>): String {
+    if (command.isEmpty()) return "<empty>"
+    return buildString {
+        append(command.first())
+        if (command.size > 1) {
+            append(" [")
+            append(command.size - 1)
+            append(" args redacted]")
         }
     }
 }

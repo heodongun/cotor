@@ -13,13 +13,33 @@ import com.cotor.model.ProcessResult
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
+import java.net.Authenticator
+import java.net.CookieHandler
+import java.net.ProxySelector
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpHeaders
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.Principal
+import java.security.cert.Certificate
+import java.time.Duration
+import java.util.Optional
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executor
+import java.util.concurrent.Flow
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLParameters
+import javax.net.ssl.SSLSession
 
 class GitWorkspaceServiceTest : FunSpec({
     test("ensureWorktree uses unique branches for repeated task titles") {
@@ -1038,6 +1058,254 @@ class GitWorkspaceServiceTest : FunSpec({
         publish.error.shouldBeNull()
         processManager.remainingSteps() shouldBe 0
     }
+
+    test("publishRun returns local publish metadata without pushing when pull requests are disabled") {
+        val worktree = Files.createTempDirectory("git-workspace-service-no-pr")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(listOf("git", "status", "--porcelain"), ProcessResult(0, " M README.md\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "add", "-A"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "commit", "-m", "Publish without PR (codex)"), ProcessResult(0, "[branch abc1234] Publish without PR\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"), ProcessResult(0, "", "", true)),
+                FakeProcessManager.Step(listOf("git", "rebase", "refs/remotes/origin/master"), ProcessResult(0, "Current branch codex/cotor/publish-without-pr/codex is up to date.\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                FakeProcessManager.Step(listOf("git", "rev-list", "--count", "refs/remotes/origin/master..HEAD"), ProcessResult(0, "1\n", "", true))
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val publish = service.publishRun(
+            task = AgentTask(
+                id = "task-no-pr",
+                workspaceId = "ws-1",
+                title = "Publish without PR",
+                prompt = "Publish directly without opening a pull request.",
+                agents = listOf("codex"),
+                status = DesktopTaskStatus.RUNNING,
+                createdAt = 0,
+                updatedAt = 0
+            ),
+            agentName = "codex",
+            worktreePath = worktree,
+            branchName = "codex/cotor/publish-without-pr/codex",
+            baseBranch = "master",
+            requirePullRequest = false
+        )
+
+        publish.commitSha shouldBe "abc1234567890"
+        publish.pushedBranch shouldBe "codex/cotor/publish-without-pr/codex"
+        publish.pullRequestNumber.shouldBeNull()
+        publish.error.shouldBeNull()
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("publishRun uses the direct GitHub API path when HTTP mode is enabled") {
+        withGitHubHostsHome {
+            val worktree = Files.createTempDirectory("git-workspace-service-http-publish")
+            markAsGitWorktree(worktree)
+            val processManager = FakeProcessManager(
+                listOf(
+                    FakeProcessManager.Step(listOf("git", "status", "--porcelain"), ProcessResult(0, " M src/App.kt\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "add", "-A"), ProcessResult(0, "", "", true)),
+                    FakeProcessManager.Step(listOf("git", "commit", "-m", "Ship desktop publish flow (codex)"), ProcessResult(0, "[branch abc1234] Ship desktop publish flow\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "rev-list", "--count", "master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "ls-remote", "--heads", "origin", "master"), ProcessResult(0, "abc123\trefs/heads/master\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"), ProcessResult(0, "", "", true)),
+                    FakeProcessManager.Step(listOf("git", "rebase", "refs/remotes/origin/master"), ProcessResult(0, "Current branch codex/cotor/ship-flow/codex is up to date.\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "rev-parse", "HEAD"), ProcessResult(0, "abc1234567890\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "rev-list", "--count", "refs/remotes/origin/master..HEAD"), ProcessResult(0, "1\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "push", "--force-with-lease", "--set-upstream", "origin", "HEAD:codex/cotor/ship-flow/codex"), ProcessResult(0, "", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("security", "find-generic-password", "-s", "gh:github.com", "-a", "heodongun", "-w"), ProcessResult(0, "test-token\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true))
+                )
+            )
+            val httpClient = FakeHttpClient(
+                listOf(
+                    FakeHttpResponseSpec(200, "[]"),
+                    FakeHttpResponseSpec(201, """{"number":123,"html_url":"https://github.com/heodongun/cotor/pull/123","state":"open","mergeable_state":"clean","mergeable":true,"head":{"ref":"codex/cotor/ship-flow/codex"},"base":{"ref":"master"},"updated_at":"2026-04-14T00:00:00Z","user":{"login":"heodongun"}}""")
+                )
+            )
+            val service = GitWorkspaceService(
+                processManager = processManager,
+                stateStore = mockk(relaxed = true),
+                logger = mockk(relaxed = true),
+                httpClient = httpClient,
+                githubHttpEnabledProvider = { true }
+            )
+
+            val publish = service.publishRun(
+                task = AgentTask(
+                    id = "task-1",
+                    workspaceId = "ws-1",
+                    title = "Ship desktop publish flow",
+                    prompt = "Implement the desktop publish flow.",
+                    agents = listOf("codex"),
+                    status = DesktopTaskStatus.RUNNING,
+                    createdAt = 0,
+                    updatedAt = 0
+                ),
+                agentName = "codex",
+                worktreePath = worktree,
+                branchName = "codex/cotor/ship-flow/codex",
+                baseBranch = "master"
+            )
+
+            publish.pullRequestNumber shouldBe 123
+            publish.pullRequestUrl shouldBe "https://github.com/heodongun/cotor/pull/123"
+            processManager.remainingSteps() shouldBe 0
+            httpClient.recordedRequests.map { it.method to it.pathAndQuery } shouldBe listOf(
+                "GET" to "/repos/heodongun/cotor/pulls?state=open&head=heodongun%3Acodex%2Fcotor%2Fship-flow%2Fcodex",
+                "POST" to "/repos/heodongun/cotor/pulls"
+            )
+            httpClient.recordedRequests[0].authorization shouldBe "Bearer test-token"
+            httpClient.recordedRequests[1].body shouldContain "\"title\":\"[codex] Ship desktop publish flow\""
+            httpClient.recordedRequests[1].body shouldContain "\"head\":\"codex/cotor/ship-flow/codex\""
+            httpClient.recordedRequests[1].body shouldContain "\"base\":\"master\""
+        }
+    }
+
+    test("submitPullRequestReview uses the direct GitHub API path when HTTP mode is enabled") {
+        withGitHubHostsHome {
+            val repositoryRoot = Files.createTempDirectory("git-workspace-http-review")
+            markAsGitWorktree(repositoryRoot)
+            val processManager = FakeProcessManager(
+                listOf(
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("security", "find-generic-password", "-s", "gh:github.com", "-a", "heodongun", "-w"), ProcessResult(0, "test-token\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true))
+                )
+            )
+            val httpClient = FakeHttpClient(
+                listOf(
+                    FakeHttpResponseSpec(200, """{"number":55,"html_url":"https://github.com/heodongun/cotor-test/pull/55","state":"open","mergeable_state":"clean","mergeable":true,"head":{"ref":"codex/cotor/example/codex"},"base":{"ref":"master"},"updated_at":"2026-04-14T00:00:00Z","user":{"login":"other-user"}}"""),
+                    FakeHttpResponseSpec(200, "{}"),
+                    FakeHttpResponseSpec(200, """{"number":55,"html_url":"https://github.com/heodongun/cotor-test/pull/55","state":"open","mergeable_state":"clean","mergeable":true,"head":{"ref":"codex/cotor/example/codex"},"base":{"ref":"master"},"updated_at":"2026-04-14T00:00:00Z","user":{"login":"other-user"}}""")
+                )
+            )
+            val service = GitWorkspaceService(
+                processManager = processManager,
+                stateStore = mockk(relaxed = true),
+                logger = mockk(relaxed = true),
+                httpClient = httpClient,
+                githubHttpEnabledProvider = { true }
+            )
+
+            val metadata = service.submitPullRequestReview(
+                worktreePath = repositoryRoot,
+                pullRequestNumber = 55,
+                verdict = PullRequestReviewVerdict.APPROVE,
+                body = "CEO approved the PR."
+            )
+
+            metadata.pullRequestNumber shouldBe 55
+            metadata.pullRequestUrl shouldBe "https://github.com/heodongun/cotor-test/pull/55"
+            processManager.remainingSteps() shouldBe 0
+            httpClient.recordedRequests.map { it.method to it.pathAndQuery } shouldBe listOf(
+                "GET" to "/repos/heodongun/cotor-test/pulls/55",
+                "POST" to "/repos/heodongun/cotor-test/pulls/55/reviews",
+                "GET" to "/repos/heodongun/cotor-test/pulls/55"
+            )
+            httpClient.recordedRequests[1].body shouldContain "\"event\":\"APPROVE\""
+            httpClient.recordedRequests[1].body shouldContain "\"body\":\"CEO approved the PR.\""
+        }
+    }
+
+    test("closePullRequest uses the direct GitHub API path when HTTP mode is enabled") {
+        withGitHubHostsHome {
+            val repositoryRoot = Files.createTempDirectory("git-workspace-http-close")
+            markAsGitWorktree(repositoryRoot)
+            val processManager = FakeProcessManager(
+                listOf(
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("security", "find-generic-password", "-s", "gh:github.com", "-a", "heodongun", "-w"), ProcessResult(0, "test-token\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true))
+                )
+            )
+            val httpClient = FakeHttpClient(
+                listOf(
+                    FakeHttpResponseSpec(201, "{}"),
+                    FakeHttpResponseSpec(200, "{}"),
+                    FakeHttpResponseSpec(200, """{"number":123,"html_url":"https://github.com/heodongun/cotor-test/pull/123","state":"closed","mergeable_state":"unknown","mergeable":false,"head":{"ref":"codex/cotor/example/codex"},"base":{"ref":"master"},"updated_at":"2026-04-14T00:00:00Z","user":{"login":"heodongun"}}""")
+                )
+            )
+            val service = GitWorkspaceService(
+                processManager = processManager,
+                stateStore = mockk(relaxed = true),
+                logger = mockk(relaxed = true),
+                httpClient = httpClient,
+                githubHttpEnabledProvider = { true }
+            )
+
+            val metadata = service.closePullRequest(
+                worktreePath = repositoryRoot,
+                pullRequestNumber = 123,
+                comment = "Superseded by newer retry PR #124."
+            )
+
+            metadata.pullRequestState shouldBe "CLOSED"
+            processManager.remainingSteps() shouldBe 0
+            httpClient.recordedRequests.map { it.method to it.pathAndQuery } shouldBe listOf(
+                "POST" to "/repos/heodongun/cotor-test/issues/123/comments",
+                "PATCH" to "/repos/heodongun/cotor-test/pulls/123",
+                "GET" to "/repos/heodongun/cotor-test/pulls/123"
+            )
+            httpClient.recordedRequests[0].body shouldContain "Superseded by newer retry PR #124."
+            httpClient.recordedRequests[1].body shouldContain "\"state\":\"closed\""
+        }
+    }
+
+    test("mergePullRequest uses the direct GitHub API path when HTTP mode is enabled") {
+        withGitHubHostsHome {
+            val repositoryRoot = Files.createTempDirectory("git-workspace-http-merge")
+            markAsGitWorktree(repositoryRoot)
+            val processManager = FakeProcessManager(
+                listOf(
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true)),
+                    FakeProcessManager.Step(listOf("security", "find-generic-password", "-s", "gh:github.com", "-a", "heodongun", "-w"), ProcessResult(0, "test-token\n", "", true)),
+                    FakeProcessManager.Step(listOf("git", "config", "--get", "remote.origin.url"), ProcessResult(0, "https://github.com/heodongun/cotor-test.git\n", "", true))
+                )
+            )
+            val httpClient = FakeHttpClient(
+                listOf(
+                    FakeHttpResponseSpec(200, "{}"),
+                    FakeHttpResponseSpec(200, """{"number":22,"html_url":"https://github.com/heodongun/cotor-test/pull/22","state":"merged","merge_commit_sha":"deadbeef","mergeable_state":"clean","mergeable":true,"head":{"ref":"codex/cotor/example/codex"},"base":{"ref":"master"},"updated_at":"2026-04-14T00:00:00Z","user":{"login":"heodongun"}}""")
+                )
+            )
+            val service = GitWorkspaceService(
+                processManager = processManager,
+                stateStore = mockk(relaxed = true),
+                logger = mockk(relaxed = true),
+                httpClient = httpClient,
+                githubHttpEnabledProvider = { true }
+            )
+
+            val result = service.mergePullRequest(repositoryRoot, 22)
+
+            result.number shouldBe 22
+            result.state shouldBe "MERGED"
+            result.mergeCommitSha shouldBe "deadbeef"
+            processManager.remainingSteps() shouldBe 0
+            httpClient.recordedRequests.map { it.method to it.pathAndQuery } shouldBe listOf(
+                "PUT" to "/repos/heodongun/cotor-test/pulls/22/merge",
+                "GET" to "/repos/heodongun/cotor-test/pulls/22"
+            )
+            httpClient.recordedRequests[0].body shouldContain "\"merge_method\":\"merge\""
+        }
+    }
 })
 
 private fun expectedPullRequestBody(
@@ -1057,6 +1325,144 @@ private fun expectedPullRequestBody(
 $prompt
 ```
 """.trimIndent() + "\n"
+
+private inline fun <T> withGitHubHostsHome(configuredUser: String = "heodongun", block: () -> T): T {
+    val home = Files.createTempDirectory("git-workspace-service-home")
+    val hostsDir = home.resolve(".config").resolve("gh")
+    Files.createDirectories(hostsDir)
+    Files.writeString(
+        hostsDir.resolve("hosts.yml"),
+        """
+        github.com:
+          user: $configuredUser
+        """.trimIndent() + "\n"
+    )
+    val previous = System.getProperty("user.home")
+    System.setProperty("user.home", home.toString())
+    return try {
+        block()
+    } finally {
+        if (previous == null) {
+            System.clearProperty("user.home")
+        } else {
+            System.setProperty("user.home", previous)
+        }
+    }
+}
+
+private fun markAsGitWorktree(path: Path) {
+    Files.writeString(path.resolve(".git"), "gitdir: .git/worktrees/test\n")
+}
+
+private data class FakeHttpResponseSpec(
+    val statusCode: Int,
+    val body: String
+)
+
+private data class RecordedHttpRequest(
+    val method: String,
+    val pathAndQuery: String,
+    val body: String,
+    val authorization: String?
+)
+
+private class FakeHttpClient(
+    responses: List<FakeHttpResponseSpec>
+) : HttpClient() {
+    private val responses = responses.toMutableList()
+    val recordedRequests = mutableListOf<RecordedHttpRequest>()
+
+    override fun cookieHandler(): Optional<CookieHandler> = Optional.empty()
+
+    override fun connectTimeout(): Optional<Duration> = Optional.empty()
+
+    override fun followRedirects(): Redirect = Redirect.NEVER
+
+    override fun proxy(): Optional<ProxySelector> = Optional.empty()
+
+    override fun sslContext(): SSLContext? = null
+
+    override fun sslParameters(): SSLParameters = SSLParameters()
+
+    override fun authenticator(): Optional<Authenticator> = Optional.empty()
+
+    override fun version(): Version = Version.HTTP_1_1
+
+    override fun executor(): Optional<Executor> = Optional.empty()
+
+    override fun <T : Any?> send(request: HttpRequest, responseBodyHandler: HttpResponse.BodyHandler<T>): HttpResponse<T> {
+        val response = responses.removeFirstOrNull() ?: error("Unexpected HTTP request: ${request.method()} ${request.uri()}")
+        recordedRequests += RecordedHttpRequest(
+            method = request.method(),
+            pathAndQuery = request.uri().rawPath + (request.uri().rawQuery?.let { "?$it" } ?: ""),
+            body = request.readBody(),
+            authorization = request.headers().firstValue("Authorization").orElse(null)
+        )
+        @Suppress("UNCHECKED_CAST")
+        return FakeHttpResponse(request.uri(), request.method(), response.statusCode, response.body as T)
+    }
+
+    override fun <T : Any?> sendAsync(request: HttpRequest, responseBodyHandler: HttpResponse.BodyHandler<T>): CompletableFuture<HttpResponse<T>> {
+        return CompletableFuture.completedFuture(send(request, responseBodyHandler))
+    }
+
+    override fun <T : Any?> sendAsync(
+        request: HttpRequest,
+        responseBodyHandler: HttpResponse.BodyHandler<T>,
+        pushPromiseHandler: HttpResponse.PushPromiseHandler<T>
+    ): CompletableFuture<HttpResponse<T>> {
+        return CompletableFuture.completedFuture(send(request, responseBodyHandler))
+    }
+}
+
+private data class FakeHttpResponse<T>(
+    private val uri: URI,
+    private val method: String,
+    private val statusCode: Int,
+    private val body: T
+) : HttpResponse<T> {
+    override fun statusCode(): Int = statusCode
+
+    override fun request(): HttpRequest = HttpRequest.newBuilder(uri).method(method, HttpRequest.BodyPublishers.noBody()).build()
+
+    override fun previousResponse(): Optional<HttpResponse<T>> = Optional.empty()
+
+    override fun headers(): HttpHeaders = HttpHeaders.of(emptyMap()) { _, _ -> true }
+
+    override fun body(): T = body
+
+    override fun sslSession(): Optional<SSLSession> = Optional.empty()
+
+    override fun uri(): URI = uri
+
+    override fun version(): HttpClient.Version = HttpClient.Version.HTTP_1_1
+}
+
+private fun HttpRequest.readBody(): String {
+    val publisher = bodyPublisher().orElse(null) ?: return ""
+    val completed = CompletableFuture<String>()
+    val buffers = mutableListOf<ByteArray>()
+    publisher.subscribe(object : Flow.Subscriber<ByteBuffer> {
+        override fun onSubscribe(subscription: Flow.Subscription) {
+            subscription.request(Long.MAX_VALUE)
+        }
+
+        override fun onNext(item: ByteBuffer) {
+            val copy = ByteArray(item.remaining())
+            item.get(copy)
+            buffers += copy
+        }
+
+        override fun onError(throwable: Throwable) {
+            completed.completeExceptionally(throwable)
+        }
+
+        override fun onComplete() {
+            completed.complete(buffers.joinToString(separator = "") { bytes -> bytes.toString(Charsets.UTF_8) })
+        }
+    })
+    return completed.join()
+}
 
 private class FakeProcessManager(
     steps: List<Step>
