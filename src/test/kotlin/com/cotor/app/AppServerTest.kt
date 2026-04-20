@@ -154,6 +154,25 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("evidence files route rejects blank path") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/evidence/files?path=") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.BadRequest
+            response.bodyAsText() shouldContain "path must not be blank"
+        }
+    }
+
     test("shutdown route accepts authenticated graceful shutdown requests") {
         val shutdownLatch = CountDownLatch(1)
 
@@ -338,6 +357,38 @@ class AppServerTest : FunSpec({
             response.status shouldBe HttpStatusCode.OK
             coVerify(exactly = 1) { desktopService.companyDashboardReadOnly() }
             coVerify(exactly = 0) { desktopService.companyDashboard() }
+        }
+    }
+
+    test("mcp resources read rejects blank uri") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/mcp") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "resources/read",
+                      "params": {
+                        "uri": ""
+                      }
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "uri must not be blank"
         }
     }
 

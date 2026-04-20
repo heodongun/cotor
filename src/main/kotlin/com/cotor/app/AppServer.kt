@@ -272,7 +272,8 @@ internal fun Application.cotorAppModule(
         json(ktorJson)
     }
     install(CORS) {
-        anyHost()
+        allowHost("127.0.0.1", schemes = listOf("http"))
+        allowHost("localhost", schemes = listOf("http"))
         allowHeader(HttpHeaders.Authorization)
         allowHeader(HttpHeaders.ContentType)
     }
@@ -620,6 +621,9 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@get
                     val path = call.request.queryParameters["path"]
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "path is required"))
+                    if (path.isBlank()) {
+                        return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "path must not be blank"))
+                    }
                     call.respond(desktopService.evidenceForFile(path))
                 }
             }
@@ -1926,6 +1930,9 @@ private suspend fun handleReadonlyMcpRequest(
         "resources/read" -> {
             val uri = params["uri"]?.jsonPrimitive?.contentOrNull
                 ?: return mcpError(id, -32602, "uri is required")
+            if (uri.isBlank()) {
+                return mcpError(id, -32602, "uri must not be blank")
+            }
             val content = when (uri) {
                 "cotor://companies" -> mcpJson.encodeToString(
                     ListSerializer(Company.serializer()),
@@ -1933,7 +1940,7 @@ private suspend fun handleReadonlyMcpRequest(
                 )
                 "cotor://durable-runs" -> mcpJson.encodeToString(
                     ListSerializer(DurableRunSnapshot.serializer()),
-                    durableRuntimeService?.listRuns().orEmpty()
+                    durableRuntimeService?.listRuns() ?: emptyList()
                 )
                 else -> return mcpError(id, -32602, "Unsupported resource: $uri")
             }
