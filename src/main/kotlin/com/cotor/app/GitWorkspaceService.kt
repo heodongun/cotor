@@ -126,6 +126,8 @@ class GitWorkspaceService(
 
     @Volatile private var cachedGitHubLogin: String? = null
     @Volatile private var cachedGitHubToken: String? = null
+    @Volatile private var cachedGitHubLoginAtMs: Long = 0L
+    @Volatile private var cachedGitHubTokenAtMs: Long = 0L
     private val githubAuthCacheMutex = Mutex()
 
     private fun githubHttpEnabled(): Boolean {
@@ -143,7 +145,11 @@ class GitWorkspaceService(
     companion object {
         private const val BOOTSTRAP_COMMIT_MESSAGE = "Initialize repository"
         private const val BOOTSTRAP_COMMIT_EMAIL = "cotor@local"
+        private const val GITHUB_AUTH_CACHE_TTL_MS = 5 * 60 * 1_000L
     }
+
+    private fun githubAuthCacheFresh(cachedAtMs: Long): Boolean =
+        cachedAtMs > 0L && (System.currentTimeMillis() - cachedAtMs) < GITHUB_AUTH_CACHE_TTL_MS
 
     /**
      * Normalizes any nested path inside a repository back to the real git root.
@@ -1592,9 +1598,9 @@ class GitWorkspaceService(
     }
 
     private suspend fun currentGitHubLogin(worktreePath: Path): String? {
-        cachedGitHubLogin?.let { return it }
+        cachedGitHubLogin?.takeIf { githubAuthCacheFresh(cachedGitHubLoginAtMs) }?.let { return it }
         return githubAuthCacheMutex.withLock {
-            cachedGitHubLogin?.let { return@withLock it }
+            cachedGitHubLogin?.takeIf { githubAuthCacheFresh(cachedGitHubLoginAtMs) }?.let { return@withLock it }
         val login = if (githubApiPreferred(worktreePath)) {
             githubHostsConfiguredUser()
                 ?: githubAuthToken(worktreePath)?.let { token ->
@@ -1616,6 +1622,7 @@ class GitWorkspaceService(
         }
         if (!login.isNullOrBlank()) {
             cachedGitHubLogin = login
+            cachedGitHubLoginAtMs = System.currentTimeMillis()
         }
             login
         }
@@ -1834,13 +1841,14 @@ class GitWorkspaceService(
     }
 
     private suspend fun githubAuthToken(worktreePath: Path): String? {
-        cachedGitHubToken?.let { return it }
+        cachedGitHubToken?.takeIf { githubAuthCacheFresh(cachedGitHubTokenAtMs) }?.let { return it }
         return githubAuthCacheMutex.withLock {
-            cachedGitHubToken?.let { return@withLock it }
+            cachedGitHubToken?.takeIf { githubAuthCacheFresh(cachedGitHubTokenAtMs) }?.let { return@withLock it }
             val fromEnv = System.getenv("GITHUB_TOKEN")?.takeIf { it.isNotBlank() }
                 ?: System.getenv("GH_TOKEN")?.takeIf { it.isNotBlank() }
             if (fromEnv != null) {
                 cachedGitHubToken = fromEnv
+                cachedGitHubTokenAtMs = System.currentTimeMillis()
                 return@withLock fromEnv
             }
             val configuredUser = githubHostsConfiguredUser()
@@ -1855,6 +1863,7 @@ class GitWorkspaceService(
                 }.getOrNull()
                 if (fromKeychain != null) {
                     cachedGitHubToken = fromKeychain
+                    cachedGitHubTokenAtMs = System.currentTimeMillis()
                     return@withLock fromKeychain
                 }
             }
@@ -1863,6 +1872,7 @@ class GitWorkspaceService(
             }.getOrNull()
             if (fromGh != null) {
                 cachedGitHubToken = fromGh
+                cachedGitHubTokenAtMs = System.currentTimeMillis()
             }
             fromGh
         }
