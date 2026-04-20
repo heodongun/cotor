@@ -67,7 +67,7 @@ class DesktopAppServiceTest : FunSpec({
             processId = 4242
         )
         coEvery {
-            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any())
+            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any())
         } returns PublishMetadata(
             commitSha = "abc1234567890",
             pushedBranch = "codex/cotor/desktop-publish/codex",
@@ -109,7 +109,7 @@ class DesktopAppServiceTest : FunSpec({
             processId = 4242
         )
         coEvery {
-            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any())
+            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any())
         } returns PublishMetadata(
             commitSha = "abc1234567890",
             error = "Publish failed: gh auth refresh required"
@@ -144,7 +144,7 @@ class DesktopAppServiceTest : FunSpec({
             processId = 4242
         )
         coEvery {
-            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any())
+            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any())
         } returns PublishMetadata(
             commitSha = "abc1234567890",
             error = "No changes to publish from codex/cotor/manual-no-diff/codex against master"
@@ -581,7 +581,7 @@ class DesktopAppServiceTest : FunSpec({
             processId = 4242
         )
         coEvery {
-            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any())
+            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any())
         } returns PublishMetadata(
             commitSha = "abc1234567890",
             error = "No GitHub remote configured; kept local commit only"
@@ -616,7 +616,7 @@ class DesktopAppServiceTest : FunSpec({
             processId = 4242
         )
         coEvery {
-            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any())
+            fixture.gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any())
         } returns PublishMetadata(
             commitSha = "abc1234567890",
             error = "No GitHub remote configured; kept local commit only"
@@ -1184,7 +1184,7 @@ class DesktopAppServiceTest : FunSpec({
                 processId = 123L
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata(
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata(
             commitSha = "abc1234567890",
             pushedBranch = "codex/cotor/test/branch",
             pullRequestNumber = 77,
@@ -1268,7 +1268,7 @@ class DesktopAppServiceTest : FunSpec({
                 processId = 123L
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
 
         val service = DesktopAppService(
             stateStore = stateStore,
@@ -1361,7 +1361,7 @@ class DesktopAppServiceTest : FunSpec({
                 worktreePath = worktreeRoot.resolve(agentName)
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
             val agent = invocation.args[0] as AgentConfig
             AgentResult(
@@ -1417,7 +1417,7 @@ class DesktopAppServiceTest : FunSpec({
                 worktreePath = worktreeRoot.resolve(agentName)
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
             val agent = invocation.args[0] as AgentConfig
             AgentResult(
@@ -2769,7 +2769,7 @@ class DesktopAppServiceTest : FunSpec({
                 worktreePath = worktreeRoot.resolve(agentName)
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { gitWorkspaceService.ensureGitHubPublishReady(any(), any()) } returns GitHubPublishReadiness(ready = true)
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
             val agent = invocation.args[0] as AgentConfig
@@ -3081,69 +3081,80 @@ class DesktopAppServiceTest : FunSpec({
             ),
             stateStore = stateStore
         )
+        try {
+            val company = service.createCompany(
+                name = "Continuous Loop Co",
+                rootPath = repoRoot.toString(),
+                defaultBaseBranch = "master"
+            )
+            val goal = service.createGoal(
+                companyId = company.id,
+                title = "Ship the first validated slice",
+                description = "Complete the first autonomous cycle, then keep the company moving.",
+                autonomyEnabled = true
+            )
+            // Allow any background runtime ticks to settle before rewriting state.
+            delay(300)
+            service.stopCompanyRuntime(company.id)
+            delay(100)
 
-        val company = service.createCompany(
-            name = "Continuous Loop Co",
-            rootPath = repoRoot.toString(),
-            defaultBaseBranch = "master"
-        )
-        val goal = service.createGoal(
-            companyId = company.id,
-            title = "Ship the first validated slice",
-            description = "Complete the first autonomous cycle, then keep the company moving.",
-            autonomyEnabled = true
-        )
-        // Allow any background runtime ticks to settle before rewriting state.
-        delay(300)
-        service.stopCompanyRuntime(company.id)
-        delay(100)
-
-        val now = System.currentTimeMillis()
-        val snapshot = stateStore.load()
-        stateStore.save(
-            snapshot.copy(
-                goals = snapshot.goals.map {
-                    if (it.companyId == company.id) it.copy(status = GoalStatus.COMPLETED, updatedAt = now) else it
-                },
-                issues = snapshot.issues.map {
-                    if (it.companyId == company.id) it.copy(status = IssueStatus.DONE, updatedAt = now) else it
-                },
-                tasks = snapshot.tasks.map {
-                    if (it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED) {
-                        it.copy(status = DesktopTaskStatus.COMPLETED, updatedAt = now)
-                    } else {
-                        it
-                    }
-                },
-                runs = snapshot.runs.map {
-                    if (it.status == AgentRunStatus.RUNNING || it.status == AgentRunStatus.QUEUED) {
-                        it.copy(status = AgentRunStatus.COMPLETED, updatedAt = now)
-                    } else {
-                        it
-                    }
-                },
-                companyRuntimes = listOf(
-                    CompanyRuntimeSnapshot(
-                        companyId = company.id,
-                        status = CompanyRuntimeStatus.RUNNING,
-                        lastTickAt = now
+            val now = System.currentTimeMillis()
+            val snapshot = stateStore.load()
+            stateStore.save(
+                snapshot.copy(
+                    goals = snapshot.goals.map {
+                        if (it.companyId == company.id) it.copy(status = GoalStatus.COMPLETED, updatedAt = now) else it
+                    },
+                    issues = snapshot.issues.map {
+                        if (it.companyId == company.id) it.copy(status = IssueStatus.DONE, updatedAt = now) else it
+                    },
+                    tasks = snapshot.tasks.map {
+                        if (it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED) {
+                            it.copy(status = DesktopTaskStatus.COMPLETED, updatedAt = now)
+                        } else {
+                            it
+                        }
+                    },
+                    runs = snapshot.runs.map {
+                        if (it.status == AgentRunStatus.RUNNING || it.status == AgentRunStatus.QUEUED) {
+                            it.copy(status = AgentRunStatus.COMPLETED, updatedAt = now)
+                        } else {
+                            it
+                        }
+                    },
+                    companyRuntimes = listOf(
+                        CompanyRuntimeSnapshot(
+                            companyId = company.id,
+                            status = CompanyRuntimeStatus.RUNNING,
+                            lastTickAt = now
+                        )
                     )
                 )
             )
-        )
 
-        service.runCompanyRuntimeTick(company.id)
+            service.runCompanyRuntimeTick(company.id)
 
-        val nextGoals = stateStore.load().goals.filter {
-            it.companyId == company.id &&
-                it.id != goal.id &&
-                it.operatingPolicy?.startsWith("auto-loop:continuous:") == true
+            val nextGoal = withTimeout(5_000) {
+                while (true) {
+                    val currentState = stateStore.load()
+                    val candidate = currentState.goals.firstOrNull {
+                        it.companyId == company.id &&
+                            it.id != goal.id &&
+                            it.operatingPolicy?.startsWith("auto-loop:continuous:") == true &&
+                            it.status == GoalStatus.ACTIVE
+                    }
+                    if (candidate != null) {
+                        return@withTimeout candidate
+                    }
+                    delay(25)
+                }
+                error("Unreachable")
+            }
+            nextGoal.description shouldContain "portfolio of 3 to 5 branchable issues"
+            nextGoal.description shouldContain "multiple compatible implementation and validation tracks"
+        } finally {
+            service.shutdown()
         }
-        nextGoals shouldHaveSize 1
-        nextGoals.single().status shouldBe GoalStatus.ACTIVE
-        nextGoals.single().description shouldContain "portfolio of 3 to 5 branchable issues"
-        nextGoals.single().description shouldContain "multiple compatible implementation and validation tracks"
-        stateStore.load().issues.any { it.goalId == nextGoals.single().id } shouldBe true
     }
 
     test("normalize automation state cancels superseded blocked follow-up issues after a newer retry succeeds") {
@@ -5055,7 +5066,7 @@ class DesktopAppServiceTest : FunSpec({
             branchName = "codex/cotor/review-test/codex",
             worktreePath = repoRoot.resolve(".cotor/worktrees/review-test/codex")
         )
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { gitWorkspaceService.ensureGitHubPublishReady(any(), any()) } returns GitHubPublishReadiness(ready = true)
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } returns AgentResult(
             agentName = "codex",
@@ -5659,7 +5670,7 @@ class DesktopAppServiceTest : FunSpec({
                 worktreePath = worktreeRoot
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { gitWorkspaceService.ensureGitHubPublishReady(any(), any()) } returns GitHubPublishReadiness(ready = true)
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
             val agent = invocation.args[0] as AgentConfig
@@ -5785,7 +5796,7 @@ class DesktopAppServiceTest : FunSpec({
                 worktreePath = worktreeRoot
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { gitWorkspaceService.ensureGitHubPublishReady(any(), any()) } returns GitHubPublishReadiness(ready = true)
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
             capturedAgents += invocation.args[0] as AgentConfig
@@ -5873,7 +5884,7 @@ class DesktopAppServiceTest : FunSpec({
                 worktreePath = worktreeRoot.resolve(agentName)
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
             capturedInputs += invocation.args[1] as String?
             val agent = invocation.args[0] as AgentConfig
