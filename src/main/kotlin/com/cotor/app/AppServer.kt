@@ -60,6 +60,7 @@ import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -90,6 +91,14 @@ class AppServer : KoinComponent {
                 "${lockRecord.lockPath} for app home ${lockRecord.appHome}"
         )
         lateinit var server: io.ktor.server.engine.EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>
+        val cleanedUp = AtomicBoolean(false)
+        val cleanup = {
+            if (cleanedUp.compareAndSet(false, true)) {
+                tuiSessionService.shutdown()
+                desktopService.shutdown()
+                desktopAppServerInstanceGuard.release()
+            }
+        }
         server = embeddedServer(Netty, port = port, host = host) {
             cotorAppModule(
                 token = token,
@@ -105,23 +114,17 @@ class AppServer : KoinComponent {
             )
         }
         server.environment.monitor.subscribe(ApplicationStopped) {
-            tuiSessionService.shutdown()
-            desktopService.shutdown()
-            desktopAppServerInstanceGuard.release()
+            cleanup()
         }
         Runtime.getRuntime().addShutdownHook(
             Thread {
-                tuiSessionService.shutdown()
-                desktopService.shutdown()
-                desktopAppServerInstanceGuard.release()
+                cleanup()
             }
         )
         try {
             server.start(wait = wait)
         } catch (error: Throwable) {
-            tuiSessionService.shutdown()
-            desktopService.shutdown()
-            desktopAppServerInstanceGuard.release()
+            cleanup()
             throw error
         }
     }
