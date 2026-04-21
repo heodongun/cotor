@@ -49,6 +49,7 @@ import com.cotor.runtime.durable.ReplayMode
 import com.cotor.verification.VerificationBundle
 import com.cotor.verification.VerificationBundleService
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -220,11 +221,38 @@ class DesktopAppService(
         activeTaskJobs.clear()
         companyRuntimeJobs.values.forEach { it.cancel() }
         companyRuntimeJobs.clear()
+        companyRuntimeTickMutexes.clear()
+        companyRuntimeWakeSignals.clear()
         automationRefreshJobs.values.forEach { it.cancel() }
         automationRefreshJobs.clear()
+        intentionallyInterruptedTaskIds.clear()
+        recentCompanyAutomationTraceKeys.clear()
+        recentSupersededPullRequestCleanupAt.clear()
         codexAppServerManager.stopAll()
         serviceScope.cancel()
     }
+
+    internal fun primeRuntimeCachesForTesting(companyId: String, taskId: String) {
+        companyRuntimeTickMutexes[companyId] = Mutex()
+        companyRuntimeWakeSignals[companyId] = MutableSharedFlow(extraBufferCapacity = 1)
+        companyRuntimeJobs[companyId] = serviceScope.launch(start = CoroutineStart.UNDISPATCHED) { delay(Long.MAX_VALUE) }
+        automationRefreshJobs[companyId] = serviceScope.launch(start = CoroutineStart.UNDISPATCHED) { delay(Long.MAX_VALUE) }
+        activeTaskJobs[taskId] = serviceScope.launch(start = CoroutineStart.UNDISPATCHED) { delay(Long.MAX_VALUE) }
+        intentionallyInterruptedTaskIds += taskId
+        recentCompanyAutomationTraceKeys["company:$companyId"] = System.currentTimeMillis()
+        recentSupersededPullRequestCleanupAt[companyId] = System.currentTimeMillis()
+    }
+
+    internal fun runtimeCacheSizesForTesting(): Map<String, Int> = mapOf(
+        "tickMutexes" to companyRuntimeTickMutexes.size,
+        "wakeSignals" to companyRuntimeWakeSignals.size,
+        "runtimeJobs" to companyRuntimeJobs.size,
+        "refreshJobs" to automationRefreshJobs.size,
+        "activeTaskJobs" to activeTaskJobs.size,
+        "interruptedTaskIds" to intentionallyInterruptedTaskIds.size,
+        "traceKeys" to recentCompanyAutomationTraceKeys.size,
+        "supersededPrTimestamps" to recentSupersededPullRequestCleanupAt.size
+    )
 
     suspend fun dashboard(): DashboardResponse {
         // Every dashboard read is also a chance to heal background loops after an app-server
