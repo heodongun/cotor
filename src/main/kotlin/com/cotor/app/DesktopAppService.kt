@@ -457,6 +457,10 @@ class DesktopAppService(
         stimulateAutonomousCompanyProgress(companyId)
     }
 
+    internal suspend fun prepareCompanyAutomationStateForTesting(companyId: String? = null) {
+        prepareCompanyAutomationState(companyId)
+    }
+
     private suspend fun migrateLegacyCompanyRosters(companyId: String? = null) {
         stateMutex.withLock {
             val state = stateStore.load()

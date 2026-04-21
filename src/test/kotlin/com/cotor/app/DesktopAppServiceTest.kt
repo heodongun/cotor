@@ -3220,7 +3220,7 @@ class DesktopAppServiceTest : FunSpec({
                 )
             )
         )
-        service.runCompanyRuntimeTick(company.id)
+        service.prepareCompanyAutomationStateForTesting(company.id)
 
         val refreshedState = stateStore.load()
         refreshedState.issues.first { it.id == blockedIssue.id }.status shouldBe IssueStatus.CANCELED
