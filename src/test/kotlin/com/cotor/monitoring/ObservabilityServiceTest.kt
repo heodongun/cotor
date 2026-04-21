@@ -78,4 +78,17 @@ class ObservabilityServiceTest : FunSpec({
             )
         }
     }
+
+    test("metrics collector keeps only bounded duration samples per key") {
+        val collector = MetricsCollector()
+
+        repeat(250) { index ->
+            collector.recordExecution("agent-a", index.toLong(), success = true)
+        }
+
+        val metrics = collector.getMetrics("agent-a")
+        metrics.totalExecutions shouldBe 250
+        metrics.minDuration shouldBe 50
+        metrics.maxDuration shouldBe 249
+    }
 })
