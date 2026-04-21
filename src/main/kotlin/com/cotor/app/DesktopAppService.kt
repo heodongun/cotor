@@ -10426,6 +10426,9 @@ class DesktopAppService(
         )
     }
 
+    internal suspend fun synthesizeAutonomousFollowUpGoalForTesting(companyId: String): CompanyGoal? =
+        synthesizeAutonomousFollowUpGoal(companyId)
+
     private fun buildIssueDescription(
         goal: CompanyGoal,
         assignment: AgentAssignmentPlan,

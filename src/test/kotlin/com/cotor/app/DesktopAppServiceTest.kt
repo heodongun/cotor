@@ -321,15 +321,7 @@ class DesktopAppServiceTest : FunSpec({
                 )
             )
         )
-        val method = DesktopAppService::class.java.getDeclaredMethod(
-            "buildIssueExecutionPrompt",
-            DesktopAppState::class.java,
-            CompanyIssue::class.java,
-            OrgAgentProfile::class.java
-        )
-        method.isAccessible = true
-        val prompt = method.invoke(
-            service,
+        val prompt = service.buildIssueExecutionPromptForTesting(
             stateStore.load(),
             issue,
             OrgAgentProfile(
@@ -338,7 +330,7 @@ class DesktopAppServiceTest : FunSpec({
                 roleName = "Builder",
                 executionAgentName = "codex"
             )
-        ) as String
+        )
 
         prompt shouldContain "No publish is required for a pure validation or residual-risk follow-up."
         prompt shouldContain "Do not create README-only, VALIDATION.md-only, or other placeholder repository changes just to produce a diff."
@@ -3132,26 +3124,12 @@ class DesktopAppServiceTest : FunSpec({
                 )
             )
 
-            service.runCompanyRuntimeTick(company.id)
+            val nextGoal = service.synthesizeAutonomousFollowUpGoalForTesting(company.id)
 
-            val nextGoal = withTimeout(5_000) {
-                while (true) {
-                    val currentState = stateStore.load()
-                    val candidate = currentState.goals.firstOrNull {
-                        it.companyId == company.id &&
-                            it.id != goal.id &&
-                            it.operatingPolicy?.startsWith("auto-loop:continuous:") == true &&
-                            it.status == GoalStatus.ACTIVE
-                    }
-                    if (candidate != null) {
-                        return@withTimeout candidate
-                    }
-                    delay(25)
-                }
-                error("Unreachable")
-            }
-            nextGoal.description shouldContain "portfolio of 3 to 5 branchable issues"
-            nextGoal.description shouldContain "multiple compatible implementation and validation tracks"
+            nextGoal shouldNotBe null
+            val synthesizedGoal = requireNotNull(nextGoal)
+            synthesizedGoal.description shouldContain "portfolio of 3 to 5 branchable issues"
+            synthesizedGoal.description shouldContain "multiple compatible implementation and validation tracks"
         } finally {
             service.shutdown()
         }
@@ -9631,15 +9609,7 @@ class DesktopAppServiceTest : FunSpec({
             )
         )
 
-        val promptBuilder = DesktopAppService::class.java.getDeclaredMethod(
-            "buildIssueExecutionPrompt",
-            DesktopAppState::class.java,
-            CompanyIssue::class.java,
-            OrgAgentProfile::class.java
-        )
-        promptBuilder.isAccessible = true
-        val prompt = promptBuilder.invoke(
-            service,
+        val prompt = service.buildIssueExecutionPromptForTesting(
             stateStore.load(),
             approvalIssue,
             OrgAgentProfile(
@@ -9649,7 +9619,7 @@ class DesktopAppServiceTest : FunSpec({
                 executionAgentName = "codex",
                 mergeAuthority = true
             )
-        ) as String
+        )
 
         prompt shouldContain "https://github.com/heodongun/cotor-test/pull/22"
         prompt shouldContain "Current PR is ready for CEO approval."
