@@ -50,6 +50,9 @@ chmod +x "$COTOR_PATH"
 # Install a direct launcher into a common user bin directory when possible.
 USER_BIN_DIR="$HOME/.local/bin"
 mkdir -p "$USER_BIN_DIR"
+if [ -e "$USER_BIN_DIR/cotor" ] && [ "$(readlink "$USER_BIN_DIR/cotor" 2>/dev/null || true)" != "$COTOR_PATH" ]; then
+    echo "⚠️  Replacing existing launcher at $USER_BIN_DIR/cotor"
+fi
 ln -sf "$COTOR_PATH" "$USER_BIN_DIR/cotor"
 
 # Determine shell config file
