@@ -234,6 +234,8 @@ class DesktopAppServiceDashboardRuntimeTest : FunSpec({
             rootPath = repoRoot.toString(),
             defaultBaseBranch = "master"
         )
+        service.stopCompanyRuntime(company.id)
+        delay(100)
         val baseState = stateStore.load()
         val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
         val projectContext = baseState.projectContexts.first { it.companyId == company.id }
