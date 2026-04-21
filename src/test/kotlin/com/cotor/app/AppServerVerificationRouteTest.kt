@@ -2,9 +2,9 @@ package com.cotor.app
 
 import com.cotor.verification.VerificationBundle
 import com.cotor.verification.VerificationContract
+import com.cotor.verification.VerificationObservation
 import com.cotor.verification.VerificationOutcome
 import com.cotor.verification.VerificationOutcomeStatus
-import com.cotor.verification.VerificationObservation
 import com.cotor.verification.VerificationSignal
 import com.cotor.verification.VerificationSignalStatus
 import io.kotest.core.spec.style.FunSpec

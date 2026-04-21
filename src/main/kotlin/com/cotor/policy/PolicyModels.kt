@@ -62,4 +62,3 @@ data class PolicyAuditLog(
     val decisions: List<PolicyDecision> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis()
 )
-

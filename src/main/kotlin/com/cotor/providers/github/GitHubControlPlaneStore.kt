@@ -36,4 +36,3 @@ class GitHubControlPlaneStore(
         file.writeText(json.encodeToString(GitHubProviderState.serializer(), state))
     }
 }
-

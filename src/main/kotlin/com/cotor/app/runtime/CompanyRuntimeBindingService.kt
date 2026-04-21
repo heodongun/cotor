@@ -45,11 +45,13 @@ class CompanyRuntimeBindingService(
         val runs = if (boundRunIds.isNotEmpty() && directRuns.size == boundRunIds.size) {
             directRuns
         } else {
-            (directRuns + durableRuntimeService.listRuns().filter { run ->
-                run.runId in boundRunIds ||
-                    run.checkpoints.any { node -> node.metadata["companyId"] == companyId } ||
-                    run.sideEffects.any { effect -> effect.metadata["companyId"] == companyId }
-            }).distinctBy { it.runId }
+            (
+                directRuns + durableRuntimeService.listRuns().filter { run ->
+                    run.runId in boundRunIds ||
+                        run.checkpoints.any { node -> node.metadata["companyId"] == companyId } ||
+                        run.sideEffects.any { effect -> effect.metadata["companyId"] == companyId }
+                }
+                ).distinctBy { it.runId }
         }
         val githubPullRequests = gitHubControlPlaneService.listPullRequests(companyId)
         val directActionLogs = boundRunIds.mapNotNull(actionStore::load)
@@ -78,7 +80,7 @@ class CompanyRuntimeBindingService(
                     check.status.equals("COMPLETED", ignoreCase = true) &&
                         !check.conclusion.equals("SUCCESS", ignoreCase = true)
                 } || pullRequest.checksSummary?.contains("FAILURE", ignoreCase = true) == true
-            )
+                )
         }
 
         val providerBlockByPr = githubPullRequests.associateBy { it.number }

@@ -13,7 +13,6 @@ import com.cotor.model.ProcessResult
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.coEvery
@@ -31,8 +30,6 @@ import java.net.http.HttpResponse
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.Principal
-import java.security.cert.Certificate
 import java.time.Duration
 import java.util.Optional
 import java.util.concurrent.CompletableFuture

@@ -48,4 +48,3 @@ class GitHubControlPlaneServiceTest : FunSpec({
         service.listEvents("company-1") shouldHaveSize 2
     }
 })
-

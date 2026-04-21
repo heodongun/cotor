@@ -8,11 +8,11 @@ import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.aggregator.ResultAggregator
 import com.cotor.domain.executor.DefaultAgentExecutor
 import com.cotor.domain.orchestrator.DefaultPipelineOrchestrator
+import com.cotor.event.EventBus
 import com.cotor.runtime.actions.ActionExecutionService
 import com.cotor.runtime.durable.DurableRuntimeService
 import com.cotor.security.SecurityValidator
 import com.cotor.stats.StatsManager
-import com.cotor.event.EventBus
 import com.cotor.validation.output.OutputValidator
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe

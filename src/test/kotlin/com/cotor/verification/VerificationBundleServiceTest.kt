@@ -8,9 +8,9 @@ import com.cotor.app.ReviewQueueStatus
 import com.cotor.knowledge.KnowledgeRecord
 import com.cotor.knowledge.KnowledgeService
 import com.cotor.knowledge.KnowledgeStore
-import com.cotor.provenance.EvidenceNode
 import com.cotor.provenance.EvidenceEdge
 import com.cotor.provenance.EvidenceGraph
+import com.cotor.provenance.EvidenceNode
 import com.cotor.provenance.EvidenceNodeKind
 import com.cotor.provenance.ProvenanceService
 import com.cotor.provenance.ProvenanceStore

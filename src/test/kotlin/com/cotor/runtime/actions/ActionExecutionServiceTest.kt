@@ -58,4 +58,3 @@ class ActionExecutionServiceTest : FunSpec({
         snapshot!!.records.single().status shouldBe ActionStatus.DENIED
     }
 })
-

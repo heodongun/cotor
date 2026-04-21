@@ -42,4 +42,3 @@ class PolicyEngineTest : FunSpec({
         decision.explanation.matchedRuleIds.size shouldBe 1
     }
 })
-

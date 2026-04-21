@@ -36,4 +36,3 @@ class ProvenanceStore(
         file.writeText(json.encodeToString(EvidenceGraph.serializer(), graph))
     }
 }
-

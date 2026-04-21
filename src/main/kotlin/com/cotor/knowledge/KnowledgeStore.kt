@@ -36,4 +36,3 @@ class KnowledgeStore(
         file.writeText(json.encodeToString(KnowledgeSnapshot.serializer(), snapshot))
     }
 }
-

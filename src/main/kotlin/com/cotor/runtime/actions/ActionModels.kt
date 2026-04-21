@@ -113,4 +113,3 @@ class ActionApprovalRequiredException(
     val request: ActionRequest,
     message: String
 ) : IllegalStateException(message)
-

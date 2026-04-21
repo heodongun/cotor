@@ -39,9 +39,9 @@ import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.charset.StandardCharsets
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.invariantSeparatorsPathString
@@ -125,8 +125,11 @@ class GitWorkspaceService(
     private val json = Json { ignoreUnknownKeys = true }
 
     @Volatile private var cachedGitHubLogin: String? = null
+
     @Volatile private var cachedGitHubToken: String? = null
+
     @Volatile private var cachedGitHubLoginAtMs: Long = 0L
+
     @Volatile private var cachedGitHubTokenAtMs: Long = 0L
     private val githubLoginCacheMutex = Mutex()
     private val githubTokenCacheMutex = Mutex()
@@ -1605,29 +1608,29 @@ class GitWorkspaceService(
         cachedGitHubLogin?.takeIf { githubAuthCacheFresh(cachedGitHubLoginAtMs) }?.let { return it }
         return githubLoginCacheMutex.withLock {
             cachedGitHubLogin?.takeIf { githubAuthCacheFresh(cachedGitHubLoginAtMs) }?.let { return@withLock it }
-        val login = if (githubApiPreferred(worktreePath)) {
-            githubHostsConfiguredUser()
-                ?: githubAuthToken(worktreePath)?.let { token ->
-                    runCatching {
-                        val raw = githubApiJson(
-                            worktreePath = worktreePath,
-                            path = "/user",
-                            token = token
-                        )
-                        raw.jsonObject["login"]?.jsonPrimitive?.contentOrNull
-                    }.getOrNull()
-                }
-        } else {
-            runCatching {
-                ghOutput(worktreePath, "api", "user", "--jq", ".login")
-                    .trim()
-                    .takeIf { it.isNotBlank() }
-            }.getOrNull()
-        }
-        if (!login.isNullOrBlank()) {
-            cachedGitHubLogin = login
-            cachedGitHubLoginAtMs = System.currentTimeMillis()
-        }
+            val login = if (githubApiPreferred(worktreePath)) {
+                githubHostsConfiguredUser()
+                    ?: githubAuthToken(worktreePath)?.let { token ->
+                        runCatching {
+                            val raw = githubApiJson(
+                                worktreePath = worktreePath,
+                                path = "/user",
+                                token = token
+                            )
+                            raw.jsonObject["login"]?.jsonPrimitive?.contentOrNull
+                        }.getOrNull()
+                    }
+            } else {
+                runCatching {
+                    ghOutput(worktreePath, "api", "user", "--jq", ".login")
+                        .trim()
+                        .takeIf { it.isNotBlank() }
+                }.getOrNull()
+            }
+            if (!login.isNullOrBlank()) {
+                cachedGitHubLogin = login
+                cachedGitHubLoginAtMs = System.currentTimeMillis()
+            }
             login
         }
     }

@@ -11,8 +11,8 @@ package com.cotor.app
 import com.cotor.a2a.A2aRouter
 import com.cotor.a2a.installA2aRoutes
 import com.cotor.provenance.EvidenceBundle
-import com.cotor.runtime.durable.DurableRunSnapshot
 import com.cotor.runtime.durable.DurableResumeCoordinator
+import com.cotor.runtime.durable.DurableRunSnapshot
 import com.cotor.runtime.durable.DurableRuntimeService
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -41,9 +41,9 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.flow.collect
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -60,10 +60,10 @@ import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
-import java.util.concurrent.atomic.AtomicBoolean
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 
@@ -1797,24 +1797,35 @@ private suspend fun handleReadonlyMcpRequest(
                     put(
                         "capabilities",
                         buildJsonObject {
-                            put("tools", buildJsonObject {
-                                put("listChanged", JsonPrimitive(false))
-                            })
-                            put("resources", buildJsonObject {
-                                put("subscribe", JsonPrimitive(false))
-                                put("listChanged", JsonPrimitive(false))
-                            })
-                            put("annotations", buildJsonObject {
-                                put("readOnlySurface", JsonPrimitive(true))
-                            })
+                            put(
+                                "tools",
+                                buildJsonObject {
+                                    put("listChanged", JsonPrimitive(false))
+                                }
+                            )
+                            put(
+                                "resources",
+                                buildJsonObject {
+                                    put("subscribe", JsonPrimitive(false))
+                                    put("listChanged", JsonPrimitive(false))
+                                }
+                            )
+                            put(
+                                "annotations",
+                                buildJsonObject {
+                                    put("readOnlySurface", JsonPrimitive(true))
+                                }
+                            )
                         }
                     )
                 }
             )
         }
-        "tools/list" -> mcpResult(id, buildJsonObject {
-            put(
-                "tools",
+        "tools/list" -> mcpResult(
+            id,
+            buildJsonObject {
+                put(
+                    "tools",
                     buildJsonArray {
                         add(mcpToolDescriptor("company_summary", "Return the company dashboard summary.", readOnly = true))
                         add(mcpToolDescriptor("issue_list", "Return issues for one company.", readOnly = true))
@@ -1831,7 +1842,8 @@ private suspend fun handleReadonlyMcpRequest(
                         add(mcpToolDescriptor("company_review_ceo", "Submit a CEO review verdict for one review queue item.", readOnly = false))
                     }
                 )
-            })
+            }
+        )
         "tools/call" -> {
             val toolName = params["name"]?.jsonPrimitive?.contentOrNull
                 ?: return mcpError(id, -32602, "Missing tool name")
@@ -1921,31 +1933,47 @@ private suspend fun handleReadonlyMcpRequest(
                 }
                 else -> return mcpError(id, -32601, "Unknown MCP tool: $toolName")
             }
-            mcpResult(id, buildJsonObject {
-                put("content", buildJsonArray { add(buildJsonObject { put("type", JsonPrimitive("text")); put("text", JsonPrimitive(content)) }) })
-            })
-        }
-        "resources/list" -> mcpResult(id, buildJsonObject {
-            put(
-                "resources",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("uri", JsonPrimitive("cotor://companies"))
-                            put("name", JsonPrimitive("Companies"))
-                            put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
-                        }
-                    )
-                    add(
-                        buildJsonObject {
-                            put("uri", JsonPrimitive("cotor://durable-runs"))
-                            put("name", JsonPrimitive("Durable Runs"))
-                            put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
+            mcpResult(
+                id,
+                buildJsonObject {
+                    put(
+                        "content",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("text"))
+                                    put("text", JsonPrimitive(content))
+                                }
+                            )
                         }
                     )
                 }
             )
-        })
+        }
+        "resources/list" -> mcpResult(
+            id,
+            buildJsonObject {
+                put(
+                    "resources",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("uri", JsonPrimitive("cotor://companies"))
+                                put("name", JsonPrimitive("Companies"))
+                                put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
+                            }
+                        )
+                        add(
+                            buildJsonObject {
+                                put("uri", JsonPrimitive("cotor://durable-runs"))
+                                put("name", JsonPrimitive("Durable Runs"))
+                                put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
+                            }
+                        )
+                    }
+                )
+            }
+        )
         "resources/read" -> {
             val uri = params["uri"]?.jsonPrimitive?.contentOrNull
                 ?: return mcpError(id, -32602, "uri is required")
@@ -1963,20 +1991,23 @@ private suspend fun handleReadonlyMcpRequest(
                 )
                 else -> return mcpError(id, -32602, "Unsupported resource: $uri")
             }
-            mcpResult(id, buildJsonObject {
-                put(
-                    "contents",
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("uri", JsonPrimitive(uri))
-                                put("mimeType", JsonPrimitive("application/json"))
-                                put("text", JsonPrimitive(content))
-                            }
-                        )
-                    }
-                )
-            })
+            mcpResult(
+                id,
+                buildJsonObject {
+                    put(
+                        "contents",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("uri", JsonPrimitive(uri))
+                                    put("mimeType", JsonPrimitive("application/json"))
+                                    put("text", JsonPrimitive(content))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
         }
         else -> mcpError(id, -32601, "Unsupported MCP method: $method")
     }
@@ -1986,10 +2017,13 @@ private fun mcpToolDescriptor(name: String, description: String, readOnly: Boole
     put("name", JsonPrimitive(name))
     put("description", JsonPrimitive(description))
     put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(readOnly)) })
-    put("inputSchema", buildJsonObject {
-        put("type", JsonPrimitive("object"))
-        put("properties", buildJsonObject { })
-    })
+    put(
+        "inputSchema",
+        buildJsonObject {
+            put("type", JsonPrimitive("object"))
+            put("properties", buildJsonObject { })
+        }
+    )
 }
 
 private fun mcpResult(id: JsonElement, result: JsonElement): JsonElement = buildJsonObject {

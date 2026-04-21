@@ -10,8 +10,8 @@ package com.cotor.app
  * goals, issues, tasks, runs, and long-lived company runtime loops.
  */
 
-import com.cotor.app.runtime.CompanyRuntimeMachine
 import com.cotor.app.runtime.CompanyRuntimeBindingService
+import com.cotor.app.runtime.CompanyRuntimeMachine
 import com.cotor.app.runtime.RuntimeCommand
 import com.cotor.app.runtime.WorkQueue
 import com.cotor.data.config.ConfigRepository
@@ -27,21 +27,21 @@ import com.cotor.model.AgentExecutionMetadata
 import com.cotor.model.AgentResult
 import com.cotor.model.CodexDefaults
 import com.cotor.model.OpenCodeDefaults
-import com.cotor.model.ProcessExecutionException
 import com.cotor.model.Pipeline
 import com.cotor.model.PipelineContext
 import com.cotor.model.PipelineStage
+import com.cotor.model.ProcessExecutionException
 import com.cotor.model.StageType
 import com.cotor.policy.PolicyDecision
 import com.cotor.policy.PolicyEngine
+import com.cotor.provenance.EvidenceBundle
+import com.cotor.provenance.ProvenanceService
 import com.cotor.providers.github.CheckSnapshot
 import com.cotor.providers.github.GitHubControlPlaneService
 import com.cotor.providers.github.GitHubSyncResponse
 import com.cotor.providers.github.MergeQueueState
 import com.cotor.providers.github.MergeRequirement
 import com.cotor.providers.github.PullRequestSnapshot
-import com.cotor.provenance.EvidenceBundle
-import com.cotor.provenance.ProvenanceService
 import com.cotor.runtime.durable.DurableRuntimeContext
 import com.cotor.runtime.durable.DurableRuntimeFlags
 import com.cotor.runtime.durable.DurableRuntimeService
@@ -49,8 +49,8 @@ import com.cotor.runtime.durable.ReplayMode
 import com.cotor.verification.VerificationBundle
 import com.cotor.verification.VerificationBundleService
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -1597,9 +1597,9 @@ class DesktopAppService(
         return run?.publish?.checksSummary
             ?.takeIf { it.isNotBlank() }
             ?: run?.publish?.error
-            ?.takeIf { it.isNotBlank() }
+                ?.takeIf { it.isNotBlank() }
             ?: run?.error
-            ?.takeIf { it.isNotBlank() }
+                ?.takeIf { it.isNotBlank() }
     }
 
     private fun syntheticCompanyRunPipeline(issue: CompanyIssue?): Pair<Pipeline, PipelineStage> {
@@ -11746,13 +11746,15 @@ class DesktopAppService(
                 escalations = if (planningSource == "fallback") listOf(planningReason) else emptyList(),
                 createdAt = now
             )
-            val nextState = applyVerificationProjection(state.copy(
-                issues = state.issues.filterNot { it.id == currentIssue.id } + updatedPlanningIssue + decomposition.first,
-                issueDependencies = state.issueDependencies.filterNot { dependency ->
-                    dependency.issueId == currentIssue.id
-                } + decomposition.second,
-                goalDecisions = state.goalDecisions + decision
-            )).recordCompanyActivity(
+            val nextState = applyVerificationProjection(
+                state.copy(
+                    issues = state.issues.filterNot { it.id == currentIssue.id } + updatedPlanningIssue + decomposition.first,
+                    issueDependencies = state.issueDependencies.filterNot { dependency ->
+                        dependency.issueId == currentIssue.id
+                    } + decomposition.second,
+                    goalDecisions = state.goalDecisions + decision
+                )
+            ).recordCompanyActivity(
                 companyId = company.id,
                 projectContextId = currentIssue.projectContextId,
                 goalId = goal.id,
@@ -12524,24 +12526,26 @@ class DesktopAppService(
                     latestRun = primaryRun
                 )
             }
-            val nextState = applyVerificationProjection(state.copy(
-                issues = state.issues
-                    .filterNot { existing ->
-                        existing.id == currentIssue.id ||
-                            existing.id == executionIssue.id ||
-                            existing.id == existingApprovalIssue?.id
-                    }
-                    .plus(updatedReviewIssue)
-                    .plus(updatedExecutionIssue)
-                    .plus(listOfNotNull(approvalIssue)),
-                tasks = state.tasks.map { existing ->
-                    if (existing.id == effectiveTask.id) effectiveTask else existing
-                },
-                runs = effectiveRun?.let { run ->
-                    state.runs.map { existing -> if (existing.id == run.id) run else existing }
-                } ?: state.runs,
-                reviewQueue = updatedReviewQueue
-            )).recordCompanyActivity(
+            val nextState = applyVerificationProjection(
+                state.copy(
+                    issues = state.issues
+                        .filterNot { existing ->
+                            existing.id == currentIssue.id ||
+                                existing.id == executionIssue.id ||
+                                existing.id == existingApprovalIssue?.id
+                        }
+                        .plus(updatedReviewIssue)
+                        .plus(updatedExecutionIssue)
+                        .plus(listOfNotNull(approvalIssue)),
+                    tasks = state.tasks.map { existing ->
+                        if (existing.id == effectiveTask.id) effectiveTask else existing
+                    },
+                    runs = effectiveRun?.let { run ->
+                        state.runs.map { existing -> if (existing.id == run.id) run else existing }
+                    } ?: state.runs,
+                    reviewQueue = updatedReviewQueue
+                )
+            ).recordCompanyActivity(
                 companyId = currentIssue.companyId,
                 projectContextId = currentIssue.projectContextId,
                 goalId = currentIssue.goalId,
@@ -12763,22 +12767,24 @@ class DesktopAppService(
                 latestTask = task,
                 latestRun = primaryRun
             )
-            val nextState = applyVerificationProjection(state.copy(
-                issues = state.issues.map { existing ->
-                    when (existing.id) {
-                        currentIssue.id -> updatedApprovalIssue
-                        executionIssue.id -> updatedExecutionIssue
-                        else -> existing
-                    }
-                },
-                tasks = state.tasks.map { existing ->
-                    if (existing.id == effectiveTask.id) effectiveTask else existing
-                },
-                runs = effectiveRun?.let { run ->
-                    state.runs.map { existing -> if (existing.id == run.id) run else existing }
-                } ?: state.runs,
-                reviewQueue = updatedReviewQueue
-            )).recordCompanyActivity(
+            val nextState = applyVerificationProjection(
+                state.copy(
+                    issues = state.issues.map { existing ->
+                        when (existing.id) {
+                            currentIssue.id -> updatedApprovalIssue
+                            executionIssue.id -> updatedExecutionIssue
+                            else -> existing
+                        }
+                    },
+                    tasks = state.tasks.map { existing ->
+                        if (existing.id == effectiveTask.id) effectiveTask else existing
+                    },
+                    runs = effectiveRun?.let { run ->
+                        state.runs.map { existing -> if (existing.id == run.id) run else existing }
+                    } ?: state.runs,
+                    reviewQueue = updatedReviewQueue
+                )
+            ).recordCompanyActivity(
                 companyId = currentIssue.companyId,
                 projectContextId = currentIssue.projectContextId,
                 goalId = currentIssue.goalId,

@@ -2717,7 +2717,6 @@ class DesktopAppServiceTest : FunSpec({
         }
     }
 
-
     test("seeded builder profile does not infer frontend capability from the word builder") {
         val appHome = Files.createTempDirectory("desktop-builder-capability-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-builder-capability-test").resolve("repo"))

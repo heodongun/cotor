@@ -52,7 +52,6 @@ class VerificationBundleService(
         outcome: VerificationOutcome,
         evidenceRefs: List<VerificationArtifactRef>
     ): VerificationBundle {
-
         val evidenceSummary = evidenceRefs.takeIf { it.isNotEmpty() }
             ?.joinToString(" | ") { ref -> "${ref.kind}:${ref.label}" }
         val knowledgeSummary = when {
