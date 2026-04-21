@@ -20,7 +20,7 @@ class Cotor < Formula
     if OS.mac?
       resource("desktop-dmg").fetch
       dmg_path = resource("desktop-dmg").cached_download
-      mountpoint = buildpath/"cotor-dmg"
+      mountpoint = buildpath/"cotor-dmg-#{Process.pid}"
       mountpoint.mkpath
       system "hdiutil", "attach", dmg_path, "-mountpoint", mountpoint.to_s, "-nobrowse"
       begin
