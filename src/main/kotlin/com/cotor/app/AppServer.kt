@@ -158,7 +158,11 @@ internal class DesktopAppServerInstanceGuard(
             StandardOpenOption.CREATE,
             StandardOpenOption.WRITE
         )
-    }
+    },
+    private val lockAcquireTimeoutMs: Long = 3_000L,
+    private val lockRetryDelayMs: Long = 50L,
+    private val timeNowProvider: () -> Long = { System.currentTimeMillis() },
+    private val sleepFn: (Long) -> Unit = { Thread.sleep(it) }
 ) {
     private var channel: FileChannel? = null
     private var lock: FileLock? = null
@@ -177,8 +181,20 @@ internal class DesktopAppServerInstanceGuard(
         val lockPath = runtimeDir.resolve("app-server.instance.lock")
         val metadataPath = runtimeDir.resolve("app-server.instance.json")
         val openedChannel = channelOpener(lockPath)
-        val openedLock = try {
-            openedChannel.tryLock()
+        val deadline = timeNowProvider() + lockAcquireTimeoutMs
+        var openedLock: FileLock? = null
+        try {
+            while (true) {
+                val lockAttempt = openedChannel.tryLock()
+                if (lockAttempt != null) {
+                    openedLock = lockAttempt
+                    break
+                }
+                if (timeNowProvider() >= deadline) {
+                    break
+                }
+                sleepFn(lockRetryDelayMs)
+            }
         } catch (_: OverlappingFileLockException) {
             openedChannel.close()
             throw IllegalStateException(
