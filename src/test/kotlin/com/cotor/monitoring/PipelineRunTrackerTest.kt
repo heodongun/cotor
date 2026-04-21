@@ -54,6 +54,21 @@ class PipelineRunTrackerTest : FunSpec({
         recent.first().status shouldBe PipelineRunStatus.FAILED
         recent.first().message.shouldContain("boom")
     }
+
+    test("evicts completed pipeline snapshots when history exceeds retention") {
+        val eventBus = ImmediateEventBus()
+        val tracker = PipelineRunTracker(eventBus, maxHistory = 1)
+
+        runBlocking {
+            eventBus.emit(PipelineStartedEvent("p1", "demo-1", Instant.parse("2024-01-01T00:00:00Z")))
+            eventBus.emit(PipelineCompletedEvent("p1", completedResult(duration = 1200), Instant.parse("2024-01-01T00:00:01Z")))
+            eventBus.emit(PipelineStartedEvent("p2", "demo-2", Instant.parse("2024-01-02T00:00:00Z")))
+            eventBus.emit(PipelineCompletedEvent("p2", completedResult(duration = 1300), Instant.parse("2024-01-02T00:00:01Z")))
+        }
+
+        tracker.getPipeline("p1") shouldBe null
+        tracker.getPipeline("p2")?.status shouldBe PipelineRunStatus.COMPLETED
+    }
 })
 
 private fun completedResult(duration: Long): AggregatedResult {

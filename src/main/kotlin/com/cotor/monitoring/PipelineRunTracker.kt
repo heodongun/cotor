@@ -142,7 +142,11 @@ class PipelineRunTracker(
         history.remove(pipelineId)
         history.addFirst(pipelineId)
         while (history.size > maxHistory) {
-            history.removeLast()
+            val evictedPipelineId = history.removeLast()
+            val snapshot = runs[evictedPipelineId]
+            if (snapshot != null && snapshot.status != PipelineRunStatus.RUNNING) {
+                runs.remove(evictedPipelineId, snapshot)
+            }
         }
     }
 }
