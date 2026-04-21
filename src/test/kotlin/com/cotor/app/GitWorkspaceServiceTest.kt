@@ -16,6 +16,7 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import org.slf4j.Logger
@@ -1305,6 +1306,52 @@ class GitWorkspaceServiceTest : FunSpec({
             )
             httpClient.recordedRequests[0].body shouldContain "\"merge_method\":\"merge\""
         }
+    }
+
+    test("listPorts(runId) resolves the stored process id and returns listening ports") {
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("lsof", "-Pan", "-p", "4242", "-iTCP", "-sTCP:LISTEN"),
+                    ProcessResult(
+                        exitCode = 0,
+                        stdout = "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\ncotor 4242 user 12u IPv4 0x0 0t0 TCP 127.0.0.1:8787 (LISTEN)\n",
+                        stderr = "",
+                        isSuccess = true
+                    )
+                )
+            )
+        )
+        val stateStore = mockk<DesktopStateStore>()
+        coEvery { stateStore.load() } returns DesktopAppState(
+            runs = listOf(
+                AgentRun(
+                    id = "run-1",
+                    taskId = "task-1",
+                    workspaceId = "ws-1",
+                    repositoryId = "repo-1",
+                    agentName = "codex",
+                    branchName = "codex/cotor/ports",
+                    worktreePath = "/tmp/worktree",
+                    status = AgentRunStatus.RUNNING,
+                    processId = 4242,
+                    createdAt = 1L,
+                    updatedAt = 1L
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, stateStore, mockk<Logger>(relaxed = true))
+
+        val ports = service.listPorts("run-1")
+
+        ports shouldBe listOf(
+            PortEntry(
+                port = 8787,
+                url = "http://127.0.0.1:8787",
+                label = "Port 8787"
+            )
+        )
+        processManager.remainingSteps() shouldBe 0
     }
 })
 

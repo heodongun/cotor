@@ -128,7 +128,8 @@ class GitWorkspaceService(
     @Volatile private var cachedGitHubToken: String? = null
     @Volatile private var cachedGitHubLoginAtMs: Long = 0L
     @Volatile private var cachedGitHubTokenAtMs: Long = 0L
-    private val githubAuthCacheMutex = Mutex()
+    private val githubLoginCacheMutex = Mutex()
+    private val githubTokenCacheMutex = Mutex()
 
     private fun githubHttpEnabled(): Boolean {
         return githubHttpEnabledProvider()
@@ -1526,7 +1527,10 @@ class GitWorkspaceService(
         scanTree(root, target, depth)
     }
 
-    suspend fun listPorts(@Suppress("UNUSED_PARAMETER") runId: String): List<PortEntry> = emptyList()
+    suspend fun listPorts(runId: String): List<PortEntry> {
+        val run = stateStore.load().runs.firstOrNull { it.id == runId } ?: return emptyList()
+        return listPorts(run.processId)
+    }
 
     /**
      * Inspect a running child process for listening TCP ports.
@@ -1599,7 +1603,7 @@ class GitWorkspaceService(
 
     private suspend fun currentGitHubLogin(worktreePath: Path): String? {
         cachedGitHubLogin?.takeIf { githubAuthCacheFresh(cachedGitHubLoginAtMs) }?.let { return it }
-        return githubAuthCacheMutex.withLock {
+        return githubLoginCacheMutex.withLock {
             cachedGitHubLogin?.takeIf { githubAuthCacheFresh(cachedGitHubLoginAtMs) }?.let { return@withLock it }
         val login = if (githubApiPreferred(worktreePath)) {
             githubHostsConfiguredUser()
@@ -1842,7 +1846,7 @@ class GitWorkspaceService(
 
     private suspend fun githubAuthToken(worktreePath: Path): String? {
         cachedGitHubToken?.takeIf { githubAuthCacheFresh(cachedGitHubTokenAtMs) }?.let { return it }
-        return githubAuthCacheMutex.withLock {
+        return githubTokenCacheMutex.withLock {
             cachedGitHubToken?.takeIf { githubAuthCacheFresh(cachedGitHubTokenAtMs) }?.let { return@withLock it }
             val fromEnv = System.getenv("GITHUB_TOKEN")?.takeIf { it.isNotBlank() }
                 ?: System.getenv("GH_TOKEN")?.takeIf { it.isNotBlank() }
