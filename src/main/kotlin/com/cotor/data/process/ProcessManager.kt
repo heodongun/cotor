@@ -184,7 +184,7 @@ private fun redactedCommandForLogs(command: List<String>): String {
 }
 
 private fun joinReader(thread: Thread) {
-    thread.join(5_000)
+    thread.join()
 }
 
 private fun buildEffectivePath(

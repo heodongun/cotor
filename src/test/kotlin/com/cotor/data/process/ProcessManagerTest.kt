@@ -13,6 +13,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.mockk
 import kotlinx.coroutines.TimeoutCancellationException
 import org.slf4j.Logger
@@ -101,6 +102,25 @@ class ProcessManagerTest : FunSpec({
                 timeout = 200
             )
         }
+    }
+
+    test("executeProcess drains large stdout output before returning") {
+        val processManager = CoroutineProcessManager(mockk<Logger>(relaxed = true))
+
+        val result = processManager.executeProcess(
+            command = listOf(
+                "/bin/sh",
+                "-c",
+                "python3 - <<'PY'\nfor i in range(20000):\n    print(f'line-{i}')\nPY"
+            ),
+            input = null,
+            environment = emptyMap(),
+            timeout = 30_000
+        )
+
+        result.isSuccess shouldBe true
+        result.stdout shouldContain "line-0"
+        result.stdout shouldContain "line-19999"
     }
 
     test("effectiveUserHome prefers HOME from the environment over user.home") {
