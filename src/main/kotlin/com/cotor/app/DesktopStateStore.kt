@@ -24,6 +24,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.PosixFilePermission
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -154,10 +155,14 @@ class DesktopStateStore(
         val payload = json.encodeToString(DesktopAppState.serializer(), compactedState)
         val tempFile = Files.createTempFile(file.parent, "${file.fileName}.", ".tmp")
         tempFile.writeText(payload)
+        enforceOwnerOnlyPermissions(tempFile)
         moveWithAtomicFallback(tempFile, file)
+        enforceOwnerOnlyPermissions(file)
         val backupTempFile = Files.createTempFile(backupFile.parent, "${backupFile.fileName}.", ".tmp")
         backupTempFile.writeText(payload)
+        enforceOwnerOnlyPermissions(backupTempFile)
         moveWithAtomicFallback(backupTempFile, backupFile)
+        enforceOwnerOnlyPermissions(backupFile)
         updateCache(file, compactedState)
     }
 
@@ -364,10 +369,23 @@ class DesktopStateStore(
             {"pid":$pid,"lockedAt":$now,"appHome":"${appHome().toString().replace("\"", "\\\"")}"}
         """.trimIndent()
         metadataPath.writeText(payload)
+        enforceOwnerOnlyPermissions(metadataPath)
     }
 
     private fun clearLockMetadata(metadataPath: Path) {
         runCatching { Files.deleteIfExists(metadataPath) }
+    }
+
+    private fun enforceOwnerOnlyPermissions(path: Path) {
+        runCatching {
+            Files.setPosixFilePermissions(
+                path,
+                setOf(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE
+                )
+            )
+        }
     }
 
     private fun currentFingerprint(file: Path): Pair<Long, Long>? =
