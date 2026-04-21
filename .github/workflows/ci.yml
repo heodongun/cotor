@@ -128,12 +128,44 @@ jobs:
         id: test
         run: |
           ./gradlew --no-daemon test --stacktrace \
-            --tests 'com.cotor.app.DesktopAppServiceTest' \
             --tests 'com.cotor.app.DesktopAppServiceDashboardRuntimeTest' \
             --tests 'com.cotor.app.DesktopAppServiceMergeConfirmationTest' \
             --tests 'com.cotor.app.DesktopAppServiceParallelDispatchTest' \
             --tests 'com.cotor.app.DesktopAppServiceRequeueOrphanedTest' \
             --tests 'com.cotor.app.DesktopAppServiceTimeoutFollowUpTest' \
+            -x jacocoTestReport -x jacocoTestCoverageVerification
+        timeout-minutes: 320
+
+      - name: Reopen and unassign Linear issue on failed PR tests
+        if: ${{ failure() && github.event_name == 'pull_request' && steps.test.outcome == 'failure' }}
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: python3 scripts/linear_pr_failure_gate.py --event-path "$GITHUB_EVENT_PATH"
+
+  verify-app-company-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    needs: verify-format
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test company runtime shard
+        id: test
+        run: |
+          ./gradlew --no-daemon test --stacktrace \
+            --tests 'com.cotor.app.DesktopAppServiceTest' \
             -x jacocoTestReport -x jacocoTestCoverageVerification
         timeout-minutes: 320
 
