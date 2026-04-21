@@ -47,6 +47,7 @@ class DesktopStateStore(
         private const val STATE_LOAD_LOG_DEDUP_WINDOW_MS = 30_000L
         private const val STATE_LOCK_TIMEOUT_MS = 3_000L
         private const val STATE_LOCK_RETRY_DELAY_MS = 50L
+        private const val MAX_TAIL_TRIM_RECOVERY_CHARS = 512
 
         @Volatile
         private var lastStateLoadLogMessage: String? = null
@@ -175,7 +176,7 @@ class DesktopStateStore(
     private fun decodeState(raw: String): DesktopAppState? {
         decodeStateOrNull(raw)?.let { return it }
         var candidate = raw.trimEnd()
-        var trimsRemaining = 4096
+        var trimsRemaining = MAX_TAIL_TRIM_RECOVERY_CHARS
         while (candidate.isNotEmpty() && trimsRemaining > 0) {
             candidate = candidate.dropLast(1).trimEnd()
             trimsRemaining -= 1
