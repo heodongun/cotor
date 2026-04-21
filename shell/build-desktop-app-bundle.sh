@@ -148,7 +148,11 @@ sed \
 cp "$PACKAGING_ROOT/CotorDesktopLauncher.sh.template" "$APP_MACOS/CotorDesktopLauncher"
 chmod +x "$APP_MACOS/CotorDesktopLauncher"
 
-codesign --force --deep --sign - "$STAGING_APP" >/dev/null 2>&1 || true
+if codesign --force --deep --sign - "$STAGING_APP"; then
+    echo "✅ Applied ad-hoc signature to desktop bundle."
+else
+    echo "⚠️  Ad-hoc codesign failed; bundle was built without a refreshed signature."
+fi
 
 echo "✅ Built Cotor Desktop bundle."
 echo "   Bundle: $STAGING_APP"
