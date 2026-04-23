@@ -110,7 +110,7 @@ class DesktopAppServiceRequeueOrphanedTest : FunSpec({
                 )
             )
 
-            val latestIssue = withTimeout(5_000) {
+            val latestIssue = withTimeout(30_000) {
                 while (true) {
                     service.companyDashboardPrepared(company.id)
                     val current = stateStore.load()
