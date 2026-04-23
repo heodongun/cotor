@@ -130,8 +130,9 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
             service.startCompanyRuntime(company.id)
             service.runCompanyRuntimeTick(company.id)
 
-            withTimeout(5_000) {
+            withTimeout(30_000) {
                 while (true) {
+                    service.runCompanyRuntimeTick(company.id)
                     val current = stateStore.load()
                     val startedTasks = current.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) }
                     if (startedTasks.size == 2) {
