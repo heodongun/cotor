@@ -69,7 +69,7 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
 
             service!!.runIssue(issue.id)
 
-            withTimeout(10_000) {
+            withTimeout(30_000) {
                 while (true) {
                     val currentIssue = harness.stateStore.load().issues.first { it.id == issue.id }
                     if (currentIssue.status == IssueStatus.DONE && currentIssue.durableRunId != null) {

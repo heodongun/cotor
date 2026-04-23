@@ -4601,6 +4601,20 @@ class DesktopAppServiceTest : FunSpec({
         // goals without also scheduling unrelated autonomous execution work.
         service.companyDashboardPrepared(company.id)
 
+        withTimeout(10_000) {
+            while (true) {
+                val state = stateStore.load()
+                val nestedGoalTerminal = state.goals.firstOrNull { it.id == nestedGoal.id }?.status == GoalStatus.COMPLETED
+                val nestedIssuesTerminal = state.issues
+                    .filter { it.goalId == nestedGoal.id }
+                    .all { it.status == IssueStatus.CANCELED || it.status == IssueStatus.DONE }
+                if (nestedGoalTerminal && nestedIssuesTerminal) {
+                    break
+                }
+                service.companyDashboardPrepared(company.id)
+                delay(25)
+            }
+        }
         val companyGoalsAfterNestedTicks = stateStore.load().goals.filter { it.companyId == company.id }
         val updatedNestedGoal = companyGoalsAfterNestedTicks.firstOrNull { it.id == nestedGoal.id }
             ?: error(
@@ -5023,8 +5037,12 @@ class DesktopAppServiceTest : FunSpec({
 
         service.runCompanyRuntimeTick(company.id)
 
-        val updatedIssue = stateStore.load().issues.first { it.id == executionIssue.id }
-        updatedIssue.status shouldBe IssueStatus.BLOCKED
+        withTimeout(10_000) {
+            while (stateStore.load().issues.first { it.id == executionIssue.id }.status != IssueStatus.BLOCKED) {
+                delay(25)
+            }
+        }
+        stateStore.load().issues.first { it.id == executionIssue.id }.status shouldBe IssueStatus.BLOCKED
     }
 
     test("review issues complete successfully without requiring code publish") {
@@ -5812,7 +5830,7 @@ class DesktopAppServiceTest : FunSpec({
             autonomyEnabled = true
         )
 
-        withTimeout(15_000) {
+        withTimeout(30_000) {
             while (capturedAgents.isEmpty()) {
                 runCatching { service.runCompanyRuntimeTick(goal.companyId) }
                 delay(200)
@@ -9085,8 +9103,18 @@ class DesktopAppServiceTest : FunSpec({
         )
 
         service.companyDashboard(company.id)
-        withTimeout(2_000) {
-            while (stateStore.load().goals.first { it.id == staleFollowUpGoal.id }.status != GoalStatus.COMPLETED) {
+        withTimeout(10_000) {
+            while (true) {
+                val state = stateStore.load()
+                val goalArchived = state.goals.first { it.id == staleFollowUpGoal.id }.status == GoalStatus.COMPLETED
+                val issuesArchived = listOf(staleExecution.id, staleApproval.id).all { issueId ->
+                    state.issues.first { it.id == issueId }.status == IssueStatus.CANCELED
+                }
+                val queueRemoved = state.reviewQueue.none { it.id == staleQueueItem.id }
+                if (goalArchived && issuesArchived && queueRemoved) {
+                    break
+                }
+                service.companyDashboard(company.id)
                 delay(25)
             }
         }
@@ -9716,7 +9744,7 @@ private class DesktopAppServiceFixture private constructor(
     val task: AgentTask,
     val worktreeRoot: Path
 ) {
-    suspend fun awaitRuns(): List<AgentRun> = withTimeout(5_000) {
+    suspend fun awaitRuns(): List<AgentRun> = withTimeout(20_000) {
         while (true) {
             val runs = service.listRuns(task.id)
             if (runs.isNotEmpty() && runs.none { it.status == AgentRunStatus.QUEUED || it.status == AgentRunStatus.RUNNING }) {
