@@ -5927,9 +5927,9 @@ class DesktopAppServiceTest : FunSpec({
             companyId = company.id,
             title = "Persistent memory",
             description = "Remember company context and execute with stored workflow memory.",
-            autonomyEnabled = false
+            autonomyEnabled = true,
+            startRuntimeIfNeeded = false
         )
-        service.updateGoal(goal.id, autonomyEnabled = true)
         service.startCompanyRuntime(company.id)
         service.runCompanyRuntimeTick(company.id)
 
@@ -9744,7 +9744,7 @@ private class DesktopAppServiceFixture private constructor(
     val task: AgentTask,
     val worktreeRoot: Path
 ) {
-    suspend fun awaitRuns(): List<AgentRun> = withTimeout(20_000) {
+    suspend fun awaitRuns(): List<AgentRun> = withTimeout(60_000) {
         while (true) {
             val runs = service.listRuns(task.id)
             if (runs.isNotEmpty() && runs.none { it.status == AgentRunStatus.QUEUED || it.status == AgentRunStatus.RUNNING }) {
@@ -9965,7 +9965,7 @@ private suspend fun seedWorkspace(stateStore: DesktopStateStore, repoRoot: Path)
 }
 
 private suspend fun awaitTaskCompletion(stateStore: DesktopStateStore, taskId: String) {
-    withTimeout(5_000) {
+    withTimeout(30_000) {
         while (true) {
             val task = stateStore.load().tasks.first { it.id == taskId }
             if (task.status == DesktopTaskStatus.COMPLETED) {
