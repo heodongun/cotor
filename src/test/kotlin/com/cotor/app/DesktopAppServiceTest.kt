@@ -9114,7 +9114,7 @@ class DesktopAppServiceTest : FunSpec({
                 if (goalArchived && issuesArchived && queueRemoved) {
                     break
                 }
-                service.companyDashboard(company.id)
+                service.companyDashboardPrepared(company.id)
                 delay(25)
             }
         }
