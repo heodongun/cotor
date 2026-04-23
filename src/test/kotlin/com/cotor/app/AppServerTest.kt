@@ -420,10 +420,10 @@ class AppServerTest : FunSpec({
             response.bodyAsText() shouldContain "\"name\":\"company_summary\""
             response.bodyAsText() shouldContain "\"name\":\"company_memory_snapshot\""
             response.bodyAsText() shouldContain "\"readOnlyHint\":true"
-            response.bodyAsText() shouldContain "\"name\":\"company_runtime_start\""
-            response.bodyAsText() shouldContain "\"name\":\"company_runtime_stop\""
-            response.bodyAsText() shouldContain "\"name\":\"company_review_qa\""
-            response.bodyAsText() shouldContain "\"name\":\"company_review_ceo\""
+            response.bodyAsText().contains("\"name\":\"company_runtime_start\"") shouldBe false
+            response.bodyAsText().contains("\"name\":\"company_runtime_stop\"") shouldBe false
+            response.bodyAsText().contains("\"name\":\"company_review_qa\"") shouldBe false
+            response.bodyAsText().contains("\"name\":\"company_review_ceo\"") shouldBe false
         }
     }
 
@@ -458,6 +458,69 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("mcp control tools list exposes mutating runtime and review tools explicitly") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService,
+                    controlToken = "control-token"
+                )
+            }
+
+            val response = client.post("/api/app/mcp/control") {
+                header("Authorization", "Bearer control-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "tools/list"
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"name\":\"company_runtime_start\""
+            response.bodyAsText() shouldContain "\"name\":\"company_runtime_stop\""
+            response.bodyAsText() shouldContain "\"name\":\"company_review_qa\""
+            response.bodyAsText() shouldContain "\"name\":\"company_review_ceo\""
+            response.bodyAsText() shouldContain "\"readOnlyHint\":false"
+        }
+    }
+
+    test("mcp control surface requires a separate control token") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.post("/api/app/mcp/control") {
+                header("Authorization", "Bearer secret-token")
+                header("Content-Type", "application/json")
+                setBody(
+                    """
+                    {
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "tools/list"
+                    }
+                    """.trimIndent()
+                )
+            }
+
+            response.status shouldBe HttpStatusCode.Forbidden
+            response.bodyAsText() shouldContain "MCP control token is not configured"
+        }
+    }
+
     test("mcp runtime control tools mutate company runtime explicitly") {
         coEvery { desktopService.startCompanyRuntime("company-1") } returns CompanyRuntimeSnapshot(
             companyId = "company-1",
@@ -475,12 +538,13 @@ class AppServerTest : FunSpec({
                 cotorAppModule(
                     token = "secret-token",
                     desktopService = desktopService,
-                    tuiSessionService = tuiSessionService
+                    tuiSessionService = tuiSessionService,
+                    controlToken = "control-token"
                 )
             }
 
-            val startResponse = client.post("/api/app/mcp") {
-                header("Authorization", "Bearer secret-token")
+            val startResponse = client.post("/api/app/mcp/control") {
+                header("Authorization", "Bearer control-token")
                 header("Content-Type", "application/json")
                 setBody(
                     """
@@ -497,8 +561,8 @@ class AppServerTest : FunSpec({
                 )
             }
 
-            val stopResponse = client.post("/api/app/mcp") {
-                header("Authorization", "Bearer secret-token")
+            val stopResponse = client.post("/api/app/mcp/control") {
+                header("Authorization", "Bearer control-token")
                 header("Content-Type", "application/json")
                 setBody(
                     """
@@ -551,12 +615,13 @@ class AppServerTest : FunSpec({
                 cotorAppModule(
                     token = "secret-token",
                     desktopService = desktopService,
-                    tuiSessionService = tuiSessionService
+                    tuiSessionService = tuiSessionService,
+                    controlToken = "control-token"
                 )
             }
 
-            val qaResponse = client.post("/api/app/mcp") {
-                header("Authorization", "Bearer secret-token")
+            val qaResponse = client.post("/api/app/mcp/control") {
+                header("Authorization", "Bearer control-token")
                 header("Content-Type", "application/json")
                 setBody(
                     """
@@ -573,8 +638,8 @@ class AppServerTest : FunSpec({
                 )
             }
 
-            val ceoResponse = client.post("/api/app/mcp") {
-                header("Authorization", "Bearer secret-token")
+            val ceoResponse = client.post("/api/app/mcp/control") {
+                header("Authorization", "Bearer control-token")
                 header("Content-Type", "application/json")
                 setBody(
                     """

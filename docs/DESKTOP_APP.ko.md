@@ -57,6 +57,15 @@ export COTOR_APP_TOKEN='your-local-token'
 cotor app-server --port 8787 --token your-local-token
 ```
 
+MCP 제어 도구를 별도 토큰으로 열려면:
+
+```bash
+export COTOR_APP_CONTROL_TOKEN='your-local-control-token'
+cotor app-server --port 8787 --token your-local-token --control-token your-local-control-token
+```
+
+`/api/app/mcp`는 읽기 전용입니다. 상태를 바꾸는 MCP 도구는 `/api/app/mcp/control`에 있으며 control token이 필요합니다.
+
 ## macOS 앱 실행
 
 ```bash

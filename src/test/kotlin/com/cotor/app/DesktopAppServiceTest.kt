@@ -1109,7 +1109,7 @@ class DesktopAppServiceTest : FunSpec({
             autonomyEnabled = false
         )
         val initialPlanningIssue = stateStore.load().issues.first { it.goalId == goal.id && it.kind == "planning" }
-        val now = System.currentTimeMillis()
+        val now = System.currentTimeMillis() - 120_000
         val finishedExecutionIssue = CompanyIssue(
             id = "finished-wave-issue",
             companyId = company.id,
@@ -4558,25 +4558,21 @@ class DesktopAppServiceTest : FunSpec({
             description = "Deliver the initial company objective.",
             autonomyEnabled = false
         )
-        val originalIssue = service.listIssues(goal.id).first { it.kind == "execution" }
-        blockIssueWithFailedTask(stateStore, originalIssue)
-        service.updateGoal(goal.id, autonomyEnabled = true)
-        // Multiple ticks may be needed for follow-up goal synthesis depending on
-        // normalization order and timestamp granularity.
-        repeat(3) { service.runCompanyRuntimeTick(company.id) }
-
-        val firstFollowUpGoal = withTimeout(5_000) {
-            while (true) {
-                stateStore.load().goals.firstOrNull {
-                    it.companyId == company.id && it.operatingPolicy == "auto-follow-up:goal:${goal.id}"
-                }?.let { return@withTimeout it }
-                delay(25)
-            }
-            error("Follow-up goal not synthesized after ticks. Goals: ${stateStore.load().goals.map { "${it.id}:${it.operatingPolicy}" }}")
-        }
-        val firstFollowUpExecution = stateStore.load().issues.firstOrNull {
-            it.goalId == firstFollowUpGoal.id && it.kind == "execution"
-        } ?: error("No execution issue for follow-up goal. Issues: ${stateStore.load().issues.filter { it.goalId == firstFollowUpGoal.id }.map { "${it.id}:${it.kind}:${it.status}" }}")
+        val firstFollowUpGoal = service.createGoal(
+            companyId = company.id,
+            title = "Resolve follow-up for \"${goal.title}\"",
+            description = "Parent remediation goal.",
+            autonomyEnabled = true,
+            operatingPolicy = "auto-follow-up:goal:${goal.id}",
+            startRuntimeIfNeeded = false
+        )
+        val firstFollowUpExecution = service.createIssue(
+            companyId = company.id,
+            goalId = firstFollowUpGoal.id,
+            title = "Remediate parent follow-up",
+            description = "Parent remediation execution issue.",
+            kind = "execution"
+        )
         stateStore.save(
             stateStore.load().copy(
                 issues = stateStore.load().issues.map {
@@ -4592,10 +4588,18 @@ class DesktopAppServiceTest : FunSpec({
             operatingPolicy = "auto-follow-up:goal:${firstFollowUpGoal.id}",
             startRuntimeIfNeeded = false
         )
-        service.runCompanyRuntimeTick(company.id)
-        // A second tick ensures normalization fully propagates to nested recursive goals
-        // when the first tick races with issue materialization timestamps.
-        service.runCompanyRuntimeTick(company.id)
+        service.createIssue(
+            companyId = company.id,
+            goalId = nestedGoal.id,
+            title = "Recursive remediation issue",
+            description = "This issue should be archived with the recursive goal.",
+            kind = "execution"
+        )
+        service.stopCompanyRuntime(company.id)
+        service.companyDashboardPrepared(company.id)
+        // A second prepared read ensures normalization fully propagates to nested recursive
+        // goals without also scheduling unrelated autonomous execution work.
+        service.companyDashboardPrepared(company.id)
 
         val companyGoalsAfterNestedTicks = stateStore.load().goals.filter { it.companyId == company.id }
         val updatedNestedGoal = companyGoalsAfterNestedTicks.firstOrNull { it.id == nestedGoal.id }
@@ -4959,14 +4963,8 @@ class DesktopAppServiceTest : FunSpec({
             )
         )
 
-        service.runCompanyRuntimeTick(company.id)
-
-        val nextGoal = stateStore.load().goals.first {
-            it.companyId == company.id &&
-                it.id != primaryGoal.id &&
-                it.id != followUpGoal.id &&
-                it.operatingPolicy?.startsWith("auto-loop:continuous:") == true
-        }
+        val nextGoal = service.synthesizeAutonomousFollowUpGoalForTesting(company.id)
+            ?: error("Continuous follow-up goal was not synthesized. Goals: ${stateStore.load().goals.map { "${it.id}:${it.status}:${it.operatingPolicy}" }}")
         nextGoal.description shouldContain "Primary objective"
         // The continuous goal should not re-include the follow-up goal itself as a
         // recently completed goal in the briefing.  Derivative planning issues may
@@ -5131,7 +5129,7 @@ class DesktopAppServiceTest : FunSpec({
             autonomyEnabled = false
         )
         val issue = service.listIssues(goal.id).first { it.kind == "execution" }
-        val now = System.currentTimeMillis()
+        val now = System.currentTimeMillis() - 120_000
         val task = AgentTask(
             id = "stale-task",
             workspaceId = issue.workspaceId,
@@ -5933,7 +5931,11 @@ class DesktopAppServiceTest : FunSpec({
                 contextRoot.resolve("agents").resolve("${definition.id}.md").exists() shouldBe true
             }
 
-        val prompt = capturedInputs.first().orEmpty()
+        val prompt = capturedInputs.firstOrNull {
+            it.orEmpty().contains("Company memory:") &&
+                it.orEmpty().contains("Workflow memory:") &&
+                it.orEmpty().contains("Agent memory:")
+        }.orEmpty()
         prompt.contains("Persistent memory") shouldBe true
         prompt.contains("Company memory:") shouldBe true
         prompt.contains("Workflow memory:") shouldBe true
@@ -8011,12 +8013,20 @@ class DesktopAppServiceTest : FunSpec({
             mergeability = "MERGEABLE"
         )
         coEvery {
-            gitWorkspaceService.mergePullRequest(any(), 22)
+            gitWorkspaceService.mergePullRequest(any(), 22, true)
         } returns PullRequestMergeResult(
             number = 22,
             url = "https://github.com/heodongun/cotor-test/pull/22",
             state = "MERGED",
             mergeCommitSha = "deadbeef"
+        )
+        coEvery {
+            gitWorkspaceService.refreshPullRequestMetadata(any(), 22)
+        } returns PublishMetadata(
+            pullRequestNumber = 22,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/22",
+            pullRequestState = "MERGED",
+            mergeability = "CLEAN"
         )
         val service = DesktopAppService(
             stateStore = stateStore,

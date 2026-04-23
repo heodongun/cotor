@@ -125,4 +125,31 @@ class VerificationBundleServiceTest : FunSpec({
         store.loadOutcome(issue.id)?.issueId shouldBe issue.id
         store.loadObservations(issue.id).isNotEmpty() shouldBe true
     }
+
+    test("completed non-code issue can pass verification without qa or ci signals") {
+        val appHome = Files.createTempDirectory("verification-bundle-done-issue-test")
+        val service = VerificationBundleService(
+            provenanceService = ProvenanceService(ProvenanceStore { appHome }),
+            knowledgeService = KnowledgeService(KnowledgeStore { appHome }),
+            store = VerificationStore { appHome }
+        )
+
+        val bundle = service.buildForIssue(
+            state = DesktopAppState(),
+            issue = CompanyIssue(
+                id = "issue-done",
+                goalId = "goal-done",
+                workspaceId = "workspace-done",
+                title = "Done infra issue",
+                description = "desc",
+                status = IssueStatus.DONE,
+                kind = "infra",
+                createdAt = 1L,
+                updatedAt = 2L
+            )
+        )
+
+        bundle.outcome.status shouldBe VerificationOutcomeStatus.PASS
+        bundle.outcome.passedSignals.any { it.key == "issue-status" } shouldBe true
+    }
 })

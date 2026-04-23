@@ -12,6 +12,7 @@ import com.cotor.data.process.ProcessManager
 import com.cotor.model.ExecutionContext
 import com.cotor.model.PluginExecutionOutput
 import com.cotor.model.ProcessResult
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -71,6 +72,34 @@ class QaVerificationPluginTest : FunSpec({
         }
 
         processManager.lastCommand shouldContainExactly listOf("./gradlew", "test", "--console=plain")
+    }
+
+    test("fails clearly when no verification command can be auto-detected") {
+        val root = Path.of("build/tmp/qa-plugin-empty-${System.currentTimeMillis()}")
+        root.createDirectories()
+
+        val processManager = CapturingProcessManager()
+        val plugin = QaVerificationPlugin()
+
+        val error = shouldThrow<IllegalStateException> {
+            runBlocking {
+                plugin.execute(
+                    ExecutionContext(
+                        agentName = "qa",
+                        input = "",
+                        parameters = emptyMap(),
+                        environment = emptyMap(),
+                        timeout = 60_000,
+                        repoRoot = root,
+                        workingDirectory = root
+                    ),
+                    processManager
+                )
+            }
+        }
+
+        error.message shouldBe
+            "Could not auto-detect a QA verification command from the repository root. Provide argvJson explicitly for this verification step."
     }
 })
 

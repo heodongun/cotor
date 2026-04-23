@@ -83,7 +83,8 @@ class AppServer : KoinComponent {
         port: Int = 8787,
         host: String = "127.0.0.1",
         wait: Boolean = true,
-        token: String? = null
+        token: String? = null,
+        controlToken: String? = null
     ) {
         val lockRecord = desktopAppServerInstanceGuard.acquire(host = host, port = port)
         println(
@@ -106,6 +107,7 @@ class AppServer : KoinComponent {
                 tuiSessionService = tuiSessionService,
                 durableRuntimeService = durableRuntimeService,
                 durableResumeCoordinator = durableResumeCoordinator,
+                controlToken = controlToken,
                 shutdownHandler = {
                     Thread {
                         server.stop(1000, 5000)
@@ -113,7 +115,7 @@ class AppServer : KoinComponent {
                 }
             )
         }
-        server.environment.monitor.subscribe(ApplicationStopped) {
+        server.application.monitor.subscribe(ApplicationStopped) {
             cleanup()
         }
         Runtime.getRuntime().addShutdownHook(
@@ -277,6 +279,7 @@ internal fun Application.cotorAppModule(
     a2aRouter: A2aRouter = A2aRouter(desktopService),
     durableRuntimeService: DurableRuntimeService? = null,
     durableResumeCoordinator: DurableResumeCoordinator? = null,
+    controlToken: String? = null,
     shutdownHandler: (() -> Unit)? = null
 ) {
     val ktorJson = Json {
@@ -709,7 +712,13 @@ internal fun Application.cotorAppModule(
             post("/mcp") {
                 if (!requireToken(token)) return@post
                 val request = call.receive<JsonElement>()
-                call.respond(handleReadonlyMcpRequest(request, desktopService, durableRuntimeService))
+                call.respond(handleMcpRequest(request, desktopService, durableRuntimeService, readOnlySurface = true))
+            }
+
+            post("/mcp/control") {
+                if (!requireControlToken(controlToken)) return@post
+                val request = call.receive<JsonElement>()
+                call.respond(handleMcpRequest(request, desktopService, durableRuntimeService, readOnlySurface = false))
             }
 
             route("/issues/{issueId}/runs") {
@@ -1744,6 +1753,7 @@ internal fun Application.cotorAppModule(
         a2aRouter = A2aRouter(desktopService),
         durableRuntimeService = null,
         durableResumeCoordinator = null,
+        controlToken = null,
         shutdownHandler = shutdownHandler
     )
 }
@@ -1762,6 +1772,7 @@ internal fun Application.cotorAppModule(
         a2aRouter = a2aRouter,
         durableRuntimeService = null,
         durableResumeCoordinator = null,
+        controlToken = null,
         shutdownHandler = shutdownHandler
     )
 }
@@ -1769,10 +1780,11 @@ internal fun Application.cotorAppModule(
 private const val RUN_OUTPUT_LIMIT = 40_000
 private const val RUN_ERROR_LIMIT = 8_000
 
-private suspend fun handleReadonlyMcpRequest(
+private suspend fun handleMcpRequest(
     request: JsonElement,
     desktopService: DesktopAppService,
-    durableRuntimeService: DurableRuntimeService?
+    durableRuntimeService: DurableRuntimeService?,
+    readOnlySurface: Boolean
 ): JsonElement {
     val root = request.jsonObject
     val id = root["id"] ?: JsonNull
@@ -1790,7 +1802,7 @@ private suspend fun handleReadonlyMcpRequest(
                     put(
                         "serverInfo",
                         buildJsonObject {
-                            put("name", JsonPrimitive("cotor-readonly"))
+                            put("name", JsonPrimitive(if (readOnlySurface) "cotor-readonly" else "cotor-control"))
                             put("version", JsonPrimitive("1.0"))
                         }
                     )
@@ -1813,7 +1825,7 @@ private suspend fun handleReadonlyMcpRequest(
                             put(
                                 "annotations",
                                 buildJsonObject {
-                                    put("readOnlySurface", JsonPrimitive(true))
+                                    put("readOnlySurface", JsonPrimitive(readOnlySurface))
                                 }
                             )
                         }
@@ -1836,10 +1848,12 @@ private suspend fun handleReadonlyMcpRequest(
                         add(mcpToolDescriptor("company_memory_snapshot", "Return the unified company/workflow/agent memory snapshot.", readOnly = true))
                         add(mcpToolDescriptor("github_company_events", "Return GitHub provider events for one company.", readOnly = true))
                         add(mcpToolDescriptor("runtime_projection", "Return projected runtime state for one issue.", readOnly = true))
-                        add(mcpToolDescriptor("company_runtime_start", "Start one company runtime.", readOnly = false))
-                        add(mcpToolDescriptor("company_runtime_stop", "Stop one company runtime.", readOnly = false))
-                        add(mcpToolDescriptor("company_review_qa", "Submit a QA review verdict for one review queue item.", readOnly = false))
-                        add(mcpToolDescriptor("company_review_ceo", "Submit a CEO review verdict for one review queue item.", readOnly = false))
+                        if (!readOnlySurface) {
+                            add(mcpToolDescriptor("company_runtime_start", "Start one company runtime.", readOnly = false))
+                            add(mcpToolDescriptor("company_runtime_stop", "Stop one company runtime.", readOnly = false))
+                            add(mcpToolDescriptor("company_review_qa", "Submit a QA review verdict for one review queue item.", readOnly = false))
+                            add(mcpToolDescriptor("company_review_ceo", "Submit a CEO review verdict for one review queue item.", readOnly = false))
+                        }
                     }
                 )
             }
@@ -1906,16 +1920,19 @@ private suspend fun handleReadonlyMcpRequest(
                     mcpJson.encodeToString(IssueRuntimeProjection.serializer(), desktopService.issueRuntimeProjection(issueId))
                 }
                 "company_runtime_start" -> {
+                    if (readOnlySurface) return mcpError(id, -32601, "Unknown MCP tool: $toolName")
                     val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "companyId is required")
                     mcpJson.encodeToString(CompanyRuntimeSnapshot.serializer(), desktopService.startCompanyRuntime(companyId))
                 }
                 "company_runtime_stop" -> {
+                    if (readOnlySurface) return mcpError(id, -32601, "Unknown MCP tool: $toolName")
                     val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "companyId is required")
                     mcpJson.encodeToString(CompanyRuntimeSnapshot.serializer(), desktopService.stopCompanyRuntime(companyId))
                 }
                 "company_review_qa" -> {
+                    if (readOnlySurface) return mcpError(id, -32601, "Unknown MCP tool: $toolName")
                     val queueItemId = arguments["queueItemId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "queueItemId is required")
                     val verdict = arguments["verdict"]?.jsonPrimitive?.contentOrNull
@@ -1924,6 +1941,7 @@ private suspend fun handleReadonlyMcpRequest(
                     mcpJson.encodeToString(ReviewQueueItem.serializer(), desktopService.submitQaReviewVerdict(queueItemId, verdict, feedback))
                 }
                 "company_review_ceo" -> {
+                    if (readOnlySurface) return mcpError(id, -32601, "Unknown MCP tool: $toolName")
                     val queueItemId = arguments["queueItemId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "queueItemId is required")
                     val verdict = arguments["verdict"]?.jsonPrimitive?.contentOrNull
@@ -2074,6 +2092,15 @@ private suspend fun RoutingContext.requireToken(token: String?): Boolean {
     }
     call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Unauthorized"))
     return false
+}
+
+private suspend fun RoutingContext.requireControlToken(controlToken: String?): Boolean {
+    val expected = controlToken?.takeIf { it.isNotBlank() }
+    if (expected == null) {
+        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "MCP control token is not configured"))
+        return false
+    }
+    return requireToken(expected)
 }
 
 /**

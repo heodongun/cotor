@@ -15,6 +15,7 @@ import java.nio.file.Files
 class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
     test("company issue run completes with real stores and git worktree while only agent execution is mocked") {
         System.setProperty("cotor.experimental.durableRuntimeV2", "true")
+        var service: DesktopAppService? = null
         try {
             val harness = createDesktopAppServiceIntegrationHarness(
                 agentResultFactory = {
@@ -30,20 +31,20 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 }
             )
 
-            val service = harness.service
-            val company = service.createCompany(
+            service = harness.service
+            val company = service!!.createCompany(
                 name = "AI Only Integration Co",
                 rootPath = harness.repositoryRoot.toString(),
                 defaultBaseBranch = "master"
             )
-            val goal = service.createGoal(
+            val goal = service!!.createGoal(
                 companyId = company.id,
                 title = "Validate infra-only issue flow",
                 description = "Run a non-code issue through the full company runtime path.",
                 autonomyEnabled = false,
                 startRuntimeIfNeeded = false
             )
-            val issue = service.createIssue(
+            val issue = service!!.createIssue(
                 companyId = company.id,
                 goalId = goal.id,
                 title = "Infra runtime validation",
@@ -66,7 +67,7 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 )
             )
 
-            service.runIssue(issue.id)
+            service!!.runIssue(issue.id)
 
             withTimeout(10_000) {
                 while (true) {
@@ -82,24 +83,24 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             val settledIssue = settledState.issues.first { it.id == issue.id }
             settledIssue.status shouldBe IssueStatus.DONE
             settledIssue.durableRunId.shouldNotBeNull()
-            service.verificationBundle(issue.id).outcome.status shouldBe com.cotor.verification.VerificationOutcomeStatus.PASS
+            service!!.verificationBundle(issue.id).outcome.status shouldBe com.cotor.verification.VerificationOutcomeStatus.PASS
 
             val durableRun = harness.durableRuntimeService.inspectRun(settledIssue.durableRunId!!)
             durableRun.shouldNotBeNull()
             durableRun.status.name shouldBe "COMPLETED"
 
-            val projection = service.issueRuntimeProjection(issue.id)
+            val projection = service!!.issueRuntimeProjection(issue.id)
             projection.issue.runtimeDisposition shouldBe "TERMINAL"
             projection.runtime.pendingIssueIds.contains(issue.id) shouldBe false
-
-            service.shutdown()
         } finally {
+            service?.shutdown()
             System.clearProperty("cotor.experimental.durableRuntimeV2")
         }
     }
 
     test("canonical agent note prevents duplicate legacy stdout fallback replay") {
         System.setProperty("cotor.experimental.durableRuntimeV2", "true")
+        var service: DesktopAppService? = null
         try {
             lateinit var serviceRef: DesktopAppService
             lateinit var issueRef: CompanyIssue
@@ -129,14 +130,14 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 }
             )
 
-            val service = harness.service
-            serviceRef = service
-            val company = service.createCompany(
+            service = harness.service
+            serviceRef = service!!
+            val company = service!!.createCompany(
                 name = "Canonical Beats Legacy Co",
                 rootPath = harness.repositoryRoot.toString(),
                 defaultBaseBranch = "master"
             )
-            val goal = service.createGoal(
+            val goal = service!!.createGoal(
                 companyId = company.id,
                 title = "Avoid duplicate communication replay",
                 description = "Ensure canonical communication suppresses legacy stdout fallback duplication.",
@@ -144,7 +145,7 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 startRuntimeIfNeeded = false
             )
             goalRef = goal
-            val issue = service.createIssue(
+            val issue = service!!.createIssue(
                 companyId = company.id,
                 goalId = goal.id,
                 title = "Canonical note should win",
@@ -168,7 +169,7 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 )
             )
 
-            service.runIssue(issue.id)
+            service!!.runIssue(issue.id)
 
             withTimeout(10_000) {
                 while (true) {
@@ -190,9 +191,8 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             }
 
             notes.size shouldBe 1
-
-            service.shutdown()
         } finally {
+            service?.shutdown()
             System.clearProperty("cotor.experimental.durableRuntimeV2")
         }
     }
@@ -325,6 +325,8 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
 
     test("recreated service resumes a running company runtime from persisted state") {
         System.setProperty("cotor.experimental.durableRuntimeV2", "true")
+        var initialService: DesktopAppService? = null
+        var recreatedService: DesktopAppService? = null
         try {
             val initialHarness = createDesktopAppServiceIntegrationHarness(
                 agentResultFactory = {
@@ -340,20 +342,20 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 }
             )
 
-            val service = initialHarness.service
-            val company = service.createCompany(
+            initialService = initialHarness.service
+            val company = initialService!!.createCompany(
                 name = "AI Only Restart Co",
                 rootPath = initialHarness.repositoryRoot.toString(),
                 defaultBaseBranch = "master"
             )
-            val goal = service.createGoal(
+            val goal = initialService!!.createGoal(
                 companyId = company.id,
                 title = "Resume autonomous runtime after restart",
                 description = "Persist a running runtime and ensure the recreated service resumes it.",
                 autonomyEnabled = true,
                 startRuntimeIfNeeded = false
             )
-            val issue = service.createIssue(
+            val issue = initialService!!.createIssue(
                 companyId = company.id,
                 goalId = goal.id,
                 title = "Recovered autonomous issue",
@@ -382,7 +384,8 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                     }
                 )
             )
-            service.shutdown()
+            initialService!!.shutdown()
+            initialService = null
 
             val recreatedHarness = createDesktopAppServiceIntegrationHarness(
                 agentResultFactory = {
@@ -399,8 +402,9 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 appHome = initialHarness.appHome,
                 repositoryRoot = initialHarness.repositoryRoot
             )
+            recreatedService = recreatedHarness.service
 
-            recreatedHarness.service.companyDashboard(company.id)
+            recreatedService!!.companyDashboard(company.id)
 
             withTimeout(10_000) {
                 while (true) {
@@ -424,17 +428,17 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             settledRuns.size shouldBe 1
             settledRuns.single().status shouldBe AgentRunStatus.COMPLETED
             settledIssue.durableRunId shouldBe settledRuns.single().id
-            recreatedHarness.service.runtimeStatus(company.id).status shouldBe CompanyRuntimeStatus.RUNNING
+            recreatedService!!.runtimeStatus(company.id).status shouldBe CompanyRuntimeStatus.RUNNING
 
-            recreatedHarness.service.companyDashboard(company.id)
+            recreatedService!!.companyDashboard(company.id)
 
             val afterRetick = recreatedHarness.stateStore.load()
             afterRetick.tasks.count { it.issueId == issue.id } shouldBe 1
             afterRetick.runs.count { run -> afterRetick.tasks.any { it.issueId == issue.id && it.id == run.taskId } } shouldBe 1
             afterRetick.issues.first { it.id == issue.id }.status shouldBe IssueStatus.DONE
-
-            recreatedHarness.service.shutdown()
         } finally {
+            recreatedService?.shutdown()
+            initialService?.shutdown()
             System.clearProperty("cotor.experimental.durableRuntimeV2")
         }
     }

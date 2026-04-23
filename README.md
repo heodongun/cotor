@@ -45,6 +45,7 @@ Current subcommand support:
 - `verification inspect`
 - `runtime inspect`
 - `mcp serve --readonly`
+- app-server MCP read/control split: `/api/app/mcp` is read-only, `/api/app/mcp/control` requires `COTOR_APP_CONTROL_TOKEN`
 
 Current template types:
 

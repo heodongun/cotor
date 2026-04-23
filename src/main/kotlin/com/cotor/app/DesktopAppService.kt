@@ -303,8 +303,7 @@ class DesktopAppService(
     }
 
     suspend fun companyDashboard(companyId: String? = null): CompanyDashboardResponse {
-        val state = stateStore.load().withDerivedMetrics()
-        return companyDashboardSnapshot(state, companyId)
+        return companyDashboardPrepared(companyId)
     }
 
     suspend fun companyDashboardPrepared(companyId: String? = null): CompanyDashboardResponse {
@@ -373,7 +372,7 @@ class DesktopAppService(
             runningAgentSessions = computeRunningAgentSessions(state, orgProfiles)
                 .filter { companyId == null || it.companyId == companyId },
             backendStatuses = computeBackendStatuses(state)
-                .filter { companyId == null || state.companies.firstOrNull { company -> company.id == companyId }?.backendKind == it.kind || (companyId == null) },
+                .filter { companyId == null || state.companies.firstOrNull { company -> company.id == companyId }?.backendKind == it.kind },
             opsMetrics = state.opsMetrics,
             runtime = if (companyId == null) {
                 state.runtime
@@ -1285,10 +1284,8 @@ class DesktopAppService(
     suspend fun listGitHubEvents(companyId: String? = null) =
         gitHubControlPlaneService.listEvents(companyId)
 
-    suspend fun issueKnowledge(issueId: String): List<KnowledgeRecord> {
-        knowledgeService.synchronizeFromState(stateStore.load())
-        return knowledgeService.inspectIssue(issueId)
-    }
+    suspend fun issueKnowledge(issueId: String): List<KnowledgeRecord> =
+        knowledgeService.inspectIssue(issueId)
 
     suspend fun verificationBundle(issueId: String): VerificationBundle {
         val state = stateStore.load()
@@ -1297,7 +1294,6 @@ class DesktopAppService(
         val queueItem = state.reviewQueue
             .filter { it.issueId == issueId }
             .maxByOrNull { it.updatedAt }
-        knowledgeService.synchronizeFromState(state)
         return verificationBundleService.buildForIssue(state, issue, queueItem)
     }
 
@@ -4749,12 +4745,11 @@ class DesktopAppService(
             if (runtime.status != CompanyRuntimeStatus.RUNNING) {
                 return@withLock runtimeStatus(companyId)
             }
+            val actions = mutableListOf<String>()
             if (isBudgetExhausted(initial, companyId, runtime)) {
                 return@withLock updateRuntimeAfterTick(companyId, lastAction = "budget-paused")
             }
             runCatching { startCompanyBackend(companyId) }
-
-            val actions = mutableListOf<String>()
             if (reopenedInterruptedIssues > 0) {
                 actions += "reopened-interrupted:$reopenedInterruptedIssues"
             }
@@ -7785,13 +7780,29 @@ class DesktopAppService(
                 capabilities = codexAppServerBackend.capabilities
             )
         }
+        val localAppServerInstance = readDesktopAppServerInstanceStatus(stateStore.appHome())
+        val localRuntimeAttached = localAppServerInstance.active
         return ExecutionBackendStatus(
             kind = config.kind,
             displayName = localExecutionBackend.displayName,
-            health = if (config.enabled) "healthy" else "disabled",
-            message = if (config.enabled) "Using local Cotor app-server and CLI execution." else "Disabled in settings.",
-            lifecycleState = if (config.enabled) BackendLifecycleState.RUNNING else BackendLifecycleState.STOPPED,
+            health = when {
+                !config.enabled -> "disabled"
+                localRuntimeAttached -> "healthy"
+                else -> "offline"
+            },
+            message = when {
+                !config.enabled -> "Disabled in settings."
+                localRuntimeAttached -> "Using local Cotor app-server and CLI execution."
+                else -> "No active local Cotor app-server instance is attached to this app home. Autonomous work resumes when the app-server or desktop app is running again."
+            },
+            lifecycleState = when {
+                !config.enabled -> BackendLifecycleState.STOPPED
+                localRuntimeAttached -> BackendLifecycleState.RUNNING
+                else -> BackendLifecycleState.STOPPED
+            },
             managed = false,
+            pid = localAppServerInstance.metadata?.pid,
+            port = localAppServerInstance.metadata?.port,
             config = config,
             capabilities = localExecutionBackend.capabilities
         )
@@ -9991,8 +10002,8 @@ class DesktopAppService(
         val queuedRun = state.runs.firstOrNull { it.id == queueItem.runId }
         val queuedTask = queuedRun?.let { run -> state.tasks.firstOrNull { it.id == run.taskId } }
         val executionTaskAndRun =
-            if (queuedTask?.issueId == queueItem.issueId && queuedRun != null) {
-                queuedTask to queuedRun
+            if (queuedTask?.issueId == queueItem.issueId) {
+                queuedRun?.let { run -> queuedTask to run }
             } else {
                 val executionTasks = state.tasks
                     .filter { it.issueId == queueItem.issueId }
@@ -11666,6 +11677,19 @@ class DesktopAppService(
                 it.status == IssueStatus.DONE || it.status == IssueStatus.CANCELED
             }
             if (unresolvedNonPlanning.isNotEmpty()) {
+                if (finalStatus != DesktopTaskStatus.COMPLETED) {
+                    val blockedPlanningIssue = currentIssue.copy(
+                        status = IssueStatus.BLOCKED,
+                        transitionReason = "CEO planning task ended with ${finalStatus.name}; existing downstream issues were not treated as proof of successful planning.",
+                        updatedAt = now
+                    )
+                    stateStore.save(
+                        state.copy(
+                            issues = state.issues.map { existing -> if (existing.id == currentIssue.id) blockedPlanningIssue else existing }
+                        ).withDerivedMetrics()
+                    )
+                    return@withLock
+                }
                 val updatedPlanningIssue = currentIssue.copy(
                     status = IssueStatus.DONE,
                     transitionReason = "CEO planning lane already produced downstream issues for this goal.",
@@ -12006,13 +12030,13 @@ class DesktopAppService(
             } else {
                 existingReviewQueueItem.id
             }
-            val workflowLineage = if (pullRequestRequired && hasPublishMetadata && primaryRun != null) {
+            val workflowLineage = primaryRun?.takeIf { pullRequestRequired && hasPublishMetadata }?.let { run ->
                 if (publishedReviewIdentityChanged || existingQueueLineage == null) {
                     buildWorkflowLineageSnapshot(
                         reviewQueueItemId = reviewQueueItemId,
                         executionIssueId = currentIssue.id,
                         executionTaskId = task.id,
-                        executionRun = primaryRun,
+                        executionRun = run,
                         generation = nextWorkflowLineageGeneration(state, currentIssue.id)
                     )
                 } else {
@@ -12020,13 +12044,11 @@ class DesktopAppService(
                         reviewQueueItemId = reviewQueueItemId,
                         executionIssueId = currentIssue.id,
                         executionTaskId = task.id,
-                        executionRun = primaryRun,
+                        executionRun = run,
                         generation = existingQueueLineage.generation,
                         lineageId = existingQueueLineage.lineageId
                     )
                 }
-            } else {
-                null
             }
             val nextReviewQueue = if (pullRequestRequired && hasPublishMetadata) {
                 val existing = existingReviewQueueItem

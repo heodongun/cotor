@@ -71,6 +71,18 @@ class A2aRouter(
         )
     }
 
+    fun acknowledgeMessages(request: A2aAckMessagesRequest, now: Long = System.currentTimeMillis()): A2aAckMessagesResponse {
+        require(request.throughCursor > 0) { "throughCursor must be positive" }
+        require(sessionStore.session(request.sessionId) != null) { "Unknown session: ${request.sessionId}" }
+        val (removedCount, pendingCount) = sessionStore.acknowledge(request.sessionId, request.throughCursor, now)
+        return A2aAckMessagesResponse(
+            sessionId = request.sessionId,
+            removedCount = removedCount,
+            pendingCount = pendingCount,
+            serverTs = now
+        )
+    }
+
     suspend fun snapshot(request: A2aSnapshotRequest, now: Long = System.currentTimeMillis()): A2aSnapshotResponse {
         val dashboard = desktopService.companyDashboardReadOnly(request.tenant.companyId)
         val snapshot = buildJsonObject {

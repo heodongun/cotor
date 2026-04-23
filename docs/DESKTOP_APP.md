@@ -52,6 +52,15 @@ export COTOR_APP_TOKEN='your-local-token'
 cotor app-server --port 8787 --token your-local-token
 ```
 
+Optional MCP control auth:
+
+```bash
+export COTOR_APP_CONTROL_TOKEN='your-local-control-token'
+cotor app-server --port 8787 --token your-local-token --control-token your-local-control-token
+```
+
+`/api/app/mcp` is read-only. Mutating MCP tools live under `/api/app/mcp/control` and require the control token.
+
 ## Run The macOS App
 
 ```bash

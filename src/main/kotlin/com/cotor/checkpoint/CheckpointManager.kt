@@ -9,6 +9,7 @@ package com.cotor.checkpoint
  */
 
 import com.cotor.model.AgentResult
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -191,6 +192,7 @@ private fun defaultCheckpointDir(): String {
 /**
  * Pipeline checkpoint data
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class PipelineCheckpoint(
     val pipelineId: String,
