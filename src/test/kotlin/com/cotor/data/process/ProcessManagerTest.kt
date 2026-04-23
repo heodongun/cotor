@@ -161,4 +161,40 @@ class ProcessManagerTest : FunSpec({
         resolved.shouldNotBeNull()
         resolved shouldBe Path.of(fakeExecutable.toString()).toAbsolutePath().normalize()
     }
+
+    test("resolveExecutablePath prefers HOME opencode bin over stale usr local binary") {
+        val fakeHome = Files.createTempDirectory("process-manager-opencode-home")
+        val userOpenCodeBin = fakeHome.resolve(".opencode").resolve("bin")
+        val staleBin = Files.createTempDirectory("process-manager-stale-bin")
+        Files.createDirectories(userOpenCodeBin)
+        val currentOpenCode = userOpenCodeBin.resolve("opencode")
+        val staleOpenCode = staleBin.resolve("opencode")
+        Files.writeString(currentOpenCode, "#!/bin/sh\nexit 0\n")
+        Files.writeString(staleOpenCode, "#!/bin/sh\nexit 0\n")
+        Files.setPosixFilePermissions(
+            currentOpenCode,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE
+            )
+        )
+        Files.setPosixFilePermissions(
+            staleOpenCode,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE
+            )
+        )
+
+        val resolved = resolveExecutablePath(
+            command = "opencode",
+            environment = mapOf("PATH" to staleBin.toString(), "HOME" to fakeHome.toString()),
+            systemHome = "/Users/real-home"
+        )
+
+        resolved.shouldNotBeNull()
+        resolved shouldBe currentOpenCode.toAbsolutePath().normalize()
+    }
 })

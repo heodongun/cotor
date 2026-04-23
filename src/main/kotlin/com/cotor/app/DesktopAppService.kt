@@ -760,7 +760,7 @@ class DesktopAppService(
                 val hasDanglingActiveJob = activeTaskJobs.containsKey(run.taskId)
                 run.status == AgentRunStatus.RUNNING &&
                     isRunStale(run, now) &&
-                    (!hasDanglingActiveJob || run.processId != null) &&
+                    !hasDanglingActiveJob &&
                     (companyId == null || state.tasks.firstOrNull { it.id == run.taskId }?.issueId in relevantIssueIds)
             }
             val staleZeroRunTaskIds = state.tasks.filter { task ->

@@ -68,7 +68,7 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
                 companyId = company.id,
                 agentIds = seededAgents.take(2).map { it.id },
                 agentCli = "opencode",
-                model = "opencode/qwen3.6-plus-free"
+                model = "opencode/minimax-m2.5-free"
             )
 
             val state = stateStore.load()

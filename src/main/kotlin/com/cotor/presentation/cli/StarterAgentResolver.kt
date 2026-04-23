@@ -74,12 +74,13 @@ internal fun starterAllowedDirectories(
     userHome: String = starterHomeDirectory().toString()
 ): List<String> {
     return buildList {
-        add("/usr/local/bin")
-        add("/opt/homebrew/bin")
         if (userHome.isNotBlank()) {
             add("$userHome/.local/bin")
+            add("$userHome/.opencode/bin")
             add("$userHome/bin")
         }
+        add("/opt/homebrew/bin")
+        add("/usr/local/bin")
     }.distinct()
 }
 

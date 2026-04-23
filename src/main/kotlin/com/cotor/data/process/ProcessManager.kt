@@ -202,12 +202,22 @@ private fun buildEffectivePath(
             .forEach(entries::add)
     }
 
-    addPathEntries(overridePath)
+    val home = effectiveUserHome().orEmpty()
     resolvedExecutable?.parent?.toString()?.let(entries::add)
+    addPathEntries(overridePath)
+    if (home.isNotBlank()) {
+        listOf(
+            "$home/.local/bin",
+            "$home/.opencode/bin",
+            "$home/bin",
+            "$home/.npm-global/bin",
+            "$home/.yarn/bin",
+            "$home/.foundry/bin",
+            "/Applications/Codex.app/Contents/Resources"
+        ).forEach(entries::add)
+    }
     addPathEntries(inheritedPath)
     addPathEntries(System.getenv("PATH"))
-
-    val home = effectiveUserHome().orEmpty()
     listOf(
         "/opt/homebrew/bin",
         "/opt/homebrew/sbin",
@@ -218,16 +228,6 @@ private fun buildEffectivePath(
         "/usr/sbin",
         "/sbin"
     ).forEach(entries::add)
-    if (home.isNotBlank()) {
-        listOf(
-            "$home/.local/bin",
-            "$home/bin",
-            "$home/.npm-global/bin",
-            "$home/.yarn/bin",
-            "$home/.foundry/bin",
-            "/Applications/Codex.app/Contents/Resources"
-        ).forEach(entries::add)
-    }
 
     return entries.joinToString(File.pathSeparator)
 }
@@ -261,23 +261,27 @@ fun resolveExecutablePath(
     }
 
     val searchDirectories = buildList {
+        val home = effectiveUserHome(environment, systemHome).orEmpty()
+        if (normalized == "opencode" && home.isNotBlank()) {
+            add("$home/.opencode/bin")
+        }
         val rawPath = environment["PATH"].orEmpty()
         rawPath.split(java.io.File.pathSeparator)
             .map { it.trim().trim('"') }
             .filter { it.isNotBlank() }
             .forEach { add(it) }
 
-        val home = effectiveUserHome(environment, systemHome).orEmpty()
+        if (home.isNotBlank()) {
+            add("$home/.local/bin")
+            add("$home/.opencode/bin")
+            add("$home/bin")
+        }
         add("/opt/homebrew/bin")
         add("/usr/local/bin")
         add("/usr/bin")
         add("/bin")
         add("/usr/sbin")
         add("/sbin")
-        if (home.isNotBlank()) {
-            add("$home/.local/bin")
-            add("$home/bin")
-        }
     }.distinct()
 
     return searchDirectories.firstNotNullOfOrNull { directory ->
