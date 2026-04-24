@@ -11,6 +11,7 @@
 - Structured knowledge store v1 under `.cotor/knowledge/`
 - Read-only MCP runtime exposure through the localhost app-server
 - Company runtime binding now maps company issues and review queue items to durable run ids, approval pauses, and provider block reasons
+- Company issue execution now writes durable run snapshots by default so bound `durableRunId` values are inspectable
 - GitHub sync now pushes failing/passing check transitions back into review queue and execution issue state
 - GitHub sync now also settles merged and closed pull requests back into review queue, approval, and execution issue state
 - Verification bundles now persist contract/outcome state and stamp verification status back into issue/review workflow records
@@ -26,7 +27,7 @@
 - app-server/web read-only inspect endpoints for policy, evidence, GitHub provider state, and knowledge
 
 ## Still intentionally incomplete
-- full company issue/review durable continuation
+- full company issue/review durable continuation beyond default issue-run inspection
 - dead-letter/quarantine UI
 - provider-native webhook/app GitHub control plane
 - richer policy DSL beyond the v1 file-backed scope matcher

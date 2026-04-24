@@ -148,6 +148,7 @@ cotor delete    # 삭제
 - `Company` 모드는 기본적으로 이벤트 기반 live update를 사용해서, 정상 동작 중에는 수동 새로고침 없이 활동 로그, 이슈, 리뷰 상태, 런타임 상태가 바로 반영됨
 - `미팅룸`은 이제 summary 아래에 묻히지 않고, 합성된 wall feed·좌석 기반 에이전트 테이블·리뷰 데스크 요약을 가진 전용 페이지로 노출됨
 - 회사 이슈 실행 상세는 이제 단순 변경점이 아니라 에이전트 CLI, 선택 모델, 백엔드 종류, 프로세스 ID, 할당 프롬프트, stdout/stderr, 브랜치, PR 링크, 퍼블리시 요약까지 함께 보여줌
+- `cotor company issue run <issue-id>`는 기본적으로 이슈가 정착 상태가 될 때까지 기다려서, CLI에서 시작한 로컬 에이전트 작업이 중간에 고아 작업으로 끊기지 않게 함. 이미 실행 중인 app-server가 백그라운드 작업을 맡아야 할 때만 `--async` 사용
 - 회사 런타임은 이제 이슈/태스크/리뷰 상태 변화가 생기면 바로 깨어나며, 서로 다른 역할이 같은 execution CLI를 쓰더라도 runnable issue를 병렬로 시작할 수 있음
 - CEO 머지는 GitHub 새로고침 결과가 실제 `MERGED`로 확인된 뒤에만 로컬 workflow 상태를 merged로 기록함
 - 회사 에이전트 정의는 이제 Codex/OpenCode 같은 provider별로 선택 모델을 개별 지정할 수 있음
@@ -173,6 +174,7 @@ cotor delete    # 삭제
 - 회사 목표 생성
 - 목표를 이슈로 분해
 - 이슈 위임 및 실행
+- 완료된 회사 이슈 실행은 실험적 pipeline replay flag 없이도 `cotor resume inspect <run-id>`로 durable run을 확인 가능
 - 리뷰 큐 생성
 - runtime/backend/review/session 상태를 합성한 이벤트 월과 움직이는 좌석 기반 에이전트 존재감을 포함한 전용 미팅룸 보기
 - 채팅 컨트롤 레일에서 목표 생성, 목표 분해, 이슈 생성, 이슈 위임, 이슈 실행, QA/CEO 판정, 머지, 런타임 제어, 백엔드 제어, 회사 에이전트 생성을 미리 보고 명시적으로 확인한 뒤 적용
@@ -197,7 +199,7 @@ cotor delete    # 삭제
 - verification bundle은 로컬에 contract/outcome 상태를 저장하지만, verifier agent를 별도 runtime으로 돌리지는 않습니다.
 - runtime projection surface는 issue 단위 `runtimeDisposition`을 보여주지만, 스케줄러는 아직 heuristic 수준입니다.
 - 회사 컨텍스트는 `.cotor/companies/...` 스냅샷에 더해 `.cotor/provenance/`, `.cotor/knowledge/` 기반의 구조화된 증거/지식 저장소를 사용합니다.
-- `resume`은 `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1`을 켜면 durable inspect/continue/fork/approve 흐름을 지원합니다.
+- 회사 이슈 실행은 기본적으로 inspect 가능한 durable run snapshot을 생성합니다. 일반 pipeline replay용 `resume continue/fork/approve`는 여전히 `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1` 뒤의 실험 기능입니다.
 
 ## 문서
 

@@ -145,6 +145,7 @@ Current desktop model:
 - `Company` mode now uses event-driven live updates as the primary path, so activity, issues, review state, and runtime status update without a manual refresh in normal operation
 - `Meeting Room` now exposes a dedicated live floor map with a synthesized wall feed, seat-based agent table, and review desk summary instead of hiding that view below the summary fold
 - company issue execution details now surface agent CLI, selected model, backend kind, process id, assigned prompt, stdout/stderr, branch, PR link, and publish summary instead of only change metadata
+- `cotor company issue run <issue-id>` waits for a settled issue state by default so local CLI-launched agent work is not orphaned; use `--async` only when an already-running app-server should own the background work
 - company runtime now wakes immediately on issue/task/review transitions and can dispatch multiple runnable issues in parallel even when different roles share the same execution CLI
 - CEO merge only marks local workflow state as merged after GitHub refresh confirms the PR is actually `MERGED`
 - company agent definitions now support an optional per-agent model override for providers like Codex and OpenCode
@@ -170,6 +171,7 @@ The current build includes a working local operations layer:
 - create company goals
 - decompose goals into issues
 - delegate and run issues
+- inspect completed company issue runs through `cotor resume inspect <run-id>` without enabling the experimental pipeline replay flag
 - populate and merge ready review queue items
 - inspect the dedicated Meeting Room page with synthesized runtime/backend/review/session wall events and animated seat-based agent presence
 - use the Chat Control rail to preview and explicitly confirm real goal creation, goal decomposition, issue creation, issue delegation, issue execution, QA/CEO verdicts, merge, runtime control, backend control, and company-agent creation
@@ -195,7 +197,7 @@ Current limits in this build:
 - verification bundles persist contract/outcome state locally, but verifier-agent enforcement is still prompt-driven rather than a separate verifier runtime
 - runtime projection surfaces expose issue-level `runtimeDisposition`, but the runtime scheduler is still heuristic rather than fully market/simulation driven
 - company context persistence now includes structured evidence and knowledge stores under `.cotor/provenance/` and `.cotor/knowledge/`, but retrieval is still read-oriented
-- `resume` supports experimental durable inspect/continue/fork/approve flows when `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1` is enabled
+- company issue execution creates inspectable durable run snapshots by default; `resume continue/fork/approve` for generic pipeline replay remains experimental behind `COTOR_EXPERIMENTAL_DURABLE_RUNTIME_V2=1`
 
 Inspect `.cotor/companies/` in the working folder to review the persisted company state.
 

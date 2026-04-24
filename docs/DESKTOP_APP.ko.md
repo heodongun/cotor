@@ -201,6 +201,7 @@ cotor delete
 - active task/run이 남아 있으면 빠른 monitoring cadence를 유지해서 stale `RUNNING` 상태를 더 빨리 정리
 - app-server 종료로 끊긴 회사 작업은 일반 process-exit 실패로 남기지 않고 다시 큐에 올려 재개 가능하게 복구
 - 그 후 데스크톱 앱과 번들 backend가 다시 올라오면 queued delegated 회사 작업을 다시 시작하고, 회사 활동 로그에도 그 복구 흐름을 남김
+- 회사 이슈 실행은 기본적으로 durable run snapshot을 만들어서 이슈의 `durableRunId`를 `cotor resume inspect <run-id>`로 확인할 수 있음
 - 기본 회사 프로필은 로컬 설치된 agent CLI를 우선 사용하고, 끝까지 없으면 `echo` fallback 사용
 
 ## 현재 한계
@@ -209,4 +210,4 @@ cotor delete
 - Linear sync는 회사 단위 outward mirror이며, 기존 Linear 이슈를 다시 Cotor로 가져오지는 않습니다.
 - 런타임 자동화에는 action 단위 allow/deny/approval를 다루는 정책 엔진 v1이 들어갔지만, 아직 file-backed 실험 기능입니다.
 - 리뷰/PR 동기화에는 `gh` 기반 GitHub control-plane v1이 들어가서 PR 상태, mergeability, status-check summary를 읽어옵니다.
-- `resume`은 이제 실험적 durable inspect/continue/fork/approve 흐름을 지원하지만, 회사 전체 issue/review 재개는 아직 완전하지 않습니다.
+- 회사 이슈 실행은 기본 durable snapshot으로 inspect 가능하지만, 일반 pipeline replay용 `resume continue/fork/approve`와 회사 전체 issue/review continuation은 아직 완전하지 않습니다.
