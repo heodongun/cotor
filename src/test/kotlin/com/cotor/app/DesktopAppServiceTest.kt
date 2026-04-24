@@ -9775,6 +9775,7 @@ private class DesktopAppServiceFixture private constructor(
             val gitWorkspaceService = mockk<GitWorkspaceService>()
             val agentExecutor = mockk<AgentExecutor>()
             val configRepository = mockk<ConfigRepository>(relaxed = true)
+            val now = System.currentTimeMillis()
 
             val repository = ManagedRepository(
                 id = REPOSITORY_ID,
@@ -9800,8 +9801,8 @@ private class DesktopAppServiceFixture private constructor(
                 prompt = "Implement desktop publish flow",
                 agents = listOf("codex"),
                 status = DesktopTaskStatus.QUEUED,
-                createdAt = 1,
-                updatedAt = 1
+                createdAt = now,
+                updatedAt = now
             )
             stateStore.save(
                 DesktopAppState(
