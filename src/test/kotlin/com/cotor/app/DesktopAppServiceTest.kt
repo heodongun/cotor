@@ -1497,24 +1497,37 @@ class DesktopAppServiceTest : FunSpec({
                 }
             }
 
-            companyRuns = stateStore.load().runs.filter { run ->
-                val task = stateStore.load().tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
-                val issueId = task.issueId ?: return@filter false
-                stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
-            }
+            fun companyRunsFor(snapshot: DesktopAppState): List<AgentRun> =
+                snapshot.runs.filter { run ->
+                    val task = snapshot.tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
+                    val issueId = task.issueId ?: return@filter false
+                    snapshot.issues.any { it.id == issueId && it.companyId == company.id }
+                }
+
+            companyRuns = companyRunsFor(stateStore.load())
             companyRuns.shouldNotBeEmpty()
+            var finalSnapshot = stateStore.load()
             withTimeout(60_000) {
-                while (companyRuns.none { it.status != AgentRunStatus.QUEUED }) {
+                while (true) {
+                    val hasFallbackActivity = finalSnapshot.companyActivity.any {
+                        it.companyId == company.id &&
+                            it.source == "execution-backend" &&
+                            it.title == "Fell back to local execution"
+                    }
+                    val hasFallbackSignal = finalSnapshot.signals.any {
+                        it.companyId == company.id &&
+                            it.source == "execution-backend" &&
+                            it.message.contains("Fell back to Local Cotor")
+                    }
+                    if (companyRuns.any { it.status != AgentRunStatus.QUEUED } && hasFallbackActivity && hasFallbackSignal) {
+                        return@withTimeout
+                    }
                     service.runCompanyRuntimeTick(goal.companyId)
                     delay(25)
-                    companyRuns = stateStore.load().runs.filter { run ->
-                        val task = stateStore.load().tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
-                        val issueId = task.issueId ?: return@filter false
-                        stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
-                    }
+                    finalSnapshot = stateStore.load()
+                    companyRuns = companyRunsFor(finalSnapshot)
                 }
             }
-            val finalSnapshot = stateStore.load()
             companyRuns.any { it.status != AgentRunStatus.QUEUED } shouldBe true
             finalSnapshot.companyActivity.any {
                 it.companyId == company.id &&
@@ -3176,7 +3189,8 @@ class DesktopAppServiceTest : FunSpec({
             companyId = company.id,
             title = "Primary goal",
             description = "Keep the company moving.",
-            autonomyEnabled = true
+            autonomyEnabled = true,
+            startRuntimeIfNeeded = false
         )
         val followUpGoal = service.createGoal(
             companyId = company.id,
@@ -5611,6 +5625,7 @@ class DesktopAppServiceTest : FunSpec({
                         description = "This was interrupted during a shutdown.",
                         status = IssueStatus.BLOCKED,
                         kind = "execution",
+                        assigneeProfileId = "profile-reopen",
                         createdAt = failureAt,
                         updatedAt = failureAt
                     )
