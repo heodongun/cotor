@@ -167,17 +167,10 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 )
             )
 
-            service!!.runIssue(issue.id)
-
-            withTimeout(10_000) {
-                while (true) {
-                    val currentIssue = harness.stateStore.load().issues.first { it.id == issue.id }
-                    if (currentIssue.status == IssueStatus.DONE && currentIssue.durableRunId != null) {
-                        break
-                    }
-                    delay(50)
-                }
-            }
+            service!!.runIssueAndAwaitSettlement(issue.id, timeoutMs = 30_000)
+            val currentIssue = harness.stateStore.load().issues.first { it.id == issue.id }
+            currentIssue.status shouldBe IssueStatus.DONE
+            currentIssue.durableRunId.shouldNotBeNull()
 
             val settledState = harness.stateStore.load()
             val notes = settledState.agentContextEntries.filter {

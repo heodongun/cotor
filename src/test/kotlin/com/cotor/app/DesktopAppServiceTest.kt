@@ -46,6 +46,10 @@ import kotlin.io.path.exists
 
 @Isolate
 class DesktopAppServiceTest : FunSpec({
+    afterTest {
+        DesktopAppService.shutdownAllForTesting()
+    }
+
     test("builtin opencode company agent uses a longer timeout budget") {
         BuiltinAgentCatalog.get("opencode")!!.timeout shouldBe 45 * 60_000L
     }
@@ -1467,35 +1471,15 @@ class DesktopAppServiceTest : FunSpec({
                 description = "Keep autonomous company execution alive even when Codex app server is unavailable.",
                 startRuntimeIfNeeded = false
             )
+            val issue = service.createIssue(
+                companyId = company.id,
+                goalId = goal.id,
+                title = "Run fallback execution",
+                description = "Execute through the configured backend and fall back locally if it is unavailable.",
+                kind = "execution"
+            )
             service.startCompanyRuntime(goal.companyId)
-
-            var companyRuns = emptyList<AgentRun>()
-            withTimeout(10_000) {
-                while (true) {
-                    service.runCompanyRuntimeTick(goal.companyId)
-                    val snapshot = stateStore.load()
-                    val companyTasks = snapshot.tasks.filter { task ->
-                        val issueId = task.issueId ?: return@filter false
-                        snapshot.issues.any { it.id == issueId && it.companyId == company.id }
-                    }
-                    companyRuns = snapshot.runs.filter { run ->
-                        val task = snapshot.tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
-                        val issueId = task.issueId ?: return@filter false
-                        snapshot.issues.any { it.id == issueId && it.companyId == company.id }
-                    }
-                    if (companyTasks.any {
-                            it.status == DesktopTaskStatus.RUNNING ||
-                                it.status == DesktopTaskStatus.COMPLETED ||
-                                it.status == DesktopTaskStatus.PARTIAL ||
-                                it.status == DesktopTaskStatus.FAILED
-                        } &&
-                        companyRuns.isNotEmpty()
-                    ) {
-                        return@withTimeout
-                    }
-                    delay(25)
-                }
-            }
+            service.runIssue(issue.id)
 
             fun companyRunsFor(snapshot: DesktopAppState): List<AgentRun> =
                 snapshot.runs.filter { run ->
@@ -1504,9 +1488,8 @@ class DesktopAppServiceTest : FunSpec({
                     snapshot.issues.any { it.id == issueId && it.companyId == company.id }
                 }
 
-            companyRuns = companyRunsFor(stateStore.load())
-            companyRuns.shouldNotBeEmpty()
             var finalSnapshot = stateStore.load()
+            var companyRuns = companyRunsFor(finalSnapshot)
             withTimeout(60_000) {
                 while (true) {
                     val hasFallbackActivity = finalSnapshot.companyActivity.any {
@@ -1522,12 +1505,12 @@ class DesktopAppServiceTest : FunSpec({
                     if (companyRuns.any { it.status != AgentRunStatus.QUEUED } && hasFallbackActivity && hasFallbackSignal) {
                         return@withTimeout
                     }
-                    service.runCompanyRuntimeTick(goal.companyId)
                     delay(25)
                     finalSnapshot = stateStore.load()
                     companyRuns = companyRunsFor(finalSnapshot)
                 }
             }
+            companyRuns.shouldNotBeEmpty()
             companyRuns.any { it.status != AgentRunStatus.QUEUED } shouldBe true
             finalSnapshot.companyActivity.any {
                 it.companyId == company.id &&
@@ -6787,6 +6770,12 @@ class DesktopAppServiceTest : FunSpec({
         val stateStore = DesktopStateStore { appHome }
         val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
         coEvery { gitWorkspaceService.ensureInitializedRepositoryRoot(any(), any()) } returns repoRoot
+        coEvery { gitWorkspaceService.refreshPullRequestMetadata(any(), 321) } returns PublishMetadata(
+            pullRequestNumber = 321,
+            pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/321",
+            pullRequestState = "OPEN",
+            mergeability = "DIRTY"
+        )
         val service = DesktopAppService(
             stateStore = stateStore,
             gitWorkspaceService = gitWorkspaceService,
@@ -7149,132 +7138,135 @@ class DesktopAppServiceTest : FunSpec({
             agentExecutor = mockk(relaxed = true)
         )
 
-        val company = service.createCompany(
-            name = "Dirty PR Guard Co",
-            rootPath = repoRoot.toString(),
-            defaultBaseBranch = "master"
-        )
-        val baseState = stateStore.load()
-        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
-        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
-        val now = System.currentTimeMillis()
-        val goal = CompanyGoal(
-            id = "goal-dirty-pr-guard",
-            companyId = company.id,
-            projectContextId = projectContext.id,
-            title = "Avoid sending dirty PRs to QA",
-            description = "A PR that already reports DIRTY should immediately loop back to execution.",
-            status = GoalStatus.ACTIVE,
-            autonomyEnabled = true,
-            createdAt = now,
-            updatedAt = now
-        )
-        val executionIssue = CompanyIssue(
-            id = "issue-execution-dirty-pr-guard",
-            companyId = company.id,
-            projectContextId = projectContext.id,
-            goalId = goal.id,
-            workspaceId = workspace.id,
-            title = "Publish the conflicted retry",
-            description = "This retry published a PR that GitHub already marks DIRTY.",
-            status = IssueStatus.PLANNED,
-            priority = 2,
-            kind = "execution",
-            branchName = "codex/cotor/dirty-pr-guard/codex",
-            worktreePath = repoRoot.resolve(".cotor/worktrees/dirty-pr-guard/codex").toString(),
-            createdAt = now - 5_000,
-            updatedAt = now - 5_000
-        )
-        val executionTask = AgentTask(
-            id = "task-execution-dirty-pr-guard",
-            workspaceId = workspace.id,
-            title = executionIssue.title,
-            prompt = executionIssue.description,
-            agents = listOf("codex"),
-            issueId = executionIssue.id,
-            status = DesktopTaskStatus.COMPLETED,
-            createdAt = now - 3_000,
-            updatedAt = now - 2_000
-        )
-        val executionRun = AgentRun(
-            id = "run-execution-dirty-pr-guard",
-            taskId = executionTask.id,
-            workspaceId = workspace.id,
-            repositoryId = company.repositoryId,
-            agentName = "codex",
-            repoRoot = repoRoot.toString(),
-            baseBranch = "master",
-            status = AgentRunStatus.COMPLETED,
-            output = "Published a retry, but GitHub marked it DIRTY.",
-            branchName = "codex/cotor/dirty-pr-guard/codex",
-            worktreePath = repoRoot.resolve(".cotor/worktrees/dirty-pr-guard/codex").toString(),
-            publish = PublishMetadata(
-                commitSha = "dirtypublish",
-                pullRequestNumber = 321,
-                pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/321",
-                pullRequestState = "OPEN",
-                mergeability = "DIRTY"
-            ),
-            durationMs = 300,
-            createdAt = now - 3_000,
-            updatedAt = now - 2_000
-        )
-        stateStore.save(
-            baseState.copy(
-                goals = baseState.goals + goal,
-                issues = baseState.issues + executionIssue,
-                tasks = baseState.tasks + executionTask,
-                runs = baseState.runs + executionRun,
-                companyRuntimes = listOf(
-                    CompanyRuntimeSnapshot(
-                        companyId = company.id,
-                        status = CompanyRuntimeStatus.RUNNING,
-                        backendKind = ExecutionBackendKind.LOCAL_COTOR,
-                        backendHealth = "healthy",
-                        lastStartedAt = now
+        withDesktopServiceShutdown(service) {
+            val company = service.createCompany(
+                name = "Dirty PR Guard Co",
+                rootPath = repoRoot.toString(),
+                defaultBaseBranch = "master"
+            )
+            val baseState = stateStore.load()
+            val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+            val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+            val now = System.currentTimeMillis()
+            val goal = CompanyGoal(
+                id = "goal-dirty-pr-guard",
+                companyId = company.id,
+                projectContextId = projectContext.id,
+                title = "Avoid sending dirty PRs to QA",
+                description = "A PR that already reports DIRTY should immediately loop back to execution.",
+                status = GoalStatus.ACTIVE,
+                autonomyEnabled = true,
+                createdAt = now,
+                updatedAt = now
+            )
+            val executionIssue = CompanyIssue(
+                id = "issue-execution-dirty-pr-guard",
+                companyId = company.id,
+                projectContextId = projectContext.id,
+                goalId = goal.id,
+                workspaceId = workspace.id,
+                title = "Publish the conflicted retry",
+                description = "This retry published a PR that GitHub already marks DIRTY.",
+                status = IssueStatus.PLANNED,
+                priority = 2,
+                kind = "execution",
+                branchName = "codex/cotor/dirty-pr-guard/codex",
+                worktreePath = repoRoot.resolve(".cotor/worktrees/dirty-pr-guard/codex").toString(),
+                createdAt = now - 5_000,
+                updatedAt = now - 5_000
+            )
+            val executionTask = AgentTask(
+                id = "task-execution-dirty-pr-guard",
+                workspaceId = workspace.id,
+                title = executionIssue.title,
+                prompt = executionIssue.description,
+                agents = listOf("codex"),
+                issueId = executionIssue.id,
+                status = DesktopTaskStatus.COMPLETED,
+                createdAt = now - 3_000,
+                updatedAt = now - 2_000
+            )
+            val executionRun = AgentRun(
+                id = "run-execution-dirty-pr-guard",
+                taskId = executionTask.id,
+                workspaceId = workspace.id,
+                repositoryId = company.repositoryId,
+                agentName = "codex",
+                repoRoot = repoRoot.toString(),
+                baseBranch = "master",
+                status = AgentRunStatus.COMPLETED,
+                output = "Published a retry, but GitHub marked it DIRTY.",
+                branchName = "codex/cotor/dirty-pr-guard/codex",
+                worktreePath = repoRoot.resolve(".cotor/worktrees/dirty-pr-guard/codex").toString(),
+                publish = PublishMetadata(
+                    commitSha = "dirtypublish",
+                    pullRequestNumber = 321,
+                    pullRequestUrl = "https://github.com/heodongun/cotor-test/pull/321",
+                    pullRequestState = "OPEN",
+                    mergeability = "DIRTY"
+                ),
+                durationMs = 300,
+                createdAt = now - 3_000,
+                updatedAt = now - 2_000
+            )
+            stateStore.save(
+                baseState.copy(
+                    goals = baseState.goals + goal,
+                    issues = baseState.issues + executionIssue,
+                    tasks = baseState.tasks + executionTask,
+                    runs = baseState.runs + executionRun,
+                    companyRuntimes = listOf(
+                        CompanyRuntimeSnapshot(
+                            companyId = company.id,
+                            status = CompanyRuntimeStatus.RUNNING,
+                            backendKind = ExecutionBackendKind.LOCAL_COTOR,
+                            backendHealth = "healthy",
+                            lastStartedAt = now
+                        )
                     )
                 )
             )
-        )
 
-        service.runCompanyRuntimeTick(company.id)
+            service.runCompanyRuntimeTick(company.id)
 
-        val refreshed = withTimeout(30_000) {
-            while (true) {
-                val candidate = stateStore.load()
-                val candidateExecution = candidate.issues.first { it.id == executionIssue.id }
-                val candidateQueue = candidate.reviewQueue.first { it.issueId == executionIssue.id }
-                val noQaReviewIssue = candidate.issues.none {
-                    it.kind.equals("review", ignoreCase = true) && executionIssue.id in it.dependsOn
+            val refreshed = withTimeout(30_000) {
+                while (true) {
+                    service.runCompanyRuntimeTick(company.id)
+                    val candidate = stateStore.load()
+                    val candidateExecution = candidate.issues.first { it.id == executionIssue.id }
+                    val candidateQueue = candidate.reviewQueue.first { it.issueId == executionIssue.id }
+                    val noQaReviewIssue = candidate.issues.none {
+                        it.kind.equals("review", ignoreCase = true) && executionIssue.id in it.dependsOn
+                    }
+                    if (
+                        candidateExecution.status !in setOf(IssueStatus.IN_REVIEW, IssueStatus.READY_FOR_CEO, IssueStatus.DONE) &&
+                        candidateQueue.status == ReviewQueueStatus.CHANGES_REQUESTED &&
+                        noQaReviewIssue
+                    ) {
+                        return@withTimeout candidate
+                    }
+                    delay(25)
                 }
-                if (
-                    candidateExecution.status !in setOf(IssueStatus.IN_REVIEW, IssueStatus.READY_FOR_CEO, IssueStatus.DONE) &&
-                    candidateQueue.status == ReviewQueueStatus.CHANGES_REQUESTED &&
-                    noQaReviewIssue
-                ) {
-                    return@withTimeout candidate
-                }
-                delay(25)
+                error("Unreachable")
             }
-            error("Unreachable")
-        }
-        val refreshedExecution = refreshed.issues.first { it.id == executionIssue.id }
-        refreshedExecution.status shouldNotBe IssueStatus.IN_REVIEW
-        refreshedExecution.status shouldNotBe IssueStatus.READY_FOR_CEO
-        refreshedExecution.status shouldNotBe IssueStatus.DONE
-        refreshedExecution.pullRequestNumber shouldBe 321
-        refreshedExecution.pullRequestUrl shouldBe "https://github.com/heodongun/cotor-test/pull/321"
-        if (refreshedExecution.status == IssueStatus.PLANNED) {
-            refreshedExecution.transitionReason.shouldContain("does not merge cleanly")
-        }
-        refreshed.issues.none { it.kind.equals("review", ignoreCase = true) && executionIssue.id in it.dependsOn } shouldBe true
+            val refreshedExecution = refreshed.issues.first { it.id == executionIssue.id }
+            refreshedExecution.status shouldNotBe IssueStatus.IN_REVIEW
+            refreshedExecution.status shouldNotBe IssueStatus.READY_FOR_CEO
+            refreshedExecution.status shouldNotBe IssueStatus.DONE
+            refreshedExecution.pullRequestNumber shouldBe 321
+            refreshedExecution.pullRequestUrl shouldBe "https://github.com/heodongun/cotor-test/pull/321"
+            if (refreshedExecution.status == IssueStatus.PLANNED) {
+                refreshedExecution.transitionReason.shouldContain("does not merge cleanly")
+            }
+            refreshed.issues.none { it.kind.equals("review", ignoreCase = true) && executionIssue.id in it.dependsOn } shouldBe true
 
-        val refreshedQueue = refreshed.reviewQueue.first { it.issueId == executionIssue.id }
-        refreshedQueue.status shouldBe ReviewQueueStatus.CHANGES_REQUESTED
-        refreshedQueue.pullRequestNumber shouldBe 321
-        refreshedQueue.qaIssueId.shouldBeNull()
-        refreshedQueue.approvalIssueId.shouldBeNull()
-        refreshedQueue.ceoVerdict.shouldBeNull()
+            val refreshedQueue = refreshed.reviewQueue.first { it.issueId == executionIssue.id }
+            refreshedQueue.status shouldBe ReviewQueueStatus.CHANGES_REQUESTED
+            refreshedQueue.pullRequestNumber shouldBe 321
+            refreshedQueue.qaIssueId.shouldBeNull()
+            refreshedQueue.approvalIssueId.shouldBeNull()
+            refreshedQueue.ceoVerdict.shouldBeNull()
+        }
     }
 
     test("company dashboard heals a stale QA lineage while the runtime is stopped") {

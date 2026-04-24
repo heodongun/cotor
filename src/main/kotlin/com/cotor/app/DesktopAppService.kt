@@ -78,8 +78,10 @@ import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.util.Collections
 import java.util.Comparator
 import java.util.UUID
+import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.exists
 
@@ -155,6 +157,8 @@ class DesktopAppService(
     private val verificationBundleService: VerificationBundleService = VerificationBundleService()
 ) {
     companion object {
+        private val liveServicesForTesting =
+            Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap<DesktopAppService, Boolean>()))
         private const val COMPANY_TRACE_DEDUP_WINDOW_MS = 30_000L
         private const val COMPANY_TRACE_ROTATE_BYTES = 8L * 1024L * 1024L
         private const val COMPANY_RUNTIME_ERROR_ROTATE_BYTES = 2L * 1024L * 1024L
@@ -172,6 +176,13 @@ class DesktopAppService(
             "Execution was interrupted because the app-server stopped before the run finished."
         private const val INTERRUPTED_ISSUE_REASON =
             "Runtime stopped while execution was in progress; the issue was returned to the queue."
+
+        internal fun shutdownAllForTesting() {
+            val services = synchronized(liveServicesForTesting) { liveServicesForTesting.toList() }
+            services.forEach { service ->
+                runCatching { service.shutdown() }
+            }
+        }
     }
 
     // Reads are cheap and frequent, but writes must be serialized so the state file
@@ -211,6 +222,7 @@ class DesktopAppService(
     }
 
     init {
+        liveServicesForTesting += this
         // Runtime state is persisted across app-server restarts. Reattach loops eagerly
         // on service startup so companies keep progressing even before the UI polls.
         queueAutomationRefresh()
@@ -237,6 +249,7 @@ class DesktopAppService(
         recentSupersededPullRequestCleanupAt.clear()
         codexAppServerManager.stopAll()
         serviceScope.cancel()
+        liveServicesForTesting -= this
     }
 
     internal fun primeRuntimeCachesForTesting(companyId: String, taskId: String) {
@@ -6853,6 +6866,80 @@ class DesktopAppService(
                                     (!reviewIssueCanAdoptQueueStateWithoutTask && latestReviewTask == null) ||
                                     (!reviewLineageCanBeAdopted && (reviewIssueReopenedAfterTask || reviewLineageExplicitMismatch))
                                 )
+                    val noDiffPullRequestReusePending =
+                        latestExecutionRun?.let { isExistingPrNoDiffReuseCandidate(executionIssue, it) } == true
+                    val dirtyMergeConflictQueue =
+                        !noDiffPullRequestReusePending &&
+                            queueItem.status == ReviewQueueStatus.CHANGES_REQUESTED &&
+                            queueItem.mergeability.equals("DIRTY", ignoreCase = true)
+
+                    if (dirtyMergeConflictQueue) {
+                        val transitionReason =
+                            "PR ${queueItem.pullRequestUrl ?: queueItem.pullRequestNumber} does not merge cleanly and still has merge conflicts; keep remediation in execution instead of QA."
+                        val issueNeedsCleanup =
+                            executionIssue.status != IssueStatus.PLANNED ||
+                                executionIssue.executionIntent != ExecutionIntent.MERGE_CONFLICT_REMEDIATION ||
+                                executionIssue.qaVerdict != null ||
+                                executionIssue.qaFeedback != null ||
+                                executionIssue.ceoVerdict != null ||
+                                executionIssue.ceoFeedback != null ||
+                                executionIssue.transitionReason != transitionReason
+                        val queueNeedsCleanup =
+                            queueItem.status != ReviewQueueStatus.CHANGES_REQUESTED ||
+                                queueItem.qaVerdict != null ||
+                                queueItem.qaFeedback != null ||
+                                queueItem.qaReviewedAt != null ||
+                                queueItem.qaIssueId != null ||
+                                queueItem.ceoVerdict != null ||
+                                queueItem.ceoFeedback != null ||
+                                queueItem.ceoReviewedAt != null ||
+                                queueItem.approvalIssueId != null ||
+                                !workflowLineagesMatch(expectedLineage, queueItem.workflowLineage)
+                        val hadWorkflowIssues = reviewIssue != null || queueItem.approvalIssueId != null
+                        if (hadWorkflowIssues) {
+                            removeWorkflowIssue(reviewIssue?.id)
+                            removeWorkflowIssue(queueItem.approvalIssueId)
+                        }
+                        if (issueNeedsCleanup) {
+                            issuesById[executionIssue.id] = executionIssue.copy(
+                                status = IssueStatus.PLANNED,
+                                executionIntent = ExecutionIntent.MERGE_CONFLICT_REMEDIATION,
+                                qaVerdict = null,
+                                qaFeedback = null,
+                                ceoVerdict = null,
+                                ceoFeedback = null,
+                                transitionReason = transitionReason,
+                                updatedAt = now
+                            )
+                        }
+                        if (queueNeedsCleanup) {
+                            reviewQueueById[queueItem.id] = queueItem.copy(
+                                status = ReviewQueueStatus.CHANGES_REQUESTED,
+                                qaVerdict = null,
+                                qaFeedback = null,
+                                qaReviewedAt = null,
+                                qaIssueId = null,
+                                ceoVerdict = null,
+                                ceoFeedback = null,
+                                ceoReviewedAt = null,
+                                approvalIssueId = null,
+                                workflowLineage = expectedLineage,
+                                updatedAt = now
+                            )
+                        }
+                        if (issueNeedsCleanup || queueNeedsCleanup || hadWorkflowIssues) {
+                            changed += 1
+                            traceEvents += buildCompanyAutomationTraceEvent(
+                                issue = executionIssue,
+                                goal = state.goals.firstOrNull { it.id == executionIssue.goalId },
+                                oldStatus = executionIssue.status,
+                                newStatus = IssueStatus.PLANNED,
+                                source = "repairWorkflowLineages",
+                                reason = "Kept dirty pull request out of QA and preserved merge-conflict remediation."
+                            )
+                        }
+                        return@forEach
+                    }
 
                     if (reviewIssue == null || staleReviewLineage) {
                         if (qaProfile != null) {
