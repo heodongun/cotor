@@ -305,6 +305,10 @@ internal fun Application.cotorAppModule(
             this.requireToken(expectedToken)
         }
 
+        get("/") {
+            call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
+        }
+
         // Health stays unauthenticated so the app can distinguish "server down"
         // from "server up but auth misconfigured".
         get("/health") {

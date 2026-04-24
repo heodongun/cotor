@@ -37,7 +37,7 @@ class AppServerTest : FunSpec({
         clearMocks(desktopService, tuiSessionService, answers = false, recordedCalls = true)
     }
 
-    test("health and ready probes stay available without auth") {
+    test("root health and ready probes stay available without auth") {
         testApplication {
             application {
                 cotorAppModule(
@@ -46,6 +46,11 @@ class AppServerTest : FunSpec({
                     tuiSessionService = tuiSessionService
                 )
             }
+
+            val root = client.get("/")
+            root.status shouldBe HttpStatusCode.OK
+            root.bodyAsText() shouldContain "\"ok\":true"
+            root.bodyAsText() shouldContain "\"service\":\"cotor-app-server\""
 
             val health = client.get("/health")
             health.status shouldBe HttpStatusCode.OK
