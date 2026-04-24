@@ -166,6 +166,7 @@ class DesktopAppService(
         private const val RECOVERABLE_RETRY_MAX_DELAY_MS = 5L * 60_000L
         private const val RECOVERABLE_RETRY_MAX_ATTEMPTS = 3
         private const val SUPERSEDED_PR_RECONCILIATION_INTERVAL_MS = 5L * 60_000L
+        private const val NO_OP_PR_REUSE_REFRESH_INTERVAL_MS = 60_000L
         private const val CEO_PLANNING_SOURCE = "ceo-planning"
         private const val QA_REVIEW_SOURCE_PREFIX = "qa-review:"
         private const val CEO_APPROVAL_SOURCE_PREFIX = "ceo-approval:"
@@ -200,6 +201,7 @@ class DesktopAppService(
     private val intentionallyInterruptedTaskIds = ConcurrentHashMap.newKeySet<String>()
     private val recentCompanyAutomationTraceKeys = ConcurrentHashMap<String, Long>()
     private val recentSupersededPullRequestCleanupAt = ConcurrentHashMap<String, Long>()
+    private val recentNoOpPullRequestRefreshAt = ConcurrentHashMap<String, Long>()
     private val companyEventStream = MutableSharedFlow<CompanyEventEnvelope>(replay = 0, extraBufferCapacity = 64)
     private val backendJson = Json { ignoreUnknownKeys = true }
     private val localExecutionBackend = LocalCotorBackend(agentExecutor)
@@ -247,6 +249,7 @@ class DesktopAppService(
         intentionallyInterruptedTaskIds.clear()
         recentCompanyAutomationTraceKeys.clear()
         recentSupersededPullRequestCleanupAt.clear()
+        recentNoOpPullRequestRefreshAt.clear()
         codexAppServerManager.stopAll()
         serviceScope.cancel()
         liveServicesForTesting -= this
@@ -5635,7 +5638,14 @@ class DesktopAppService(
             return 0
         }
 
+        val refreshNow = System.currentTimeMillis()
         val recoveredByIssueId = candidates.mapNotNull { candidate ->
+            val refreshKey = "$companyId:${candidate.executionIssueId}:${candidate.pullRequestNumber}"
+            val lastRefreshAt = recentNoOpPullRequestRefreshAt[refreshKey]
+            if (lastRefreshAt != null && refreshNow - lastRefreshAt < NO_OP_PR_REUSE_REFRESH_INTERVAL_MS) {
+                return@mapNotNull null
+            }
+            recentNoOpPullRequestRefreshAt[refreshKey] = refreshNow
             val refreshed = runCatching {
                 gitWorkspaceService.refreshPullRequestMetadata(candidate.worktreePath, candidate.pullRequestNumber)
             }.getOrNull() ?: return@mapNotNull null
