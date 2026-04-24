@@ -15,6 +15,10 @@ import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 
 class DesktopAppServiceDashboardRuntimeTest : FunSpec({
+    afterTest {
+        DesktopAppService.shutdownAllForTesting()
+    }
+
     test("company dashboard keeps manually stopped autonomous runtimes stopped") {
         val appHome = Files.createTempDirectory("desktop-dashboard-runtime-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-dashboard-runtime-test").resolve("repo"))

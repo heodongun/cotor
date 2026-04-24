@@ -167,6 +167,7 @@ class DesktopAppService(
         private const val RECOVERABLE_RETRY_MAX_ATTEMPTS = 3
         private const val SUPERSEDED_PR_RECONCILIATION_INTERVAL_MS = 5L * 60_000L
         private const val NO_OP_PR_REUSE_REFRESH_INTERVAL_MS = 60_000L
+        private const val PR_METADATA_REFRESH_CACHE_MS = 60_000L
         private const val CEO_PLANNING_SOURCE = "ceo-planning"
         private const val QA_REVIEW_SOURCE_PREFIX = "qa-review:"
         private const val CEO_APPROVAL_SOURCE_PREFIX = "ceo-approval:"
@@ -202,6 +203,7 @@ class DesktopAppService(
     private val recentCompanyAutomationTraceKeys = ConcurrentHashMap<String, Long>()
     private val recentSupersededPullRequestCleanupAt = ConcurrentHashMap<String, Long>()
     private val recentNoOpPullRequestRefreshAt = ConcurrentHashMap<String, Long>()
+    private val recentPullRequestMetadataRefreshes = ConcurrentHashMap<String, CachedPullRequestMetadata>()
     private val companyEventStream = MutableSharedFlow<CompanyEventEnvelope>(replay = 0, extraBufferCapacity = 64)
     private val backendJson = Json { ignoreUnknownKeys = true }
     private val localExecutionBackend = LocalCotorBackend(agentExecutor)
@@ -250,6 +252,7 @@ class DesktopAppService(
         recentCompanyAutomationTraceKeys.clear()
         recentSupersededPullRequestCleanupAt.clear()
         recentNoOpPullRequestRefreshAt.clear()
+        recentPullRequestMetadataRefreshes.clear()
         codexAppServerManager.stopAll()
         serviceScope.cancel()
         liveServicesForTesting -= this
@@ -274,7 +277,8 @@ class DesktopAppService(
         "activeTaskJobs" to activeTaskJobs.size,
         "interruptedTaskIds" to intentionallyInterruptedTaskIds.size,
         "traceKeys" to recentCompanyAutomationTraceKeys.size,
-        "supersededPrTimestamps" to recentSupersededPullRequestCleanupAt.size
+        "supersededPrTimestamps" to recentSupersededPullRequestCleanupAt.size,
+        "pullRequestMetadataRefreshes" to recentPullRequestMetadataRefreshes.size
     )
 
     suspend fun dashboard(): DashboardResponse {
@@ -766,7 +770,7 @@ class DesktopAppService(
                 runtime?.status != CompanyRuntimeStatus.RUNNING && runtime?.manuallyStoppedAt == null
             }
         companiesNeedingRuntime.forEach { activeCompanyId ->
-            startCompanyRuntime(activeCompanyId)
+            startCompanyRuntimeIfNotManuallyStopped(activeCompanyId)
         }
     }
 
@@ -1081,7 +1085,7 @@ class DesktopAppService(
 
             if (hasPendingIssues && runtime?.manuallyStoppedAt == null) {
                 if (runtime?.status != CompanyRuntimeStatus.RUNNING) {
-                    startCompanyRuntime(activeCompanyId)
+                    startCompanyRuntimeIfNotManuallyStopped(activeCompanyId)
                 } else if (loopMissing) {
                     ensureCompanyRuntimeLoop(activeCompanyId)
                 }
@@ -3154,8 +3158,8 @@ class DesktopAppService(
     private fun queueGoalPostCreateWork(goal: CompanyGoal, startRuntimeIfNeeded: Boolean) {
         serviceScope.launch {
             runCatching { mirrorGoalIssuesToLinear(goal.id) }
-            if (goal.autonomyEnabled && startRuntimeIfNeeded && !isCompanyManuallyStopped(goal.companyId)) {
-                runCatching { startCompanyRuntime(goal.companyId) }
+            if (goal.autonomyEnabled && startRuntimeIfNeeded) {
+                runCatching { startCompanyRuntimeIfNotManuallyStopped(goal.companyId) }
             }
         }
     }
@@ -3165,9 +3169,7 @@ class DesktopAppService(
             return
         }
         serviceScope.launch {
-            if (!isCompanyManuallyStopped(goal.companyId)) {
-                runCatching { startCompanyRuntime(goal.companyId) }
-            }
+            runCatching { startCompanyRuntimeIfNotManuallyStopped(goal.companyId) }
         }
     }
 
@@ -4635,7 +4637,19 @@ class DesktopAppService(
         return updatedItem
     }
 
-    suspend fun startCompanyRuntime(companyId: String): CompanyRuntimeSnapshot {
+    suspend fun startCompanyRuntime(companyId: String): CompanyRuntimeSnapshot =
+        startCompanyRuntime(companyId, respectManualStop = false)
+
+    private suspend fun startCompanyRuntimeIfNotManuallyStopped(companyId: String): CompanyRuntimeSnapshot =
+        startCompanyRuntime(companyId, respectManualStop = true)
+
+    private suspend fun startCompanyRuntime(
+        companyId: String,
+        respectManualStop: Boolean
+    ): CompanyRuntimeSnapshot {
+        if (respectManualStop && isCompanyManuallyStopped(companyId)) {
+            return runtimeStatus(companyId)
+        }
         val initialState = stateStore.load()
         val initialCompany = initialState.companies.firstOrNull { it.id == companyId }
         val initialConfig = initialCompany?.let { effectiveBackendConfig(it, initialState) }
@@ -4660,6 +4674,9 @@ class DesktopAppService(
                 .firstOrNull { it.companyId == resolvedCompanyId }
                 ?.let(::runtimeWithinCurrentBudgetWindow)
                 ?: CompanyRuntimeSnapshot(companyId = resolvedCompanyId)
+            if (respectManualStop && existingRuntime.manuallyStoppedAt != null) {
+                return@withLock null
+            }
             val now = System.currentTimeMillis()
             val nextState = state.copy(
                 companyRuntimes = upsertCompanyRuntime(
@@ -4698,7 +4715,7 @@ class DesktopAppService(
             ).withDerivedMetrics()
             stateStore.save(nextState)
             resolvedCompanyId
-        }
+        } ?: return runtimeStatus(companyId)
         publishCompanyEvent(
             companyId = effectiveCompanyId,
             type = "runtime.started",
@@ -4716,7 +4733,13 @@ class DesktopAppService(
     }
 
     suspend fun stopCompanyRuntime(companyId: String): CompanyRuntimeSnapshot {
-        companyRuntimeJobs.remove(companyId)?.cancel()
+        val runtimeJob = companyRuntimeJobs.remove(companyId)
+        runtimeJob?.cancel()
+        if (runtimeJob != null) {
+            withTimeoutOrNull(SHUTDOWN_JOIN_TIMEOUT_MS) {
+                runtimeJob.join()
+            }
+        }
         companyRuntimeWakeSignals.remove(companyId)
         codexAppServerManager.stop(companyId)
         val snapshot = stateMutex.withLock {
@@ -5123,6 +5146,40 @@ class DesktopAppService(
         val latestRun: AgentRun
     )
 
+    private data class CachedPullRequestMetadata(
+        val refreshedAt: Long,
+        val metadata: PublishMetadata
+    )
+
+    private fun pullRequestMetadataRefreshKey(
+        companyId: String,
+        issueId: String,
+        pullRequestNumber: Int
+    ): String = "$companyId:$issueId:$pullRequestNumber"
+
+    private suspend fun refreshPullRequestMetadataOnce(
+        companyId: String,
+        issueId: String,
+        worktreePath: Path,
+        pullRequestNumber: Int,
+        now: Long = System.currentTimeMillis()
+    ): PublishMetadata? {
+        val refreshKey = pullRequestMetadataRefreshKey(companyId, issueId, pullRequestNumber)
+        recentPullRequestMetadataRefreshes[refreshKey]
+            ?.takeIf { now - it.refreshedAt < PR_METADATA_REFRESH_CACHE_MS }
+            ?.let { return it.metadata }
+
+        return runCatching {
+            gitWorkspaceService.refreshPullRequestMetadata(worktreePath, pullRequestNumber)
+        }.getOrNull()
+            ?.also { metadata ->
+                recentPullRequestMetadataRefreshes[refreshKey] = CachedPullRequestMetadata(
+                    refreshedAt = now,
+                    metadata = metadata
+                )
+            }
+    }
+
     private suspend fun resolveGitHubReadinessBlockedIssues(companyId: String): Int {
         val candidates = stateMutex.withLock {
             val state = stateStore.load()
@@ -5494,10 +5551,15 @@ class DesktopAppService(
             return 0
         }
 
+        val refreshNow = System.currentTimeMillis()
         val refreshedMetadataByQueueId = candidates.mapNotNull { candidate ->
-            val refreshed = runCatching {
-                gitWorkspaceService.refreshPullRequestMetadata(candidate.worktreePath, candidate.pullRequestNumber)
-            }.getOrNull() ?: return@mapNotNull null
+            val refreshed = refreshPullRequestMetadataOnce(
+                companyId = companyId,
+                issueId = candidate.executionIssueId,
+                worktreePath = candidate.worktreePath,
+                pullRequestNumber = candidate.pullRequestNumber,
+                now = refreshNow
+            ) ?: return@mapNotNull null
             if (!refreshed.pullRequestState.equals("OPEN", ignoreCase = true)) {
                 return@mapNotNull null
             }
@@ -5640,15 +5702,24 @@ class DesktopAppService(
 
         val refreshNow = System.currentTimeMillis()
         val recoveredByIssueId = candidates.mapNotNull { candidate ->
-            val refreshKey = "$companyId:${candidate.executionIssueId}:${candidate.pullRequestNumber}"
-            val lastRefreshAt = recentNoOpPullRequestRefreshAt[refreshKey]
-            if (lastRefreshAt != null && refreshNow - lastRefreshAt < NO_OP_PR_REUSE_REFRESH_INTERVAL_MS) {
-                return@mapNotNull null
+            val refreshKey = pullRequestMetadataRefreshKey(companyId, candidate.executionIssueId, candidate.pullRequestNumber)
+            val cachedRefresh = recentPullRequestMetadataRefreshes[refreshKey]
+                ?.takeIf { refreshNow - it.refreshedAt < PR_METADATA_REFRESH_CACHE_MS }
+                ?.metadata
+            val refreshed = cachedRefresh ?: run {
+                val lastRefreshAt = recentNoOpPullRequestRefreshAt[refreshKey]
+                if (lastRefreshAt != null && refreshNow - lastRefreshAt < NO_OP_PR_REUSE_REFRESH_INTERVAL_MS) {
+                    return@mapNotNull null
+                }
+                recentNoOpPullRequestRefreshAt[refreshKey] = refreshNow
+                refreshPullRequestMetadataOnce(
+                    companyId = companyId,
+                    issueId = candidate.executionIssueId,
+                    worktreePath = candidate.worktreePath,
+                    pullRequestNumber = candidate.pullRequestNumber,
+                    now = refreshNow
+                ) ?: return@mapNotNull null
             }
-            recentNoOpPullRequestRefreshAt[refreshKey] = refreshNow
-            val refreshed = runCatching {
-                gitWorkspaceService.refreshPullRequestMetadata(candidate.worktreePath, candidate.pullRequestNumber)
-            }.getOrNull() ?: return@mapNotNull null
             val pullRequestState = refreshed.pullRequestState?.uppercase()
             val mergeability = refreshed.mergeability?.uppercase()
             if (
