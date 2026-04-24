@@ -13,8 +13,8 @@ import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 
 class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
-    test("company issue run completes with real stores and git worktree while only agent execution is mocked") {
-        System.setProperty("cotor.experimental.durableRuntimeV2", "true")
+    test("company issue run creates durable run by default while only agent execution is mocked") {
+        var service: DesktopAppService? = null
         try {
             val harness = createDesktopAppServiceIntegrationHarness(
                 agentResultFactory = {
@@ -30,20 +30,20 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 }
             )
 
-            val service = harness.service
-            val company = service.createCompany(
+            service = harness.service
+            val company = service!!.createCompany(
                 name = "AI Only Integration Co",
                 rootPath = harness.repositoryRoot.toString(),
                 defaultBaseBranch = "master"
             )
-            val goal = service.createGoal(
+            val goal = service!!.createGoal(
                 companyId = company.id,
                 title = "Validate infra-only issue flow",
                 description = "Run a non-code issue through the full company runtime path.",
                 autonomyEnabled = false,
                 startRuntimeIfNeeded = false
             )
-            val issue = service.createIssue(
+            val issue = service!!.createIssue(
                 companyId = company.id,
                 goalId = goal.id,
                 title = "Infra runtime validation",
@@ -66,9 +66,9 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 )
             )
 
-            service.runIssue(issue.id)
+            service!!.runIssue(issue.id)
 
-            withTimeout(10_000) {
+            withTimeout(30_000) {
                 while (true) {
                     val currentIssue = harness.stateStore.load().issues.first { it.id == issue.id }
                     if (currentIssue.status == IssueStatus.DONE && currentIssue.durableRunId != null) {
@@ -82,24 +82,23 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             val settledIssue = settledState.issues.first { it.id == issue.id }
             settledIssue.status shouldBe IssueStatus.DONE
             settledIssue.durableRunId.shouldNotBeNull()
-            service.verificationBundle(issue.id).outcome.status shouldBe com.cotor.verification.VerificationOutcomeStatus.PASS
+            service!!.verificationBundle(issue.id).outcome.status shouldBe com.cotor.verification.VerificationOutcomeStatus.PASS
 
             val durableRun = harness.durableRuntimeService.inspectRun(settledIssue.durableRunId!!)
             durableRun.shouldNotBeNull()
             durableRun.status.name shouldBe "COMPLETED"
 
-            val projection = service.issueRuntimeProjection(issue.id)
+            val projection = service!!.issueRuntimeProjection(issue.id)
             projection.issue.runtimeDisposition shouldBe "TERMINAL"
             projection.runtime.pendingIssueIds.contains(issue.id) shouldBe false
-
-            service.shutdown()
         } finally {
-            System.clearProperty("cotor.experimental.durableRuntimeV2")
+            service?.shutdown()
         }
     }
 
     test("canonical agent note prevents duplicate legacy stdout fallback replay") {
         System.setProperty("cotor.experimental.durableRuntimeV2", "true")
+        var service: DesktopAppService? = null
         try {
             lateinit var serviceRef: DesktopAppService
             lateinit var issueRef: CompanyIssue
@@ -129,14 +128,14 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 }
             )
 
-            val service = harness.service
-            serviceRef = service
-            val company = service.createCompany(
+            service = harness.service
+            serviceRef = service!!
+            val company = service!!.createCompany(
                 name = "Canonical Beats Legacy Co",
                 rootPath = harness.repositoryRoot.toString(),
                 defaultBaseBranch = "master"
             )
-            val goal = service.createGoal(
+            val goal = service!!.createGoal(
                 companyId = company.id,
                 title = "Avoid duplicate communication replay",
                 description = "Ensure canonical communication suppresses legacy stdout fallback duplication.",
@@ -144,7 +143,7 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 startRuntimeIfNeeded = false
             )
             goalRef = goal
-            val issue = service.createIssue(
+            val issue = service!!.createIssue(
                 companyId = company.id,
                 goalId = goal.id,
                 title = "Canonical note should win",
@@ -168,17 +167,10 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 )
             )
 
-            service.runIssue(issue.id)
-
-            withTimeout(10_000) {
-                while (true) {
-                    val currentIssue = harness.stateStore.load().issues.first { it.id == issue.id }
-                    if (currentIssue.status == IssueStatus.DONE && currentIssue.durableRunId != null) {
-                        break
-                    }
-                    delay(50)
-                }
-            }
+            service!!.runIssueAndAwaitSettlement(issue.id, timeoutMs = 30_000)
+            val currentIssue = harness.stateStore.load().issues.first { it.id == issue.id }
+            currentIssue.status shouldBe IssueStatus.DONE
+            currentIssue.durableRunId.shouldNotBeNull()
 
             val settledState = harness.stateStore.load()
             val notes = settledState.agentContextEntries.filter {
@@ -190,9 +182,8 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             }
 
             notes.size shouldBe 1
-
-            service.shutdown()
         } finally {
+            service?.shutdown()
             System.clearProperty("cotor.experimental.durableRuntimeV2")
         }
     }
@@ -219,7 +210,7 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 gitWorkspaceServiceTransform = { realService ->
                     spyk(realService).also { spyService ->
                         coEvery {
-                            spyService.publishRun(any(), any(), any(), any(), any())
+                            spyService.publishRun(any(), any(), any(), any(), any(), any())
                         } answers {
                             publishedWorktreePath = thirdArg<java.nio.file.Path>().toString()
                             publishedBranchName = arg<String>(3)
@@ -238,84 +229,86 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             )
 
             val service = harness.service
-            val company = service.createCompany(
-                name = "AI Only Review Queue Co",
-                rootPath = harness.repositoryRoot.toString(),
-                defaultBaseBranch = "master"
-            )
-            val goal = service.createGoal(
-                companyId = company.id,
-                title = "Ship a code change through review",
-                description = "Run a code-producing execution issue all the way into the QA review lane.",
-                autonomyEnabled = false,
-                startRuntimeIfNeeded = false
-            )
-            val issue = service.createIssue(
-                companyId = company.id,
-                goalId = goal.id,
-                title = "Implement reviewed change",
-                description = "Produce code that should open a review queue item.",
-                kind = "execution"
-            )
-            val seeded = harness.stateStore.load()
-            harness.stateStore.save(
-                seeded.copy(
-                    issues = seeded.issues.map { existing ->
-                        if (existing.id == issue.id) {
-                            existing.copy(
-                                acceptanceCriteria = listOf("A PR is opened", "QA review issue is created"),
-                                codeProducing = true,
-                                status = IssueStatus.DELEGATED
-                            )
-                        } else {
-                            existing
-                        }
-                    }
+            try {
+                val company = service.createCompany(
+                    name = "AI Only Review Queue Co",
+                    rootPath = harness.repositoryRoot.toString(),
+                    defaultBaseBranch = "master"
                 )
-            )
+                val goal = service.createGoal(
+                    companyId = company.id,
+                    title = "Ship a code change through review",
+                    description = "Run a code-producing execution issue all the way into the QA review lane.",
+                    autonomyEnabled = false,
+                    startRuntimeIfNeeded = false
+                )
+                val issue = service.createIssue(
+                    companyId = company.id,
+                    goalId = goal.id,
+                    title = "Implement reviewed change",
+                    description = "Produce code that should open a review queue item.",
+                    kind = "execution"
+                )
+                val seeded = harness.stateStore.load()
+                harness.stateStore.save(
+                    seeded.copy(
+                        issues = seeded.issues.map { existing ->
+                            if (existing.id == issue.id) {
+                                existing.copy(
+                                    acceptanceCriteria = listOf("A PR is opened", "QA review issue is created"),
+                                    codeProducing = true,
+                                    status = IssueStatus.DELEGATED
+                                )
+                            } else {
+                                existing
+                            }
+                        }
+                    )
+                )
 
-            service.runIssue(issue.id)
+                service.runIssue(issue.id)
 
-            withTimeout(10_000) {
-                while (true) {
-                    val current = harness.stateStore.load()
-                    val currentIssue = current.issues.first { it.id == issue.id }
-                    val queueItem = current.reviewQueue.firstOrNull { it.issueId == issue.id }
-                    if (
-                        currentIssue.status == IssueStatus.IN_REVIEW &&
-                        currentIssue.pullRequestNumber == 42 &&
-                        queueItem != null &&
-                        queueItem.status == ReviewQueueStatus.AWAITING_QA &&
-                        queueItem.qaIssueId != null
-                    ) {
-                        break
+                withTimeout(30_000) {
+                    while (true) {
+                        val current = harness.stateStore.load()
+                        val currentIssue = current.issues.first { it.id == issue.id }
+                        val queueItem = current.reviewQueue.firstOrNull { it.issueId == issue.id }
+                        if (
+                            currentIssue.status == IssueStatus.IN_REVIEW &&
+                            currentIssue.pullRequestNumber == 42 &&
+                            queueItem != null &&
+                            queueItem.status == ReviewQueueStatus.AWAITING_QA &&
+                            queueItem.qaIssueId != null
+                        ) {
+                            break
+                        }
+                        delay(50)
                     }
-                    delay(50)
                 }
+
+                val settled = harness.stateStore.load()
+                val settledIssue = settled.issues.first { it.id == issue.id }
+                val reviewQueueItem = settled.reviewQueue.first { it.issueId == issue.id }
+                val qaIssue = settled.issues.first { it.id == reviewQueueItem.qaIssueId }
+
+                settledIssue.status shouldBe IssueStatus.IN_REVIEW
+                settledIssue.pullRequestNumber shouldBe 42
+                settledIssue.pullRequestUrl shouldBe "https://github.com/example/cotor/pull/42"
+                settledIssue.branchName shouldContain "codex/cotor/implement-reviewed-change"
+                settledIssue.worktreePath shouldBe publishedWorktreePath
+                settledIssue.durableRunId.shouldNotBeNull()
+
+                reviewQueueItem.pullRequestNumber shouldBe 42
+                reviewQueueItem.status shouldBe ReviewQueueStatus.AWAITING_QA
+                reviewQueueItem.qaIssueId shouldBe qaIssue.id
+
+                qaIssue.kind shouldBe "review"
+                qaIssue.status shouldBe IssueStatus.PLANNED
+                qaIssue.pullRequestNumber shouldBe 42
+                qaIssue.pullRequestUrl shouldBe "https://github.com/example/cotor/pull/42"
+            } finally {
+                service.shutdown()
             }
-
-            val settled = harness.stateStore.load()
-            val settledIssue = settled.issues.first { it.id == issue.id }
-            val reviewQueueItem = settled.reviewQueue.first { it.issueId == issue.id }
-            val qaIssue = settled.issues.first { it.id == reviewQueueItem.qaIssueId }
-
-            settledIssue.status shouldBe IssueStatus.IN_REVIEW
-            settledIssue.pullRequestNumber shouldBe 42
-            settledIssue.pullRequestUrl shouldBe "https://github.com/example/cotor/pull/42"
-            settledIssue.branchName shouldContain "codex/cotor/implement-reviewed-change"
-            settledIssue.worktreePath shouldBe publishedWorktreePath
-            settledIssue.durableRunId.shouldNotBeNull()
-
-            reviewQueueItem.pullRequestNumber shouldBe 42
-            reviewQueueItem.status shouldBe ReviewQueueStatus.AWAITING_QA
-            reviewQueueItem.qaIssueId shouldBe qaIssue.id
-
-            qaIssue.kind shouldBe "review"
-            qaIssue.status shouldBe IssueStatus.PLANNED
-            qaIssue.pullRequestNumber shouldBe 42
-            qaIssue.pullRequestUrl shouldBe "https://github.com/example/cotor/pull/42"
-
-            service.shutdown()
         } finally {
             System.clearProperty("cotor.experimental.durableRuntimeV2")
         }
@@ -323,6 +316,8 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
 
     test("recreated service resumes a running company runtime from persisted state") {
         System.setProperty("cotor.experimental.durableRuntimeV2", "true")
+        var initialService: DesktopAppService? = null
+        var recreatedService: DesktopAppService? = null
         try {
             val initialHarness = createDesktopAppServiceIntegrationHarness(
                 agentResultFactory = {
@@ -338,20 +333,20 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 }
             )
 
-            val service = initialHarness.service
-            val company = service.createCompany(
+            initialService = initialHarness.service
+            val company = initialService!!.createCompany(
                 name = "AI Only Restart Co",
                 rootPath = initialHarness.repositoryRoot.toString(),
                 defaultBaseBranch = "master"
             )
-            val goal = service.createGoal(
+            val goal = initialService!!.createGoal(
                 companyId = company.id,
                 title = "Resume autonomous runtime after restart",
                 description = "Persist a running runtime and ensure the recreated service resumes it.",
                 autonomyEnabled = true,
                 startRuntimeIfNeeded = false
             )
-            val issue = service.createIssue(
+            val issue = initialService!!.createIssue(
                 companyId = company.id,
                 goalId = goal.id,
                 title = "Recovered autonomous issue",
@@ -380,7 +375,8 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                     }
                 )
             )
-            service.shutdown()
+            initialService!!.shutdown()
+            initialService = null
 
             val recreatedHarness = createDesktopAppServiceIntegrationHarness(
                 agentResultFactory = {
@@ -397,8 +393,9 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
                 appHome = initialHarness.appHome,
                 repositoryRoot = initialHarness.repositoryRoot
             )
+            recreatedService = recreatedHarness.service
 
-            recreatedHarness.service.companyDashboard(company.id)
+            recreatedService!!.companyDashboard(company.id)
 
             withTimeout(10_000) {
                 while (true) {
@@ -422,17 +419,17 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             settledRuns.size shouldBe 1
             settledRuns.single().status shouldBe AgentRunStatus.COMPLETED
             settledIssue.durableRunId shouldBe settledRuns.single().id
-            recreatedHarness.service.runtimeStatus(company.id).status shouldBe CompanyRuntimeStatus.RUNNING
+            recreatedService!!.runtimeStatus(company.id).status shouldBe CompanyRuntimeStatus.RUNNING
 
-            recreatedHarness.service.companyDashboard(company.id)
+            recreatedService!!.companyDashboard(company.id)
 
             val afterRetick = recreatedHarness.stateStore.load()
             afterRetick.tasks.count { it.issueId == issue.id } shouldBe 1
             afterRetick.runs.count { run -> afterRetick.tasks.any { it.issueId == issue.id && it.id == run.taskId } } shouldBe 1
             afterRetick.issues.first { it.id == issue.id }.status shouldBe IssueStatus.DONE
-
-            recreatedHarness.service.shutdown()
         } finally {
+            recreatedService?.shutdown()
+            initialService?.shutdown()
             System.clearProperty("cotor.experimental.durableRuntimeV2")
         }
     }

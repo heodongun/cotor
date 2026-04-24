@@ -31,6 +31,8 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Cotor Desktop connects to the local Cotor app-server running on this Mac.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

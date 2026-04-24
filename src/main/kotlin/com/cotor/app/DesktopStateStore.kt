@@ -10,6 +10,7 @@ package com.cotor.app
 
 import com.cotor.app.persistence.StateRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -23,6 +24,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.PosixFilePermission
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -45,6 +47,7 @@ class DesktopStateStore(
         private const val STATE_LOAD_LOG_DEDUP_WINDOW_MS = 30_000L
         private const val STATE_LOCK_TIMEOUT_MS = 3_000L
         private const val STATE_LOCK_RETRY_DELAY_MS = 50L
+        private const val MAX_TAIL_TRIM_RECOVERY_CHARS = 512
 
         @Volatile
         private var lastStateLoadLogMessage: String? = null
@@ -153,10 +156,14 @@ class DesktopStateStore(
         val payload = json.encodeToString(DesktopAppState.serializer(), compactedState)
         val tempFile = Files.createTempFile(file.parent, "${file.fileName}.", ".tmp")
         tempFile.writeText(payload)
+        enforceOwnerOnlyPermissions(tempFile)
         moveWithAtomicFallback(tempFile, file)
+        enforceOwnerOnlyPermissions(file)
         val backupTempFile = Files.createTempFile(backupFile.parent, "${backupFile.fileName}.", ".tmp")
         backupTempFile.writeText(payload)
+        enforceOwnerOnlyPermissions(backupTempFile)
         moveWithAtomicFallback(backupTempFile, backupFile)
+        enforceOwnerOnlyPermissions(backupFile)
         updateCache(file, compactedState)
     }
 
@@ -169,7 +176,7 @@ class DesktopStateStore(
     private fun decodeState(raw: String): DesktopAppState? {
         decodeStateOrNull(raw)?.let { return it }
         var candidate = raw.trimEnd()
-        var trimsRemaining = 4096
+        var trimsRemaining = MAX_TAIL_TRIM_RECOVERY_CHARS
         while (candidate.isNotEmpty() && trimsRemaining > 0) {
             candidate = candidate.dropLast(1).trimEnd()
             trimsRemaining -= 1
@@ -284,7 +291,7 @@ class DesktopStateStore(
         }
     }
 
-    private fun <T> withStateFileLock(block: () -> T): T {
+    private suspend fun <T> withStateFileLock(block: () -> T): T {
         val lockPath = lockFile()
         val metadataPath = lockMetadataFile()
         lockPath.parent?.createDirectories()
@@ -323,7 +330,7 @@ class DesktopStateStore(
                             }
                         )
                     }
-                    Thread.sleep(STATE_LOCK_RETRY_DELAY_MS)
+                    delay(STATE_LOCK_RETRY_DELAY_MS)
                 }
                 error("Unreachable")
             }
@@ -363,10 +370,23 @@ class DesktopStateStore(
             {"pid":$pid,"lockedAt":$now,"appHome":"${appHome().toString().replace("\"", "\\\"")}"}
         """.trimIndent()
         metadataPath.writeText(payload)
+        enforceOwnerOnlyPermissions(metadataPath)
     }
 
     private fun clearLockMetadata(metadataPath: Path) {
         runCatching { Files.deleteIfExists(metadataPath) }
+    }
+
+    private fun enforceOwnerOnlyPermissions(path: Path) {
+        runCatching {
+            Files.setPosixFilePermissions(
+                path,
+                setOf(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE
+                )
+            )
+        }
     }
 
     private fun currentFingerprint(file: Path): Pair<Long, Long>? =

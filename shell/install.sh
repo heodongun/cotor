@@ -50,6 +50,9 @@ chmod +x "$COTOR_PATH"
 # Install a direct launcher into a common user bin directory when possible.
 USER_BIN_DIR="$HOME/.local/bin"
 mkdir -p "$USER_BIN_DIR"
+if [ -e "$USER_BIN_DIR/cotor" ] && [ "$(readlink "$USER_BIN_DIR/cotor" 2>/dev/null || true)" != "$COTOR_PATH" ]; then
+    echo "⚠️  Replacing existing launcher at $USER_BIN_DIR/cotor"
+fi
 ln -sf "$COTOR_PATH" "$USER_BIN_DIR/cotor"
 
 # Determine shell config file
@@ -61,17 +64,21 @@ else
     SHELL_CONFIG="$HOME/.profile"
 fi
 
+PATH_EXPORT="export PATH=\"$USER_BIN_DIR:\$PATH\""
+if ! printf '%s' ":${PATH}:" | grep -q ":$USER_BIN_DIR:"; then
+    touch "$SHELL_CONFIG"
+    if ! grep -Fq "$PATH_EXPORT" "$SHELL_CONFIG"; then
+        printf '\n%s\n' "$PATH_EXPORT" >> "$SHELL_CONFIG"
+    fi
+fi
+
 echo "📝 Installation complete!"
 echo ""
 echo "A direct launcher was installed at: $USER_BIN_DIR/cotor"
 echo ""
-echo "If $USER_BIN_DIR is already on PATH, you can use:"
+echo "$USER_BIN_DIR was added to $SHELL_CONFIG when it was missing from PATH."
 echo ""
 echo "  cotor version"
-echo ""
-echo "If not, add this to your $SHELL_CONFIG:"
-echo ""
-echo "  export PATH=\"$USER_BIN_DIR:\$PATH\""
 echo ""
 echo "Then run: source $SHELL_CONFIG"
 echo ""

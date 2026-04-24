@@ -4,6 +4,7 @@
     <property name="COTOR_LOG_LEVEL" value="${COTOR_LOG_LEVEL:-INFO}" />
     <!-- Console appender -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>

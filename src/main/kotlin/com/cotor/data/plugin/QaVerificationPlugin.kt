@@ -99,7 +99,10 @@ class QaVerificationPlugin : AgentPlugin {
             if (root.resolve("Cargo.toml").exists()) return listOf("cargo", "test", "--quiet")
         }
 
-        return listOf("./gradlew", "test", "--console=plain")
+        throw IllegalStateException(
+            "Could not auto-detect a QA verification command from the repository root. " +
+                "Provide argvJson explicitly for this verification step."
+        )
     }
 
     private fun parseArgvJson(raw: String): List<String> {

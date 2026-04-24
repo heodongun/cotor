@@ -4,9 +4,9 @@ import com.cotor.knowledge.KnowledgeRecord
 import com.cotor.policy.PolicyDecision
 import com.cotor.policy.PolicyEffect
 import com.cotor.policy.PolicyExplanation
+import com.cotor.provenance.EvidenceBundle
 import com.cotor.providers.github.GitHubProviderEvent
 import com.cotor.providers.github.PullRequestSnapshot
-import com.cotor.provenance.EvidenceBundle
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.ktor.client.request.get
@@ -18,7 +18,6 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
-import io.mockk.every
 import io.mockk.mockk
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject

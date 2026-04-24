@@ -7,7 +7,7 @@
 ### 1. OpenCode 모델 지정
 
 - `OpenCodePlugin`이 `model` 파라미터를 읽어 `opencode run --model <model> --format json <prompt>` 형태로 실행하도록 수정했다.
-- 기본 OpenCode 모델은 `opencode/qwen3.6-plus-free`로 정리했다.
+- 기본 OpenCode 모델은 `opencode/minimax-m2.5-free`로 정리했다.
 - built-in agent catalog와 `cotor agent add opencode` preset도 같은 기본 모델을 사용하도록 맞췄다.
 
 ### 2. 회사 기본 에이전트 비용 정책

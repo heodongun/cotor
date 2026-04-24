@@ -1,7 +1,7 @@
 #!/bin/bash
 # Cotor CLI wrapper script
 
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
+export PATH="${PATH:+$PATH:}$HOME/.local/bin:$HOME/.opencode/bin:$HOME/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # Get the real path of this script (follow symlinks)
 SCRIPT_PATH="$(/usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$0" 2>/dev/null || echo "$0")"

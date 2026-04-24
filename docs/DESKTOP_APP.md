@@ -52,6 +52,15 @@ export COTOR_APP_TOKEN='your-local-token'
 cotor app-server --port 8787 --token your-local-token
 ```
 
+Optional MCP control auth:
+
+```bash
+export COTOR_APP_CONTROL_TOKEN='your-local-control-token'
+cotor app-server --port 8787 --token your-local-token --control-token your-local-control-token
+```
+
+`/api/app/mcp` is read-only. Mutating MCP tools live under `/api/app/mcp/control` and require the control token.
+
 ## Run The macOS App
 
 ```bash
@@ -186,6 +195,7 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - keep active company work on a fast monitoring cadence so stale `RUNNING` tasks/runs are reconciled sooner
 - re-queue company issues that were interrupted by an app-server shutdown instead of leaving them blocked by a generic process-exit failure
 - resume queued delegated company work after the desktop app and bundled backend come back, and record that recovery in the live company activity feed
+- create durable run snapshots for company issue execution by default so the issue `durableRunId` can be inspected with `cotor resume inspect <run-id>`
 - prefer locally installed agent CLIs for default company profiles, with `echo` as a final fallback
 
 ## Current Limits
@@ -194,4 +204,4 @@ Compatibility routes under `/api/app/company/*` still exist for older clients.
 - Linear sync is company-scoped and mirrors Cotor-managed issues outward; it does not yet import existing Linear issues back into Cotor
 - runtime automation now includes a policy engine v1 for action allow/deny/approval decisions, but it is still file-backed and experimental
 - review and PR sync now include a GitHub control-plane v1 with PR state, mergeability, and status-check summary syncing through `gh`
-- `resume` now supports experimental durable inspect/continue/fork/approve flows, but company-wide issue/review continuation is still incomplete
+- company issue execution is inspectable through durable run snapshots by default; generic pipeline replay with `resume continue/fork/approve` and full company issue/review continuation are still incomplete

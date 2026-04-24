@@ -19,15 +19,14 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.clearMocks
 import io.mockk.mockk
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.exists
 
@@ -263,6 +262,66 @@ class A2aApiTest : FunSpec({
         }
     }
 
+    test("messages remain available until explicitly acknowledged") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val hello = client.post("/api/a2a/v1/sessions") {
+                header(HttpHeaders.Authorization, "Bearer secret-token")
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(A2aHelloRequest(agentId = "agent-builder", capabilities = listOf("task.assign"), tenant = A2aTenant("company-1"))))
+            }
+            hello.status shouldBe HttpStatusCode.OK
+            val sessionId = hello.bodyAsText().substringAfter("\"sessionId\":\"").substringBefore('"')
+
+            val sent = client.post("/api/a2a/v1/messages") {
+                header(HttpHeaders.Authorization, "Bearer secret-token")
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(envelope(dedupeKey = "ack-key")))
+            }
+            sent.status shouldBe HttpStatusCode.OK
+
+            val firstPull = client.get("/api/a2a/v1/messages/pull?session_id=$sessionId") {
+                header(HttpHeaders.Authorization, "Bearer secret-token")
+            }
+            firstPull.status shouldBe HttpStatusCode.OK
+            firstPull.bodyAsText() shouldContain "\"message-1\""
+
+            val secondPull = client.get("/api/a2a/v1/messages/pull?session_id=$sessionId") {
+                header(HttpHeaders.Authorization, "Bearer secret-token")
+            }
+            secondPull.status shouldBe HttpStatusCode.OK
+            secondPull.bodyAsText() shouldContain "\"message-1\""
+
+            val ack = client.post("/api/a2a/v1/messages/ack") {
+                header(HttpHeaders.Authorization, "Bearer secret-token")
+                contentType(ContentType.Application.Json)
+                setBody(
+                    json.encodeToString(
+                        A2aAckMessagesRequest(
+                            sessionId = sessionId,
+                            throughCursor = 1
+                        )
+                    )
+                )
+            }
+            ack.status shouldBe HttpStatusCode.OK
+            ack.bodyAsText() shouldContain "\"removedCount\":1"
+
+            val thirdPull = client.get("/api/a2a/v1/messages/pull?session_id=$sessionId") {
+                header(HttpHeaders.Authorization, "Bearer secret-token")
+            }
+            thirdPull.status shouldBe HttpStatusCode.OK
+            thirdPull.bodyAsText() shouldContain "\"messages\":[]"
+        }
+    }
+
     test("heartbeat rejects an unknown session") {
         testApplication {
             application {
@@ -404,7 +463,8 @@ class A2aApiTest : FunSpec({
                 header(HttpHeaders.Authorization, "Bearer secret-token")
             }
             secondPull.status shouldBe HttpStatusCode.OK
-            secondPull.bodyAsText() shouldContain "\"messages\":[]"
+            secondPull.bodyAsText() shouldContain "\"type\":\"message.note\""
+            secondPull.bodyAsText() shouldContain "\"type\":\"message.handoff\""
         }
     }
 

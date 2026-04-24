@@ -41,6 +41,9 @@ echo ""
 echo "📝 Installing to $INSTALL_DIR..."
 
 # Create symlink
+if [ -e "$INSTALL_DIR/cotor" ] && [ "$(readlink "$INSTALL_DIR/cotor" 2>/dev/null || true)" != "$COTOR_SCRIPT" ]; then
+    echo "⚠️  Replacing existing launcher at $INSTALL_DIR/cotor"
+fi
 ln -sf "$COTOR_SCRIPT" "$INSTALL_DIR/cotor"
 
 echo ""
@@ -51,12 +54,22 @@ echo ""
 
 # Check if directory is in PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+    if [ -n "$ZSH_VERSION" ]; then
+        SHELL_CONFIG="$HOME/.zshrc"
+    elif [ -n "$BASH_VERSION" ]; then
+        SHELL_CONFIG="$HOME/.bashrc"
+    else
+        SHELL_CONFIG="$HOME/.profile"
+    fi
+    PATH_EXPORT="export PATH=\"$INSTALL_DIR:\$PATH\""
+    touch "$SHELL_CONFIG"
+    if ! grep -Fq "$PATH_EXPORT" "$SHELL_CONFIG"; then
+        printf '\n%s\n' "$PATH_EXPORT" >> "$SHELL_CONFIG"
+    fi
     echo "⚠️  Warning: $INSTALL_DIR is not in your PATH"
     echo ""
-    echo "Add this to your ~/.bashrc or ~/.zshrc:"
-    echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
-    echo ""
-    echo "Then run: source ~/.bashrc  (or source ~/.zshrc)"
+    echo "$INSTALL_DIR was added to $SHELL_CONFIG"
+    echo "Then run: source $SHELL_CONFIG"
     echo ""
 else
     echo "🎉 You can now use 'cotor' from anywhere!"

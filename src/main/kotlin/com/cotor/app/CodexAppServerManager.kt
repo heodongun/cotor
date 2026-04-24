@@ -100,7 +100,7 @@ class CodexAppServerManager {
         if (config.launchMode == BackendLaunchMode.ATTACHED) {
             return status(companyId, config)
         }
-        synchronized(this) {
+        val managed = synchronized(this) {
             val existing = processes[companyId]
             if (existing != null && existing.process.isAlive) {
                 return ManagedCodexServerStatus(
@@ -120,22 +120,23 @@ class CodexAppServerManager {
             }
             val preparedLaunch = prepareManagedLaunch(command, executable, config)
             val builder = preparedLaunch.builder
-            return try {
+            try {
                 val process = builder.start()
                 val baseUrl = "http://127.0.0.1:$port"
-                val managed = ManagedProcess(
+                val launched = ManagedProcess(
                     process = process,
                     baseUrl = baseUrl,
                     port = port,
                     startedAt = System.currentTimeMillis()
                 )
-                processes[companyId] = managed
+                processes[companyId] = launched
                 failures.remove(companyId)
-                waitForHealth(companyId, managed, config)
+                launched
             } catch (error: Exception) {
-                rememberFailure(companyId, error.message ?: "Failed to start managed Codex app server.")
+                return rememberFailure(companyId, error.message ?: "Failed to start managed Codex app server.")
             }
         }
+        return waitForHealth(companyId, managed, config)
     }
 
     fun restart(companyId: String, config: BackendConnectionConfig): ManagedCodexServerStatus {
@@ -214,12 +215,17 @@ class CodexAppServerManager {
 
     private fun isHealthy(url: String, timeoutSeconds: Int): Boolean {
         return runCatching {
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.connectTimeout = timeoutSeconds * 1000
-            connection.readTimeout = timeoutSeconds * 1000
-            connection.connect()
-            connection.responseCode in 200..299
+            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = timeoutSeconds * 1000
+                readTimeout = timeoutSeconds * 1000
+            }
+            try {
+                connection.connect()
+                connection.responseCode in 200..299
+            } finally {
+                connection.disconnect()
+            }
         }.getOrDefault(false)
     }
 

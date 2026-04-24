@@ -50,18 +50,7 @@ class DesktopAppServiceExecutionMemoryTest : FunSpec({
 
         val currentState = stateStore.load()
         val ceoProfile = currentState.orgProfiles.first { it.companyId == company.id && it.roleName == "CEO" }
-        val memoryBundleBuilder = DesktopAppService::class.java.getDeclaredMethod(
-            "buildExecutionMemoryBundle",
-            DesktopAppState::class.java,
-            Company::class.java,
-            CompanyProjectContext::class.java,
-            CompanyGoal::class.java,
-            CompanyIssue::class.java,
-            OrgAgentProfile::class.java
-        )
-        memoryBundleBuilder.isAccessible = true
-        val memoryBundle = memoryBundleBuilder.invoke(
-            service,
+        val memoryBundle = service.buildExecutionMemoryBundleForTesting(
             currentState,
             company,
             currentState.projectContexts.first { it.companyId == company.id },
@@ -69,11 +58,8 @@ class DesktopAppServiceExecutionMemoryTest : FunSpec({
             issue,
             ceoProfile
         )
-        val agentMemoryField = memoryBundle.javaClass.getDeclaredField("agentMemory")
-        agentMemoryField.isAccessible = true
-        val agentMemory = agentMemoryField.get(memoryBundle) as String
 
-        agentMemory shouldContain "memoryNotes=Always validate only the smallest necessary files before making a change."
+        memoryBundle.agentMemory shouldContain "memoryNotes=Always validate only the smallest necessary files before making a change."
     }
 
     test("buildExecutionMemoryBundle includes retrieved knowledge in workflow memory") {
@@ -119,18 +105,7 @@ class DesktopAppServiceExecutionMemoryTest : FunSpec({
         val ceoProfile = stateStore.load().orgProfiles.first { it.companyId == company.id && it.roleName == "CEO" }
         val issue = service.listIssues(goal.id).first { it.kind == "execution" }
         val currentState = stateStore.load()
-        val memoryBundleBuilder = DesktopAppService::class.java.getDeclaredMethod(
-            "buildExecutionMemoryBundle",
-            DesktopAppState::class.java,
-            Company::class.java,
-            CompanyProjectContext::class.java,
-            CompanyGoal::class.java,
-            CompanyIssue::class.java,
-            OrgAgentProfile::class.java
-        )
-        memoryBundleBuilder.isAccessible = true
-        val memoryBundle = memoryBundleBuilder.invoke(
-            service,
+        val memoryBundle = service.buildExecutionMemoryBundleForTesting(
             currentState,
             company,
             currentState.projectContexts.first { it.companyId == company.id },
@@ -138,11 +113,8 @@ class DesktopAppServiceExecutionMemoryTest : FunSpec({
             issue,
             ceoProfile
         )
-        val workflowMemoryField = memoryBundle.javaClass.getDeclaredField("workflowMemory")
-        workflowMemoryField.isAccessible = true
-        val workflowMemory = workflowMemoryField.get(memoryBundle) as String
 
-        workflowMemory shouldContain "knowledge=qa-feedback:Preserve this execution-time knowledge."
+        memoryBundle.workflowMemory shouldContain "knowledge=qa-feedback:Preserve this execution-time knowledge."
     }
 
     test("review and approval prompts include company memory section") {
@@ -199,15 +171,8 @@ class DesktopAppServiceExecutionMemoryTest : FunSpec({
 
         val currentState = stateStore.load()
         val ceoProfile = currentState.orgProfiles.first { it.companyId == company.id && it.roleName == "CEO" }
-        val promptBuilder = DesktopAppService::class.java.getDeclaredMethod(
-            "buildIssueExecutionPrompt",
-            DesktopAppState::class.java,
-            CompanyIssue::class.java,
-            OrgAgentProfile::class.java
-        )
-        promptBuilder.isAccessible = true
-        val reviewPrompt = promptBuilder.invoke(service, currentState, reviewIssue, ceoProfile) as String
-        val approvalPrompt = promptBuilder.invoke(service, currentState, approvalIssue, ceoProfile) as String
+        val reviewPrompt = service.buildIssueExecutionPromptForTesting(currentState, reviewIssue, ceoProfile)
+        val approvalPrompt = service.buildIssueExecutionPromptForTesting(currentState, approvalIssue, ceoProfile)
 
         reviewPrompt shouldContain "Company memory:"
         approvalPrompt shouldContain "Company memory:"
@@ -244,14 +209,7 @@ class DesktopAppServiceExecutionMemoryTest : FunSpec({
         val planningIssue = service.listIssues(goal.id).first { it.kind == "planning" }
         val state = stateStore.load()
         val ceoProfile = state.orgProfiles.first { it.companyId == company.id && it.roleName == "CEO" }
-        val planningBuilder = DesktopAppService::class.java.getDeclaredMethod(
-            "buildCeoPlanningPrompt",
-            DesktopAppState::class.java,
-            CompanyIssue::class.java,
-            OrgAgentProfile::class.java
-        )
-        planningBuilder.isAccessible = true
-        val planningPrompt = planningBuilder.invoke(service, state, planningIssue, ceoProfile) as String
+        val planningPrompt = service.buildCeoPlanningPromptForTesting(state, planningIssue, ceoProfile)
 
         planningPrompt shouldContain "Company memory:"
         planningPrompt shouldContain "Workflow memory:"
@@ -289,18 +247,7 @@ class DesktopAppServiceExecutionMemoryTest : FunSpec({
         val issue = service.listIssues(goal.id).first { it.kind == "execution" }
         val state = stateStore.load()
         val ceoProfile = state.orgProfiles.first { it.companyId == company.id && it.roleName == "CEO" }
-        val snapshotBuilder = DesktopAppService::class.java.getDeclaredMethod(
-            "buildCompanyMemorySnapshot",
-            DesktopAppState::class.java,
-            Company::class.java,
-            CompanyProjectContext::class.java,
-            CompanyGoal::class.java,
-            CompanyIssue::class.java,
-            OrgAgentProfile::class.java
-        )
-        snapshotBuilder.isAccessible = true
-        val snapshot = snapshotBuilder.invoke(
-            service,
+        val snapshot = service.buildCompanyMemorySnapshotForTesting(
             state,
             company,
             state.projectContexts.first { it.companyId == company.id },
@@ -308,16 +255,10 @@ class DesktopAppServiceExecutionMemoryTest : FunSpec({
             issue,
             ceoProfile
         )
-        val companyMemoryField = snapshot.javaClass.getDeclaredField("companyMemory")
-        val workflowMemoryField = snapshot.javaClass.getDeclaredField("workflowMemory")
-        val agentMemoryField = snapshot.javaClass.getDeclaredField("agentMemory")
-        companyMemoryField.isAccessible = true
-        workflowMemoryField.isAccessible = true
-        agentMemoryField.isAccessible = true
 
-        (companyMemoryField.get(snapshot) as String) shouldContain "company=Snapshot Co"
-        (workflowMemoryField.get(snapshot) as String) shouldContain "goal=Snapshot Goal"
-        (agentMemoryField.get(snapshot) as String) shouldContain "role=CEO"
+        snapshot.companyMemory shouldContain "company=Snapshot Co"
+        snapshot.workflowMemory shouldContain "goal=Snapshot Goal"
+        snapshot.agentMemory shouldContain "role=CEO"
     }
 })
 

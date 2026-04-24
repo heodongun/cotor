@@ -13,8 +13,10 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.mockk
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.Path
@@ -103,6 +105,41 @@ class ProcessManagerTest : FunSpec({
         }
     }
 
+    test("executeProcess returns when a subprocess leaves inherited pipes open") {
+        val processManager = CoroutineProcessManager(mockk<Logger>(relaxed = true))
+
+        val result = withTimeout(2_000) {
+            processManager.executeProcess(
+                command = listOf("/bin/sh", "-c", "(sleep 5) & echo parent-exit"),
+                input = null,
+                environment = emptyMap(),
+                timeout = 5_000
+            )
+        }
+
+        result.isSuccess shouldBe true
+        result.stdout shouldContain "parent-exit"
+    }
+
+    test("executeProcess drains large stdout output before returning") {
+        val processManager = CoroutineProcessManager(mockk<Logger>(relaxed = true))
+
+        val result = processManager.executeProcess(
+            command = listOf(
+                "/bin/sh",
+                "-c",
+                "python3 - <<'PY'\nfor i in range(20000):\n    print(f'line-{i}')\nPY"
+            ),
+            input = null,
+            environment = emptyMap(),
+            timeout = 30_000
+        )
+
+        result.isSuccess shouldBe true
+        result.stdout shouldContain "line-0"
+        result.stdout shouldContain "line-19999"
+    }
+
     test("effectiveUserHome prefers HOME from the environment over user.home") {
         effectiveUserHome(
             environment = mapOf("HOME" to "/tmp/cotor-home"),
@@ -140,5 +177,41 @@ class ProcessManagerTest : FunSpec({
 
         resolved.shouldNotBeNull()
         resolved shouldBe Path.of(fakeExecutable.toString()).toAbsolutePath().normalize()
+    }
+
+    test("resolveExecutablePath prefers HOME opencode bin over stale usr local binary") {
+        val fakeHome = Files.createTempDirectory("process-manager-opencode-home")
+        val userOpenCodeBin = fakeHome.resolve(".opencode").resolve("bin")
+        val staleBin = Files.createTempDirectory("process-manager-stale-bin")
+        Files.createDirectories(userOpenCodeBin)
+        val currentOpenCode = userOpenCodeBin.resolve("opencode")
+        val staleOpenCode = staleBin.resolve("opencode")
+        Files.writeString(currentOpenCode, "#!/bin/sh\nexit 0\n")
+        Files.writeString(staleOpenCode, "#!/bin/sh\nexit 0\n")
+        Files.setPosixFilePermissions(
+            currentOpenCode,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE
+            )
+        )
+        Files.setPosixFilePermissions(
+            staleOpenCode,
+            setOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE
+            )
+        )
+
+        val resolved = resolveExecutablePath(
+            command = "opencode",
+            environment = mapOf("PATH" to staleBin.toString(), "HOME" to fakeHome.toString()),
+            systemHome = "/Users/real-home"
+        )
+
+        resolved.shouldNotBeNull()
+        resolved shouldBe currentOpenCode.toAbsolutePath().normalize()
     }
 })

@@ -32,4 +32,3 @@ data class KnowledgeSnapshot(
     val records: List<KnowledgeRecord> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis()
 )
-

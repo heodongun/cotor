@@ -20,7 +20,7 @@ remove_path() {
 remove_path "/Applications/$BUNDLE_NAME"
 remove_path "$HOME/Applications/$BUNDLE_NAME"
 remove_path "$DOWNLOADS_DIR/$BUNDLE_NAME"
-remove_path "$DOWNLOADS_DIR/Cotor-Desktop-macOS.zip"
+remove_path "$DOWNLOADS_DIR/Cotor-Desktop-macOS.dmg"
 
 if [[ "$REMOVED" -eq 0 ]]; then
     echo "ℹ️  No installed Cotor Desktop app or download artifacts were found."

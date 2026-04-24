@@ -148,7 +148,7 @@ class AgentCommandTest : FunSpec({
         val added = root.resolve(".cotor/agents/opencode.yaml")
         added.exists() shouldBe true
         added.readText() shouldContain "pluginClass: com.cotor.data.plugin.OpenCodePlugin"
-        added.readText() shouldContain "model: \"opencode/qwen3.6-plus-free\""
+        added.readText() shouldContain "model: \"opencode/minimax-m2.5-free\""
     }
 
     test("agent add help shows detailed usage") {

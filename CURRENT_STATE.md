@@ -14,7 +14,7 @@
 - `src/main/kotlin/com/cotor/presentation/web/WebServer.kt`
 
 ## Partial / shallow layers
-- `resume` supports experimental durable inspect/continue/fork/approve for pipeline runs, but company-wide issue/review continuation is still partial.
+- Company issue execution now creates inspectable durable run snapshots by default; generic pipeline `resume continue/fork/approve` and company-wide issue/review continuation are still partial.
 - `CheckpointManager` stores flat stage summaries rather than a causal execution graph.
 - policy / approval / guardrail logic now has a file-backed v1 engine, but richer policy DSL features are still missing.
 - GitHub workflow sync now has a provider state store and sync surface, but it is still `gh`-driven rather than webhook-native.

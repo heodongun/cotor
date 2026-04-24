@@ -720,11 +720,6 @@ final class DesktopStore: ObservableObject {
             statusState = .offlineMock
             AppLogger.error("Dashboard refresh marked app offline: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
-            runs = []
-            changes = emptyChangeSummary()
-            files = []
-            ports = []
-            browserURL = nil
             reconcileWorkflowLeadAgent()
             reconcileSelection()
             syncIssueComposerState()
@@ -776,11 +771,6 @@ final class DesktopStore: ObservableObject {
             statusState = .offlineMock
             AppLogger.error("Company dashboard refresh marked app offline: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
-            runs = []
-            changes = emptyChangeSummary()
-            files = []
-            ports = []
-            browserURL = nil
             selectedAgentName = selectedTask?.agents.first
             stopTuiPolling()
             companyEventTask?.cancel()

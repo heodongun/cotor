@@ -29,8 +29,15 @@ class AppServerCommand : CliktCommand(
     private val port by option("--port", "-p", help = "Port to run the app server on").int().default(8787)
     private val token by option("--token", help = "Optional bearer token required by the desktop app")
         .default(System.getenv("COTOR_APP_TOKEN").orEmpty())
+    private val controlToken by option("--control-token", help = "Optional bearer token required by MCP control tools")
+        .default(System.getenv("COTOR_APP_CONTROL_TOKEN").orEmpty())
 
     override fun run() {
-        AppServer().start(host = host, port = port, token = token.ifBlank { null })
+        AppServer().start(
+            host = host,
+            port = port,
+            token = token.ifBlank { null },
+            controlToken = controlToken.ifBlank { null }
+        )
     }
 }

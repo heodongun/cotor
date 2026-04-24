@@ -8,9 +8,9 @@ import com.cotor.app.ReviewQueueStatus
 import com.cotor.knowledge.KnowledgeRecord
 import com.cotor.knowledge.KnowledgeService
 import com.cotor.knowledge.KnowledgeStore
-import com.cotor.provenance.EvidenceNode
 import com.cotor.provenance.EvidenceEdge
 import com.cotor.provenance.EvidenceGraph
+import com.cotor.provenance.EvidenceNode
 import com.cotor.provenance.EvidenceNodeKind
 import com.cotor.provenance.ProvenanceService
 import com.cotor.provenance.ProvenanceStore
@@ -124,5 +124,32 @@ class VerificationBundleServiceTest : FunSpec({
 
         store.loadOutcome(issue.id)?.issueId shouldBe issue.id
         store.loadObservations(issue.id).isNotEmpty() shouldBe true
+    }
+
+    test("completed non-code issue can pass verification without qa or ci signals") {
+        val appHome = Files.createTempDirectory("verification-bundle-done-issue-test")
+        val service = VerificationBundleService(
+            provenanceService = ProvenanceService(ProvenanceStore { appHome }),
+            knowledgeService = KnowledgeService(KnowledgeStore { appHome }),
+            store = VerificationStore { appHome }
+        )
+
+        val bundle = service.buildForIssue(
+            state = DesktopAppState(),
+            issue = CompanyIssue(
+                id = "issue-done",
+                goalId = "goal-done",
+                workspaceId = "workspace-done",
+                title = "Done infra issue",
+                description = "desc",
+                status = IssueStatus.DONE,
+                kind = "infra",
+                createdAt = 1L,
+                updatedAt = 2L
+            )
+        )
+
+        bundle.outcome.status shouldBe VerificationOutcomeStatus.PASS
+        bundle.outcome.passedSignals.any { it.key == "issue-status" } shouldBe true
     }
 })

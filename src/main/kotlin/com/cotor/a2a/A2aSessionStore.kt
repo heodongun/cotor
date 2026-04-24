@@ -73,18 +73,36 @@ class A2aSessionStore(
         val queue = inboxes[sessionId] ?: return emptyList()
         val messages = mutableListOf<A2aQueuedMessage>()
         synchronized(queue) {
-            while (queue.isNotEmpty() && messages.size < limit) {
-                val next = queue.first()
-                if (after != null && next.cursor <= after) {
-                    queue.removeFirst()
-                    continue
+            val iterator = queue.iterator()
+            while (iterator.hasNext() && messages.size < limit) {
+                val next = iterator.next()
+                if (after == null || next.cursor > after) {
+                    messages += next
                 }
-                messages += queue.removeFirst()
             }
         }
         sessions.computeIfPresent(sessionId) { _, session -> session.copy(updatedAt = now) }
         persist()
         return messages
+    }
+
+    fun acknowledge(sessionId: String, throughCursor: Long, now: Long): Pair<Int, Int> {
+        prune(now)
+        val queue = inboxes[sessionId] ?: return 0 to 0
+        var removedCount = 0
+        synchronized(queue) {
+            while (queue.isNotEmpty()) {
+                val next = queue.first()
+                if (next.cursor > throughCursor) {
+                    break
+                }
+                queue.removeFirst()
+                removedCount++
+            }
+        }
+        sessions.computeIfPresent(sessionId) { _, session -> session.copy(updatedAt = now) }
+        persist()
+        return removedCount to synchronized(queue) { queue.size }
     }
 
     fun session(sessionId: String): A2aSession? = session(sessionId, System.currentTimeMillis())

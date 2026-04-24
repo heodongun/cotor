@@ -121,7 +121,13 @@ class DesktopAppServiceZeroRunRecoveryTest : FunSpec({
         service.runTask(task.id)
 
         withTimeout(5_000) {
-            while (stateStore.load().tasks.first { it.id == task.id }.status != DesktopTaskStatus.FAILED) {
+            while (true) {
+                val current = stateStore.load()
+                val taskFailed = current.tasks.first { it.id == task.id }.status == DesktopTaskStatus.FAILED
+                val issueBlocked = current.issues.first { it.id == issue.id }.status == IssueStatus.BLOCKED
+                if (taskFailed && issueBlocked) {
+                    return@withTimeout
+                }
                 delay(25)
             }
         }

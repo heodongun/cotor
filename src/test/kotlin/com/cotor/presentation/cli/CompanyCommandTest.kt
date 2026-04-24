@@ -107,6 +107,49 @@ class CompanyCommandTest : FunSpec({
         result.output shouldContain "\"status\": \"DONE\""
     }
 
+    test("company issue run can use an explicit wait timeout") {
+        coEvery { service.runIssueAndAwaitSettlement("issue-timeout", 5_000L) } returns CompanyIssue(
+            id = "issue-timeout",
+            companyId = "company-1",
+            projectContextId = "project-1",
+            goalId = "goal-1",
+            workspaceId = "workspace-1",
+            title = "Issue",
+            description = "Do work",
+            status = com.cotor.app.IssueStatus.DONE,
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        val result = CompanyCommand().test("issue run issue-timeout --wait-timeout-seconds 5")
+
+        result.statusCode shouldBe 0
+        result.output shouldContain "\"id\": \"issue-timeout\""
+        result.output shouldContain "\"status\": \"DONE\""
+    }
+
+    test("company issue run supports explicit async start") {
+        coEvery { service.runIssue("issue-async") } returns CompanyIssue(
+            id = "issue-async",
+            companyId = "company-1",
+            projectContextId = "project-1",
+            goalId = "goal-1",
+            workspaceId = "workspace-1",
+            title = "Issue",
+            description = "Do work",
+            status = com.cotor.app.IssueStatus.IN_PROGRESS,
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        val result = CompanyCommand().test("issue run issue-async --async")
+
+        result.statusCode shouldBe 0
+        result.output shouldContain "\"id\": \"issue-async\""
+        result.output shouldContain "\"status\": \"IN_PROGRESS\""
+        io.mockk.coVerify(exactly = 1) { service.runIssue("issue-async") }
+    }
+
     test("company issue show uses the projected issue path") {
         coEvery { service.getIssueProjected("issue-2") } returns CompanyIssue(
             id = "issue-2",

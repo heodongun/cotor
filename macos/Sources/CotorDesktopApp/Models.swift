@@ -8,7 +8,12 @@ import Foundation
 
 private extension KeyedDecodingContainer {
     func decodeValue<T: Decodable>(_ type: T.Type, forKey key: Key, default defaultValue: T) throws -> T {
-        try decodeIfPresent(type, forKey: key) ?? defaultValue
+        do {
+            return try decodeIfPresent(type, forKey: key) ?? defaultValue
+        } catch {
+            assertionFailure("Failed to decode \(T.self) for key '\(key.stringValue)': \(error)")
+            return defaultValue
+        }
     }
 }
 

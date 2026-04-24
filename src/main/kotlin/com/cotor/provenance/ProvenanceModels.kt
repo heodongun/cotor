@@ -56,4 +56,3 @@ data class EvidenceGraph(
     val edges: List<EvidenceEdge> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis()
 )
-

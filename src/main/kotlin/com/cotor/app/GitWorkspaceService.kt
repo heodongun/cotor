@@ -20,6 +20,8 @@ import com.cotor.runtime.actions.ActionSubject
 import com.cotor.runtime.durable.DurableRuntimeService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -37,9 +39,9 @@ import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.charset.StandardCharsets
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.invariantSeparatorsPathString
@@ -107,7 +109,12 @@ class GitWorkspaceService(
     private val logger: Logger,
     private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService(),
     private val actionExecutionService: ActionExecutionService =
-        ActionExecutionService(durableRuntimeService = durableRuntimeService, logger = logger)
+        ActionExecutionService(durableRuntimeService = durableRuntimeService, logger = logger),
+    private val httpClient: HttpClient = HttpClient.newBuilder().build(),
+    private val githubHttpEnabledProvider: () -> Boolean = {
+        val flag = System.getenv("COTOR_GITHUB_HTTP")?.trim()?.lowercase()
+        flag == "1" || flag == "true"
+    }
 ) {
     constructor(
         processManager: ProcessManager,
@@ -116,14 +123,19 @@ class GitWorkspaceService(
     ) : this(processManager, stateStore, logger, DurableRuntimeService())
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val httpClient = HttpClient.newBuilder().build()
 
     @Volatile private var cachedGitHubLogin: String? = null
+
     @Volatile private var cachedGitHubToken: String? = null
 
+    @Volatile private var cachedGitHubLoginAtMs: Long = 0L
+
+    @Volatile private var cachedGitHubTokenAtMs: Long = 0L
+    private val githubLoginCacheMutex = Mutex()
+    private val githubTokenCacheMutex = Mutex()
+
     private fun githubHttpEnabled(): Boolean {
-        val flag = System.getenv("COTOR_GITHUB_HTTP")?.trim()?.lowercase()
-        return flag == "1" || flag == "true"
+        return githubHttpEnabledProvider()
     }
 
     private suspend fun githubApiPreferred(worktreePath: Path): Boolean {
@@ -137,7 +149,11 @@ class GitWorkspaceService(
     companion object {
         private const val BOOTSTRAP_COMMIT_MESSAGE = "Initialize repository"
         private const val BOOTSTRAP_COMMIT_EMAIL = "cotor@local"
+        private const val GITHUB_AUTH_CACHE_TTL_MS = 5 * 60 * 1_000L
     }
+
+    private fun githubAuthCacheFresh(cachedAtMs: Long): Boolean =
+        cachedAtMs > 0L && (System.currentTimeMillis() - cachedAtMs) < GITHUB_AUTH_CACHE_TTL_MS
 
     /**
      * Normalizes any nested path inside a repository back to the real git root.
@@ -1514,7 +1530,10 @@ class GitWorkspaceService(
         scanTree(root, target, depth)
     }
 
-    suspend fun listPorts(@Suppress("UNUSED_PARAMETER") runId: String): List<PortEntry> = emptyList()
+    suspend fun listPorts(runId: String): List<PortEntry> {
+        val run = stateStore.load().runs.firstOrNull { it.id == runId } ?: return emptyList()
+        return listPorts(run.processId)
+    }
 
     /**
      * Inspect a running child process for listening TCP ports.
@@ -1586,30 +1605,34 @@ class GitWorkspaceService(
     }
 
     private suspend fun currentGitHubLogin(worktreePath: Path): String? {
-        cachedGitHubLogin?.let { return it }
-        val login = if (githubApiPreferred(worktreePath)) {
-            githubHostsConfiguredUser()
-                ?: githubAuthToken(worktreePath)?.let { token ->
-                    runCatching {
-                        val raw = githubApiJson(
-                            worktreePath = worktreePath,
-                            path = "/user",
-                            token = token
-                        )
-                        raw.jsonObject["login"]?.jsonPrimitive?.contentOrNull
-                    }.getOrNull()
-                }
-        } else {
-            runCatching {
-                ghOutput(worktreePath, "api", "user", "--jq", ".login")
-                    .trim()
-                    .takeIf { it.isNotBlank() }
-            }.getOrNull()
+        cachedGitHubLogin?.takeIf { githubAuthCacheFresh(cachedGitHubLoginAtMs) }?.let { return it }
+        return githubLoginCacheMutex.withLock {
+            cachedGitHubLogin?.takeIf { githubAuthCacheFresh(cachedGitHubLoginAtMs) }?.let { return@withLock it }
+            val login = if (githubApiPreferred(worktreePath)) {
+                githubHostsConfiguredUser()
+                    ?: githubAuthToken(worktreePath)?.let { token ->
+                        runCatching {
+                            val raw = githubApiJson(
+                                worktreePath = worktreePath,
+                                path = "/user",
+                                token = token
+                            )
+                            raw.jsonObject["login"]?.jsonPrimitive?.contentOrNull
+                        }.getOrNull()
+                    }
+            } else {
+                runCatching {
+                    ghOutput(worktreePath, "api", "user", "--jq", ".login")
+                        .trim()
+                        .takeIf { it.isNotBlank() }
+                }.getOrNull()
+            }
+            if (!login.isNullOrBlank()) {
+                cachedGitHubLogin = login
+                cachedGitHubLoginAtMs = System.currentTimeMillis()
+            }
+            login
         }
-        if (!login.isNullOrBlank()) {
-            cachedGitHubLogin = login
-        }
-        return login
     }
 
     private suspend fun runGit(
@@ -1636,7 +1659,7 @@ class GitWorkspaceService(
         )
 
         if (failOnError && !result.isSuccess) {
-            logger.warn("Command failed: ${command.joinToString(" ")}")
+            logger.warn("Command failed: ${command.firstOrNull() ?: "<empty>"} [${command.drop(1).size} args redacted]")
             throw ProcessExecutionException(
                 message = "${command.first().uppercase()} command failed",
                 exitCode = result.exitCode,
@@ -1807,42 +1830,59 @@ class GitWorkspaceService(
             httpClient.send(request, HttpResponse.BodyHandlers.ofString())
         }
         if (response.statusCode() !in 200..299) {
+            val responseBody = response.body()
+            val failureMessage = when (response.statusCode()) {
+                401 -> "GitHub API request failed: authentication token is invalid or expired"
+                403 -> "GitHub API request failed: access forbidden or rate-limited"
+                429 -> "GitHub API request failed: GitHub API rate limit exceeded"
+                else -> "GitHub API request failed"
+            }
             throw ProcessExecutionException(
-                message = "GitHub API request failed",
+                message = failureMessage,
                 exitCode = response.statusCode(),
-                stdout = response.body(),
-                stderr = response.body()
+                stdout = responseBody,
+                stderr = responseBody
             )
         }
         return json.parseToJsonElement(response.body())
     }
 
     private suspend fun githubAuthToken(worktreePath: Path): String? {
-        cachedGitHubToken?.let { return it }
-        val fromEnv = System.getenv("GITHUB_TOKEN")?.takeIf { it.isNotBlank() }
-            ?: System.getenv("GH_TOKEN")?.takeIf { it.isNotBlank() }
-        if (fromEnv != null) {
-            cachedGitHubToken = fromEnv
-            return fromEnv
-        }
-        val configuredUser = githubHostsConfiguredUser()
-        if (!configuredUser.isNullOrBlank()) {
-            val fromKeychain = runCatching {
-                runCommand(
-                    workingDirectory = worktreePath,
-                    command = listOf("security", "find-generic-password", "-s", "gh:github.com", "-a", configuredUser, "-w"),
-                    failOnError = false,
-                    timeoutMs = 10_000
-                ).stdout.trim().takeIf { it.isNotBlank() }
-            }.getOrNull()
-            if (fromKeychain != null) {
-                cachedGitHubToken = fromKeychain
-                return fromKeychain
+        cachedGitHubToken?.takeIf { githubAuthCacheFresh(cachedGitHubTokenAtMs) }?.let { return it }
+        return githubTokenCacheMutex.withLock {
+            cachedGitHubToken?.takeIf { githubAuthCacheFresh(cachedGitHubTokenAtMs) }?.let { return@withLock it }
+            val fromEnv = System.getenv("GITHUB_TOKEN")?.takeIf { it.isNotBlank() }
+                ?: System.getenv("GH_TOKEN")?.takeIf { it.isNotBlank() }
+            if (fromEnv != null) {
+                cachedGitHubToken = fromEnv
+                cachedGitHubTokenAtMs = System.currentTimeMillis()
+                return@withLock fromEnv
             }
+            val configuredUser = githubHostsConfiguredUser()
+            if (!configuredUser.isNullOrBlank() && configuredUser.matches(Regex("^[A-Za-z0-9-]+$"))) {
+                val fromKeychain = runCatching {
+                    runCommand(
+                        workingDirectory = worktreePath,
+                        command = listOf("security", "find-generic-password", "-s", "gh:github.com", "-a", configuredUser, "-w"),
+                        failOnError = false,
+                        timeoutMs = 10_000
+                    ).stdout.trim().takeIf { it.isNotBlank() }
+                }.getOrNull()
+                if (fromKeychain != null) {
+                    cachedGitHubToken = fromKeychain
+                    cachedGitHubTokenAtMs = System.currentTimeMillis()
+                    return@withLock fromKeychain
+                }
+            }
+            val fromGh = runCatching {
+                ghOutput(worktreePath, "auth", "token").trim().takeIf { it.isNotBlank() }
+            }.getOrNull()
+            if (fromGh != null) {
+                cachedGitHubToken = fromGh
+                cachedGitHubTokenAtMs = System.currentTimeMillis()
+            }
+            fromGh
         }
-        return runCatching {
-            ghOutput(worktreePath, "auth", "token").trim().takeIf { it.isNotBlank() }
-        }.getOrNull()
     }
 
     private fun githubHostsConfiguredUser(): String? {
@@ -1859,7 +1899,7 @@ class GitWorkspaceService(
 
     private suspend fun githubRepositoryRef(worktreePath: Path): GitHubRepositoryRef? {
         val hasGitDir = Files.exists(worktreePath.resolve(".git"))
-        val hasGitFile = Files.exists(worktreePath.resolve(".git"))
+        val hasGitFile = Files.isRegularFile(worktreePath.resolve(".git"))
         if (!hasGitDir && !hasGitFile) return null
         val originUrl = runCatching { originRemoteUrl(worktreePath) }.getOrNull() ?: return null
         val https = Regex("https://github\\.com/([^/]+)/([^/.]+)(?:\\.git)?$")

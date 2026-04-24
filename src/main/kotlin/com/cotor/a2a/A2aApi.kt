@@ -60,6 +60,16 @@ fun Route.installA2aRoutes(
             }
         }
 
+        post("/messages/ack") {
+            if (!authorize(token)) return@post
+            val request = call.receive<A2aAckMessagesRequest>()
+            runCatching {
+                call.respond(router.acknowledgeMessages(request))
+            }.getOrElse { error ->
+                respondA2aError(error)
+            }
+        }
+
         post("/sync/snapshot") {
             if (!authorize(token)) return@post
             val request = call.receive<A2aSnapshotRequest>()

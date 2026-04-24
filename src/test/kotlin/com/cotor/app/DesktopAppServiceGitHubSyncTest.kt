@@ -6,10 +6,10 @@ import com.cotor.knowledge.KnowledgeService
 import com.cotor.knowledge.KnowledgeStore
 import com.cotor.policy.PolicyEngine
 import com.cotor.policy.PolicyStore
-import com.cotor.providers.github.GitHubControlPlaneService
-import com.cotor.providers.github.GitHubControlPlaneStore
 import com.cotor.provenance.ProvenanceService
 import com.cotor.provenance.ProvenanceStore
+import com.cotor.providers.github.GitHubControlPlaneService
+import com.cotor.providers.github.GitHubControlPlaneStore
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery

@@ -11,8 +11,8 @@ package com.cotor.app
 import com.cotor.a2a.A2aRouter
 import com.cotor.a2a.installA2aRoutes
 import com.cotor.provenance.EvidenceBundle
-import com.cotor.runtime.durable.DurableRunSnapshot
 import com.cotor.runtime.durable.DurableResumeCoordinator
+import com.cotor.runtime.durable.DurableRunSnapshot
 import com.cotor.runtime.durable.DurableRuntimeService
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -41,9 +41,9 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.flow.collect
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -56,12 +56,14 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
+import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 
@@ -81,7 +83,8 @@ class AppServer : KoinComponent {
         port: Int = 8787,
         host: String = "127.0.0.1",
         wait: Boolean = true,
-        token: String? = null
+        token: String? = null,
+        controlToken: String? = null
     ) {
         val lockRecord = desktopAppServerInstanceGuard.acquire(host = host, port = port)
         println(
@@ -89,6 +92,14 @@ class AppServer : KoinComponent {
                 "${lockRecord.lockPath} for app home ${lockRecord.appHome}"
         )
         lateinit var server: io.ktor.server.engine.EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>
+        val cleanedUp = AtomicBoolean(false)
+        val cleanup = {
+            if (cleanedUp.compareAndSet(false, true)) {
+                tuiSessionService.shutdown()
+                desktopService.shutdown()
+                desktopAppServerInstanceGuard.release()
+            }
+        }
         server = embeddedServer(Netty, port = port, host = host) {
             cotorAppModule(
                 token = token,
@@ -96,6 +107,7 @@ class AppServer : KoinComponent {
                 tuiSessionService = tuiSessionService,
                 durableRuntimeService = durableRuntimeService,
                 durableResumeCoordinator = durableResumeCoordinator,
+                controlToken = controlToken,
                 shutdownHandler = {
                     Thread {
                         server.stop(1000, 5000)
@@ -103,24 +115,18 @@ class AppServer : KoinComponent {
                 }
             )
         }
-        server.environment.monitor.subscribe(ApplicationStopped) {
-            tuiSessionService.shutdown()
-            desktopService.shutdown()
-            desktopAppServerInstanceGuard.release()
+        server.application.monitor.subscribe(ApplicationStopped) {
+            cleanup()
         }
         Runtime.getRuntime().addShutdownHook(
             Thread {
-                tuiSessionService.shutdown()
-                desktopService.shutdown()
-                desktopAppServerInstanceGuard.release()
+                cleanup()
             }
         )
         try {
             server.start(wait = wait)
         } catch (error: Throwable) {
-            tuiSessionService.shutdown()
-            desktopService.shutdown()
-            desktopAppServerInstanceGuard.release()
+            cleanup()
             throw error
         }
     }
@@ -147,7 +153,18 @@ internal data class DesktopAppServerInstanceStatus(
 )
 
 internal class DesktopAppServerInstanceGuard(
-    private val appHomeProvider: () -> Path = { defaultDesktopAppHome() }
+    private val appHomeProvider: () -> Path = { defaultDesktopAppHome() },
+    private val channelOpener: (Path) -> FileChannel = { lockPath ->
+        FileChannel.open(
+            lockPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE
+        )
+    },
+    private val lockAcquireTimeoutMs: Long = 3_000L,
+    private val lockRetryDelayMs: Long = 50L,
+    private val timeNowProvider: () -> Long = { System.currentTimeMillis() },
+    private val sleepFn: (Long) -> Unit = { Thread.sleep(it) }
 ) {
     private var channel: FileChannel? = null
     private var lock: FileLock? = null
@@ -165,15 +182,33 @@ internal class DesktopAppServerInstanceGuard(
         runtimeDir.createDirectories()
         val lockPath = runtimeDir.resolve("app-server.instance.lock")
         val metadataPath = runtimeDir.resolve("app-server.instance.json")
-        val openedChannel = FileChannel.open(
-            lockPath,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.WRITE
-        )
-        val openedLock = try {
-            openedChannel.tryLock()
+        val openedChannel = channelOpener(lockPath)
+        val deadline = timeNowProvider() + lockAcquireTimeoutMs
+        var openedLock: FileLock? = null
+        try {
+            while (true) {
+                val lockAttempt = openedChannel.tryLock()
+                if (lockAttempt != null) {
+                    openedLock = lockAttempt
+                    break
+                }
+                if (timeNowProvider() >= deadline) {
+                    break
+                }
+                sleepFn(lockRetryDelayMs)
+            }
         } catch (_: OverlappingFileLockException) {
-            null
+            openedChannel.close()
+            throw IllegalStateException(
+                "Desktop app-server lock is already held in this process for $appHome. " +
+                    "Lock=$lockPath"
+            )
+        } catch (error: IOException) {
+            openedChannel.close()
+            throw IllegalStateException(
+                "Failed to acquire desktop app-server lock at $lockPath for $appHome.",
+                error
+            )
         }
         if (openedLock == null) {
             val existing = runCatching { Files.readString(metadataPath) }.getOrDefault("unavailable")
@@ -244,6 +279,7 @@ internal fun Application.cotorAppModule(
     a2aRouter: A2aRouter = A2aRouter(desktopService),
     durableRuntimeService: DurableRuntimeService? = null,
     durableResumeCoordinator: DurableResumeCoordinator? = null,
+    controlToken: String? = null,
     shutdownHandler: (() -> Unit)? = null
 ) {
     val ktorJson = Json {
@@ -258,7 +294,8 @@ internal fun Application.cotorAppModule(
         json(ktorJson)
     }
     install(CORS) {
-        anyHost()
+        allowHost("127.0.0.1", schemes = listOf("http"))
+        allowHost("localhost", schemes = listOf("http"))
         allowHeader(HttpHeaders.Authorization)
         allowHeader(HttpHeaders.ContentType)
     }
@@ -266,6 +303,10 @@ internal fun Application.cotorAppModule(
     routing {
         installA2aRoutes(token, a2aRouter) { expectedToken ->
             this.requireToken(expectedToken)
+        }
+
+        get("/") {
+            call.respond(HealthResponse(ok = true, service = "cotor-app-server"))
         }
 
         // Health stays unauthenticated so the app can distinguish "server down"
@@ -606,6 +647,9 @@ internal fun Application.cotorAppModule(
                     if (!requireToken(token)) return@get
                     val path = call.request.queryParameters["path"]
                         ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "path is required"))
+                    if (path.isBlank()) {
+                        return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "path must not be blank"))
+                    }
                     call.respond(desktopService.evidenceForFile(path))
                 }
             }
@@ -672,7 +716,13 @@ internal fun Application.cotorAppModule(
             post("/mcp") {
                 if (!requireToken(token)) return@post
                 val request = call.receive<JsonElement>()
-                call.respond(handleReadonlyMcpRequest(request, desktopService, durableRuntimeService))
+                call.respond(handleMcpRequest(request, desktopService, durableRuntimeService, readOnlySurface = true))
+            }
+
+            post("/mcp/control") {
+                if (!requireControlToken(controlToken)) return@post
+                val request = call.receive<JsonElement>()
+                call.respond(handleMcpRequest(request, desktopService, durableRuntimeService, readOnlySurface = false))
             }
 
             route("/issues/{issueId}/runs") {
@@ -1707,6 +1757,7 @@ internal fun Application.cotorAppModule(
         a2aRouter = A2aRouter(desktopService),
         durableRuntimeService = null,
         durableResumeCoordinator = null,
+        controlToken = null,
         shutdownHandler = shutdownHandler
     )
 }
@@ -1725,6 +1776,7 @@ internal fun Application.cotorAppModule(
         a2aRouter = a2aRouter,
         durableRuntimeService = null,
         durableResumeCoordinator = null,
+        controlToken = null,
         shutdownHandler = shutdownHandler
     )
 }
@@ -1732,10 +1784,11 @@ internal fun Application.cotorAppModule(
 private const val RUN_OUTPUT_LIMIT = 40_000
 private const val RUN_ERROR_LIMIT = 8_000
 
-private suspend fun handleReadonlyMcpRequest(
+private suspend fun handleMcpRequest(
     request: JsonElement,
     desktopService: DesktopAppService,
-    durableRuntimeService: DurableRuntimeService?
+    durableRuntimeService: DurableRuntimeService?,
+    readOnlySurface: Boolean
 ): JsonElement {
     val root = request.jsonObject
     val id = root["id"] ?: JsonNull
@@ -1753,31 +1806,42 @@ private suspend fun handleReadonlyMcpRequest(
                     put(
                         "serverInfo",
                         buildJsonObject {
-                            put("name", JsonPrimitive("cotor-readonly"))
+                            put("name", JsonPrimitive(if (readOnlySurface) "cotor-readonly" else "cotor-control"))
                             put("version", JsonPrimitive("1.0"))
                         }
                     )
                     put(
                         "capabilities",
                         buildJsonObject {
-                            put("tools", buildJsonObject {
-                                put("listChanged", JsonPrimitive(false))
-                            })
-                            put("resources", buildJsonObject {
-                                put("subscribe", JsonPrimitive(false))
-                                put("listChanged", JsonPrimitive(false))
-                            })
-                            put("annotations", buildJsonObject {
-                                put("readOnlySurface", JsonPrimitive(true))
-                            })
+                            put(
+                                "tools",
+                                buildJsonObject {
+                                    put("listChanged", JsonPrimitive(false))
+                                }
+                            )
+                            put(
+                                "resources",
+                                buildJsonObject {
+                                    put("subscribe", JsonPrimitive(false))
+                                    put("listChanged", JsonPrimitive(false))
+                                }
+                            )
+                            put(
+                                "annotations",
+                                buildJsonObject {
+                                    put("readOnlySurface", JsonPrimitive(readOnlySurface))
+                                }
+                            )
                         }
                     )
                 }
             )
         }
-        "tools/list" -> mcpResult(id, buildJsonObject {
-            put(
-                "tools",
+        "tools/list" -> mcpResult(
+            id,
+            buildJsonObject {
+                put(
+                    "tools",
                     buildJsonArray {
                         add(mcpToolDescriptor("company_summary", "Return the company dashboard summary.", readOnly = true))
                         add(mcpToolDescriptor("issue_list", "Return issues for one company.", readOnly = true))
@@ -1788,13 +1852,16 @@ private suspend fun handleReadonlyMcpRequest(
                         add(mcpToolDescriptor("company_memory_snapshot", "Return the unified company/workflow/agent memory snapshot.", readOnly = true))
                         add(mcpToolDescriptor("github_company_events", "Return GitHub provider events for one company.", readOnly = true))
                         add(mcpToolDescriptor("runtime_projection", "Return projected runtime state for one issue.", readOnly = true))
-                        add(mcpToolDescriptor("company_runtime_start", "Start one company runtime.", readOnly = false))
-                        add(mcpToolDescriptor("company_runtime_stop", "Stop one company runtime.", readOnly = false))
-                        add(mcpToolDescriptor("company_review_qa", "Submit a QA review verdict for one review queue item.", readOnly = false))
-                        add(mcpToolDescriptor("company_review_ceo", "Submit a CEO review verdict for one review queue item.", readOnly = false))
+                        if (!readOnlySurface) {
+                            add(mcpToolDescriptor("company_runtime_start", "Start one company runtime.", readOnly = false))
+                            add(mcpToolDescriptor("company_runtime_stop", "Stop one company runtime.", readOnly = false))
+                            add(mcpToolDescriptor("company_review_qa", "Submit a QA review verdict for one review queue item.", readOnly = false))
+                            add(mcpToolDescriptor("company_review_ceo", "Submit a CEO review verdict for one review queue item.", readOnly = false))
+                        }
                     }
                 )
-            })
+            }
+        )
         "tools/call" -> {
             val toolName = params["name"]?.jsonPrimitive?.contentOrNull
                 ?: return mcpError(id, -32602, "Missing tool name")
@@ -1857,16 +1924,19 @@ private suspend fun handleReadonlyMcpRequest(
                     mcpJson.encodeToString(IssueRuntimeProjection.serializer(), desktopService.issueRuntimeProjection(issueId))
                 }
                 "company_runtime_start" -> {
+                    if (readOnlySurface) return mcpError(id, -32601, "Unknown MCP tool: $toolName")
                     val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "companyId is required")
                     mcpJson.encodeToString(CompanyRuntimeSnapshot.serializer(), desktopService.startCompanyRuntime(companyId))
                 }
                 "company_runtime_stop" -> {
+                    if (readOnlySurface) return mcpError(id, -32601, "Unknown MCP tool: $toolName")
                     val companyId = arguments["companyId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "companyId is required")
                     mcpJson.encodeToString(CompanyRuntimeSnapshot.serializer(), desktopService.stopCompanyRuntime(companyId))
                 }
                 "company_review_qa" -> {
+                    if (readOnlySurface) return mcpError(id, -32601, "Unknown MCP tool: $toolName")
                     val queueItemId = arguments["queueItemId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "queueItemId is required")
                     val verdict = arguments["verdict"]?.jsonPrimitive?.contentOrNull
@@ -1875,6 +1945,7 @@ private suspend fun handleReadonlyMcpRequest(
                     mcpJson.encodeToString(ReviewQueueItem.serializer(), desktopService.submitQaReviewVerdict(queueItemId, verdict, feedback))
                 }
                 "company_review_ceo" -> {
+                    if (readOnlySurface) return mcpError(id, -32601, "Unknown MCP tool: $toolName")
                     val queueItemId = arguments["queueItemId"]?.jsonPrimitive?.contentOrNull
                         ?: return mcpError(id, -32602, "queueItemId is required")
                     val verdict = arguments["verdict"]?.jsonPrimitive?.contentOrNull
@@ -1884,34 +1955,53 @@ private suspend fun handleReadonlyMcpRequest(
                 }
                 else -> return mcpError(id, -32601, "Unknown MCP tool: $toolName")
             }
-            mcpResult(id, buildJsonObject {
-                put("content", buildJsonArray { add(buildJsonObject { put("type", JsonPrimitive("text")); put("text", JsonPrimitive(content)) }) })
-            })
-        }
-        "resources/list" -> mcpResult(id, buildJsonObject {
-            put(
-                "resources",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("uri", JsonPrimitive("cotor://companies"))
-                            put("name", JsonPrimitive("Companies"))
-                            put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
-                        }
-                    )
-                    add(
-                        buildJsonObject {
-                            put("uri", JsonPrimitive("cotor://durable-runs"))
-                            put("name", JsonPrimitive("Durable Runs"))
-                            put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
+            mcpResult(
+                id,
+                buildJsonObject {
+                    put(
+                        "content",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("text"))
+                                    put("text", JsonPrimitive(content))
+                                }
+                            )
                         }
                     )
                 }
             )
-        })
+        }
+        "resources/list" -> mcpResult(
+            id,
+            buildJsonObject {
+                put(
+                    "resources",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("uri", JsonPrimitive("cotor://companies"))
+                                put("name", JsonPrimitive("Companies"))
+                                put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
+                            }
+                        )
+                        add(
+                            buildJsonObject {
+                                put("uri", JsonPrimitive("cotor://durable-runs"))
+                                put("name", JsonPrimitive("Durable Runs"))
+                                put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(true)) })
+                            }
+                        )
+                    }
+                )
+            }
+        )
         "resources/read" -> {
             val uri = params["uri"]?.jsonPrimitive?.contentOrNull
                 ?: return mcpError(id, -32602, "uri is required")
+            if (uri.isBlank()) {
+                return mcpError(id, -32602, "uri must not be blank")
+            }
             val content = when (uri) {
                 "cotor://companies" -> mcpJson.encodeToString(
                     ListSerializer(Company.serializer()),
@@ -1919,24 +2009,27 @@ private suspend fun handleReadonlyMcpRequest(
                 )
                 "cotor://durable-runs" -> mcpJson.encodeToString(
                     ListSerializer(DurableRunSnapshot.serializer()),
-                    durableRuntimeService?.listRuns().orEmpty()
+                    durableRuntimeService?.listRuns() ?: emptyList()
                 )
                 else -> return mcpError(id, -32602, "Unsupported resource: $uri")
             }
-            mcpResult(id, buildJsonObject {
-                put(
-                    "contents",
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("uri", JsonPrimitive(uri))
-                                put("mimeType", JsonPrimitive("application/json"))
-                                put("text", JsonPrimitive(content))
-                            }
-                        )
-                    }
-                )
-            })
+            mcpResult(
+                id,
+                buildJsonObject {
+                    put(
+                        "contents",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("uri", JsonPrimitive(uri))
+                                    put("mimeType", JsonPrimitive("application/json"))
+                                    put("text", JsonPrimitive(content))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
         }
         else -> mcpError(id, -32601, "Unsupported MCP method: $method")
     }
@@ -1946,10 +2039,13 @@ private fun mcpToolDescriptor(name: String, description: String, readOnly: Boole
     put("name", JsonPrimitive(name))
     put("description", JsonPrimitive(description))
     put("annotations", buildJsonObject { put("readOnlyHint", JsonPrimitive(readOnly)) })
-    put("inputSchema", buildJsonObject {
-        put("type", JsonPrimitive("object"))
-        put("properties", buildJsonObject { })
-    })
+    put(
+        "inputSchema",
+        buildJsonObject {
+            put("type", JsonPrimitive("object"))
+            put("properties", buildJsonObject { })
+        }
+    )
 }
 
 private fun mcpResult(id: JsonElement, result: JsonElement): JsonElement = buildJsonObject {
@@ -2000,6 +2096,15 @@ private suspend fun RoutingContext.requireToken(token: String?): Boolean {
     }
     call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Unauthorized"))
     return false
+}
+
+private suspend fun RoutingContext.requireControlToken(controlToken: String?): Boolean {
+    val expected = controlToken?.takeIf { it.isNotBlank() }
+    if (expected == null) {
+        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "MCP control token is not configured"))
+        return false
+    }
+    return requireToken(expected)
 }
 
 /**

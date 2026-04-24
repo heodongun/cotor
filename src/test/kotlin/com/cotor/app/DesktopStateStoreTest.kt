@@ -12,10 +12,16 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
+import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import kotlin.io.path.readText
 
 class DesktopStateStoreTest : FunSpec({
+    val testJson = Json {
+        ignoreUnknownKeys = true
+        prettyPrint = true
+    }
+
     test("load recovers a state file with one extra trailing brace") {
         val appHome = Files.createTempDirectory("desktop-state-store-home")
         val store = DesktopStateStore { appHome }
@@ -32,10 +38,7 @@ class DesktopStateStoreTest : FunSpec({
                 )
             )
         )
-        val payload = kotlinx.serialization.json.Json {
-            ignoreUnknownKeys = true
-            prettyPrint = true
-        }.encodeToString(DesktopAppState.serializer(), validState) + "\n}"
+        val payload = testJson.encodeToString(DesktopAppState.serializer(), validState) + "\n}"
         Files.createDirectories(appHome)
         Files.writeString(appHome.resolve("state.json"), payload)
 

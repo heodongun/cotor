@@ -11,21 +11,26 @@ This first version is intentionally internal-only:
 - no remote federation
 - no OAuth/JWT enforcement
 - existing localhost app token is reused for HTTP access
-- dedupe and session inboxes are memory-backed
+- dedupe, session inboxes, and artifact metadata are file-backed under the local app home
+- delivery uses explicit pull + ack semantics instead of destructive pull
 
 ## New Endpoints
 
 - `POST /api/a2a/v1/sessions`
+- `POST /api/a2a/v1/sessions/{sessionId}/heartbeat`
 - `POST /api/a2a/v1/messages`
 - `GET /api/a2a/v1/messages/pull`
+- `POST /api/a2a/v1/messages/ack`
 - `POST /api/a2a/v1/sync/snapshot`
 - `POST /api/a2a/v1/artifacts`
+- `GET /api/a2a/v1/artifacts`
 
 ## What It Does
 
 - standardizes internal A2A envelopes
 - supports dedupe via `dedupeKey`
 - provides per-session inbox delivery and FIFO pull
+- keeps pulled messages available until the client explicitly acknowledges a cursor with `/messages/ack`
 - mirrors selected `message.*` envelopes into existing company state
   - `AgentMessage`
   - `AgentContextEntry`
@@ -39,16 +44,18 @@ This first version is intentionally internal-only:
 - `review.request`
 - `review.verdict`
 - `message.note`
+- `message.warning`
 - `message.handoff`
+- `message.feedback`
 - `message.escalation`
 - `sync.snapshot.request`
 - `sync.snapshot.response`
 
 ## Current Limits
 
-- sessions are in-memory and do not survive process restart
 - artifact uploads are metadata-only in v1
-- only `message.note`, `message.handoff`, and `message.escalation` are mirrored into company state
+- session and dedupe persistence are local-file backed, not a remote durable broker
+- ack is cursor-based, not per-message lease/ownership
 - run heartbeat is modeled through `run.update` but not yet used as a separate durable transport channel
 
 ## CI / Runtime Stability Changes

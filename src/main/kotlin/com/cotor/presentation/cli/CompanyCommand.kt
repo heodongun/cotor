@@ -437,8 +437,27 @@ private class CompanyIssueDelegateCommand : CompanyServiceCommand(name = "delega
 
 private class CompanyIssueRunCommand : CompanyServiceCommand(name = "run") {
     private val issueId by argument("issueId")
+    private val async by option(
+        "--async",
+        help = "Start the issue run and return immediately. By default the CLI waits for a terminal issue state so in-process agent execution is not orphaned."
+    ).flag(default = false)
+    private val waitTimeoutSeconds by option(
+        "--wait-timeout-seconds",
+        help = "Maximum seconds to wait for the issue to settle before returning the latest state."
+    ).int()
+
     override fun run() = runBlocking {
-        printJson(desktopService.runIssueAndAwaitSettlement(issueId), CompanyIssue.serializer())
+        val issue = if (async) {
+            desktopService.runIssue(issueId)
+        } else {
+            val timeoutMs = waitTimeoutSeconds?.let { it.coerceAtLeast(1) * 1_000L }
+            if (timeoutMs == null) {
+                desktopService.runIssueAndAwaitSettlement(issueId)
+            } else {
+                desktopService.runIssueAndAwaitSettlement(issueId, timeoutMs)
+            }
+        }
+        printJson(issue, CompanyIssue.serializer())
     }
 }
 

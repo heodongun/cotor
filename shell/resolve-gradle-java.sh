@@ -46,13 +46,13 @@ configure_gradle_java() {
     local current_major
     current_major="$(java_major_version "$current_version")"
 
-    if [[ "$current_major" -ge 17 && "$current_major" -le 23 ]]; then
+    if [[ "$current_major" -ge 17 && "$current_major" -le 24 ]]; then
         echo "☕ Using current JDK $current_version for Gradle builds"
         return 0
     fi
 
     echo "❌ Error: Could not locate a Gradle-compatible JDK."
     echo "Found current JVM: $current_version"
-    echo "Install JDK 17 or 21, or set JAVA_HOME to one of them before running this command."
+    echo "Install JDK 17, 21, or 24, or set JAVA_HOME to one of them before running this command."
     return 1
 }

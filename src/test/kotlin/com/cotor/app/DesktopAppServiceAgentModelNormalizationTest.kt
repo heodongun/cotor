@@ -68,6 +68,25 @@ class DesktopAppServiceAgentModelNormalizationTest : FunSpec({
         updated.agentCli shouldBe "gemini"
         updated.model shouldBe "gemini-3.0-flash"
     }
+
+    test("updating an agent to codex resets an incompatible opencode model to the codex default") {
+        val service = normalizationTestService()
+        val company = service.createCompany(
+            name = "Codex Model Co",
+            rootPath = Files.createTempDirectory("agent-model-codex").toString(),
+            defaultBaseBranch = "main"
+        )
+        val builder = service.listCompanyAgentDefinitions(company.id).first { it.title == "Builder" }
+
+        val updated = service.updateCompanyAgentDefinition(
+            companyId = company.id,
+            agentId = builder.id,
+            agentCli = "codex"
+        )
+
+        updated.agentCli shouldBe "codex"
+        updated.model shouldBe "gpt-5.4"
+    }
 })
 
 private fun normalizationTestService(): DesktopAppService {

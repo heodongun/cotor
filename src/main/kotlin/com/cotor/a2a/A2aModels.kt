@@ -114,6 +114,21 @@ data class A2aPullResponse(
 )
 
 @Serializable
+data class A2aAckMessagesRequest(
+    val sessionId: String,
+    val throughCursor: Long
+)
+
+@Serializable
+data class A2aAckMessagesResponse(
+    val ok: Boolean = true,
+    val sessionId: String,
+    val removedCount: Int,
+    val pendingCount: Int,
+    val serverTs: Long
+)
+
+@Serializable
 data class A2aSnapshotRequest(
     val tenant: A2aTenant,
     val includeIssues: Boolean = true,

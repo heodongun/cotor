@@ -100,6 +100,10 @@ tasks.register("formatCheck") {
 tasks.test {
     useJUnitPlatform()
     maxParallelForks = 1
+    testLogging {
+        events("failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
     finalizedBy(tasks.jacocoTestReport, tasks.jacocoTestCoverageVerification)
 }
 

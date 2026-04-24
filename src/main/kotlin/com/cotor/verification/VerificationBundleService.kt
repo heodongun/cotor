@@ -52,7 +52,6 @@ class VerificationBundleService(
         outcome: VerificationOutcome,
         evidenceRefs: List<VerificationArtifactRef>
     ): VerificationBundle {
-
         val evidenceSummary = evidenceRefs.takeIf { it.isNotEmpty() }
             ?.joinToString(" | ") { ref -> "${ref.kind}:${ref.label}" }
         val knowledgeSummary = when {
@@ -111,6 +110,18 @@ class VerificationBundleService(
                 )
             )
         )
+        if (issue.status.name == "DONE") {
+            add(
+                VerificationObservation(
+                    source = "issue",
+                    signal = VerificationSignal(
+                        key = "issue-status",
+                        status = VerificationSignalStatus.PASS,
+                        detail = "Issue is marked DONE in the company workflow."
+                    )
+                )
+            )
+        }
         queueItem?.checksSummary?.let { summary ->
             add(
                 VerificationObservation(
@@ -190,6 +201,8 @@ class VerificationBundleService(
             contract.requiresCeoApproval &&
                 signals.none { it.key == "ceo-verdict" && it.status == VerificationSignalStatus.PASS } ->
                 VerificationOutcomeStatus.PARTIAL
+            signals.any { it.key == "issue-status" && it.status == VerificationSignalStatus.PASS } ->
+                VerificationOutcomeStatus.PASS
             contract.acceptanceCriteria.isEmpty() &&
                 passedSignals.none { it.key == "qa-verdict" || it.key == "github-checks" } ->
                 VerificationOutcomeStatus.UNKNOWN

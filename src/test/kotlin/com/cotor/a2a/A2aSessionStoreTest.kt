@@ -39,5 +39,10 @@ class A2aSessionStoreTest : FunSpec({
         val pulled = reloaded.pull(session.id, after = null, limit = 10, now = now + 3)
         pulled.size shouldBe 1
         pulled.single().envelope.id shouldBe "message-1"
+        reloaded.pull(session.id, after = null, limit = 10, now = now + 4).size shouldBe 1
+        val (removed, pending) = reloaded.acknowledge(session.id, throughCursor = pulled.single().cursor, now = now + 5)
+        removed shouldBe 1
+        pending shouldBe 0
+        reloaded.pull(session.id, after = null, limit = 10, now = now + 6).size shouldBe 0
     }
 })

@@ -121,6 +121,10 @@ data class ExecutionMetrics(
  * Metrics collector for agent performance
  */
 class MetricsCollector {
+    private companion object {
+        private const val MAX_DURATION_SAMPLES_PER_KEY = 200
+    }
+
     private val agentExecutionTimes = ConcurrentHashMap<String, MutableList<Long>>()
     private val agentSuccessRates = ConcurrentHashMap<String, AtomicInteger>()
     private val agentFailureRates = ConcurrentHashMap<String, AtomicInteger>()
@@ -190,7 +194,12 @@ class MetricsCollector {
         success: Boolean
     ) {
         executionTimes.computeIfAbsent(name) { Collections.synchronizedList(mutableListOf()) }
-            .add(duration)
+            .apply {
+                add(duration)
+                while (size > MAX_DURATION_SAMPLES_PER_KEY) {
+                    removeAt(0)
+                }
+            }
 
         if (success) {
             successRates.computeIfAbsent(name) { AtomicInteger(0) }

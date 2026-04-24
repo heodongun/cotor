@@ -9,8 +9,6 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.mockk
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 
 class DesktopAppServiceParallelDispatchTest : FunSpec({
@@ -33,7 +31,7 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
                 worktreePath = worktreeRoot.resolve("$taskId-$agentName")
             )
         }
-        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any()) } returns PublishMetadata()
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
         coEvery { gitWorkspaceService.ensureGitHubPublishReady(any(), any()) } returns GitHubPublishReadiness(ready = true)
         coEvery { agentExecutor.executeAgent(any(), any(), any()) } answers {
             val agent = invocation.args[0] as AgentConfig
@@ -68,7 +66,7 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
                 companyId = company.id,
                 agentIds = seededAgents.take(2).map { it.id },
                 agentCli = "opencode",
-                model = "opencode/qwen3.6-plus-free"
+                model = "opencode/minimax-m2.5-free"
             )
 
             val state = stateStore.load()
@@ -123,26 +121,25 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
             stateStore.save(
                 state.copy(
                     goals = state.goals + goal,
-                    issues = state.issues + listOf(issueOne, issueTwo)
+                    issues = state.issues + listOf(issueOne, issueTwo),
+                    companyRuntimes = state.companyRuntimes.map { runtime ->
+                        if (runtime.companyId == company.id) {
+                            runtime.copy(
+                                status = CompanyRuntimeStatus.RUNNING,
+                                lastStartedAt = now,
+                                manuallyStoppedAt = null
+                            )
+                        } else {
+                            runtime
+                        }
+                    }
                 )
             )
 
-            service.startCompanyRuntime(company.id)
             service.runCompanyRuntimeTick(company.id)
 
-            withTimeout(5_000) {
-                while (true) {
-                    val current = stateStore.load()
-                    val startedTasks = current.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) }
-                    if (startedTasks.size == 2) {
-                        return@withTimeout
-                    }
-                    delay(25)
-                }
-            }
-
             val finalState = stateStore.load()
-            finalState.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) }.size shouldBe 2
+            finalState.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) } shouldHaveSize 2
             finalState.issues
                 .filter { it.id in setOf(issueOne.id, issueTwo.id) }
                 .all { issue -> issue.status != IssueStatus.DELEGATED && issue.status != IssueStatus.PLANNED && issue.status != IssueStatus.BACKLOG } shouldBe true

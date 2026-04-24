@@ -24,7 +24,7 @@ Manual validation against `/Users/Projects/bssm-oss/cotor-organization/cotor-tes
 
 ### Runtime / OpenCode follow-up root cause
 
-- The company runtime/OpenCode failures did **not** reproduce as a simple `opencode run --model opencode/qwen3.6-plus-free --format json "hello"` failure.
+- The company runtime/OpenCode failures did **not** reproduce as a simple `opencode run --model opencode/minimax-m2.5-free --format json "hello"` failure.
 - The exact persisted company prompts also succeeded when replayed directly through raw `opencode run` in the same worktrees.
 - The durable product fix in this change is therefore not “eliminate every OpenCode failure,” but:
   - surface stdout-backed OpenCode failures honestly

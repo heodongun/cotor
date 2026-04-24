@@ -9,6 +9,8 @@ import com.cotor.model.ProcessResult
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -16,6 +18,10 @@ private const val REQUEUE_REPOSITORY_ID = "repo-1"
 private const val REQUEUE_WORKSPACE_ID = "ws-1"
 
 class DesktopAppServiceRequeueOrphanedTest : FunSpec({
+    afterTest {
+        DesktopAppService.shutdownAllForTesting()
+    }
+
     test("company runtime requeues orphaned blocked autonomous issues with no tasks") {
         val repoRoot = Files.createTempDirectory("desktop-company-requeue-orphaned-repo")
         val appHome = Files.createTempDirectory("desktop-company-requeue-orphaned-home")
@@ -108,11 +114,34 @@ class DesktopAppServiceRequeueOrphanedTest : FunSpec({
                 )
             )
 
-            service.companyDashboard(company.id)
+            val settledState = withTimeout(30_000) {
+                while (true) {
+                    service.companyDashboardPrepared(company.id)
+                    val current = stateStore.load()
+                    val currentIssue = current.issues.first { it.id == issue.id }
+                    val issueTasks = current.tasks.filter { it.issueId == issue.id }
+                    val requeueRecorded = current.companyActivity.any {
+                        it.issueId == issue.id && it.source == "requeueRecoverableBlockedIssues"
+                    }
+                    if (
+                        requeueRecorded &&
+                        currentIssue.updatedAt > issue.updatedAt &&
+                        (currentIssue.status != IssueStatus.BLOCKED || issueTasks.isNotEmpty())
+                    ) {
+                        return@withTimeout current
+                    }
+                    delay(25)
+                }
+                error("Unreachable")
+            }
+            val latestIssue = settledState.issues.first { it.id == issue.id }
+            val issueTasks = settledState.tasks.filter { it.issueId == issue.id }
 
-            val latestIssue = stateStore.load().issues.first { it.id == issue.id }
-            val issueTasks = stateStore.load().tasks.filter { it.issueId == issue.id }
-            (latestIssue.status != IssueStatus.BLOCKED || issueTasks.isNotEmpty() || latestIssue.updatedAt > issue.updatedAt) shouldBe true
+            settledState.companyActivity.any {
+                it.issueId == issue.id && it.source == "requeueRecoverableBlockedIssues"
+            } shouldBe true
+            (latestIssue.status != IssueStatus.BLOCKED || issueTasks.isNotEmpty()) shouldBe true
+            (latestIssue.updatedAt > issue.updatedAt) shouldBe true
         } finally {
             service.shutdown()
         }

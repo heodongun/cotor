@@ -7,7 +7,6 @@ import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
-import kotlinx.coroutines.delay
 import java.nio.file.Files
 
 class DesktopAppServiceMergeConfirmationTest : FunSpec({
@@ -46,8 +45,6 @@ class DesktopAppServiceMergeConfirmationTest : FunSpec({
             configRepository = mockk<ConfigRepository>(relaxed = true),
             agentExecutor = mockk<AgentExecutor>(relaxed = true)
         )
-        delay(500)
-
         val company = service.createCompany(
             name = "CEO Merge Confirmation Co",
             rootPath = repoRoot.toString(),
