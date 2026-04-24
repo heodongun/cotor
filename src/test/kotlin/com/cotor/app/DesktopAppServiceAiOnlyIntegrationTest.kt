@@ -13,8 +13,7 @@ import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 
 class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
-    test("company issue run completes with real stores and git worktree while only agent execution is mocked") {
-        System.setProperty("cotor.experimental.durableRuntimeV2", "true")
+    test("company issue run creates durable run by default while only agent execution is mocked") {
         var service: DesktopAppService? = null
         try {
             val harness = createDesktopAppServiceIntegrationHarness(
@@ -94,7 +93,6 @@ class DesktopAppServiceAiOnlyIntegrationTest : FunSpec({
             projection.runtime.pendingIssueIds.contains(issue.id) shouldBe false
         } finally {
             service?.shutdown()
-            System.clearProperty("cotor.experimental.durableRuntimeV2")
         }
     }
 

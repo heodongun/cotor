@@ -57,6 +57,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -164,6 +165,8 @@ class DesktopAppService(
         private const val CEO_PLANNING_SOURCE = "ceo-planning"
         private const val QA_REVIEW_SOURCE_PREFIX = "qa-review:"
         private const val CEO_APPROVAL_SOURCE_PREFIX = "ceo-approval:"
+        private const val SHUTDOWN_JOIN_TIMEOUT_MS = 5_000L
+        private const val ISSUE_RUN_AWAIT_TIMEOUT_MS = 60 * 60 * 1_000L
         private const val WORKTREE_BINDING_TIMEOUT_MS = 20_000L
         private const val INTERRUPTED_RUN_ERROR =
             "Execution was interrupted because the app-server stopped before the run finished."
@@ -216,14 +219,18 @@ class DesktopAppService(
     fun shutdown() {
         runBlocking {
             interruptActiveTasksForShutdown()
+            val jobsToJoin = activeTaskJobs.values.toList() +
+                companyRuntimeJobs.values.toList() +
+                automationRefreshJobs.values.toList()
+            jobsToJoin.forEach { it.cancel() }
+            withTimeoutOrNull(SHUTDOWN_JOIN_TIMEOUT_MS) {
+                jobsToJoin.forEach { it.cancelAndJoin() }
+            }
         }
-        activeTaskJobs.values.forEach { it.cancel() }
         activeTaskJobs.clear()
-        companyRuntimeJobs.values.forEach { it.cancel() }
         companyRuntimeJobs.clear()
         companyRuntimeTickMutexes.clear()
         companyRuntimeWakeSignals.clear()
-        automationRefreshJobs.values.forEach { it.cancel() }
         automationRefreshJobs.clear()
         intentionallyInterruptedTaskIds.clear()
         recentCompanyAutomationTraceKeys.clear()
@@ -3092,7 +3099,8 @@ class DesktopAppService(
         title: String? = null,
         description: String? = null,
         successMetrics: List<String>? = null,
-        autonomyEnabled: Boolean? = null
+        autonomyEnabled: Boolean? = null,
+        startRuntimeIfNeeded: Boolean = true
     ): CompanyGoal {
         val updated = stateMutex.withLock {
             val state = stateStore.load()
@@ -3123,7 +3131,7 @@ class DesktopAppService(
             }
             updated
         }
-        queueGoalPostUpdateWork(updated)
+        queueGoalPostUpdateWork(updated, startRuntimeIfNeeded)
         return updated
     }
 
@@ -3136,8 +3144,8 @@ class DesktopAppService(
         }
     }
 
-    private fun queueGoalPostUpdateWork(goal: CompanyGoal) {
-        if (!goal.autonomyEnabled || goal.status != GoalStatus.ACTIVE) {
+    private fun queueGoalPostUpdateWork(goal: CompanyGoal, startRuntimeIfNeeded: Boolean = true) {
+        if (!startRuntimeIfNeeded || !goal.autonomyEnabled || goal.status != GoalStatus.ACTIVE) {
             return
         }
         serviceScope.launch {
@@ -3525,7 +3533,7 @@ class DesktopAppService(
         return startDelegatedIssue(delegated)
     }
 
-    suspend fun runIssueAndAwaitSettlement(issueId: String, timeoutMs: Long = 60_000L): CompanyIssue {
+    suspend fun runIssueAndAwaitSettlement(issueId: String, timeoutMs: Long = ISSUE_RUN_AWAIT_TIMEOUT_MS): CompanyIssue {
         val started = runIssue(issueId)
         return awaitIssueSettlement(issueId = issueId, timeoutMs = timeoutMs) ?: getIssue(issueId) ?: started
     }
@@ -3630,12 +3638,10 @@ class DesktopAppService(
             synchronizeWorkflowTaskLineage(executableIssue.id, task.id, expectedWorkflowLineage)
         }
         if (task.status == DesktopTaskStatus.QUEUED) {
-            serviceScope.launch {
-                runCatching { runTaskIfPresent(task.id) }
-                    .onFailure { cause ->
-                        markCompanyRuntimeError(executableIssue.companyId, cause)
-                    }
-            }
+            runCatching { runTaskIfPresent(task.id) }
+                .onFailure { cause ->
+                    markCompanyRuntimeError(executableIssue.companyId, cause)
+                }
         }
         val runningIssue = stateMutex.withLock {
             val latest = stateStore.load()
@@ -4664,10 +4670,7 @@ class DesktopAppService(
             title = "Started runtime"
         )
         ensureCompanyRuntimeLoop(effectiveCompanyId)
-        serviceScope.launch {
-            runCatching { runCompanyRuntimeTick(effectiveCompanyId) }
-                .onFailure { cause -> markCompanyRuntimeError(effectiveCompanyId, cause) }
-        }
+        wakeCompanyRuntime(effectiveCompanyId)
         return runtimeStatus(effectiveCompanyId)
     }
 
@@ -8622,9 +8625,8 @@ class DesktopAppService(
             val preferredBackendKind = company?.backendKind ?: currentState.backendSettings.defaultBackendKind
             val backendConfig = effectiveBackendConfig(company, currentState)
             val executionBackend = executionBackendFor(preferredBackendKind)
-            val durableEnabled = DurableRuntimeFlags.isEnabled()
             val (durablePipeline, durableStage) = syntheticCompanyRunPipeline(issue)
-            val durablePipelineContext = if (durableEnabled) {
+            val durablePipelineContext = if (issue != null || DurableRuntimeFlags.isEnabled()) {
                 createCompanyRunContext(
                     runId = run.id,
                     pipeline = durablePipeline,
@@ -9131,8 +9133,8 @@ class DesktopAppService(
             )
         )
         val state = stateStore.load()
-        if (DurableRuntimeFlags.isEnabled()) {
-            val issue = task.issueId?.let { issueId -> state.issues.firstOrNull { it.id == issueId } }
+        val issue = task.issueId?.let { issueId -> state.issues.firstOrNull { it.id == issueId } }
+        if (issue != null || DurableRuntimeFlags.isEnabled()) {
             val (pipeline, stage) = syntheticCompanyRunPipeline(issue)
             val context = createCompanyRunContext(run.id, pipeline, issue, task, repository)
             durableRuntimeService.beginPipelineRun(pipeline, context)
@@ -13051,6 +13053,7 @@ class DesktopAppService(
             var consecutiveFailures = 0
             val maxConsecutiveFailures = 5
             val wakeSignal = runtimeWakeSignal(companyId)
+            var firstTick = true
             while (isActive) {
                 val runtime = runtimeStatus(companyId)
                 val preTickState = stateStore.load()
@@ -13060,8 +13063,12 @@ class DesktopAppService(
                 } else {
                     runtime.adaptiveTickMs.coerceIn(15_000L, 120_000L)
                 }
-                withTimeoutOrNull(tickDelay) {
-                    wakeSignal.first()
+                if (firstTick) {
+                    firstTick = false
+                } else {
+                    withTimeoutOrNull(tickDelay) {
+                        wakeSignal.first()
+                    }
                 }
                 try {
                     if (runtimeStatus(companyId).status != CompanyRuntimeStatus.RUNNING) {

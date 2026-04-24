@@ -18,6 +18,7 @@ import com.cotor.model.AgentConfig
 import com.cotor.model.AgentResult
 import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
+import com.cotor.testsupport.withDesktopServiceShutdown
 import io.kotest.core.annotation.Isolate
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -478,77 +479,80 @@ class DesktopAppServiceTest : FunSpec({
             agentExecutor = mockk<AgentExecutor>(relaxed = true)
         )
 
-        val company = service.createCompany(
-            name = "Publish History Co",
-            rootPath = repoRoot.toString(),
-            defaultBaseBranch = "master"
-        )
-        val goal = service.createGoal(
-            companyId = company.id,
-            title = "Ship code safely",
-            description = "Reproduce a GitHub publish history mismatch.",
-            autonomyEnabled = false
-        )
-        val executionIssue = service.listIssues(goal.id).first { it.kind == "execution" }
-        val task = service.createTask(
-            workspaceId = executionIssue.workspaceId,
-            title = executionIssue.title,
-            prompt = executionIssue.description,
-            agents = listOf("codex"),
-            issueId = executionIssue.id
-        )
-        val failureAt = System.currentTimeMillis() - 120_000
-        val failedRun = AgentRun(
-            id = "publish-history-run",
-            taskId = task.id,
-            workspaceId = executionIssue.workspaceId,
-            repositoryId = stateStore.load().repositories.first().id,
-            agentName = "codex",
-            branchName = "codex/cotor/history-mismatch/codex",
-            worktreePath = repoRoot.resolve(".cotor/worktrees/history-mismatch/codex").toString(),
-            status = AgentRunStatus.FAILED,
-            output = "Publish failed: pull request create failed: GraphQL: The codex/cotor/history-mismatch/codex branch has no history in common with master (createPullRequest)",
-            error = "Publish failed: pull request create failed: GraphQL: The codex/cotor/history-mismatch/codex branch has no history in common with master (createPullRequest)",
-            publish = PublishMetadata(
-                error = "pull request create failed: GraphQL: The codex/cotor/history-mismatch/codex branch has no history in common with master (createPullRequest)"
-            ),
-            createdAt = failureAt,
-            updatedAt = failureAt
-        )
-        val snapshot = stateStore.load()
-        stateStore.save(
-            snapshot.copy(
-                issues = snapshot.issues.map {
-                    if (it.id == executionIssue.id) it.copy(status = IssueStatus.BLOCKED, updatedAt = failureAt) else it
-                },
-                tasks = snapshot.tasks.map {
-                    if (it.id == task.id) it.copy(status = DesktopTaskStatus.FAILED, updatedAt = failureAt) else it
-                },
-                runs = snapshot.runs + failedRun
+        withDesktopServiceShutdown(service) {
+            val company = service.createCompany(
+                name = "Publish History Co",
+                rootPath = repoRoot.toString(),
+                defaultBaseBranch = "master"
             )
-        )
+            val goal = service.createGoal(
+                companyId = company.id,
+                title = "Ship code safely",
+                description = "Reproduce a GitHub publish history mismatch.",
+                autonomyEnabled = false,
+                startRuntimeIfNeeded = false
+            )
+            val executionIssue = service.listIssues(goal.id).first { it.kind == "execution" }
+            val task = service.createTask(
+                workspaceId = executionIssue.workspaceId,
+                title = executionIssue.title,
+                prompt = executionIssue.description,
+                agents = listOf("codex"),
+                issueId = executionIssue.id
+            )
+            val failureAt = System.currentTimeMillis() - 120_000
+            val failedRun = AgentRun(
+                id = "publish-history-run",
+                taskId = task.id,
+                workspaceId = executionIssue.workspaceId,
+                repositoryId = stateStore.load().repositories.first().id,
+                agentName = "codex",
+                branchName = "codex/cotor/history-mismatch/codex",
+                worktreePath = repoRoot.resolve(".cotor/worktrees/history-mismatch/codex").toString(),
+                status = AgentRunStatus.FAILED,
+                output = "Publish failed: pull request create failed: GraphQL: The codex/cotor/history-mismatch/codex branch has no history in common with master (createPullRequest)",
+                error = "Publish failed: pull request create failed: GraphQL: The codex/cotor/history-mismatch/codex branch has no history in common with master (createPullRequest)",
+                publish = PublishMetadata(
+                    error = "pull request create failed: GraphQL: The codex/cotor/history-mismatch/codex branch has no history in common with master (createPullRequest)"
+                ),
+                createdAt = failureAt,
+                updatedAt = failureAt
+            )
+            val snapshot = stateStore.load()
+            stateStore.save(
+                snapshot.copy(
+                    issues = snapshot.issues.map {
+                        if (it.id == executionIssue.id) it.copy(status = IssueStatus.BLOCKED, updatedAt = failureAt) else it
+                    },
+                    tasks = snapshot.tasks.map {
+                        if (it.id == task.id) it.copy(status = DesktopTaskStatus.FAILED, updatedAt = failureAt) else it
+                    },
+                    runs = snapshot.runs + failedRun
+                )
+            )
 
-        service.updateGoal(goal.id, autonomyEnabled = true)
-        service.startCompanyRuntime(company.id)
-        val taskCountBefore = stateStore.load().tasks.count { it.issueId == executionIssue.id }
+            service.updateGoal(goal.id, autonomyEnabled = true, startRuntimeIfNeeded = false)
+            service.startCompanyRuntime(company.id)
+            val taskCountBefore = stateStore.load().tasks.count { it.issueId == executionIssue.id }
 
-        service.runCompanyRuntimeTick(company.id)
-        service.runCompanyRuntimeTick(company.id)
-        service.runCompanyRuntimeTick(company.id)
+            service.runCompanyRuntimeTick(company.id)
+            service.runCompanyRuntimeTick(company.id)
+            service.runCompanyRuntimeTick(company.id)
 
-        val afterTicks = stateStore.load()
-        val blockedIssue = afterTicks.issues.first { it.id == executionIssue.id }
-        val infraIssue = afterTicks.issues.first {
-            it.companyId == company.id &&
-                it.kind == "infra" &&
-                it.title == "Restore GitHub publishing for ${executionIssue.title}"
+            val afterTicks = stateStore.load()
+            val blockedIssue = afterTicks.issues.first { it.id == executionIssue.id }
+            val infraIssue = afterTicks.issues.first {
+                it.companyId == company.id &&
+                    it.kind == "infra" &&
+                    it.title == "Restore GitHub publishing for ${executionIssue.title}"
+            }
+            afterTicks.tasks.count { it.issueId == executionIssue.id } shouldBe taskCountBefore
+            blockedIssue.status shouldBe IssueStatus.BLOCKED
+            blockedIssue.blockedBy.contains(infraIssue.id) shouldBe true
+            infraIssue.status shouldBe IssueStatus.PLANNED
+            infraIssue.description shouldContain "no history in common"
+            afterTicks.companyRuntimes.first { it.companyId == company.id }.status shouldBe CompanyRuntimeStatus.RUNNING
         }
-        afterTicks.tasks.count { it.issueId == executionIssue.id } shouldBe taskCountBefore
-        blockedIssue.status shouldBe IssueStatus.BLOCKED
-        blockedIssue.blockedBy.contains(infraIssue.id) shouldBe true
-        infraIssue.status shouldBe IssueStatus.PLANNED
-        infraIssue.description shouldContain "no history in common"
-        afterTicks.companyRuntimes.first { it.companyId == company.id }.status shouldBe CompanyRuntimeStatus.RUNNING
     }
 
     test("runTask keeps the run completed when publish falls back to a local-only commit") {
@@ -1432,83 +1436,98 @@ class DesktopAppServiceTest : FunSpec({
             commandAvailability = { command -> command in setOf("codex", "opencode") }
         )
 
-        service.updateBackendSettings(
-            defaultBackendKind = ExecutionBackendKind.CODEX_APP_SERVER,
-            codexAppServerBaseUrl = "http://127.0.0.1:9999",
-            codexTimeoutSeconds = 1
-        )
+        withDesktopServiceShutdown(service) {
+            service.updateBackendSettings(
+                defaultBackendKind = ExecutionBackendKind.CODEX_APP_SERVER,
+                codexAppServerBaseUrl = "http://127.0.0.1:9999",
+                codexTimeoutSeconds = 1
+            )
 
-        val company = service.createCompany(
-            name = "Fallback Co",
-            rootPath = repoRoot.toString(),
-            defaultBaseBranch = "master"
-        )
-        service.createCompanyAgentDefinition(
-            companyId = company.id,
-            title = "CEO",
-            agentCli = "codex",
-            roleSummary = "CEO planning and review"
-        )
-        service.createCompanyAgentDefinition(
-            companyId = company.id,
-            title = "Builder",
-            agentCli = "codex",
-            roleSummary = "Builder implementation"
-        )
+            val company = service.createCompany(
+                name = "Fallback Co",
+                rootPath = repoRoot.toString(),
+                defaultBaseBranch = "master"
+            )
+            service.createCompanyAgentDefinition(
+                companyId = company.id,
+                title = "CEO",
+                agentCli = "codex",
+                roleSummary = "CEO planning and review"
+            )
+            service.createCompanyAgentDefinition(
+                companyId = company.id,
+                title = "Builder",
+                agentCli = "codex",
+                roleSummary = "Builder implementation"
+            )
 
-        val goal = service.createGoal(
-            companyId = company.id,
-            title = "Fallback execution",
-            description = "Keep autonomous company execution alive even when Codex app server is unavailable."
-        )
+            val goal = service.createGoal(
+                companyId = company.id,
+                title = "Fallback execution",
+                description = "Keep autonomous company execution alive even when Codex app server is unavailable.",
+                startRuntimeIfNeeded = false
+            )
+            service.startCompanyRuntime(goal.companyId)
 
-        var companyRuns = emptyList<AgentRun>()
-        withTimeout(10_000) {
-            while (true) {
-                service.runCompanyRuntimeTick(goal.companyId)
-                val snapshot = stateStore.load()
-                val companyTasks = snapshot.tasks.filter { task ->
-                    val issueId = task.issueId ?: return@filter false
-                    snapshot.issues.any { it.id == issueId && it.companyId == company.id }
-                }
-                companyRuns = snapshot.runs.filter { run ->
-                    val task = snapshot.tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
-                    val issueId = task.issueId ?: return@filter false
-                    snapshot.issues.any { it.id == issueId && it.companyId == company.id }
-                }
-                if (companyTasks.any {
-                        it.status == DesktopTaskStatus.RUNNING ||
-                            it.status == DesktopTaskStatus.COMPLETED ||
-                            it.status == DesktopTaskStatus.PARTIAL ||
-                            it.status == DesktopTaskStatus.FAILED
-                    } &&
-                    companyRuns.isNotEmpty()
-                ) {
-                    return@withTimeout
-                }
-                delay(25)
-            }
-        }
-
-        companyRuns = stateStore.load().runs.filter { run ->
-            val task = stateStore.load().tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
-            val issueId = task.issueId ?: return@filter false
-            stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
-        }
-        companyRuns.shouldNotBeEmpty()
-        withTimeout(60_000) {
-            while (companyRuns.none { it.status != AgentRunStatus.QUEUED }) {
-                service.runCompanyRuntimeTick(goal.companyId)
-                delay(25)
-                companyRuns = stateStore.load().runs.filter { run ->
-                    val task = stateStore.load().tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
-                    val issueId = task.issueId ?: return@filter false
-                    stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
+            var companyRuns = emptyList<AgentRun>()
+            withTimeout(10_000) {
+                while (true) {
+                    service.runCompanyRuntimeTick(goal.companyId)
+                    val snapshot = stateStore.load()
+                    val companyTasks = snapshot.tasks.filter { task ->
+                        val issueId = task.issueId ?: return@filter false
+                        snapshot.issues.any { it.id == issueId && it.companyId == company.id }
+                    }
+                    companyRuns = snapshot.runs.filter { run ->
+                        val task = snapshot.tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
+                        val issueId = task.issueId ?: return@filter false
+                        snapshot.issues.any { it.id == issueId && it.companyId == company.id }
+                    }
+                    if (companyTasks.any {
+                            it.status == DesktopTaskStatus.RUNNING ||
+                                it.status == DesktopTaskStatus.COMPLETED ||
+                                it.status == DesktopTaskStatus.PARTIAL ||
+                                it.status == DesktopTaskStatus.FAILED
+                        } &&
+                        companyRuns.isNotEmpty()
+                    ) {
+                        return@withTimeout
+                    }
+                    delay(25)
                 }
             }
+
+            companyRuns = stateStore.load().runs.filter { run ->
+                val task = stateStore.load().tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
+                val issueId = task.issueId ?: return@filter false
+                stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
+            }
+            companyRuns.shouldNotBeEmpty()
+            withTimeout(60_000) {
+                while (companyRuns.none { it.status != AgentRunStatus.QUEUED }) {
+                    service.runCompanyRuntimeTick(goal.companyId)
+                    delay(25)
+                    companyRuns = stateStore.load().runs.filter { run ->
+                        val task = stateStore.load().tasks.firstOrNull { it.id == run.taskId } ?: return@filter false
+                        val issueId = task.issueId ?: return@filter false
+                        stateStore.load().issues.any { it.id == issueId && it.companyId == company.id }
+                    }
+                }
+            }
+            val finalSnapshot = stateStore.load()
+            companyRuns.any { it.status != AgentRunStatus.QUEUED } shouldBe true
+            finalSnapshot.companyActivity.any {
+                it.companyId == company.id &&
+                    it.source == "execution-backend" &&
+                    it.title == "Fell back to local execution"
+            } shouldBe true
+            finalSnapshot.signals.any {
+                it.companyId == company.id &&
+                    it.source == "execution-backend" &&
+                    it.message.contains("Fell back to Local Cotor")
+            } shouldBe true
+            service.runtimeStatus(goal.companyId).status shouldBe CompanyRuntimeStatus.RUNNING
         }
-        companyRuns.any { it.status != AgentRunStatus.QUEUED } shouldBe true
-        service.runtimeStatus(goal.companyId).status shouldBe CompanyRuntimeStatus.RUNNING
     }
 
     test("enabled company Linear sync mirrors decomposed issues and stores external identifiers") {
@@ -6374,76 +6393,78 @@ class DesktopAppServiceTest : FunSpec({
             agentExecutor = mockk(relaxed = true)
         )
 
-        val company = service.createCompany(
-            name = "GitHub Timeout Co",
-            rootPath = repoRoot.toString(),
-            defaultBaseBranch = "master"
-        )
-        val baseState = stateStore.load()
-        val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
-        val projectContext = baseState.projectContexts.first { it.companyId == company.id }
-        val now = System.currentTimeMillis()
-        val goal = CompanyGoal(
-            id = "goal-timeout",
-            companyId = company.id,
-            projectContextId = projectContext.id,
-            title = "Ship timeout-prone change",
-            description = "Exercise GitHub readiness timeout handling.",
-            status = GoalStatus.ACTIVE,
-            autonomyEnabled = true,
-            createdAt = now,
-            updatedAt = now
-        )
-        val issue = CompanyIssue(
-            id = "issue-timeout",
-            companyId = company.id,
-            projectContextId = projectContext.id,
-            goalId = goal.id,
-            workspaceId = workspace.id,
-            title = "Implement timeout-prone branch",
-            description = "This code issue should block locally instead of killing the runtime.",
-            status = IssueStatus.PLANNED,
-            kind = "execution",
-            createdAt = now,
-            updatedAt = now
-        )
-        stateStore.save(
-            baseState.copy(
-                goals = baseState.goals + goal,
-                issues = baseState.issues + issue
+        withDesktopServiceShutdown(service) {
+            val company = service.createCompany(
+                name = "GitHub Timeout Co",
+                rootPath = repoRoot.toString(),
+                defaultBaseBranch = "master"
             )
-        )
+            val baseState = stateStore.load()
+            val workspace = baseState.workspaces.first { it.repositoryId == company.repositoryId }
+            val projectContext = baseState.projectContexts.first { it.companyId == company.id }
+            val now = System.currentTimeMillis()
+            val goal = CompanyGoal(
+                id = "goal-timeout",
+                companyId = company.id,
+                projectContextId = projectContext.id,
+                title = "Ship timeout-prone change",
+                description = "Exercise GitHub readiness timeout handling.",
+                status = GoalStatus.ACTIVE,
+                autonomyEnabled = true,
+                createdAt = now,
+                updatedAt = now
+            )
+            val issue = CompanyIssue(
+                id = "issue-timeout",
+                companyId = company.id,
+                projectContextId = projectContext.id,
+                goalId = goal.id,
+                workspaceId = workspace.id,
+                title = "Implement timeout-prone branch",
+                description = "This code issue should block locally instead of killing the runtime.",
+                status = IssueStatus.PLANNED,
+                kind = "execution",
+                createdAt = now,
+                updatedAt = now
+            )
+            stateStore.save(
+                baseState.copy(
+                    goals = baseState.goals + goal,
+                    issues = baseState.issues + issue
+                )
+            )
 
-        service.startCompanyRuntime(company.id)
+            service.startCompanyRuntime(company.id)
 
-        withTimeout(5_000) {
-            while (true) {
-                val current = stateStore.load()
-                val runtime = current.companyRuntimes.firstOrNull { it.companyId == company.id }
-                val blockedIssue = current.issues.firstOrNull { it.id == issue.id }
-                val infraIssue = current.issues.firstOrNull {
-                    it.companyId == company.id && it.kind == "infra" && it.title == "Restore GitHub publishing for ${issue.title}"
+            withTimeout(5_000) {
+                while (true) {
+                    val current = stateStore.load()
+                    val runtime = current.companyRuntimes.firstOrNull { it.companyId == company.id }
+                    val blockedIssue = current.issues.firstOrNull { it.id == issue.id }
+                    val infraIssue = current.issues.firstOrNull {
+                        it.companyId == company.id && it.kind == "infra" && it.title == "Restore GitHub publishing for ${issue.title}"
+                    }
+                    if (runtime?.status == CompanyRuntimeStatus.RUNNING &&
+                        runtime.lastAction != "runtime-error" &&
+                        blockedIssue?.status == IssueStatus.BLOCKED &&
+                        infraIssue?.status == IssueStatus.PLANNED
+                    ) {
+                        break
+                    }
+                    delay(25)
                 }
-                if (runtime?.status == CompanyRuntimeStatus.RUNNING &&
-                    runtime.lastAction != "runtime-error" &&
-                    blockedIssue?.status == IssueStatus.BLOCKED &&
-                    infraIssue?.status == IssueStatus.PLANNED
-                ) {
-                    break
-                }
-                delay(25)
             }
-        }
 
-        val finalState = stateStore.load()
-        finalState.companyRuntimes.first { it.companyId == company.id }.status shouldBe CompanyRuntimeStatus.RUNNING
-        finalState.issues.first { it.id == issue.id }.status shouldBe IssueStatus.BLOCKED
-        finalState.issues.any {
-            it.companyId == company.id &&
-                it.kind == "infra" &&
-                it.title == "Restore GitHub publishing for ${issue.title}" &&
-                it.status == IssueStatus.PLANNED
-        } shouldBe true
+            val finalState = stateStore.load()
+            finalState.companyRuntimes.first { it.companyId == company.id }.status shouldBe CompanyRuntimeStatus.RUNNING
+            finalState.issues.first { it.id == issue.id }.status shouldBe IssueStatus.BLOCKED
+            finalState.issues.any {
+                it.companyId == company.id &&
+                    it.kind == "infra" &&
+                    it.title == "Restore GitHub publishing for ${issue.title}" &&
+                    it.status == IssueStatus.PLANNED
+            } shouldBe true
+        }
     }
 
     test("runtime resolves GitHub readiness blocks once publishing becomes ready again") {
