@@ -9094,7 +9094,7 @@ class DesktopAppService(
 
     private suspend fun runTaskIfPresent(taskId: String): AgentTask? {
         val task = getTask(taskId) ?: return null
-        activeTaskJobs[task.id] = serviceScope.launch {
+        activeTaskJobs[task.id] = serviceScope.launch(start = CoroutineStart.UNDISPATCHED) {
             // Long-running agent execution is detached from the request lifecycle.
             try {
                 executeTask(task.id)
