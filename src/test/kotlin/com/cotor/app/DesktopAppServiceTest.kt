@@ -39,6 +39,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -1443,6 +1444,7 @@ class DesktopAppServiceTest : FunSpec({
         withDesktopServiceShutdown(service) {
             service.updateBackendSettings(
                 defaultBackendKind = ExecutionBackendKind.CODEX_APP_SERVER,
+                codexLaunchMode = BackendLaunchMode.ATTACHED,
                 codexAppServerBaseUrl = "http://127.0.0.1:9999",
                 codexTimeoutSeconds = 1
             )
@@ -1452,6 +1454,7 @@ class DesktopAppServiceTest : FunSpec({
                 rootPath = repoRoot.toString(),
                 defaultBaseBranch = "master"
             )
+            company.backendKind shouldBe ExecutionBackendKind.CODEX_APP_SERVER
             service.createCompanyAgentDefinition(
                 companyId = company.id,
                 title = "CEO",
@@ -9973,14 +9976,25 @@ private suspend fun seedWorkspace(stateStore: DesktopStateStore, repoRoot: Path)
 }
 
 private suspend fun awaitTaskCompletion(stateStore: DesktopStateStore, taskId: String) {
-    withTimeout(30_000) {
+    val completed = withTimeoutOrNull(30_000) {
         while (true) {
-            val task = stateStore.load().tasks.first { it.id == taskId }
+            val snapshot = stateStore.load()
+            val task = snapshot.tasks.first { it.id == taskId }
             if (task.status == DesktopTaskStatus.COMPLETED) {
-                return@withTimeout
+                return@withTimeoutOrNull true
+            }
+            if (task.status == DesktopTaskStatus.FAILED || task.status == DesktopTaskStatus.PARTIAL) {
+                val runs = snapshot.runs.filter { it.taskId == taskId }
+                error("Task $taskId ended with ${task.status}; runs=$runs")
             }
             delay(25)
         }
+    }
+    if (completed != true) {
+        val snapshot = stateStore.load()
+        val task = snapshot.tasks.firstOrNull { it.id == taskId }
+        val runs = snapshot.runs.filter { it.taskId == taskId }
+        error("Timed out waiting for task $taskId completion; task=$task runs=$runs")
     }
 }
 

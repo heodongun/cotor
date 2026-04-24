@@ -3551,31 +3551,50 @@ class DesktopAppService(
         return awaitIssueSettlement(issueId = issueId, timeoutMs = timeoutMs) ?: getIssue(issueId) ?: started
     }
 
-    private suspend fun awaitIssueSettlement(issueId: String, timeoutMs: Long): CompanyIssue? = withTimeoutOrNull(timeoutMs) {
-        while (true) {
-            val state = stateStore.load()
-            val issue = state.issues.firstOrNull { it.id == issueId } ?: return@withTimeoutOrNull null
-            val relatedTasks = state.tasks.filter { it.issueId == issueId }
-            val relatedTaskIds = relatedTasks.map { it.id }.toSet()
-            val activeTasks = relatedTasks.filter {
-                it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED
+    private suspend fun awaitIssueSettlement(issueId: String, timeoutMs: Long): CompanyIssue? {
+        val reconciledTaskIds = mutableSetOf<String>()
+        return withTimeoutOrNull(timeoutMs) {
+            while (true) {
+                val state = stateStore.load()
+                val issue = state.issues.firstOrNull { it.id == issueId } ?: return@withTimeoutOrNull null
+                val relatedTasks = state.tasks.filter { it.issueId == issueId }
+                val relatedTaskIds = relatedTasks.map { it.id }.toSet()
+                val activeTasks = relatedTasks.filter {
+                    it.status == DesktopTaskStatus.RUNNING || it.status == DesktopTaskStatus.QUEUED
+                }
+                val activeRuns = state.runs.filter {
+                    it.taskId in relatedTaskIds &&
+                        (it.status == AgentRunStatus.RUNNING || it.status == AgentRunStatus.QUEUED)
+                }
+                val hasActiveTaskJob = relatedTasks.any { activeTaskJobs.containsKey(it.id) }
+                val issueTerminal = issue.status !in setOf(
+                    IssueStatus.DELEGATED,
+                    IssueStatus.PLANNED,
+                    IssueStatus.BACKLOG,
+                    IssueStatus.IN_PROGRESS
+                )
+                if (issueTerminal) {
+                    return@withTimeoutOrNull issue
+                }
+                if (activeTasks.isEmpty() && activeRuns.isEmpty() && !hasActiveTaskJob) {
+                    val latestFinishedTask = relatedTasks
+                        .filter {
+                            it.status == DesktopTaskStatus.COMPLETED ||
+                                it.status == DesktopTaskStatus.FAILED ||
+                                it.status == DesktopTaskStatus.PARTIAL
+                        }
+                        .maxByOrNull { it.updatedAt }
+                    if (latestFinishedTask != null && reconciledTaskIds.add(latestFinishedTask.id)) {
+                        syncIssueFromTask(latestFinishedTask.id, latestFinishedTask.status)
+                        delay(50)
+                        continue
+                    }
+                    return@withTimeoutOrNull issue
+                }
+                delay(50)
             }
-            val activeRuns = state.runs.filter {
-                it.taskId in relatedTaskIds &&
-                    (it.status == AgentRunStatus.RUNNING || it.status == AgentRunStatus.QUEUED)
-            }
-            val issueTerminal = issue.status !in setOf(
-                IssueStatus.DELEGATED,
-                IssueStatus.PLANNED,
-                IssueStatus.BACKLOG,
-                IssueStatus.IN_PROGRESS
-            )
-            if (issueTerminal || (activeTasks.isEmpty() && activeRuns.isEmpty())) {
-                return@withTimeoutOrNull issue
-            }
-            delay(50)
+            null
         }
-        null
     }
 
     private suspend fun startDelegatedIssue(issue: CompanyIssue): CompanyIssue {
@@ -5644,6 +5663,7 @@ class DesktopAppService(
             var reopened = 0
             val updatedItems = mutableMapOf<String, ReviewQueueItem>()
             val approvalIssueUpdates = mutableMapOf<String, CompanyIssue>()
+            val approvalIssueIdsToRemove = mutableSetOf<String>()
             val updatedIssues = state.issues.map { issue ->
                 val refreshed = recoveredByIssueId[issue.id] ?: return@map issue
                 val candidate = candidatesByIssueId[issue.id] ?: return@map issue
@@ -5721,6 +5741,7 @@ class DesktopAppService(
                         )
                     }
                     refreshedState == "OPEN" && refreshedMergeability == "DIRTY" -> {
+                        existingApprovalIssue?.id?.let(approvalIssueIdsToRemove::add)
                         val queueItem = baseQueueItem.copy(
                             status = ReviewQueueStatus.CHANGES_REQUESTED,
                             mergeability = refreshed.mergeability ?: baseQueueItem.mergeability ?: "DIRTY",
@@ -5729,22 +5750,10 @@ class DesktopAppService(
                                 ?: issue.ceoFeedback
                                 ?: "GitHub still reports a merge conflict on the existing PR lineage.",
                             ceoReviewedAt = baseQueueItem.ceoReviewedAt ?: now,
-                            approvalIssueId = existingApprovalIssue?.id ?: baseQueueItem.approvalIssueId,
+                            approvalIssueId = null,
                             updatedAt = now
                         )
                         updatedItems[issue.id] = queueItem
-                        existingApprovalIssue?.let { approvalIssue ->
-                            approvalIssueUpdates[approvalIssue.id] = approvalIssue.copy(
-                                status = IssueStatus.BLOCKED,
-                                pullRequestNumber = queueItem.pullRequestNumber ?: approvalIssue.pullRequestNumber,
-                                pullRequestUrl = queueItem.pullRequestUrl ?: approvalIssue.pullRequestUrl,
-                                pullRequestState = queueItem.pullRequestState ?: approvalIssue.pullRequestState,
-                                ceoVerdict = queueItem.ceoVerdict,
-                                ceoFeedback = queueItem.ceoFeedback,
-                                transitionReason = "Existing PR still has merge conflicts; keep remediation queued on the same PR lineage.",
-                                updatedAt = now
-                            )
-                        }
                         issue.copy(
                             status = IssueStatus.PLANNED,
                             executionIntent = ExecutionIntent.MERGE_CONFLICT_REMEDIATION,
@@ -5873,7 +5882,7 @@ class DesktopAppService(
                 .filterNot { it.issueId in recoveredByIssueId.keys }
                 .plus(updatedItems.values)
             val updatedIssueList = updatedIssues
-                .filterNot { issue -> issue.id in approvalIssueUpdates.keys }
+                .filterNot { issue -> issue.id in approvalIssueUpdates.keys || issue.id in approvalIssueIdsToRemove }
                 .plus(approvalIssueUpdates.values)
             var nextState = state.copy(
                 issues = updatedIssueList,
