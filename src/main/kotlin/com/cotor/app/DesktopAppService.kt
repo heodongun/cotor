@@ -235,9 +235,11 @@ class DesktopAppService(
     fun shutdown() {
         runBlocking {
             interruptActiveTasksForShutdown()
-            val jobsToJoin = activeTaskJobs.values.toList() +
-                companyRuntimeJobs.values.toList() +
-                automationRefreshJobs.values.toList()
+            val jobsToJoin = buildList {
+                addAll(activeTaskJobs.values.filterNotNull())
+                addAll(companyRuntimeJobs.values.filterNotNull())
+                addAll(automationRefreshJobs.values.filterNotNull())
+            }.distinct()
             jobsToJoin.forEach { it.cancel() }
             withTimeoutOrNull(SHUTDOWN_JOIN_TIMEOUT_MS) {
                 jobsToJoin.forEach { it.cancelAndJoin() }
