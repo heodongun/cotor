@@ -16,6 +16,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.mockk
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import org.slf4j.Logger
 import java.nio.file.Files
 import java.nio.file.Path
@@ -102,6 +103,22 @@ class ProcessManagerTest : FunSpec({
                 timeout = 200
             )
         }
+    }
+
+    test("executeProcess returns when a subprocess leaves inherited pipes open") {
+        val processManager = CoroutineProcessManager(mockk<Logger>(relaxed = true))
+
+        val result = withTimeout(2_000) {
+            processManager.executeProcess(
+                command = listOf("/bin/sh", "-c", "(sleep 5) & echo parent-exit"),
+                input = null,
+                environment = emptyMap(),
+                timeout = 5_000
+            )
+        }
+
+        result.isSuccess shouldBe true
+        result.stdout shouldContain "parent-exit"
     }
 
     test("executeProcess drains large stdout output before returning") {

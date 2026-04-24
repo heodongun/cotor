@@ -184,8 +184,10 @@ private fun redactedCommandForLogs(command: List<String>): String {
 }
 
 private fun joinReader(thread: Thread) {
-    thread.join()
+    thread.join(READER_JOIN_TIMEOUT_MS)
 }
+
+private const val READER_JOIN_TIMEOUT_MS = 250L
 
 private fun buildEffectivePath(
     inheritedPath: String?,
