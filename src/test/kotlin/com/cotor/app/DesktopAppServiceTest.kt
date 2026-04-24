@@ -9811,7 +9811,13 @@ private class DesktopAppServiceFixture private constructor(
                     tasks = listOf(task)
                 )
             )
-            val service = DesktopAppService(stateStore, gitWorkspaceService, configRepository, agentExecutor)
+            val service = DesktopAppService(
+                stateStore = stateStore,
+                gitWorkspaceService = gitWorkspaceService,
+                configRepository = configRepository,
+                agentExecutor = agentExecutor,
+                autoStartAutomationRefresh = false
+            )
 
             return DesktopAppServiceFixture(service, stateStore, gitWorkspaceService, agentExecutor, task, worktreeRoot)
         }

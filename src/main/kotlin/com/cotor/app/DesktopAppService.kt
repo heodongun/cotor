@@ -154,7 +154,8 @@ class DesktopAppService(
     private val gitHubControlPlaneService: GitHubControlPlaneService = GitHubControlPlaneService(),
     private val knowledgeService: KnowledgeService = KnowledgeService(),
     private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService(),
-    private val verificationBundleService: VerificationBundleService = VerificationBundleService()
+    private val verificationBundleService: VerificationBundleService = VerificationBundleService(),
+    private val autoStartAutomationRefresh: Boolean = true
 ) {
     companion object {
         private val liveServicesForTesting =
@@ -229,7 +230,9 @@ class DesktopAppService(
         liveServicesForTesting += this
         // Runtime state is persisted across app-server restarts. Reattach loops eagerly
         // on service startup so companies keep progressing even before the UI polls.
-        queueAutomationRefresh()
+        if (autoStartAutomationRefresh) {
+            queueAutomationRefresh()
+        }
     }
 
     fun shutdown() {
