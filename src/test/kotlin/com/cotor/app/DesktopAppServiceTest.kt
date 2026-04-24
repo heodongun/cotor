@@ -1479,7 +1479,6 @@ class DesktopAppServiceTest : FunSpec({
                 kind = "execution"
             )
             service.startCompanyRuntime(goal.companyId)
-            service.runIssue(issue.id)
 
             fun companyRunsFor(snapshot: DesktopAppState): List<AgentRun> =
                 snapshot.runs.filter { run ->
@@ -1488,28 +1487,9 @@ class DesktopAppServiceTest : FunSpec({
                     snapshot.issues.any { it.id == issueId && it.companyId == company.id }
                 }
 
-            var finalSnapshot = stateStore.load()
-            var companyRuns = companyRunsFor(finalSnapshot)
-            withTimeout(60_000) {
-                while (true) {
-                    val hasFallbackActivity = finalSnapshot.companyActivity.any {
-                        it.companyId == company.id &&
-                            it.source == "execution-backend" &&
-                            it.title == "Fell back to local execution"
-                    }
-                    val hasFallbackSignal = finalSnapshot.signals.any {
-                        it.companyId == company.id &&
-                            it.source == "execution-backend" &&
-                            it.message.contains("Fell back to Local Cotor")
-                    }
-                    if (companyRuns.any { it.status != AgentRunStatus.QUEUED } && hasFallbackActivity && hasFallbackSignal) {
-                        return@withTimeout
-                    }
-                    delay(25)
-                    finalSnapshot = stateStore.load()
-                    companyRuns = companyRunsFor(finalSnapshot)
-                }
-            }
+            service.runIssueAndAwaitSettlement(issue.id, timeoutMs = 60_000)
+            val finalSnapshot = stateStore.load()
+            val companyRuns = companyRunsFor(finalSnapshot)
             companyRuns.shouldNotBeEmpty()
             companyRuns.any { it.status != AgentRunStatus.QUEUED } shouldBe true
             finalSnapshot.companyActivity.any {
