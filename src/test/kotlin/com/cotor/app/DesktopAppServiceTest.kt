@@ -9775,7 +9775,6 @@ private class DesktopAppServiceFixture private constructor(
             val gitWorkspaceService = mockk<GitWorkspaceService>()
             val agentExecutor = mockk<AgentExecutor>()
             val configRepository = mockk<ConfigRepository>(relaxed = true)
-            val service = DesktopAppService(stateStore, gitWorkspaceService, configRepository, agentExecutor)
 
             val repository = ManagedRepository(
                 id = REPOSITORY_ID,
@@ -9811,6 +9810,7 @@ private class DesktopAppServiceFixture private constructor(
                     tasks = listOf(task)
                 )
             )
+            val service = DesktopAppService(stateStore, gitWorkspaceService, configRepository, agentExecutor)
 
             return DesktopAppServiceFixture(service, stateStore, gitWorkspaceService, agentExecutor, task, worktreeRoot)
         }
