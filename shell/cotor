@@ -69,6 +69,19 @@ if [ ! -f "$JAR_PATH" ]; then
     fi
 fi
 
+if [ "${1:-}" = "app-server" ]; then
+    APP_HOME="${COTOR_APP_HOME:-${HOME}/Library/Application Support/CotorDesktop}"
+    RUNTIME_BACKEND_DIR="$APP_HOME/runtime/backend"
+    RUNTIME_JAR="$RUNTIME_BACKEND_DIR/cotor-app-server-$$.jar"
+    /bin/mkdir -p "$RUNTIME_BACKEND_DIR" || exit 1
+    /bin/cp "$JAR_PATH" "$RUNTIME_JAR" || exit 1
+    cleanup_runtime_jar() {
+        /bin/rm -f "$RUNTIME_JAR" >/dev/null 2>&1 || true
+    }
+    trap cleanup_runtime_jar EXIT
+    JAR_PATH="$RUNTIME_JAR"
+fi
+
 # Run the JAR with all arguments passed to this script
 export COTOR_PROJECT_ROOT="$PROJECT_ROOT"
 "$JAVA_CMD" -jar "$JAR_PATH" "$@"

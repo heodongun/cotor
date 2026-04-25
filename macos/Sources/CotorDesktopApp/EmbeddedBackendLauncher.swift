@@ -22,7 +22,7 @@ actor EmbeddedBackendLauncher {
         if shutdownRequested {
             return
         }
-        terminateStaleBundledBackendProcesses()
+        await terminateStaleBundledBackendProcesses()
         if await healthCheck() {
             return
         }
@@ -40,6 +40,10 @@ actor EmbeddedBackendLauncher {
             AppLogger.error("Embedded backend launch failed: missing java or bundled jar.")
             return
         }
+        guard let runtimeJarPath = stageRuntimeBackendJar(sourcePath: jarPath) else {
+            AppLogger.error("Embedded backend launch failed: could not stage backend jar.")
+            return
+        }
 
         let runtimeDir = defaultDesktopAppHome()
             .appendingPathComponent("runtime", isDirectory: true)
@@ -54,7 +58,7 @@ actor EmbeddedBackendLauncher {
         process.executableURL = URL(fileURLWithPath: javaPath)
         process.arguments = [
             "-jar",
-            jarPath,
+            runtimeJarPath,
             "app-server",
             "--port",
             "\(port)",
@@ -70,7 +74,7 @@ actor EmbeddedBackendLauncher {
                 AppLogger.info("Skipping embedded backend launch because shutdown is in progress.")
                 return
             }
-            AppLogger.info("Launching embedded backend on port \(port) with jar \(jarPath).")
+            AppLogger.info("Launching embedded backend on port \(port) with runtime jar \(runtimeJarPath).")
             try process.run()
             self.process = process
             let started = await waitForHealth(timeoutSeconds: 10)
@@ -126,7 +130,7 @@ actor EmbeddedBackendLauncher {
         return shutdownConfirmed
     }
 
-    private func terminateStaleBundledBackendProcesses() {
+    private func terminateStaleBundledBackendProcesses() async {
         guard let jarPath = resolveBundledBackendJarPath() else {
             return
         }
@@ -138,7 +142,7 @@ actor EmbeddedBackendLauncher {
             stalePids.forEach { pid in
                 _ = kill(pid, SIGTERM)
             }
-            Thread.sleep(forTimeInterval: 0.8)
+            try? await Task.sleep(for: .milliseconds(800))
             let survivors = try staleBundledBackendPids(for: jarPath).filter { stalePids.contains($0) }
             survivors.forEach { pid in
                 _ = kill(pid, SIGKILL)
@@ -158,6 +162,10 @@ actor EmbeddedBackendLauncher {
     }
 
     private func staleBundledBackendPids(for jarPath: String) throws -> [Int32] {
+        let runtimeDir = defaultDesktopAppHome()
+            .appendingPathComponent("runtime", isDirectory: true)
+            .appendingPathComponent("backend", isDirectory: true)
+            .path
         let inspector = Process()
         inspector.executableURL = URL(fileURLWithPath: "/bin/ps")
         inspector.arguments = ["-axo", "pid=,args="]
@@ -172,7 +180,9 @@ actor EmbeddedBackendLauncher {
                 .split(separator: "\n")
                 .compactMap { line -> Int32? in
                     let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty, trimmed.contains(jarPath), trimmed.contains("app-server") else {
+                    let matchesBundledJar = trimmed.contains(jarPath)
+                    let matchesRuntimeJar = trimmed.contains("\(runtimeDir)/cotor-backend-runtime-")
+                    guard !trimmed.isEmpty, (matchesBundledJar || matchesRuntimeJar), trimmed.contains("app-server") else {
                         return nil
                     }
                     guard !trimmed.contains("--port \(port)") else {
@@ -186,6 +196,24 @@ actor EmbeddedBackendLauncher {
                 }
         } catch {
             throw error
+        }
+    }
+
+    private func stageRuntimeBackendJar(sourcePath: String) -> String? {
+        let runtimeDir = defaultDesktopAppHome()
+            .appendingPathComponent("runtime", isDirectory: true)
+            .appendingPathComponent("backend", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: runtimeDir, withIntermediateDirectories: true)
+            let runtimeJar = runtimeDir.appendingPathComponent("cotor-backend-runtime-\(ProcessInfo.processInfo.processIdentifier).jar")
+            if FileManager.default.fileExists(atPath: runtimeJar.path) {
+                try FileManager.default.removeItem(at: runtimeJar)
+            }
+            try FileManager.default.copyItem(atPath: sourcePath, toPath: runtimeJar.path)
+            return runtimeJar.path
+        } catch {
+            AppLogger.error("Failed to stage embedded backend jar: \(error.localizedDescription)")
+            return nil
         }
     }
 
