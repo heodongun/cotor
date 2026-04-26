@@ -19,6 +19,7 @@ TOKEN_FILE="$RUNTIME_DIR/app-server.token"
 APP_HOME="$HOME/Library/Application Support/CotorDesktop"
 BACKEND_RUNTIME_DIR="$APP_HOME/runtime/backend"
 INSTANCE_METADATA_FILE="$BACKEND_RUNTIME_DIR/app-server.instance.json"
+BACKEND_RUNTIME_JAR=""
 SERVER_URL="${COTOR_APP_SERVER_URL:-}"
 SERVER_PORT=""
 SERVER_TOKEN="${COTOR_APP_TOKEN:-}"
@@ -133,6 +134,15 @@ log_launcher() {
 
 clear_backend_runtime_files() {
     rm -f "$PID_FILE" "$PORT_FILE" "$TOKEN_FILE"
+    if [[ -n "$BACKEND_RUNTIME_JAR" ]]; then
+        rm -f "$BACKEND_RUNTIME_JAR" >/dev/null 2>&1 || true
+    fi
+}
+
+stage_backend_runtime_jar() {
+    BACKEND_RUNTIME_JAR="$BACKEND_RUNTIME_DIR/cotor-backend-runtime-$$.jar"
+    mkdir -p "$BACKEND_RUNTIME_DIR"
+    cp "$BACKEND_JAR" "$BACKEND_RUNTIME_JAR"
 }
 
 read_existing_instance_pid() {
@@ -181,7 +191,7 @@ terminate_conflicting_app_home_backend() {
 list_bundled_backend_pids() {
     ps -axo pid=,args= | while read -r pid args; do
         [[ -n "$pid" ]] || continue
-        [[ "$args" == *"$BACKEND_JAR"* ]] || continue
+        [[ "$args" == *"$BACKEND_JAR"* || "$args" == *"$BACKEND_RUNTIME_DIR/cotor-backend-runtime-"* ]] || continue
         [[ "$args" == *" app-server "* || "$args" == *" app-server" ]] || continue
         printf '%s\n' "$pid"
     done
@@ -233,6 +243,10 @@ start_managed_backend() {
         show_alert "The bundled Cotor backend could not be found inside the app."
         return 1
     fi
+    if ! stage_backend_runtime_jar; then
+        show_alert "Cotor Desktop could not stage its bundled backend for execution."
+        return 1
+    fi
 
     SERVER_PORT="$(find_free_port)"
     SERVER_TOKEN="$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]')"
@@ -242,7 +256,7 @@ start_managed_backend() {
     env \
         COTOR_DESKTOP_APP_HOME="$APP_HOME" \
         COTOR_APP_HOME="$APP_HOME" \
-        "$java_bin" -jar "$BACKEND_JAR" app-server --port "$SERVER_PORT" --token "$SERVER_TOKEN" >>"$LOG_FILE" 2>&1 &
+        "$java_bin" -jar "$BACKEND_RUNTIME_JAR" app-server --port "$SERVER_PORT" --token "$SERVER_TOKEN" >>"$LOG_FILE" 2>&1 &
     local backend_pid=$!
     MANAGED_BACKEND_PID="$backend_pid"
     MANAGED_BACKEND_STARTED=1
