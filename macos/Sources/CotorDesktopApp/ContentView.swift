@@ -1635,7 +1635,7 @@ private struct SidebarView: View {
                                     }
                                     return store.newCompanyAgentCli
                                 },
-                                set: { store.newCompanyAgentCli = $0 }
+                                set: { store.selectNewCompanyAgentCli($0) }
                             )) {
                                 ForEach(store.availableCliAgents, id: \.self) { agent in
                                     Text(agent).tag(agent)
@@ -1649,8 +1649,19 @@ private struct SidebarView: View {
                             title: l("Model Override", "모델 override"),
                             helper: l("Optional provider model for this role only.", "이 역할에만 적용할 선택형 provider 모델입니다.")
                         ) {
-                            TextField(l("Model (optional)", "모델 (선택)"), text: $store.newCompanyAgentModel)
-                                .textFieldStyle(.roundedBorder)
+                            let modelOptions = store.newCompanyAgentModelOptions
+                            if modelOptions.isEmpty {
+                                TextField(l("Model (optional)", "모델 (선택)"), text: $store.newCompanyAgentModel)
+                                    .textFieldStyle(.roundedBorder)
+                            } else {
+                                Picker(l("Model", "모델"), selection: $store.newCompanyAgentModel) {
+                                    Text(l("Default", "기본값")).tag("")
+                                    ForEach(modelOptions, id: \.self) { model in
+                                        Text(model).tag(model)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                            }
                         }
                     }
 

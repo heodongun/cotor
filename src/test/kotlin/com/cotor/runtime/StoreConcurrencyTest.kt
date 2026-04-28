@@ -26,35 +26,38 @@ class StoreConcurrencyTest : FunSpec({
         val start = CountDownLatch(1)
         val done = CountDownLatch(20)
 
-        repeat(20) { index ->
-            executor.submit {
-                start.await(5, TimeUnit.SECONDS)
-                store.append(
-                    runId = "run-1",
-                    record = ActionExecutionRecord(
-                        id = "record-$index",
+        try {
+            repeat(20) { index ->
+                executor.submit {
+                    start.await(5, TimeUnit.SECONDS)
+                    store.append(
                         runId = "run-1",
-                        request = ActionRequest(
-                            id = "request-$index",
-                            kind = ActionKind.AGENT_EXEC,
-                            label = "record-$index",
-                            scope = ActionScope.RUN,
-                            subject = ActionSubject(runId = "run-1")
-                        ),
-                        status = ActionStatus.STARTED,
-                        createdAt = index.toLong(),
-                        updatedAt = index.toLong()
+                        record = ActionExecutionRecord(
+                            id = "record-$index",
+                            runId = "run-1",
+                            request = ActionRequest(
+                                id = "request-$index",
+                                kind = ActionKind.AGENT_EXEC,
+                                label = "record-$index",
+                                scope = ActionScope.RUN,
+                                subject = ActionSubject(runId = "run-1")
+                            ),
+                            status = ActionStatus.STARTED,
+                            createdAt = index.toLong(),
+                            updatedAt = index.toLong()
+                        )
                     )
-                )
-                done.countDown()
+                    done.countDown()
+                }
             }
+
+            start.countDown()
+            done.await(10, TimeUnit.SECONDS) shouldBe true
+            store.load("run-1")!!.records.size shouldBe 20
+        } finally {
+            executor.shutdownNow()
+            executor.awaitTermination(5, TimeUnit.SECONDS)
         }
-
-        start.countDown()
-        done.await(10, TimeUnit.SECONDS) shouldBe true
-        executor.shutdownNow()
-
-        store.load("run-1")!!.records.size shouldBe 20
     }
 
     test("VerificationStore appendObservation is atomic under concurrent writers") {
@@ -64,29 +67,32 @@ class StoreConcurrencyTest : FunSpec({
         val start = CountDownLatch(1)
         val done = CountDownLatch(20)
 
-        repeat(20) { index ->
-            executor.submit {
-                start.await(5, TimeUnit.SECONDS)
-                store.appendObservation(
-                    issueId = "issue-1",
-                    observation = VerificationObservation(
-                        source = "test-$index",
-                        signal = VerificationSignal(
-                            key = "signal-$index",
-                            status = VerificationSignalStatus.PASS,
-                            detail = "detail-$index"
-                        ),
-                        observedAt = index.toLong()
+        try {
+            repeat(20) { index ->
+                executor.submit {
+                    start.await(5, TimeUnit.SECONDS)
+                    store.appendObservation(
+                        issueId = "issue-1",
+                        observation = VerificationObservation(
+                            source = "test-$index",
+                            signal = VerificationSignal(
+                                key = "signal-$index",
+                                status = VerificationSignalStatus.PASS,
+                                detail = "detail-$index"
+                            ),
+                            observedAt = index.toLong()
+                        )
                     )
-                )
-                done.countDown()
+                    done.countDown()
+                }
             }
+
+            start.countDown()
+            done.await(10, TimeUnit.SECONDS) shouldBe true
+            store.loadObservations("issue-1").size shouldBe 20
+        } finally {
+            executor.shutdownNow()
+            executor.awaitTermination(5, TimeUnit.SECONDS)
         }
-
-        start.countDown()
-        done.await(10, TimeUnit.SECONDS) shouldBe true
-        executor.shutdownNow()
-
-        store.loadObservations("issue-1").size shouldBe 20
     }
 })

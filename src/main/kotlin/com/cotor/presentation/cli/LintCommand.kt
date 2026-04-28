@@ -13,6 +13,7 @@ import com.cotor.error.ErrorMessages
 import com.cotor.error.UserFriendlyError
 import com.cotor.validation.Linter
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.ProgramResult
 import com.github.ajalt.clikt.core.terminal
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
@@ -23,7 +24,6 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlin.io.path.Path
 import kotlin.io.path.exists
-import kotlin.system.exitProcess
 
 /**
  * Lint command to statically check configuration files
@@ -47,7 +47,7 @@ class LintCommand :
                 throw ErrorMessages.configNotFound(configPath.toString())
             }
 
-            val config = configRepository.loadConfig(configPath)
+            val config = configRepository.loadConfigExact(configPath)
             val result = linter.lint(config)
 
             if (result.warnings.isNotEmpty()) {
@@ -61,7 +61,7 @@ class LintCommand :
                 result.errors.forEach { terminal.println("   - $it") }
                 terminal.println()
                 terminal.println(red("Linting failed with ${result.errors.size} errors."))
-                exitProcess(1)
+                throw ProgramResult(1)
             }
 
             if (result.isSuccess) {
@@ -72,11 +72,11 @@ class LintCommand :
             }
         } catch (e: UserFriendlyError) {
             terminal.println(red(e.message ?: "An unknown user-friendly error occurred."))
-            exitProcess(1)
+            throw ProgramResult(1)
         } catch (e: Exception) {
             terminal.println(red("An unexpected error occurred: ${e.message ?: "Unknown error"}"))
             e.printStackTrace()
-            exitProcess(1)
+            throw ProgramResult(1)
         }
     }
 }

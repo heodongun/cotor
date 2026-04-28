@@ -131,6 +131,31 @@ class AppServerTest : FunSpec({
         }
     }
 
+    test("agent model route returns discovered provider models when authorized") {
+        every { desktopService.availableAgentModels("opencode") } returns listOf(
+            "opencode/big-pickle",
+            "opencode/nemotron-3-super-free"
+        )
+
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val response = client.get("/api/app/agents/models?agent=opencode") {
+                header("Authorization", "Bearer secret-token")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldBe "[\"opencode/big-pickle\",\"opencode/nemotron-3-super-free\"]"
+            io.mockk.verify(exactly = 1) { desktopService.availableAgentModels("opencode") }
+        }
+    }
+
     test("company memory snapshot route returns backend memory payload when authorized") {
         coEvery { desktopService.companyMemorySnapshot("company-1", "issue-1", null) } returns CompanyMemorySnapshotResponse(
             companyMemory = "Company memory",

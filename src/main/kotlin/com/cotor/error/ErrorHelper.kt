@@ -170,7 +170,7 @@ object ErrorHelper {
                 "Run with --debug flag for detailed stack trace",
                 "Check the logs at the file specified in logging.file",
                 "Verify your configuration is valid",
-                "Report this issue if it persists: https://github.com/yourusername/cotor/issues"
+                "Report this issue if it persists: https://github.com/bssm-oss/cotor/issues"
             ),
             type = ErrorType.UNKNOWN
         )

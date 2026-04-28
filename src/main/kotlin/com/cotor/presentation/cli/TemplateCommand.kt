@@ -648,6 +648,7 @@ agents:
     parameters:
       # Optional override. Remove this to auto-detect by repository files.
       argvJson: '["./gradlew","test","--console=plain"]'
+      artifactQualityScan: "true"
 
   - name: echo
     pluginClass: com.cotor.data.plugin.EchoPlugin
@@ -793,7 +794,7 @@ pipelines:
         condition:
           expression: "!verify.success"
           onTrue:
-            action: STOP
+            action: ABORT
             message: "Verification failed; release stages were skipped"
           onFalse:
             action: CONTINUE
@@ -834,7 +835,7 @@ security:
   allowedExecutables:
     - git
     - gh
-    - {{verify_executable}}
+    - "{{verify_executable}}"
   allowedDirectories:
     - /usr/local/bin
     - /opt/homebrew/bin

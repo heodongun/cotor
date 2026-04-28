@@ -206,6 +206,7 @@ class DesktopAppService(
     private val recentNoOpPullRequestRefreshAt = ConcurrentHashMap<String, Long>()
     private val recentPullRequestMetadataRefreshes = ConcurrentHashMap<String, CachedPullRequestMetadata>()
     private val companyEventStream = MutableSharedFlow<CompanyEventEnvelope>(replay = 0, extraBufferCapacity = 64)
+    private val recentAgentModelDiscoveries = ConcurrentHashMap<String, CachedAgentModels>()
     private val backendJson = Json { ignoreUnknownKeys = true }
     private val localExecutionBackend = LocalCotorBackend(agentExecutor)
     private val codexAppServerBackend = CodexAppServerBackend(backendJson)
@@ -237,7 +238,6 @@ class DesktopAppService(
 
     fun shutdown() {
         runBlocking {
-            interruptActiveTasksForShutdown()
             val jobsToJoin = buildList {
                 addAll(activeTaskJobs.values.filterNotNull())
                 addAll(companyRuntimeJobs.values.filterNotNull())
@@ -246,6 +246,9 @@ class DesktopAppService(
             jobsToJoin.forEach { it.cancel() }
             withTimeoutOrNull(SHUTDOWN_JOIN_TIMEOUT_MS) {
                 jobsToJoin.forEach { it.cancelAndJoin() }
+            }
+            withTimeoutOrNull(SHUTDOWN_JOIN_TIMEOUT_MS) {
+                interruptActiveTasksForShutdown()
             }
         }
         activeTaskJobs.clear()
@@ -291,6 +294,7 @@ class DesktopAppService(
         // restart. The read path stays cheap, but it nudges the automation layer back into the
         // expected steady state before serializing the full desktop snapshot.
         queueAutomationRefresh()
+        migrateLegacyOpenCodeCompanyAgentModels()
         val state = stateStore.load().withDerivedMetrics()
         val orgProfiles = ensureOrgProfiles(state.orgProfiles, state.companyAgentDefinitions, state.companies)
         val boundIssuesById = mutableMapOf<String, CompanyIssue>()
@@ -481,8 +485,8 @@ class DesktopAppService(
             archiveRecursiveFollowUpGoals(activeCompanyId)
             reopenResolvedMergeConflictIssues(activeCompanyId)
             reopenNoOpPullRequestExecutionIssues(activeCompanyId)
-            requeueRecoverableBlockedIssues(activeCompanyId)
             requeueLegacyMergeConflictExecutionIssues(activeCompanyId)
+            requeueRecoverableBlockedIssues(activeCompanyId)
             reconcileSupersededManagedPullRequests(activeCompanyId)
         }
         stimulateAutonomousCompanyProgress(companyId)
@@ -2723,6 +2727,7 @@ class DesktopAppService(
                                 "durationMs" to run.durationMs,
                                 "pullRequestUrl" to run.publish?.pullRequestUrl,
                                 "publishError" to run.publish?.error?.take(200),
+                                "failureClass" to classifyExecutionLogFailure(issue, run),
                                 "createdAt" to run.createdAt,
                                 "updatedAt" to run.updatedAt
                             )
@@ -2730,6 +2735,19 @@ class DesktopAppService(
                     )
                 }
             )
+        }
+    }
+
+    private fun classifyExecutionLogFailure(issue: CompanyIssue, run: AgentRun): String? {
+        val error = run.error.orEmpty()
+        val publishError = run.publish?.error.orEmpty()
+        return when {
+            error.contains("Generated artifact quality scan failed", ignoreCase = true) ||
+                error.contains("QA artifact quality scan failed", ignoreCase = true) -> "artifact-quality"
+            publishError.startsWith("No changes to publish", ignoreCase = true) -> "no-diff"
+            !requiresCodePublish(issue) && publishError.isNotBlank() -> "publish-nonfatal"
+            error.isBlank() && publishError.isBlank() -> null
+            else -> "execution"
         }
     }
 
@@ -4794,6 +4812,7 @@ class DesktopAppService(
             companyRuntimeTickMutexes.getOrPut(companyId) { Mutex() }
         }
         return tickMutex.withLock {
+            val tickStartedAt = System.currentTimeMillis()
             // A runtime tick is the autonomous "housekeeping plus scheduling" pass for one
             // company. The order matters: first reconcile stale terminal states from prior runs,
             // then revive recoverable work, then synthesize any follow-up goals, and only after the
@@ -4873,30 +4892,30 @@ class DesktopAppService(
             }
 
             val current = stateStore.load()
-            val autonomousGoals = current.goals.filter {
-                it.companyId == companyId && it.autonomyEnabled && it.status == GoalStatus.ACTIVE
+            val activeGoals = current.goals.filter {
+                it.companyId == companyId && it.status == GoalStatus.ACTIVE
             }
-            if (autonomousGoals.isEmpty()) {
-                return@withLock updateRuntimeAfterTick(
-                    companyId,
-                    lastAction = actions.joinToString(separator = ", ").ifBlank { "idle-no-autonomous-goals" }
-                )
-            }
+            val autonomousGoals = activeGoals.filter { it.autonomyEnabled }
+            val autonomousGoalIds = autonomousGoals.map { it.id }.toSet()
 
             val workQueue = WorkQueue()
-            CompanyRuntimeMachine.planGoalDecomposition(
-                companyId = companyId,
-                goals = autonomousGoals,
-                issues = current.issues
-            ).forEach(workQueue::enqueue)
-            workQueue.drain { command ->
-                when (command) {
-                    is RuntimeCommand.EnsurePlanningIssue -> {
-                        decomposeGoal(command.goalId)
-                        actions += "decomposed:${command.goalId}"
+            if (autonomousGoals.isNotEmpty()) {
+                CompanyRuntimeMachine.planGoalDecomposition(
+                    companyId = companyId,
+                    goals = autonomousGoals,
+                    issues = current.issues
+                ).forEach(workQueue::enqueue)
+                workQueue.drain { command ->
+                    when (command) {
+                        is RuntimeCommand.EnsurePlanningIssue -> {
+                            decomposeGoal(command.goalId)
+                            actions += "decomposed:${command.goalId}"
+                        }
+                        is RuntimeCommand.StartIssue -> Unit
                     }
-                    is RuntimeCommand.StartIssue -> Unit
                 }
+            } else {
+                actions += "idle-no-autonomous-goals"
             }
 
             val executionSnapshot = stateStore.load()
@@ -4943,11 +4962,10 @@ class DesktopAppService(
             val now = System.currentTimeMillis()
             val runnableIssues = boundExecution.issues
                 .filter { issue ->
-                    executionSnapshot.goals.firstOrNull { it.id == issue.goalId }?.let { goal ->
-                        goal.autonomyEnabled && goal.status == GoalStatus.ACTIVE && goal.companyId == companyId
-                    } == true
+                    issue.goalId in autonomousGoalIds
                 }
                 .filter { issue -> issue.runtimeDisposition == "RUNNABLE" }
+                .filter { issue -> issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) }
                 .filterNot { issue ->
                     issue.sourceSignal == "github-readiness"
                 }
@@ -4970,10 +4988,17 @@ class DesktopAppService(
                         latestRunsByTaskId,
                         now
                     )
+                    val latestTask = tasksByIssueId[issue.id].orEmpty()
+                        .maxByOrNull { it.updatedAt }
+                    val reopenedLegacyMergeConflict = issue.transitionReason?.contains(
+                        "legacy CEO merge-conflict blocker",
+                        ignoreCase = true
+                    ) == true
+                    val reopenedDuringThisTick = issue.updatedAt >= tickStartedAt && reopenedLegacyMergeConflict
                     val waitingForRetryCooldown =
                         issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
                             retryDecision.mode == RecoverableRetryMode.WAITING
-                    dependenciesSatisfied && !alreadyStarted && !waitingForRetryCooldown
+                    dependenciesSatisfied && !alreadyStarted && !waitingForRetryCooldown && !reopenedDuringThisTick
                 }
             val delegatedRunnableIssues = runnableIssues.map { candidate ->
                 val delegated = if (candidate.assigneeProfileId == null || candidate.status != IssueStatus.DELEGATED) {
@@ -5154,6 +5179,11 @@ class DesktopAppService(
     private data class CachedPullRequestMetadata(
         val refreshedAt: Long,
         val metadata: PublishMetadata
+    )
+
+    private data class CachedAgentModels(
+        val discoveredAt: Long,
+        val models: List<String>
     )
 
     private fun pullRequestMetadataRefreshKey(
@@ -6049,9 +6079,8 @@ class DesktopAppService(
                     val dependenciesSatisfied = issue.dependsOn.all { dependencyId ->
                         issuesById[dependencyId]?.status == IssueStatus.DONE
                     }
-                    val goalAllowsAutomation = goal?.autonomyEnabled == true &&
-                        goal.status != GoalStatus.COMPLETED
-                    if (!goalAllowsAutomation || !dependenciesSatisfied) {
+                    val goalAllowsExecution = goal == null || goal.status != GoalStatus.COMPLETED
+                    if (!goalAllowsExecution || !dependenciesSatisfied) {
                         return@map issue
                     }
                     changed = true
@@ -6550,8 +6579,7 @@ class DesktopAppService(
                         latestTask.status != DesktopTaskStatus.QUEUED &&
                         issue.id !in activeTaskIssueIds &&
                         issue.status == IssueStatus.BLOCKED &&
-                        goal?.autonomyEnabled == true &&
-                        goal.status != GoalStatus.COMPLETED &&
+                        (goal == null || goal.status != GoalStatus.COMPLETED) &&
                         retryDecision.mode == RecoverableRetryMode.READY
                 val supersededBySuccessfulRetry =
                     goal?.operatingPolicy.orEmpty().startsWith("auto-follow-up:") &&
@@ -6586,7 +6614,12 @@ class DesktopAppService(
                         latestRun != null &&
                         shouldReuseExecutionLineageBinding(issue) &&
                         isExistingPrNoDiffReuseCandidate(issue, latestRun)
+                val staleTerminalFailureAlreadySuperseded =
+                    latestTask?.status in setOf(DesktopTaskStatus.FAILED, DesktopTaskStatus.PARTIAL) &&
+                        issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
+                        issue.updatedAt > (latestTask?.updatedAt ?: Long.MAX_VALUE)
                 val nextStatus = when {
+                    staleTerminalFailureAlreadySuperseded -> issue.status
                     executionSatisfiedByMergedPullRequest -> IssueStatus.DONE
                     approvalSatisfiedByMergedExecution -> IssueStatus.DONE
                     supersededBySuccessfulRetry -> IssueStatus.CANCELED
@@ -7820,11 +7853,17 @@ class DesktopAppService(
     fun settings(): DesktopSettings {
         val state = runBlocking { stateStore.load() }
         val githubPublishStatus = runBlocking { computeGitHubPublishStatus(state = state) }
+        val availableAgentModels = mapOf("opencode" to availableAgentModels("opencode"))
+            .filterValues { it.isNotEmpty() }
         return DesktopSettings(
             appHome = stateStore.appHome().toString(),
             managedReposRoot = stateStore.managedReposRoot().toString(),
             availableAgents = BuiltinAgentCatalog.names(),
             availableCliAgents = BuiltinAgentCatalog.names().filter { isExecutableAvailable(it) },
+            availableAgentModels = availableAgentModels,
+            defaultAgentModels = BuiltinAgentCatalog.names().mapNotNull { agentName ->
+                defaultModelForAgentCli(agentName)?.let { model -> agentName to model }
+            }.toMap(),
             recentCompanies = emptyList(),
             defaultLaunchMode = "company",
             backendSettings = state.backendSettings,
@@ -7833,6 +7872,103 @@ class DesktopAppService(
             backendStatuses = computeBackendStatuses(state),
             shortcuts = ShortcutConfig()
         )
+    }
+
+    fun availableAgentModels(agent: String): List<String> {
+        val normalizedAgent = agent.trim().lowercase()
+        return when (normalizedAgent) {
+            "opencode" -> discoverOpenCodeModelsCached()
+            else -> emptyList()
+        }
+    }
+
+    private fun discoverOpenCodeModelsCached(): List<String> {
+        val now = System.currentTimeMillis()
+        recentAgentModelDiscoveries["opencode"]
+            ?.takeIf { now - it.discoveredAt < 5 * 60_000L }
+            ?.let { return it.models }
+        if (!isExecutableAvailable("opencode")) {
+            recentAgentModelDiscoveries["opencode"] = CachedAgentModels(now, emptyList())
+            return emptyList()
+        }
+        val models = runCatching {
+            val process = ProcessBuilder(resolveBuiltinExecutableAlias("opencode"), "models")
+                .redirectErrorStream(true)
+                .start()
+            val finished = process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                emptyList()
+            } else if (process.exitValue() != 0) {
+                emptyList()
+            } else {
+                process.inputStream.bufferedReader().useLines { lines ->
+                    lines.map { it.trim() }
+                        .filter { it.startsWith("opencode/") }
+                        .distinct()
+                        .toList()
+                }
+            }
+        }.getOrDefault(emptyList())
+        recentAgentModelDiscoveries["opencode"] = CachedAgentModels(now, models)
+        return models
+    }
+
+    private suspend fun migrateLegacyOpenCodeCompanyAgentModels(companyId: String? = null) {
+        val state = stateStore.load()
+        val opencodeDefinitions = state.companyAgentDefinitions.filter { definition ->
+            definition.agentCli.equals("opencode", ignoreCase = true) && (companyId == null || definition.companyId == companyId)
+        }
+        if (opencodeDefinitions.isEmpty()) return
+        val availableModels = availableAgentModels("opencode")
+        val legacyModels = setOf(
+            "opencode/minimax-m2.5-free",
+            "opencode/qwen3.6-plus-free"
+        )
+        val validModels = availableModels.toSet()
+        val updatedAt = System.currentTimeMillis()
+        val nextDefinitions = state.companyAgentDefinitions.map { definition ->
+            if (!definition.agentCli.equals("opencode", ignoreCase = true) || (companyId != null && definition.companyId != companyId)) {
+                definition
+            } else {
+                val normalized = OpenCodeDefaults.normalizeModel(definition.model)
+                val shouldMigrate = normalized == null ||
+                    normalized in legacyModels ||
+                    (validModels.isNotEmpty() && normalized !in validModels)
+                if (shouldMigrate) {
+                    definition.copy(model = OpenCodeDefaults.DEFAULT_MODEL, updatedAt = updatedAt)
+                } else {
+                    definition
+                }
+            }
+        }
+        if (nextDefinitions == state.companyAgentDefinitions) return
+        stateMutex.withLock {
+            val latest = stateStore.load()
+            val latestDefinitions = latest.companyAgentDefinitions.map { definition ->
+                if (!definition.agentCli.equals("opencode", ignoreCase = true) || (companyId != null && definition.companyId != companyId)) {
+                    definition
+                } else {
+                    val normalized = OpenCodeDefaults.normalizeModel(definition.model)
+                    val shouldMigrate = normalized == null ||
+                        normalized in legacyModels ||
+                        (validModels.isNotEmpty() && normalized !in validModels)
+                    if (shouldMigrate) {
+                        definition.copy(model = OpenCodeDefaults.DEFAULT_MODEL, updatedAt = updatedAt)
+                    } else {
+                        definition
+                    }
+                }
+            }
+            if (latestDefinitions != latest.companyAgentDefinitions) {
+                stateStore.save(
+                    latest.copy(
+                        companyAgentDefinitions = latestDefinitions,
+                        orgProfiles = deriveProfiles(latestDefinitions, latest.companies)
+                    ).withDerivedMetrics()
+                )
+            }
+        }
     }
 
     suspend fun githubPublishStatus(companyId: String? = null): GitHubPublishStatus {
@@ -12421,7 +12557,8 @@ class DesktopAppService(
                 detail = buildString {
                     append("${updatedIssue.title} -> ${updatedIssue.status}")
                     traceEvents.firstOrNull()?.reason?.let { append(" ($it)") }
-                }
+                },
+                severity = if (updatedIssue.status == IssueStatus.BLOCKED) "warning" else "info"
             ).recordCompanyActivity(
                 companyId = updatedIssue.companyId,
                 projectContextId = updatedIssue.projectContextId,

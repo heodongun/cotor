@@ -16,6 +16,10 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 class DesktopAppServiceZeroRunRecoveryTest : FunSpec({
+    afterTest {
+        DesktopAppService.shutdownAllForTesting()
+    }
+
     test("company runtime tick reconciles running tasks that never wrote any runs") {
         val appHome = Files.createTempDirectory("desktop-runtime-zero-run-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-zero-run-test").resolve("repo"))

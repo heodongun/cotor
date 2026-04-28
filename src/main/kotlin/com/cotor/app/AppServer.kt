@@ -400,6 +400,13 @@ internal fun Application.cotorAppModule(
                 call.respond(BuiltinAgentCatalog.names())
             }
 
+            get("/agents/models") {
+                if (!requireToken(token)) return@get
+                val agent = call.request.queryParameters["agent"]
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "agent is required"))
+                call.respond(desktopService.availableAgentModels(agent))
+            }
+
             route("/repositories") {
                 get {
                     if (!requireToken(token)) return@get

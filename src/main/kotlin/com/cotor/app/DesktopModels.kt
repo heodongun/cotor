@@ -976,6 +976,8 @@ data class DesktopSettings(
     val managedReposRoot: String,
     val availableAgents: List<String>,
     val availableCliAgents: List<String> = availableAgents,
+    val availableAgentModels: Map<String, List<String>> = emptyMap(),
+    val defaultAgentModels: Map<String, String> = emptyMap(),
     val recentCompanies: List<String> = emptyList(),
     val defaultLaunchMode: String = "company",
     val backendSettings: DesktopBackendSettings = DesktopBackendSettings(),

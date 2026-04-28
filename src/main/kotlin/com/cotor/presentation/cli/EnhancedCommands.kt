@@ -25,7 +25,9 @@ import com.cotor.presentation.timeline.StageTimelineState
 import com.cotor.runtime.durable.DurableRuntimeFlags
 import com.cotor.validation.PipelineValidator
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.ProgramResult
 import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
@@ -64,7 +66,7 @@ class EnhancedRunCommand :
         .path(mustExist = false)
         .default(Path("cotor.yaml"))
 
-    val pipelineName by argument("pipeline", help = "Name of pipeline to run")
+    val pipelineName by argument("pipeline", help = "Name of pipeline to run").optional()
 
     val watch by option("--watch", "-w", help = "Watch mode with live progress updates")
         .flag(default = true)
@@ -95,9 +97,14 @@ class EnhancedRunCommand :
             config.agents.forEach { agentRegistry.registerAgent(it) }
 
             // Find pipeline
-            val pipeline = config.pipelines.find { it.name == pipelineName }
+            val selectedPipelineName = pipelineName ?: config.pipelines.singleOrNull()?.name
                 ?: throw ErrorMessages.pipelineNotFound(
-                    pipelineName,
+                    pipelineName ?: "<unspecified>",
+                    config.pipelines.map { it.name }
+                )
+            val pipeline = config.pipelines.find { it.name == selectedPipelineName }
+                ?: throw ErrorMessages.pipelineNotFound(
+                    selectedPipelineName,
                     config.pipelines.map { it.name }
                 )
 
@@ -155,7 +162,7 @@ class EnhancedRunCommand :
                     }
                 }
 
-                terminal.println(bold("🚀 Executing pipeline: ") + cyan(pipelineName))
+                terminal.println(bold("🚀 Executing pipeline: ") + cyan(pipeline.name))
                 if (verbose) {
                     terminal.println(dim("   Mode: ${pipeline.executionMode} • Stages: ${pipeline.stages.size}"))
                     terminal.println()
@@ -269,7 +276,7 @@ class ValidateCommand :
         .path(mustExist = false)
         .default(Path("cotor.yaml"))
 
-    val pipelineName by argument("pipeline", help = "Name of pipeline to validate")
+    val pipelineName by argument("pipeline", help = "Name of pipeline to validate").optional()
 
     override fun run() = runBlocking {
         try {
@@ -285,9 +292,14 @@ class ValidateCommand :
             config.agents.forEach { agentRegistry.registerAgent(it) }
 
             // Find pipeline
-            val pipeline = config.pipelines.find { it.name == pipelineName }
+            val selectedPipelineName = pipelineName ?: config.pipelines.singleOrNull()?.name
                 ?: throw ErrorMessages.pipelineNotFound(
-                    pipelineName,
+                    pipelineName ?: "<unspecified>",
+                    config.pipelines.map { it.name }
+                )
+            val pipeline = config.pipelines.find { it.name == selectedPipelineName }
+                ?: throw ErrorMessages.pipelineNotFound(
+                    selectedPipelineName,
                     config.pipelines.map { it.name }
                 )
 
@@ -321,13 +333,16 @@ class ValidateCommand :
                         echo("Warnings:")
                         result.warnings.forEach { echo("   - $it") }
                     }
+                    throw ProgramResult(1)
                 }
             }
         } catch (e: UserFriendlyError) {
             echo(e.message, err = true)
+            throw e
         } catch (e: Exception) {
             echo("Error: ${e.message}", err = true)
             e.printStackTrace()
+            throw e
         }
     }
 }

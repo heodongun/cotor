@@ -19,6 +19,10 @@ import io.mockk.mockk
 import java.nio.file.Files
 
 class DesktopAppServiceRuntimeDispositionSchedulerTest : FunSpec({
+    afterTest {
+        DesktopAppService.shutdownAllForTesting()
+    }
+
     test("runCompanyRuntimeTick does not start issues whose projected runtimeDisposition is not RUNNABLE") {
         val appHome = Files.createTempDirectory("desktop-runtime-disposition-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-disposition-repo").resolve("repo"))

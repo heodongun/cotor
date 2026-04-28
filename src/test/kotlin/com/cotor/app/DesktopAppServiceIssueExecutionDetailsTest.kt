@@ -11,6 +11,10 @@ import io.mockk.mockk
 import java.nio.file.Files
 
 class DesktopAppServiceIssueExecutionDetailsTest : FunSpec({
+    afterTest {
+        DesktopAppService.shutdownAllForTesting()
+    }
+
     test("issueExecutionDetails joins assigned prompt, run logs, and publish metadata for one issue") {
         val appHome = Files.createTempDirectory("desktop-issue-execution-details-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-issue-execution-details-test").resolve("repo"))

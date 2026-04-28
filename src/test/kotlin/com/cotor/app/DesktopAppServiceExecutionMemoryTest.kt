@@ -13,6 +13,10 @@ import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 
 class DesktopAppServiceExecutionMemoryTest : FunSpec({
+    afterTest {
+        DesktopAppService.shutdownAllForTesting()
+    }
+
     test("buildIssueExecutionPrompt includes company agent memoryNotes in agent memory") {
         val appHome = Files.createTempDirectory("desktop-execution-memory-home")
         val stateStore = DesktopStateStore { appHome }
