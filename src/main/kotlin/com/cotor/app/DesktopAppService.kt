@@ -4671,6 +4671,7 @@ class DesktopAppService(
         companyId: String,
         respectManualStop: Boolean
     ): CompanyRuntimeSnapshot {
+        val startRequestedAt = System.currentTimeMillis()
         if (respectManualStop && isCompanyManuallyStopped(companyId)) {
             return runtimeStatus(companyId)
         }
@@ -4698,7 +4699,9 @@ class DesktopAppService(
                 .firstOrNull { it.companyId == resolvedCompanyId }
                 ?.let(::runtimeWithinCurrentBudgetWindow)
                 ?: CompanyRuntimeSnapshot(companyId = resolvedCompanyId)
-            if (respectManualStop && existingRuntime.manuallyStoppedAt != null) {
+            val stoppedAfterThisStartWasRequested =
+                existingRuntime.manuallyStoppedAt?.let { it > startRequestedAt } == true
+            if ((respectManualStop && existingRuntime.manuallyStoppedAt != null) || stoppedAfterThisStartWasRequested) {
                 return@withLock null
             }
             val now = System.currentTimeMillis()
