@@ -54,6 +54,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
@@ -8914,23 +8915,34 @@ class DesktopAppService(
                     runId = provisionalRun.id
                 )
             }
-            val binding = withTimeout(WORKTREE_BINDING_TIMEOUT_MS) {
-                if (shouldReuseExecutionLineageBinding(issue)) {
-                    gitWorkspaceService.ensureExistingWorktreeLineage(
-                        repositoryRoot = Path.of(repository.localPath),
-                        branchName = requireNotNull(issue?.branchName),
-                        worktreePath = Path.of(requireNotNull(issue?.worktreePath)),
-                        baseBranch = workspace.baseBranch
-                    )
-                } else {
-                    gitWorkspaceService.ensureWorktree(
-                        repositoryRoot = Path.of(repository.localPath),
-                        taskId = task.id,
-                        taskTitle = task.title,
-                        agentName = effectiveAgent.name,
-                        baseBranch = workspace.baseBranch
-                    )
+            val binding = try {
+                withTimeout(WORKTREE_BINDING_TIMEOUT_MS) {
+                    if (shouldReuseExecutionLineageBinding(issue)) {
+                        gitWorkspaceService.ensureExistingWorktreeLineage(
+                            repositoryRoot = Path.of(repository.localPath),
+                            branchName = requireNotNull(issue?.branchName),
+                            worktreePath = Path.of(requireNotNull(issue?.worktreePath)),
+                            baseBranch = workspace.baseBranch
+                        )
+                    } else {
+                        gitWorkspaceService.ensureWorktree(
+                            repositoryRoot = Path.of(repository.localPath),
+                            taskId = task.id,
+                            taskTitle = task.title,
+                            agentName = effectiveAgent.name,
+                            baseBranch = workspace.baseBranch
+                        )
+                    }
                 }
+            } catch (timeout: TimeoutCancellationException) {
+                recordRunFailure(
+                    task = task,
+                    workspace = workspace,
+                    repository = repository,
+                    agentName = effectiveAgent.name,
+                    message = "Timed out while preparing isolated worktree for ${effectiveAgent.name} after ${WORKTREE_BINDING_TIMEOUT_MS}ms"
+                )
+                return
             }
             val run = provisionalRun.copy(
                 branchName = binding.branchName,
