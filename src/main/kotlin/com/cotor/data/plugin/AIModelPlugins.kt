@@ -588,10 +588,10 @@ class OpenCodePlugin : AgentPlugin {
         context: ExecutionContext
     ): List<String> {
         val result = processManager.executeProcess(
-            command = listOf("opencode", "models", "opencode"),
+            command = listOf("opencode", "models"),
             input = null,
             environment = context.environment,
-            timeout = minOf(context.timeout, 30_000),
+            timeout = minOf(context.timeout, 10_000),
             workingDirectory = context.workingDirectory,
             onStart = null
         )

@@ -38,7 +38,7 @@ class OpenCodePluginTest : FunSpec({
                 onStart: ((Long) -> Unit)?
             ): ProcessResult {
                 return when (command) {
-                    listOf("opencode", "models", "opencode") -> {
+                    listOf("opencode", "models") -> {
                         sawModelsLookup = true
                         ProcessResult(
                             exitCode = 0,
@@ -84,7 +84,7 @@ class OpenCodePluginTest : FunSpec({
                 onStart: ((Long) -> Unit)?
             ): ProcessResult {
                 return when (command) {
-                    listOf("opencode", "models", "opencode") -> ProcessResult(
+                    listOf("opencode", "models") -> ProcessResult(
                         exitCode = 1,
                         stdout = "",
                         stderr = "models lookup unavailable",
@@ -133,7 +133,7 @@ class OpenCodePluginTest : FunSpec({
                 workingDirectory: Path?,
                 onStart: ((Long) -> Unit)?
             ): ProcessResult = when (command) {
-                listOf("opencode", "models", "opencode") -> ProcessResult(
+                listOf("opencode", "models") -> ProcessResult(
                     exitCode = 1,
                     stdout = "",
                     stderr = "models lookup unavailable",
@@ -181,7 +181,7 @@ class OpenCodePluginTest : FunSpec({
                 onStart: ((Long) -> Unit)?
             ): ProcessResult {
                 return when {
-                    command == listOf("opencode", "models", "opencode") -> ProcessResult(
+                    command == listOf("opencode", "models") -> ProcessResult(
                         exitCode = 0,
                         stdout = "opencode/minimax-m2.5-free\nopencode/gpt-5-nano\n",
                         stderr = "",
@@ -238,7 +238,7 @@ class OpenCodePluginTest : FunSpec({
             ): ProcessResult {
                 commands += command
                 return when (command) {
-                    listOf("opencode", "models", "opencode") -> ProcessResult(
+                    listOf("opencode", "models") -> ProcessResult(
                         exitCode = 0,
                         stdout = "opencode/minimax-m2.5-free\nopencode/gpt-5-nano\n",
                         stderr = "",
@@ -268,7 +268,7 @@ class OpenCodePluginTest : FunSpec({
         )
 
         commands shouldBe listOf(
-            listOf("opencode", "models", "opencode"),
+            listOf("opencode", "models"),
             listOf("opencode", "run", "--model", "opencode/minimax-m2.5-free", "--format", "json", "hello")
         )
         result.output shouldBe "fixed"

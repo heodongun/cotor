@@ -814,6 +814,8 @@ struct DesktopSettingsPayload: Codable, Hashable {
     let managedReposRoot: String
     let availableAgents: [String]
     let availableCliAgents: [String]
+    let availableAgentModels: [String: [String]]
+    let defaultAgentModels: [String: String]
     let recentCompanies: [String]
     let defaultLaunchMode: String
     let backendSettings: DesktopBackendSettingsPayload
@@ -821,6 +823,53 @@ struct DesktopSettingsPayload: Codable, Hashable {
     let linearSettings: DesktopLinearSettingsPayload?
     let backendStatuses: [ExecutionBackendStatusPayload]
     let shortcuts: ShortcutConfigPayload
+
+    init(
+        appHome: String,
+        managedReposRoot: String,
+        availableAgents: [String],
+        availableCliAgents: [String],
+        availableAgentModels: [String: [String]] = [:],
+        defaultAgentModels: [String: String] = [:],
+        recentCompanies: [String],
+        defaultLaunchMode: String,
+        backendSettings: DesktopBackendSettingsPayload,
+        githubPublishStatus: GitHubPublishStatusPayload,
+        linearSettings: DesktopLinearSettingsPayload?,
+        backendStatuses: [ExecutionBackendStatusPayload],
+        shortcuts: ShortcutConfigPayload
+    ) {
+        self.appHome = appHome
+        self.managedReposRoot = managedReposRoot
+        self.availableAgents = availableAgents
+        self.availableCliAgents = availableCliAgents
+        self.availableAgentModels = availableAgentModels
+        self.defaultAgentModels = defaultAgentModels
+        self.recentCompanies = recentCompanies
+        self.defaultLaunchMode = defaultLaunchMode
+        self.backendSettings = backendSettings
+        self.githubPublishStatus = githubPublishStatus
+        self.linearSettings = linearSettings
+        self.backendStatuses = backendStatuses
+        self.shortcuts = shortcuts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appHome = try container.decode(String.self, forKey: .appHome)
+        managedReposRoot = try container.decode(String.self, forKey: .managedReposRoot)
+        availableAgents = try container.decodeValue([String].self, forKey: .availableAgents, default: [])
+        availableCliAgents = try container.decodeValue([String].self, forKey: .availableCliAgents, default: [])
+        availableAgentModels = try container.decodeValue([String: [String]].self, forKey: .availableAgentModels, default: [:])
+        defaultAgentModels = try container.decodeValue([String: String].self, forKey: .defaultAgentModels, default: [:])
+        recentCompanies = try container.decodeValue([String].self, forKey: .recentCompanies, default: [])
+        defaultLaunchMode = try container.decodeValue(String.self, forKey: .defaultLaunchMode, default: "company")
+        backendSettings = try container.decode(DesktopBackendSettingsPayload.self, forKey: .backendSettings)
+        githubPublishStatus = try container.decode(GitHubPublishStatusPayload.self, forKey: .githubPublishStatus)
+        linearSettings = try container.decodeIfPresent(DesktopLinearSettingsPayload.self, forKey: .linearSettings)
+        backendStatuses = try container.decodeValue([ExecutionBackendStatusPayload].self, forKey: .backendStatuses, default: [])
+        shortcuts = try container.decodeValue(ShortcutConfigPayload.self, forKey: .shortcuts, default: ShortcutConfigPayload(bindings: []))
+    }
 }
 
 struct DesktopLinearSettingsPayload: Codable, Hashable {

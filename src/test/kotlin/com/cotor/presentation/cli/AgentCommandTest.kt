@@ -135,7 +135,7 @@ class AgentCommandTest : FunSpec({
         added.readText() shouldContain "model: \"gpt-5.4\""
     }
 
-    test("agent add opencode uses qwen default model") {
+    test("agent add opencode uses nemotron default model") {
         val root = Path("build/tmp/agent-opencode-${System.currentTimeMillis()}")
         createdRoots.add(root)
         root.createDirectories()
@@ -148,7 +148,7 @@ class AgentCommandTest : FunSpec({
         val added = root.resolve(".cotor/agents/opencode.yaml")
         added.exists() shouldBe true
         added.readText() shouldContain "pluginClass: com.cotor.data.plugin.OpenCodePlugin"
-        added.readText() shouldContain "model: \"opencode/minimax-m2.5-free\""
+        added.readText() shouldContain "model: \"opencode/nemotron-3-super-free\""
     }
 
     test("agent add help shows detailed usage") {

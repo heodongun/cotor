@@ -1,7 +1,7 @@
 # examples/map-fanout.yaml
 agents:
   - name: "file-reader"
-    pluginClass: "com.cotor.agent.FileReaderAgent"
+    pluginClass: "com.cotor.data.plugin.FileReaderPlugin"
 
 pipelines:
   - name: "map-fanout-pipeline"

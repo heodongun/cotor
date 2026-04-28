@@ -60,9 +60,11 @@ opencode run --model <model> --format json "<prompt>"
 
 ### 에이전트 파라미터
 
-OpenCode는 선택적 `model` 파라미터를 받습니다. 지정하지 않으면 Cotor는 기본값 `opencode/minimax-m2.5-free`를 사용합니다.
+OpenCode는 선택적 `model` 파라미터를 받습니다. 지정하지 않으면 Cotor는 기본값 `opencode/nemotron-3-super-free`를 사용합니다.
 
 회사 생성 시 시드되는 기본 에이전트도 실행 파일이 존재하면 OpenCode를 우선 사용하도록 바뀌었기 때문에, 사용자가 명시적으로 바꾸지 않는 한 회사 워크플로우는 이 저비용 기본 모델을 우선 사용합니다.
+
+데스크톱 app-server는 `GET /api/app/agents/models?agent=opencode`로 발견된 OpenCode 모델 목록을 제공합니다. 이 endpoint는 `opencode models`를 호출하고 `opencode/` provider ID만 표시하며, 성공한 조회를 짧게 캐시하고 discovery 결과가 비어 있으면 수동 모델 입력 fallback을 유지합니다.
 
 ### 타임아웃
 

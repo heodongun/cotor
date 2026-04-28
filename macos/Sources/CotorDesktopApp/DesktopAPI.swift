@@ -73,6 +73,11 @@ struct DesktopAPI {
         try await get(path: "api/app/agents")
     }
 
+    /// Expose selectable provider models for one CLI agent.
+    func agentModels(agent: String) async throws -> [String] {
+        try await get(path: "api/app/agents/models", query: [URLQueryItem(name: "agent", value: agent)])
+    }
+
     /// Fetch all persisted runs belonging to one task.
     func runs(taskId: String) async throws -> [RunRecord] {
         try await get(path: "api/app/runs", query: [URLQueryItem(name: "taskId", value: taskId)])

@@ -60,9 +60,11 @@ This runs OpenCode in non-interactive mode with the given prompt. The plugin cap
 
 ### Agent Parameters
 
-OpenCode accepts an optional `model` parameter. If omitted, Cotor uses the built-in default `opencode/minimax-m2.5-free`.
+OpenCode accepts an optional `model` parameter. If omitted, Cotor uses the built-in default `opencode/nemotron-3-super-free`.
 
 Company-seeded agents now prefer OpenCode by default when the executable is available so autonomous company workflows can run on the lower-cost default model unless the user explicitly switches agents.
+
+The desktop app-server exposes the discovered OpenCode model list through `GET /api/app/agents/models?agent=opencode`. The endpoint calls `opencode models`, shows only `opencode/` provider IDs, caches successful lookups briefly, and falls back to manual model entry if discovery returns no models.
 
 ### Timeout
 

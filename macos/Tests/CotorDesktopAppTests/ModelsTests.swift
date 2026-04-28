@@ -91,6 +91,20 @@ struct ModelsTests {
     }
 
     @Test
+    func desktopSettingsDecodesMissingAgentModelFieldsAsEmpty() throws {
+        let encoded = try JSONEncoder().encode(DashboardPayload.empty.settings)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "availableAgentModels")
+        object.removeValue(forKey: "defaultAgentModels")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(DesktopSettingsPayload.self, from: legacyData)
+
+        #expect(decoded.availableAgentModels.isEmpty)
+        #expect(decoded.defaultAgentModels.isEmpty)
+    }
+
+    @Test
     func batchUpdatePayloadEncodesSelectedFields() throws {
         let payload = BatchUpdateCompanyAgentsPayload(
             agentIds: ["agent-1", "agent-2"],

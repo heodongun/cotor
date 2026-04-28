@@ -133,6 +133,60 @@ struct DesktopStoreTests {
     }
 
     @Test
+    func agentCliSelectionResetsModelToProviderDefault() {
+        let store = DesktopStore()
+        let baseSettings = DashboardPayload.empty.settings
+        store.dashboard = DashboardPayload(
+            repositories: [],
+            workspaces: [],
+            tasks: [],
+            settings: DesktopSettingsPayload(
+                appHome: baseSettings.appHome,
+                managedReposRoot: baseSettings.managedReposRoot,
+                availableAgents: ["opencode", "codex"],
+                availableCliAgents: ["opencode", "codex"],
+                availableAgentModels: [
+                    "opencode": ["opencode/big-pickle", "opencode/nemotron-3-super-free"],
+                    "codex": ["openai/gpt-5.5"]
+                ],
+                defaultAgentModels: [
+                    "opencode": "opencode/nemotron-3-super-free",
+                    "codex": "openai/gpt-5.5"
+                ],
+                recentCompanies: baseSettings.recentCompanies,
+                defaultLaunchMode: baseSettings.defaultLaunchMode,
+                backendSettings: baseSettings.backendSettings,
+                githubPublishStatus: baseSettings.githubPublishStatus,
+                linearSettings: baseSettings.linearSettings,
+                backendStatuses: baseSettings.backendStatuses,
+                shortcuts: baseSettings.shortcuts
+            ),
+            companies: [],
+            companyAgentDefinitions: [],
+            projectContexts: [],
+            goals: [],
+            issues: [],
+            reviewQueue: [],
+            orgProfiles: [],
+            workflowTopologies: [],
+            goalDecisions: [],
+            runningAgentSessions: [],
+            backendStatuses: [],
+            opsMetrics: DashboardPayload.empty.opsMetrics,
+            activity: [],
+            companyRuntimes: [],
+            agentContextEntries: [],
+            agentMessages: []
+        )
+
+        store.selectNewCompanyAgentCli("opencode")
+        #expect(store.newCompanyAgentModel == "opencode/nemotron-3-super-free")
+
+        store.selectNewCompanyAgentCli("codex")
+        #expect(store.newCompanyAgentModel == "openai/gpt-5.5")
+    }
+
+    @Test
     func shellModeDefaultsToCompanyAndCanSwitchToTui() {
         let store = DesktopStore()
 

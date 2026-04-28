@@ -266,6 +266,43 @@ final class DesktopStore: ObservableObject {
         preferredAgent(from: availableCliAgents) ?? preferredAgent(from: dashboard.settings.availableAgents) ?? ""
     }
 
+    var availableAgentModels: [String: [String]] {
+        dashboard.settings.availableAgentModels
+    }
+
+    var defaultAgentModels: [String: String] {
+        dashboard.settings.defaultAgentModels
+    }
+
+    var newCompanyAgentModelOptions: [String] {
+        modelOptions(for: newCompanyAgentCli.isEmpty ? preferredCliAgent : newCompanyAgentCli)
+    }
+
+    func modelOptions(for agentCli: String) -> [String] {
+        let normalized = agentCli.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return [] }
+        return availableAgentModels[normalized]
+            ?? availableAgentModels.first(where: { $0.key.lowercased() == normalized })?.value
+            ?? []
+    }
+
+    func defaultModel(for agentCli: String) -> String? {
+        let normalized = agentCli.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        return defaultAgentModels[normalized]
+            ?? defaultAgentModels.first(where: { $0.key.lowercased() == normalized })?.value
+    }
+
+    func selectNewCompanyAgentCli(_ agentCli: String) {
+        newCompanyAgentCli = agentCli
+        let options = modelOptions(for: agentCli)
+        if let defaultModel = defaultModel(for: agentCli) {
+            newCompanyAgentModel = defaultModel
+        } else if options.isEmpty || !options.contains(newCompanyAgentModel) {
+            newCompanyAgentModel = ""
+        }
+    }
+
     var availableCompanyAgentCollaborators: [CompanyAgentDefinitionRecord] {
         companyAgentDefinitions.filter { $0.id != editingCompanyAgentID }
     }
@@ -966,7 +1003,11 @@ final class DesktopStore: ObservableObject {
         }
 
         if newCompanyAgentCli.isEmpty || !cliAgents.contains(newCompanyAgentCli) {
-            newCompanyAgentCli = preferredAgent(from: cliAgents) ?? preferredAgent(from: availableAgents) ?? ""
+            selectNewCompanyAgentCli(preferredAgent(from: cliAgents) ?? preferredAgent(from: availableAgents) ?? "")
+        }
+        if newCompanyAgentModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let defaultModel = defaultModel(for: newCompanyAgentCli) {
+            newCompanyAgentModel = defaultModel
         }
 
         let validSelection = Set(agentSelection.filter { availableAgents.contains($0) })
