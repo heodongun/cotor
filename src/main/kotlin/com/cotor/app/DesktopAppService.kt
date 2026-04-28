@@ -9309,13 +9309,37 @@ class DesktopAppService(
     private suspend fun replaceRun(run: AgentRun) {
         stateMutex.withLock {
             val state = stateStore.load()
+            val nextRuns = if (state.runs.any { existing -> existing.id == run.id }) {
+                state.runs.map { existing -> if (existing.id == run.id) run else existing }
+            } else {
+                state.runs + run
+            }
+            val nextTasks = if (run.status == AgentRunStatus.COMPLETED || run.status == AgentRunStatus.FAILED) {
+                val taskRuns = nextRuns.filter { it.taskId == run.taskId }
+                val hasActiveRun = taskRuns.any { it.status == AgentRunStatus.RUNNING || it.status == AgentRunStatus.QUEUED }
+                if (hasActiveRun) {
+                    state.tasks
+                } else {
+                    val finalStatus = finalTaskStatus(taskRuns)
+                    state.tasks.map { task ->
+                        if (
+                            task.id == run.taskId &&
+                            (task.status == DesktopTaskStatus.RUNNING || task.status == DesktopTaskStatus.QUEUED) &&
+                            task.status != finalStatus
+                        ) {
+                            task.copy(status = finalStatus, updatedAt = System.currentTimeMillis())
+                        } else {
+                            task
+                        }
+                    }
+                }
+            } else {
+                state.tasks
+            }
             stateStore.save(
                 state.copy(
-                    runs = if (state.runs.any { existing -> existing.id == run.id }) {
-                        state.runs.map { existing -> if (existing.id == run.id) run else existing }
-                    } else {
-                        state.runs + run
-                    }
+                    runs = nextRuns,
+                    tasks = nextTasks
                 )
             )
         }
