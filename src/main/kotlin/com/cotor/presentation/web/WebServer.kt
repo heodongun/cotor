@@ -27,8 +27,8 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.awt.Desktop
@@ -419,7 +419,7 @@ internal fun resolveEditorPath(
     }.toAbsolutePath().normalize()
 
     if (!candidate.startsWith(root)) {
-        throw IllegalArgumentException("Editor path must stay inside ${root}")
+        throw IllegalArgumentException("Editor path must stay inside $root")
     }
     return candidate
 }
