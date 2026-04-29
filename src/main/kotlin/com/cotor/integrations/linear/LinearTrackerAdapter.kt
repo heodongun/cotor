@@ -10,6 +10,7 @@ package com.cotor.integrations.linear
 
 import com.cotor.app.CompanyIssue
 import com.cotor.app.LinearConnectionConfig
+import com.cotor.data.http.CotorHttpClients
 import io.ktor.http.HttpHeaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -53,7 +54,7 @@ interface LinearTrackerAdapter {
 
 class LinearClient(
     private val json: Json = Json { ignoreUnknownKeys = true },
-    private val httpClient: HttpClient = HttpClient.newBuilder().build()
+    private val httpClient: HttpClient = CotorHttpClients.newClient()
 ) {
     suspend fun graphql(
         config: LinearConnectionConfig,

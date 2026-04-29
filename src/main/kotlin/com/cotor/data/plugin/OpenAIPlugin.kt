@@ -8,6 +8,7 @@ package com.cotor.data.plugin
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.data.http.CotorHttpClients
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.*
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +22,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URI
-import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
@@ -89,7 +89,7 @@ class OpenAIPlugin : AgentPlugin {
     )
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val http = HttpClient.newBuilder()
+    private val http = CotorHttpClients.newBuilder()
         .connectTimeout(Duration.ofSeconds(20))
         .build()
 

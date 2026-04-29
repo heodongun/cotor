@@ -204,7 +204,10 @@ class DefaultPipelineOrchestrator(
                             output = null,
                             error = e.message,
                             duration = 0,
-                            metadata = mapOf("failureCategory" to FailureCategory.CONFIG_ERROR.name)
+                            metadata = mapOf(
+                                "stageId" to "pipeline-config",
+                                "failureCategory" to FailureCategory.CONFIG_ERROR.name
+                            )
                         )
                         pipelineContext.addStageResult("pipeline-config", configErrorResult)
                         throw e
@@ -239,12 +242,12 @@ class DefaultPipelineOrchestrator(
                 observability.completePipeline(pipelineObservation, finalResult)
 
                 // Record execution statistics
-                val stageExecutions = pipelineContext.stageResults.values.map {
+                val stageExecutions = finalResult.results.map {
                     com.cotor.stats.StageExecution(
-                        name = it.agentName,
+                        name = it.metadata["stageId"] ?: it.agentName,
                         duration = it.duration,
                         status = if (it.isSuccess) com.cotor.stats.ExecutionStatus.SUCCESS else com.cotor.stats.ExecutionStatus.FAILURE,
-                        retries = it.metadata["retries"] as? Int ?: 0
+                        retries = it.metadata["retries"]?.toIntOrNull() ?: 0
                     )
                 }
                 statsManager.recordExecution(pipeline.name, finalResult, stageExecutions)
@@ -383,6 +386,7 @@ class DefaultPipelineOrchestrator(
             throw PipelineException("Stage ${it.id} uses ${it.type} which is not supported in DAG mode")
         }
         val results = mutableMapOf<String, AgentResult>()
+        validateDagDependencies(pipeline.stages)
         val sortedStages = topologicalSort(pipeline.stages)
 
         for (stage in sortedStages) {
@@ -423,6 +427,34 @@ class DefaultPipelineOrchestrator(
 
         stages.forEach { visit(it) }
         return sorted
+    }
+
+    private fun validateDagDependencies(stages: List<PipelineStage>) {
+        val stageIds = stages.map { it.id }.toSet()
+        stages.forEach { stage ->
+            stage.dependencies.forEach { depId ->
+                if (depId !in stageIds) {
+                    throw PipelineException("Stage '${stage.id}': Dependency '$depId' not found")
+                }
+            }
+        }
+
+        val visited = mutableSetOf<String>()
+        val visiting = mutableSetOf<String>()
+        val stageMap = stages.associateBy { it.id }
+
+        fun visit(stageId: String) {
+            if (stageId in visiting) {
+                throw PipelineException("Stage '$stageId': Circular dependency detected")
+            }
+            if (stageId in visited) return
+            visiting.add(stageId)
+            stageMap.getValue(stageId).dependencies.forEach(::visit)
+            visiting.remove(stageId)
+            visited.add(stageId)
+        }
+
+        stageIds.forEach(::visit)
     }
 
     private suspend fun executeMap(
@@ -520,7 +552,7 @@ class DefaultPipelineOrchestrator(
                 output = null,
                 error = e.message ?: "Stage ${stage.id} failed",
                 duration = 0,
-                metadata = emptyMap()
+                metadata = stageMetadata(stage)
             )
             pipelineContext.addStageResult(stage.id, failureResult)
             saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
@@ -539,9 +571,12 @@ class DefaultPipelineOrchestrator(
                 output = null,
                 error = errorMessage,
                 duration = stage.timeoutMs ?: 0,
-                metadata = mapOf(
-                    "timeout" to "true",
-                    "failureCategory" to FailureCategory.TIMEOUT.name
+                metadata = stageMetadata(
+                    stage,
+                    mapOf(
+                        "timeout" to "true",
+                        "failureCategory" to FailureCategory.TIMEOUT.name
+                    )
                 )
             )
             pipelineContext.addStageResult(stage.id, timeoutResult)
@@ -556,22 +591,34 @@ class DefaultPipelineOrchestrator(
             return timeoutResult
         }
 
-        pipelineContext.addStageResult(stage.id, result)
+        val stageResult = result.withStageMetadata(stage)
+        pipelineContext.addStageResult(stage.id, stageResult)
 
-        if (result.isSuccess) {
+        if (stageResult.isSuccess) {
             saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
-            durableRuntimeService.recordStageCompleted(pipelineContext, stage, result)
-            observability.completeStage(stageObservation, result)
-            eventBus.emit(StageCompletedEvent(stage.id, pipelineId, result))
+            durableRuntimeService.recordStageCompleted(pipelineContext, stage, stageResult)
+            observability.completeStage(stageObservation, stageResult)
+            eventBus.emit(StageCompletedEvent(stage.id, pipelineId, stageResult))
         } else {
             saveCheckpoint(pipelineId, pipelineContext.pipelineName, pipelineContext)
-            durableRuntimeService.recordStageFailed(pipelineContext, stage, result)
-            val error = RuntimeException(result.error ?: "Stage ${stage.id} failed")
+            durableRuntimeService.recordStageFailed(pipelineContext, stage, stageResult)
+            val error = RuntimeException(stageResult.error ?: "Stage ${stage.id} failed")
             observability.failStage(stageObservation, error)
             eventBus.emit(StageFailedEvent(stage.id, pipelineId, error))
         }
 
-        return result
+        return stageResult
+    }
+
+    private fun AgentResult.withStageMetadata(stage: PipelineStage): AgentResult {
+        return copy(metadata = stageMetadata(stage, metadata))
+    }
+
+    private fun stageMetadata(stage: PipelineStage, metadata: Map<String, String> = emptyMap()): Map<String, String> {
+        return metadata + mapOf(
+            "stageId" to stage.id,
+            "stageType" to stage.type.name
+        )
     }
 
     private suspend fun executeDecisionStage(
@@ -590,6 +637,8 @@ class DefaultPipelineOrchestrator(
             applySharedStateUpdates(outcome, pipelineContext)
 
             val metadata = mutableMapOf(
+                "stageId" to stage.id,
+                "stageType" to stage.type.name,
                 "conditionExpression" to condition.expression,
                 "conditionResult" to passed.toString(),
                 "nextAction" to outcome.action.name
@@ -676,9 +725,12 @@ class DefaultPipelineOrchestrator(
                 },
                 error = null,
                 duration = 0,
-                metadata = mapOf(
-                    "loopIteration" to completedIterations.toString(),
-                    "loopAction" to if (shouldRepeat) "CONTINUE" else "BREAK"
+                metadata = stageMetadata(
+                    stage,
+                    mapOf(
+                        "loopIteration" to completedIterations.toString(),
+                        "loopAction" to if (shouldRepeat) "CONTINUE" else "BREAK"
+                    )
                 )
             )
 

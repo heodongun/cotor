@@ -8,6 +8,7 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.data.http.CotorHttpClients
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.ProcessExecutionException
 import com.cotor.model.ProcessResult
@@ -110,7 +111,7 @@ class GitWorkspaceService(
     private val durableRuntimeService: DurableRuntimeService = DurableRuntimeService(),
     private val actionExecutionService: ActionExecutionService =
         ActionExecutionService(durableRuntimeService = durableRuntimeService, logger = logger),
-    private val httpClient: HttpClient = HttpClient.newBuilder().build(),
+    private val httpClient: HttpClient = CotorHttpClients.newClient(),
     private val githubHttpEnabledProvider: () -> Boolean = {
         val flag = System.getenv("COTOR_GITHUB_HTTP")?.trim()?.lowercase()
         flag == "1" || flag == "true"

@@ -33,6 +33,7 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
+import java.nio.file.Files
 
 class PipelineOrchestratorConditionalTest : FunSpec({
 
@@ -45,7 +46,10 @@ class PipelineOrchestratorConditionalTest : FunSpec({
         )
     }
 
-    fun createOrchestrator(executor: AgentExecutor): DefaultPipelineOrchestrator {
+    fun createOrchestrator(
+        executor: AgentExecutor,
+        statsManager: StatsManager = StatsManager(Files.createTempDirectory("conditional-stats").toString())
+    ): DefaultPipelineOrchestrator {
         return DefaultPipelineOrchestrator(
             agentExecutor = executor,
             resultAggregator = DefaultResultAggregator(DefaultResultAnalyzer()),
@@ -53,7 +57,7 @@ class PipelineOrchestratorConditionalTest : FunSpec({
             logger = LoggerFactory.getLogger("ConditionalTest"),
             agentRegistry = registry,
             outputValidator = DefaultOutputValidator(SyntaxValidator()),
-            statsManager = StatsManager()
+            statsManager = statsManager
         )
     }
 
@@ -114,6 +118,45 @@ class PipelineOrchestratorConditionalTest : FunSpec({
 
         executor.executionCount("draft") shouldBe 3 // initial + 2 loop iterations
         executor.executedStages.last() shouldBe "review"
+    }
+
+    test("loop stage statistics preserve every traversal by stage id") {
+        val executor = RecordingAgentExecutor()
+        val statsManager = StatsManager(Files.createTempDirectory("loop-stats").toString())
+        val orchestrator = createOrchestrator(executor, statsManager)
+
+        val pipeline = Pipeline(
+            name = "looping",
+            executionMode = ExecutionMode.SEQUENTIAL,
+            stages = listOf(
+                PipelineStage(id = "draft", agent = AgentReference("alpha")),
+                PipelineStage(
+                    id = "loop-controller",
+                    type = StageType.LOOP,
+                    loop = StageLoopConfig(
+                        targetStageId = "draft",
+                        maxIterations = 2
+                    )
+                ),
+                PipelineStage(id = "review", agent = AgentReference("alpha"))
+            )
+        )
+
+        runBlocking { orchestrator.executePipeline(pipeline) }
+
+        val execution = statsManager.loadStats("looping")!!.executions.single()
+        execution.stages.map { it.name }.shouldContainExactly(
+            listOf(
+                "draft",
+                "loop-controller",
+                "draft",
+                "loop-controller",
+                "draft",
+                "loop-controller",
+                "review"
+            )
+        )
+        execution.stages.map { it.duration }.shouldContainExactly(listOf(5L, 0L, 5L, 0L, 5L, 0L, 5L))
     }
 })
 

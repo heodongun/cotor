@@ -10,6 +10,7 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
+import com.github.ajalt.clikt.parameters.options.switch
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.int
 import kotlinx.coroutines.runBlocking
@@ -103,7 +104,12 @@ private class CompanyCreateCommand : CompanyServiceCommand(name = "create") {
     private val name by option("--name").required()
     private val rootPath by option("--root").required()
     private val baseBranch by option("--base-branch")
-    private val autonomyEnabled by option("--autonomy-enabled").flag(default = true)
+    private val autonomyEnabled by option("--autonomy-enabled", "--autonomy-disabled")
+        .switch(
+            "--autonomy-enabled" to true,
+            "--autonomy-disabled" to false
+        )
+        .default(true)
     private val dailyBudgetCents by option("--daily-budget-cents").int()
     private val monthlyBudgetCents by option("--monthly-budget-cents").int()
 

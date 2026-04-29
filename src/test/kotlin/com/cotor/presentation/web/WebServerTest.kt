@@ -8,11 +8,19 @@ import com.cotor.app.IssueStatus
 import com.cotor.data.config.ConfigRepository
 import com.cotor.data.registry.AgentRegistry
 import com.cotor.domain.orchestrator.PipelineOrchestrator
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -209,6 +217,133 @@ class WebServerTest : FunSpec({
             response.status.value shouldBe 200
             response.bodyAsText() shouldContain "\"roleName\":\"Engineering Lead\""
             response.bodyAsText() shouldContain "\"stdout\":\"Finished implementation.\""
+        }
+    }
+
+    test("mutating web editor routes reject missing token") {
+        val configRepository = mockk<ConfigRepository>(relaxed = true)
+        val agentRegistry = mockk<AgentRegistry>(relaxed = true)
+        val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
+        val desktopService = mockk<DesktopAppService>(relaxed = true)
+        val editorDir = Files.createTempDirectory("cotor-web-token-test")
+
+        testApplication {
+            application {
+                cotorWebModule(
+                    configRepository = configRepository,
+                    agentRegistry = agentRegistry,
+                    orchestrator = orchestrator,
+                    desktopService = desktopService,
+                    editorDir = editorDir,
+                    readOnly = false,
+                    webToken = "secret-web-token",
+                    buildTemplates = { emptyList() },
+                    listSavedPipelines = { emptyList() },
+                    loadPipelineDetail = { null },
+                    savePipeline = { editorDir.resolve("saved.yaml") },
+                    buildTimelinePayload = { _, _ -> emptyList() }
+                )
+            }
+
+            val response = client.post("/api/editor/save") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"demo","stages":[{"id":"a","agent":"echo"}]}""")
+            }
+
+            response.status shouldBe HttpStatusCode.Unauthorized
+            response.bodyAsText() shouldContain "Unauthorized"
+        }
+    }
+
+    test("mutating company routes accept valid web token") {
+        val configRepository = mockk<ConfigRepository>(relaxed = true)
+        val agentRegistry = mockk<AgentRegistry>(relaxed = true)
+        val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
+        val desktopService = mockk<DesktopAppService>(relaxed = true)
+        val editorDir = Files.createTempDirectory("cotor-web-company-token-test")
+        coEvery { desktopService.createCompany(any(), any(), any(), any(), any(), any()) } returns com.cotor.app.Company(
+            id = "company-1",
+            name = "Demo",
+            rootPath = ".",
+            repositoryId = "repo-1",
+            defaultBaseBranch = "master",
+            createdAt = 1L,
+            updatedAt = 1L
+        )
+
+        testApplication {
+            application {
+                cotorWebModule(
+                    configRepository = configRepository,
+                    agentRegistry = agentRegistry,
+                    orchestrator = orchestrator,
+                    desktopService = desktopService,
+                    editorDir = editorDir,
+                    readOnly = false,
+                    webToken = "secret-web-token",
+                    buildTemplates = { emptyList() },
+                    listSavedPipelines = { emptyList() },
+                    loadPipelineDetail = { null },
+                    savePipeline = { editorDir.resolve("saved.yaml") },
+                    buildTimelinePayload = { _, _ -> emptyList() }
+                )
+            }
+
+            val response = client.post("/api/company/companies") {
+                header("X-Cotor-Web-Token", "secret-web-token")
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"Demo","rootPath":"."}""")
+            }
+
+            response.status shouldBe HttpStatusCode.OK
+            response.bodyAsText() shouldContain "\"id\":\"company-1\""
+            coVerify(exactly = 1) { desktopService.createCompany(any(), any(), any(), any(), any(), any()) }
+        }
+    }
+
+    test("editor path resolution rejects traversal outside web directory") {
+        val editorDir = Files.createTempDirectory("cotor-web-path-test")
+
+        shouldThrow<IllegalArgumentException> {
+            resolveEditorPath(editorDir, "../outside.yaml", "demo.yaml")
+        }
+    }
+
+    test("editor run rejects outside absolute path before loading config") {
+        val configRepository = mockk<ConfigRepository>(relaxed = true)
+        val agentRegistry = mockk<AgentRegistry>(relaxed = true)
+        val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
+        val desktopService = mockk<DesktopAppService>(relaxed = true)
+        val editorDir = Files.createTempDirectory("cotor-web-run-path-test")
+        val outside = Files.createTempFile("cotor-outside", ".yaml")
+
+        testApplication {
+            application {
+                cotorWebModule(
+                    configRepository = configRepository,
+                    agentRegistry = agentRegistry,
+                    orchestrator = orchestrator,
+                    desktopService = desktopService,
+                    editorDir = editorDir,
+                    readOnly = false,
+                    webToken = "secret-web-token",
+                    buildTemplates = { emptyList() },
+                    listSavedPipelines = { emptyList() },
+                    loadPipelineDetail = { null },
+                    savePipeline = { editorDir.resolve("saved.yaml") },
+                    buildTimelinePayload = { _, _ -> emptyList() }
+                )
+            }
+
+            val response = client.post("/api/editor/run") {
+                header(HttpHeaders.Authorization, "Bearer secret-web-token")
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"demo","path":"$outside"}""")
+            }
+
+            response.status shouldBe HttpStatusCode.BadRequest
+            response.bodyAsText() shouldContain "Editor path must stay inside"
+            coVerify(exactly = 0) { orchestrator.executePipeline(any(), any(), any()) }
         }
     }
 })

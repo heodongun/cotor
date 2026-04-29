@@ -12,6 +12,7 @@ import com.cotor.data.plugin.AgentPlugin
 import com.cotor.data.plugin.PluginLoader
 import com.cotor.data.process.ProcessManager
 import com.cotor.model.AgentConfig
+import com.cotor.model.ExecutionContext
 import com.cotor.model.PluginExecutionOutput
 import com.cotor.model.ProcessExecutionException
 import com.cotor.security.SecurityValidator
@@ -22,6 +23,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
+import io.mockk.verify
 import kotlinx.coroutines.delay
 import org.slf4j.Logger
 
@@ -144,5 +146,29 @@ class AgentExecutorTest : FunSpec({
         result.isSuccess shouldBe false
         result.output shouldBe "{\"type\":\"error\",\"error\":{\"name\":\"UnknownError\",\"data\":{\"message\":\"Error: [DecimalError] Invalid argument: [object Object]\"}}}"
         result.error shouldBe "OpenCode execution failed (exit=1): {\"type\":\"error\",\"error\":{\"name\":\"UnknownError\",\"data\":{\"message\":\"Error: [DecimalError] Invalid argument: [object Object]\"}}}"
+    }
+
+    test("should wire command validation hook into execution context") {
+        val agentConfig = AgentConfig(
+            name = "command-agent",
+            pluginClass = "com.example.CommandPlugin",
+            timeout = 5000
+        )
+
+        val mockPlugin = mockk<AgentPlugin>()
+        coEvery { mockPlugin.execute(any(), any()) } coAnswers {
+            firstArg<ExecutionContext>().validateCommand?.invoke(listOf("git", "status"))
+            PluginExecutionOutput("validated")
+        }
+        every { mockPlugin.validateInput(any()) } returns com.cotor.model.ValidationResult.Success
+        every { mockPluginLoader.loadPlugin(any()) } returns mockPlugin
+        every { mockSecurityValidator.validate(any()) } just runs
+        every { mockSecurityValidator.validateCommand(any()) } just runs
+
+        val result = executor.executeAgent(agentConfig, null)
+
+        result.isSuccess shouldBe true
+        result.output shouldBe "validated"
+        verify(exactly = 1) { mockSecurityValidator.validateCommand(listOf("git", "status")) }
     }
 })

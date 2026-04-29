@@ -179,7 +179,8 @@ class DefaultAgentExecutor(
                     workingDirectory = metadata.workingDirectory,
                     pipelineContext = metadata.pipelineContext,
                     currentStageId = metadata.stageId,
-                    onProcessStarted = metadata.onProcessStarted
+                    onProcessStarted = metadata.onProcessStarted,
+                    validateCommand = securityValidator::validateCommand
                 )
 
                 // Time only the plugin body itself so reported duration reflects the

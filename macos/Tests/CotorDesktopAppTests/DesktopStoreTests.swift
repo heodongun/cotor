@@ -187,6 +187,36 @@ struct DesktopStoreTests {
     }
 
     @Test
+    func batchEditAgentSelectionDoesNotImplyModelOverride() {
+        let payload = OrgProfileBatchEditPayloadDraft.build(
+            batchAgent: " codex ",
+            batchModel: OrgProfileBatchEditPayloadDraft.modelAfterAgentSelection(),
+            batchCapabilities: "",
+            batchEnabled: nil
+        )
+
+        #expect(payload.agentCli == "codex")
+        #expect(payload.model == nil)
+        #expect(payload.specialties == nil)
+        #expect(payload.enabled == nil)
+    }
+
+    @Test
+    func batchEditPayloadKeepsExplicitModelAndCapabilities() {
+        let payload = OrgProfileBatchEditPayloadDraft.build(
+            batchAgent: "opencode",
+            batchModel: " opencode/nemotron-3-super-free ",
+            batchCapabilities: "qa, review, , deploy",
+            batchEnabled: false
+        )
+
+        #expect(payload.agentCli == "opencode")
+        #expect(payload.model == "opencode/nemotron-3-super-free")
+        #expect(payload.specialties == ["qa", "review", "deploy"])
+        #expect(payload.enabled == false)
+    }
+
+    @Test
     func shellModeDefaultsToCompanyAndCanSwitchToTui() {
         let store = DesktopStore()
 

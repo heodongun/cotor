@@ -27,6 +27,8 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.awt.Desktop
@@ -152,6 +154,7 @@ class WebServer : KoinComponent {
 
     fun start(port: Int = 8080, openBrowser: Boolean = false, readOnly: Boolean = false, initialPath: String = "/") {
         ensureEditorDir()
+        val webToken = UUID.randomUUID().toString()
 
         if (openBrowser) {
             thread(name = "cotor-web-open") {
@@ -160,7 +163,7 @@ class WebServer : KoinComponent {
             }
         }
 
-        embeddedServer(Netty, port = port) {
+        embeddedServer(Netty, host = "127.0.0.1", port = port) {
             cotorWebModule(
                 configRepository = configRepository,
                 agentRegistry = agentRegistry,
@@ -168,6 +171,7 @@ class WebServer : KoinComponent {
                 desktopService = desktopService,
                 editorDir = editorDir,
                 readOnly = readOnly,
+                webToken = webToken,
                 buildTemplates = ::buildTemplates,
                 listSavedPipelines = ::listSavedPipelines,
                 loadPipelineDetail = ::loadPipelineDetail,
@@ -186,7 +190,7 @@ class WebServer : KoinComponent {
 
     private suspend fun savePipeline(request: EditorPipelineRequest): java.nio.file.Path {
         val safeName = sanitizeName(request.name)
-        val targetPath = request.path?.let { Path(it) } ?: editorDir.resolve("$safeName.yaml")
+        val targetPath = resolveEditorPath(editorDir, request.path, "$safeName.yaml")
 
         val agentNames = if (request.agents.isNotEmpty()) request.agents else request.stages.mapNotNull { it.agent }
         val agentConfigs = agentNames.distinct().map { agentName ->
@@ -400,6 +404,26 @@ class WebServer : KoinComponent {
     }
 }
 
+internal fun resolveEditorPath(
+    editorDir: java.nio.file.Path,
+    requestedPath: String?,
+    fallbackFileName: String
+): java.nio.file.Path {
+    val root = editorDir.toAbsolutePath().normalize()
+    val raw = requestedPath?.takeIf { it.isNotBlank() }
+    val candidate = if (raw == null) {
+        root.resolve(fallbackFileName)
+    } else {
+        val requested = Path(raw)
+        if (requested.isAbsolute) requested else root.resolve(requested)
+    }.toAbsolutePath().normalize()
+
+    if (!candidate.startsWith(root)) {
+        throw IllegalArgumentException("Editor path must stay inside $root")
+    }
+    return candidate
+}
+
 internal fun Application.cotorWebModule(
     configRepository: ConfigRepository,
     agentRegistry: AgentRegistry,
@@ -407,6 +431,7 @@ internal fun Application.cotorWebModule(
     desktopService: DesktopAppService,
     editorDir: java.nio.file.Path,
     readOnly: Boolean,
+    webToken: String? = null,
     buildTemplates: () -> List<EditorTemplatePayload>,
     listSavedPipelines: suspend () -> List<EditorPipelineSummary>,
     loadPipelineDetail: suspend (String) -> EditorPipelineDetail?,
@@ -418,7 +443,11 @@ internal fun Application.cotorWebModule(
         json()
     }
     install(CORS) {
-        anyHost()
+        allowHost("127.0.0.1", schemes = listOf("http"))
+        allowHost("localhost", schemes = listOf("http"))
+        allowHeader(HttpHeaders.Authorization)
+        allowHeader(HttpHeaders.ContentType)
+        allowHeader("X-Cotor-Web-Token")
     }
 
     routing {
@@ -427,11 +456,11 @@ internal fun Application.cotorWebModule(
         }
 
         get("/editor") {
-            call.respondText(editorHtml, ContentType.Text.Html)
+            call.respondText(editorHtml(webToken), ContentType.Text.Html)
         }
 
         get("/company") {
-            call.respondText(companyHtml, ContentType.Text.Html)
+            call.respondText(companyHtml(webToken), ContentType.Text.Html)
         }
 
         get("/help") {
@@ -533,6 +562,7 @@ internal fun Application.cotorWebModule(
         }
 
         post("/api/editor/save") {
+            if (!call.requireWebToken(webToken)) return@post
             if (readOnly) {
                 return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Read-only mode"))
             }
@@ -543,18 +573,29 @@ internal fun Application.cotorWebModule(
             if (request.stages.isEmpty()) {
                 return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "At least one stage is required"))
             }
-
-            val path = savePipeline(request)
-            call.respond(SaveResponse(ok = true, path = path.toString()))
+            try {
+                val path = savePipeline(request)
+                call.respond(SaveResponse(ok = true, path = path.toString()))
+            } catch (e: IllegalArgumentException) {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid path")))
+            }
         }
 
         post("/api/editor/run") {
+            if (!call.requireWebToken(webToken)) return@post
             if (readOnly) {
                 return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Read-only mode"))
             }
             val request = call.receive<EditorPipelineRequest>()
-            val configPath = request.path?.let { Path(it) }
-                ?: editorDir.resolve("${request.name.trim().lowercase().replace("[^a-z0-9-_]".toRegex(), "-")}.yaml")
+            val configPath = try {
+                resolveEditorPath(
+                    editorDir = editorDir,
+                    requestedPath = request.path,
+                    fallbackFileName = "${request.name.trim().lowercase().replace("[^a-z0-9-_]".toRegex(), "-")}.yaml"
+                )
+            } catch (e: IllegalArgumentException) {
+                return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "Invalid path")))
+            }
             if (!configPath.exists()) {
                 return@post call.respond(HttpStatusCode.NotFound, mapOf("error" to "Pipeline not saved yet"))
             }
@@ -619,6 +660,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 post {
+                    if (!call.requireWebToken(webToken)) return@post
                     val request = call.receive<CreateCompanyRequest>()
                     call.respond(
                         desktopService.createCompany(
@@ -645,6 +687,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 patch("/{companyId}") {
+                    if (!call.requireWebToken(webToken)) return@patch
                     val companyId = call.parameters["companyId"] ?: return@patch call.respond(HttpStatusCode.BadRequest)
                     val request = call.receive<UpdateCompanyRequest>()
                     call.respond(
@@ -661,6 +704,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 delete("/{companyId}") {
+                    if (!call.requireWebToken(webToken)) return@delete
                     val companyId = call.parameters["companyId"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
                     call.respond(desktopService.deleteCompany(companyId))
                 }
@@ -671,6 +715,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 patch("/{companyId}/agents/batch") {
+                    if (!call.requireWebToken(webToken)) return@patch
                     val companyId = call.parameters["companyId"] ?: return@patch call.respond(HttpStatusCode.BadRequest)
                     val request = call.receive<BatchUpdateCompanyAgentDefinitionsRequest>()
                     call.respond(
@@ -691,6 +736,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 post("/{companyId}/goals") {
+                    if (!call.requireWebToken(webToken)) return@post
                     val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                     val request = call.receive<CreateGoalRequest>()
                     call.respond(
@@ -724,6 +770,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 post("/{companyId}/issues") {
+                    if (!call.requireWebToken(webToken)) return@post
                     val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                     val request = call.receive<CreateIssueRequest>()
                     call.respond(
@@ -749,27 +796,32 @@ internal fun Application.cotorWebModule(
                 }
 
                 post("/{companyId}/runtime/start") {
+                    if (!call.requireWebToken(webToken)) return@post
                     val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                     call.respond(desktopService.startCompanyRuntime(companyId))
                 }
 
                 post("/{companyId}/runtime/stop") {
+                    if (!call.requireWebToken(webToken)) return@post
                     val companyId = call.parameters["companyId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                     call.respond(desktopService.stopCompanyRuntime(companyId))
                 }
             }
 
             post("/issues/{issueId}/delegate") {
+                if (!call.requireWebToken(webToken)) return@post
                 val issueId = call.parameters["issueId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 call.respond(desktopService.delegateIssue(issueId))
             }
 
             post("/issues/{issueId}/run") {
+                if (!call.requireWebToken(webToken)) return@post
                 val issueId = call.parameters["issueId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 call.respond(desktopService.runIssue(issueId))
             }
 
             post("/review/{itemId}/merge") {
+                if (!call.requireWebToken(webToken)) return@post
                 val itemId = call.parameters["itemId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 call.respond(desktopService.mergeReviewQueueItem(itemId))
             }
@@ -805,6 +857,30 @@ internal fun Application.cotorWebModule(
         durableRuntimeService = null
     )
 }
+
+private suspend fun ApplicationCall.requireWebToken(webToken: String?): Boolean {
+    val expected = webToken?.takeIf { it.isNotBlank() } ?: return true
+    val actualBearer = request.header(HttpHeaders.Authorization)
+    val actualHeader = request.header("X-Cotor-Web-Token")
+    if (actualBearer == "Bearer $expected" || actualHeader == expected) {
+        return true
+    }
+    respond(HttpStatusCode.Unauthorized, mapOf("error" to "Unauthorized"))
+    return false
+}
+
+private fun webTokenScript(webToken: String?): String {
+    val encoded = Json.encodeToString(webToken.orEmpty())
+    return "<script>window.COTOR_WEB_TOKEN = $encoded;</script>"
+}
+
+private fun webFetchHeaders(): String = """
+    function webHeaders(extra = {}) {
+      const headers = { ...extra };
+      if (window.COTOR_WEB_TOKEN) headers["X-Cotor-Web-Token"] = window.COTOR_WEB_TOKEN;
+      return headers;
+    }
+""".trimIndent()
 
 private fun openInBrowser(url: String) {
     try {
@@ -915,7 +991,7 @@ private val landingHtml = """
 </html>
 """.trimIndent()
 
-private val companyHtml = """
+private fun companyHtml(webToken: String?): String = """
 <!doctype html>
 <html lang="en">
 <head>
@@ -929,6 +1005,7 @@ private val companyHtml = """
     pre { background: #0f172a; color: #dbeafe; padding: 12px; border-radius: 12px; overflow: auto; }
     code { background: #e7eef8; padding: 2px 6px; border-radius: 6px; }
   </style>
+  ${webTokenScript(webToken)}
 </head>
 <body>
   <h1>Cotor Company Console</h1>
@@ -956,6 +1033,7 @@ private val companyHtml = """
     <pre id="output">Press "Load Dashboard" to fetch /api/company/dashboard</pre>
   </div>
   <script>
+    ${webFetchHeaders()}
     async function loadDashboard() {
       const response = await fetch('/api/company/dashboard');
       const data = await response.json();
@@ -1048,7 +1126,7 @@ private fun helpHtml(language: CliHelpLanguage): String {
 }
 
 // Lightweight HTML (single file) to keep the web UI self contained.
-private val editorHtml = """
+private fun editorHtml(webToken: String?): String = """
 <!doctype html>
 <html lang="ko">
 <head>
@@ -1112,6 +1190,7 @@ private val editorHtml = """
     .yaml-preview { font-family: "SFMono-Regular", ui-monospace, monospace; background: #0d1528; border: 1px solid var(--border); border-radius: 12px; padding: 12px; color: #cbd5e1; min-height: 160px; white-space: pre-wrap; }
     @media (max-width: 1024px) { .layout { grid-template-columns: 1fr; } }
   </style>
+  ${webTokenScript(webToken)}
 </head>
 <body>
   <div class="page">
@@ -1185,6 +1264,7 @@ private val editorHtml = """
   </div>
 
   <script>
+    ${webFetchHeaders()}
     const state = {
       name: "",
       description: "",
@@ -1430,7 +1510,7 @@ private val editorHtml = """
       try {
         const res = await fetch("/api/editor/save", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: webHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({
             name: state.name,
             description: state.description,
@@ -1456,7 +1536,7 @@ private val editorHtml = """
       try {
         const res = await fetch("/api/editor/run", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: webHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ name: state.name, path: state.path })
         });
         const data = await res.json();

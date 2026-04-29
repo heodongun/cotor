@@ -25,8 +25,8 @@ class ProductionReliabilityBaselineTest {
             "Dockerfile should define a healthcheck against /health"
         )
         assertTrue(
-            dockerfile.contains("CMD [\"app-server\", \"--host\", \"0.0.0.0\", \"--port\", \"8787\"]"),
-            "Dockerfile should start app-server as the default command"
+            dockerfile.contains("CMD [\"app-server\", \"--host\", \"127.0.0.1\", \"--port\", \"8787\"]"),
+            "Dockerfile should start app-server on loopback by default"
         )
     }
 

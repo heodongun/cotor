@@ -510,6 +510,7 @@ class DesktopStateStore(
  */
 fun defaultDesktopAppHome(): Path {
     val overriddenHome = sequenceOf(
+        System.getProperty("cotor.desktop.app.home"),
         System.getenv("COTOR_DESKTOP_APP_HOME"),
         System.getenv("COTOR_APP_HOME")
     )

@@ -4351,13 +4351,23 @@ class DesktopAppServiceTest : FunSpec({
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-followup-nonrecoverable-test").resolve("repo"))
         val stateStore = DesktopStateStore { appHome }
         seedWorkspace(stateStore, repoRoot)
+        val agentExecutor = mockk<AgentExecutor>()
+        coEvery { agentExecutor.executeAgent(any(), any(), any()) } returns AgentResult(
+            agentName = "codex",
+            isSuccess = true,
+            output = "remediation task settled",
+            error = null,
+            duration = 100,
+            metadata = emptyMap()
+        )
         val service = testService(
             processManager = FakeGitProcessManager(
                 repoRoot = repoRoot,
                 remoteUrl = "https://github.com/heodongun/cotor.git",
                 defaultBranch = "master"
             ),
-            stateStore = stateStore
+            stateStore = stateStore,
+            agentExecutor = agentExecutor
         )
 
         val company = service.createCompany(
@@ -4412,19 +4422,38 @@ class DesktopAppServiceTest : FunSpec({
             updatedAt = System.currentTimeMillis()
         )
         val nonRecoverSnapshot = stateStore.load()
+        val siblingFollowUpIssueIds = nonRecoverSnapshot.issues
+            .filter { it.goalId == followUpGoal.id && it.kind == "execution" && it.id != remediationIssue.id }
+            .map { it.id }
+            .toSet()
+        val siblingFollowUpTaskIds = nonRecoverSnapshot.tasks
+            .filter { it.issueId in siblingFollowUpIssueIds }
+            .map { it.id }
+            .toSet()
+        val retryAt = System.currentTimeMillis()
         stateStore.save(
             nonRecoverSnapshot.copy(
                 issues = nonRecoverSnapshot.issues.map {
-                    if (it.id == remediationIssue.id) it.copy(status = IssueStatus.BLOCKED, updatedAt = System.currentTimeMillis()) else it
+                    when {
+                        it.id == remediationIssue.id -> it.copy(status = IssueStatus.BLOCKED, updatedAt = retryAt)
+                        it.goalId == followUpGoal.id && it.kind == "execution" -> it.copy(status = IssueStatus.DONE, updatedAt = retryAt)
+                        else -> it
+                    }
                 },
                 tasks = nonRecoverSnapshot.tasks.map {
-                    if (it.issueId == remediationIssue.id) {
-                        it.copy(status = DesktopTaskStatus.FAILED, updatedAt = System.currentTimeMillis())
+                    when {
+                        it.issueId == remediationIssue.id -> it.copy(status = DesktopTaskStatus.FAILED, updatedAt = retryAt)
+                        it.issueId in siblingFollowUpIssueIds -> it.copy(status = DesktopTaskStatus.COMPLETED, updatedAt = retryAt)
+                        else -> it
+                    }
+                },
+                runs = nonRecoverSnapshot.runs.map {
+                    if (it.taskId in siblingFollowUpTaskIds) {
+                        it.copy(status = AgentRunStatus.COMPLETED, updatedAt = retryAt)
                     } else {
                         it
                     }
-                },
-                runs = nonRecoverSnapshot.runs + failedRun
+                } + failedRun
             )
         )
 
@@ -6460,11 +6489,23 @@ class DesktopAppServiceTest : FunSpec({
             ready = true,
             originUrl = "https://github.com/heodongun/cotor-test.git"
         )
+        val agentExecutor = mockk<AgentExecutor>()
+        coEvery { agentExecutor.executeAgent(any(), any(), any()) } coAnswers {
+            delay(500)
+            AgentResult(
+                agentName = "codex",
+                isSuccess = true,
+                output = "recovery running",
+                error = null,
+                duration = 500,
+                metadata = emptyMap()
+            )
+        }
         val service = DesktopAppService(
             stateStore = stateStore,
             gitWorkspaceService = gitWorkspaceService,
             configRepository = mockk(relaxed = true),
-            agentExecutor = mockk(relaxed = true)
+            agentExecutor = agentExecutor
         )
 
         val company = service.createCompany(
@@ -6547,11 +6588,15 @@ class DesktopAppServiceTest : FunSpec({
         service.runCompanyRuntimeTick(company.id)
 
         val finalState = stateStore.load()
-        finalState.issues.first { it.id == blockedIssue.id }.status shouldBe IssueStatus.PLANNED
+        finalState.issues.first { it.id == blockedIssue.id }.status shouldBe IssueStatus.IN_PROGRESS
         finalState.issues.first { it.id == blockedIssue.id }.blockedBy shouldBe emptyList()
         finalState.issues.first { it.id == blockedIssue.id }.transitionReason.shouldBeNull()
         finalState.issues.first { it.id == infraIssue.id }.status shouldBe IssueStatus.DONE
+        finalState.tasks.any { task ->
+            task.issueId == blockedIssue.id && task.status in setOf(DesktopTaskStatus.QUEUED, DesktopTaskStatus.RUNNING)
+        } shouldBe true
         coVerify(atLeast = 1) { gitWorkspaceService.ensureGitHubPublishReady(repoRoot, "master") }
+        service.shutdown()
     }
 
     test("QA pass reopens a blocked approval issue and clears stale CEO review metadata") {
@@ -9828,7 +9873,9 @@ private fun testService(
     processManager: ProcessManager,
     appHome: Path? = null,
     stateStore: DesktopStateStore? = null,
-    linearTracker: LinearTrackerAdapter = FakeLinearTrackerAdapter()
+    linearTracker: LinearTrackerAdapter = FakeLinearTrackerAdapter(),
+    agentExecutor: AgentExecutor = mockk(relaxed = true),
+    autoStartAutomationRefresh: Boolean = false
 ): DesktopAppService {
     val store = stateStore ?: DesktopStateStore { appHome ?: Files.createTempDirectory("cotor-home") }
     val gitWorkspaceService = GitWorkspaceService(
@@ -9840,8 +9887,9 @@ private fun testService(
         stateStore = store,
         gitWorkspaceService = gitWorkspaceService,
         configRepository = mockk<ConfigRepository>(relaxed = true),
-        agentExecutor = mockk<AgentExecutor>(relaxed = true),
-        linearTracker = linearTracker
+        agentExecutor = agentExecutor,
+        linearTracker = linearTracker,
+        autoStartAutomationRefresh = autoStartAutomationRefresh
     )
 }
 

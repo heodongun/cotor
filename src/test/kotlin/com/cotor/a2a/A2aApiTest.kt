@@ -5,7 +5,7 @@ import com.cotor.app.AgentRunStatus
 import com.cotor.app.DesktopAppService
 import com.cotor.app.DesktopTuiSessionService
 import com.cotor.app.cotorAppModule
-import com.cotor.app.defaultDesktopAppHome
+import io.kotest.core.annotation.Isolate
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -27,10 +27,12 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.nio.file.Files
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.exists
 
 @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+@Isolate
 class A2aApiTest : FunSpec({
     val desktopService = mockk<DesktopAppService>(relaxed = true)
     val tuiSessionService = mockk<DesktopTuiSessionService>(relaxed = true)
@@ -38,9 +40,15 @@ class A2aApiTest : FunSpec({
 
     beforeTest {
         clearMocks(desktopService, tuiSessionService, answers = false, recordedCalls = true)
-        val a2aDir = defaultDesktopAppHome().resolve("a2a")
-        if (a2aDir.exists()) {
-            a2aDir.deleteRecursively()
+        val appHome = Files.createTempDirectory("a2a-api-test-home")
+        System.setProperty("cotor.desktop.app.home", appHome.toString())
+    }
+
+    afterTest {
+        val appHome = System.getProperty("cotor.desktop.app.home")?.let(java.nio.file.Paths::get)
+        System.clearProperty("cotor.desktop.app.home")
+        if (appHome != null && appHome.exists()) {
+            appHome.deleteRecursively()
         }
     }
 

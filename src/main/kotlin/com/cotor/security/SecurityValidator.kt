@@ -69,7 +69,8 @@ class DefaultSecurityValidator(
         val executable = command.first()
 
         // Whitelist validation
-        if (config.useWhitelist && !config.allowedExecutables.contains(executable)) {
+        val executableName = runCatching { Path.of(executable).fileName?.toString() }.getOrNull()
+        if (config.useWhitelist && executable !in config.allowedExecutables && executableName !in config.allowedExecutables) {
             throw SecurityException("Executable not in whitelist: $executable")
         }
 

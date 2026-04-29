@@ -402,7 +402,8 @@ data class ExecutionContext(
     val workingDirectory: Path? = null,
     val pipelineContext: PipelineContext? = null,
     val currentStageId: String? = null,
-    val onProcessStarted: ((Long) -> Unit)? = null
+    val onProcessStarted: ((Long) -> Unit)? = null,
+    val validateCommand: ((List<String>) -> Unit)? = null
 )
 
 /**

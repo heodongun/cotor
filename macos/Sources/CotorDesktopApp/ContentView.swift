@@ -4413,6 +4413,22 @@ private struct CenterPaneView: View {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    private var meetingRoomProjection: MeetingRoomProjection {
+        let companyId = store.selectedCompanyID ?? store.selectedCompany?.id
+        return MeetingRoomProjection.build(
+            companyId: companyId,
+            agents: store.dashboard.companyAgentDefinitions,
+            goals: store.dashboard.goals,
+            orgProfiles: store.dashboard.orgProfiles,
+            issues: store.dashboard.issues,
+            runningSessions: store.dashboard.runningAgentSessions,
+            reviewQueue: store.dashboard.reviewQueue,
+            runtime: MeetingRoomProjection.runtime(for: companyId, in: store.dashboard.companyRuntimes),
+            activity: store.dashboard.activity,
+            messages: store.dashboard.agentMessages
+        )
+    }
+
     private var meetingRoomMessages: [AgentMessageRecord] {
         store.dashboard.agentMessages
             .filter { store.selectedCompanyID == nil || $0.companyId == store.selectedCompanyID }
@@ -4637,8 +4653,6 @@ private struct CenterPaneView: View {
                 subtitle: l("Watch the live company floor map with wall events, active seats, and review load in one place.", "이벤트 월, 실행 좌석, 리뷰 부담을 한 곳에서 보는 실시간 회사 플로어 맵입니다.")
             )
             companyMeetingRoomPanel
-            companyRunningAgentsPanel
-            companyActivityFeed
         }
     }
 
@@ -4757,8 +4771,6 @@ private struct CenterPaneView: View {
 
             if companyOverviewSurface == .meetingRoom {
                 companyMeetingRoomPanel
-                companyRunningAgentsPanel
-                companyActivityFeed
             } else {
                 operationsBanner
                 if store.companyStreamStatusMessage != nil || store.backendStatusMessage != nil {
@@ -5358,69 +5370,14 @@ private struct CenterPaneView: View {
 
     private var companyMeetingRoomPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(l("Meeting Room", "미팅룸"))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(ShellPalette.text)
-                    Text(
-                        l(
-                            "Read-only floor map of live company activity. The wall mirrors events, the table mirrors active agents, and the desk mirrors review load.",
-                            "현재 회사 활동을 읽기 전용으로 보는 플로어 맵입니다. 벽은 이벤트, 테이블은 실행 중인 에이전트, 데스크는 리뷰 부담을 보여줍니다."
-                        )
-                    )
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(ShellPalette.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-
-                StatusSummaryPill(text: l("READ ONLY", "읽기 전용"), tint: ShellPalette.accent)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ShellTag(text: "\(l("Table", "테이블")) \(runningSessions.count)", tint: ShellPalette.accentWarm)
-                    ShellTag(text: "\(l("Desk", "데스크")) \(meetingRoomReviewItems.count)", tint: ShellPalette.warning)
-                    ShellTag(text: "\(l("Wall", "이벤트")) \(meetingRoomWallItems.count)", tint: ShellPalette.accent)
-                    ShellTag(text: "\(l("Messages", "메시지")) \(meetingRoomMessages.count)", tint: ShellPalette.accent)
-                    ShellTag(text: "\(l("Context", "컨텍스트")) \(meetingRoomContextEntries.count)", tint: ShellPalette.accentWarm)
-                }
-                .padding(.vertical, 2)
-            }
-
-            MeetingRoomZoneCard(
-                title: l("Current Agenda", "현재 안건"),
-                subtitle: l("The room’s active focus before you scan the live wall and desks.", "이벤트 월과 데스크를 보기 전에 방이 지금 집중하는 안건입니다."),
-                tint: ShellPalette.accentWarm
-            ) {
-                VStack(alignment: .leading, spacing: 8) {
-                    agendaSummaryRow(label: l("Focus", "집중 대상"), value: meetingRoomCurrentAgendaTitle, tint: ShellPalette.accent)
-                    agendaSummaryRow(label: l("State", "상태"), value: meetingRoomCurrentAgendaDetail, tint: ShellPalette.warning)
-                    agendaSummaryRow(label: l("Next action", "다음 액션"), value: meetingRoomNextActionLabel, tint: ShellPalette.success)
-                    agendaSummaryRow(label: l("Lead AI", "리더 AI"), value: workflowLeader, tint: ShellPalette.accentWarm)
-                }
-            }
-
-            if layoutMode == .compact {
-                VStack(alignment: .leading, spacing: 10) {
-                    meetingRoomEventWallZone
-                    meetingRoomCenterTableZone
-                    meetingRoomReviewDeskZone
-                }
-            } else {
-                HStack(alignment: .top, spacing: 10) {
-                    meetingRoomEventWallZone
-                        .frame(width: layoutMode == .stacked ? 220 : 236, alignment: .top)
-                    meetingRoomCenterTableZone
-                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .top)
-                    meetingRoomReviewDeskZone
-                        .frame(width: layoutMode == .stacked ? 220 : 236, alignment: .top)
-                }
-            }
+            MeetingRoomView(
+                projection: meetingRoomProjection,
+                language: store.language,
+                inboxCount: meetingRoomReviewItems.count + meetingRoomMessages.count,
+                isCompact: layoutMode == .compact
+            )
         }
-        .padding(14)
+        .padding(12)
         .shellInset()
     }
 
@@ -7675,6 +7632,38 @@ private struct IssueExecutionDetailCard: View {
     }
 }
 
+struct OrgProfileBatchEditPayloadDraft: Equatable {
+    let agentCli: String?
+    let model: String?
+    let specialties: [String]?
+    let enabled: Bool?
+
+    static func build(
+        batchAgent: String,
+        batchModel: String,
+        batchCapabilities: String,
+        batchEnabled: Bool?
+    ) -> OrgProfileBatchEditPayloadDraft {
+        let trimmedAgent = batchAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedModel = batchModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedSpecialties = batchCapabilities
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        return OrgProfileBatchEditPayloadDraft(
+            agentCli: trimmedAgent.isEmpty ? nil : trimmedAgent,
+            model: trimmedModel.isEmpty ? nil : trimmedModel,
+            specialties: batchCapabilities.isEmpty ? nil : parsedSpecialties,
+            enabled: batchEnabled
+        )
+    }
+
+    static func modelAfterAgentSelection() -> String {
+        ""
+    }
+}
+
 private struct OrgProfileBatchEditSheet: View {
     @EnvironmentObject private var store: DesktopStore
     @Environment(\.dismiss) private var dismiss
@@ -7683,6 +7672,20 @@ private struct OrgProfileBatchEditSheet: View {
     @State private var batchCapabilities: String = ""
     @State private var batchEnabled: Bool? = nil
     private var l: AppLanguage { store.language }
+    private var batchModelAgentCli: String {
+        if !batchAgent.isEmpty {
+            return batchAgent
+        }
+        let selectedAgents = store.selectedBatchEditableAgents
+            .map { $0.agentCli.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let normalizedAgents = Set(selectedAgents.map { $0.lowercased() })
+        return normalizedAgents.count == 1 ? selectedAgents.first ?? "" : ""
+    }
+
+    private var batchModelOptions: [String] {
+        store.modelOptions(for: batchModelAgentCli)
+    }
 
     var body: some View {
         NavigationStack {
@@ -7770,8 +7773,21 @@ private struct OrgProfileBatchEditSheet: View {
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(ShellPalette.muted)
 
-                            TextField(l("No change", "변경 없음"), text: $batchModel)
+                            if !batchModelOptions.isEmpty {
+                                Picker(l("Model Override", "모델 오버라이드"), selection: $batchModel) {
+                                    Text(l("No change", "변경 없음")).tag("")
+                                    ForEach(batchModelOptions, id: \.self) { model in
+                                        Text(model).tag(model)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                            } else {
+                                TextField(
+                                    store.defaultModel(for: batchModelAgentCli) ?? l("No change", "변경 없음"),
+                                    text: $batchModel
+                                )
                                 .textFieldStyle(.roundedBorder)
+                            }
                         }
 
                         // Capabilities
@@ -7822,24 +7838,24 @@ private struct OrgProfileBatchEditSheet: View {
             batchCapabilities = ""
             batchEnabled = nil
         }
+        .onChange(of: batchAgent) { _, _ in
+            batchModel = OrgProfileBatchEditPayloadDraft.modelAfterAgentSelection()
+        }
     }
 
     private func applyBatchChanges() {
-        let agentCli = batchAgent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : batchAgent.trimmingCharacters(in: .whitespacesAndNewlines)
-        let model = batchModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : batchModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let specialties: [String]? = {
-            let parsed = batchCapabilities
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            return batchCapabilities.isEmpty ? nil : parsed
-        }()
+        let payload = OrgProfileBatchEditPayloadDraft.build(
+            batchAgent: batchAgent,
+            batchModel: batchModel,
+            batchCapabilities: batchCapabilities,
+            batchEnabled: batchEnabled
+        )
         Task {
             let didApply = await store.batchUpdateSelectedCompanyAgents(
-                agentCli: agentCli,
-                model: model,
-                specialties: specialties,
-                enabled: batchEnabled
+                agentCli: payload.agentCli,
+                model: payload.model,
+                specialties: payload.specialties,
+                enabled: payload.enabled
             )
             if didApply {
                 dismiss()
