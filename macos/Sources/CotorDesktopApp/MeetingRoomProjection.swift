@@ -116,6 +116,14 @@ struct MeetingRoomProjection: Hashable {
     let activityCount: Int
     let pullRequestStates: [String]
 
+    static func runtime(
+        for companyId: String?,
+        in runtimes: [CompanyRuntimeSnapshotRecord]
+    ) -> CompanyRuntimeSnapshotRecord? {
+        guard let companyId else { return nil }
+        return runtimes.first { $0.companyId == companyId }
+    }
+
     static func build(
         companyId: String?,
         agents allAgents: [CompanyAgentDefinitionRecord],

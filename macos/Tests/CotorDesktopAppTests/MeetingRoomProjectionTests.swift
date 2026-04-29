@@ -247,6 +247,43 @@ struct MeetingRoomProjectionTests {
     }
 
     @Test
+    func nilCompanyRuntimeSelectionDoesNotBorrowFirstCompanyRuntime() {
+        let selectedRuntime = MeetingRoomProjection.runtime(
+            for: nil,
+            in: [runtime(companyId: "company-a", status: "RUNNING", budgetPausedAt: 100)]
+        )
+        let projection = MeetingRoomProjection.build(
+            companyId: nil,
+            agents: [],
+            issues: [],
+            runningSessions: [],
+            reviewQueue: [],
+            runtime: selectedRuntime,
+            activity: [],
+            messages: []
+        )
+
+        #expect(selectedRuntime == nil)
+        #expect(projection.runtimeStatus == "STOPPED")
+        #expect(projection.todaySpentCents == 0)
+        #expect(!projection.isCostBlocked)
+    }
+
+    @Test
+    func runtimeSelectionScopesToSelectedCompany() throws {
+        let selectedRuntime = try #require(MeetingRoomProjection.runtime(
+            for: "company-b",
+            in: [
+                runtime(companyId: "company-a", status: "STOPPED"),
+                runtime(companyId: "company-b", status: "RUNNING"),
+            ]
+        ))
+
+        #expect(selectedRuntime.companyId == "company-b")
+        #expect(selectedRuntime.status == "RUNNING")
+    }
+
+    @Test
     func projectionCapsLargeIssueAndReviewDetailsForMeetingRoomSnapshotBudget() {
         let issues = (0..<250).map { index in
             issue(
@@ -315,6 +352,69 @@ struct MeetingRoomProjectionTests {
         #expect(!grouped.shouldAnimate)
         #expect(reduced.mode == .grouped)
         #expect(!reduced.shouldAnimate)
+    }
+
+    @Test
+    func renderPlanAnimatesOnlyActualRuntimeMotion() {
+        let idleProjection = MeetingRoomProjection.build(
+            companyId: "company",
+            agents: [agent(id: "idle-builder", title: "Builder")],
+            issues: [],
+            runningSessions: [],
+            reviewQueue: [],
+            runtime: runtime(),
+            activity: [],
+            messages: []
+        )
+        let idlePlan = MeetingRoomRenderPlan.build(
+            projection: idleProjection,
+            isCompact: false,
+            reduceMotion: false,
+            lowResourceMode: false,
+            isSceneActive: true
+        )
+        let blockedProjection = MeetingRoomProjection.build(
+            companyId: "company",
+            agents: [agent(id: "blocked-builder", title: "Builder")],
+            issues: [issue(id: "issue-blocked", title: "Blocked work", status: "BLOCKED", assigneeProfileId: "Builder")],
+            runningSessions: [],
+            reviewQueue: [],
+            runtime: runtime(status: "RUNNING"),
+            activity: [],
+            messages: []
+        )
+        let blockedPlan = MeetingRoomRenderPlan.build(
+            projection: blockedProjection,
+            isCompact: false,
+            reduceMotion: false,
+            lowResourceMode: false,
+            isSceneActive: true
+        )
+
+        let activeProjection = MeetingRoomProjection.build(
+            companyId: "company",
+            agents: [agent(id: "active-builder", title: "Builder")],
+            issues: [issue(id: "issue-active", title: "Active work", status: "IN_PROGRESS", assigneeProfileId: "Builder")],
+            runningSessions: [session(agentId: "active-builder", agentName: "opencode", issueId: "issue-active", status: "RUNNING")],
+            reviewQueue: [],
+            runtime: runtime(status: "RUNNING"),
+            activity: [],
+            messages: []
+        )
+        let activePlan = MeetingRoomRenderPlan.build(
+            projection: activeProjection,
+            isCompact: false,
+            reduceMotion: false,
+            lowResourceMode: false,
+            isSceneActive: true
+        )
+
+        #expect(!idlePlan.shouldAnimate)
+        #expect(idlePlan.frameInterval == 1.0)
+        #expect(!blockedPlan.shouldAnimate)
+        #expect(blockedPlan.frameInterval == 1.0)
+        #expect(activePlan.shouldAnimate)
+        #expect(activePlan.frameInterval == 1.0 / 15.0)
     }
 }
 
@@ -493,9 +593,9 @@ private func message(id: String, from: String, to: String?, issueId: String?, bo
     )
 }
 
-private func runtime(status: String = "RUNNING", budgetPausedAt: Int64? = nil) -> CompanyRuntimeSnapshotRecord {
+private func runtime(companyId: String? = "company", status: String = "RUNNING", budgetPausedAt: Int64? = nil) -> CompanyRuntimeSnapshotRecord {
     CompanyRuntimeSnapshotRecord(
-        companyId: "company",
+        companyId: companyId,
         status: status,
         tickIntervalSeconds: 60,
         activeGoalCount: 1,
