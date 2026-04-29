@@ -8,6 +8,7 @@ package com.cotor.app
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.data.http.CotorHttpClients
 import com.cotor.domain.executor.AgentExecutor
 import com.cotor.model.AgentConfig
 import com.cotor.model.AgentExecutionMetadata
@@ -18,7 +19,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URI
-import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 
@@ -81,7 +81,7 @@ class CodexAppServerBackend(
         canPublishPullRequests = true
     )
 
-    private val client = HttpClient.newBuilder().build()
+    private val client = CotorHttpClients.newClient()
 
     override suspend fun health(config: BackendConnectionConfig): ExecutionBackendStatus = withContext(Dispatchers.IO) {
         if (!config.enabled) {
