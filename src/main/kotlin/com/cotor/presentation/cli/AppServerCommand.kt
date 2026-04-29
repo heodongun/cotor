@@ -9,6 +9,7 @@ package com.cotor.presentation.cli
  */
 
 import com.cotor.app.AppServer
+import com.github.ajalt.clikt.core.CliktError
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
@@ -33,6 +34,9 @@ class AppServerCommand : CliktCommand(
         .default(System.getenv("COTOR_APP_CONTROL_TOKEN").orEmpty())
 
     override fun run() {
+        if (requiresTokenForHost(host) && token.isBlank()) {
+            throw CliktError("--token or COTOR_APP_TOKEN is required when binding app-server to non-loopback host '$host'")
+        }
         AppServer().start(
             host = host,
             port = port,
@@ -40,4 +44,9 @@ class AppServerCommand : CliktCommand(
             controlToken = controlToken.ifBlank { null }
         )
     }
+}
+
+internal fun requiresTokenForHost(host: String): Boolean {
+    val normalized = host.trim().lowercase()
+    return normalized !in setOf("127.0.0.1", "localhost", "::1")
 }
