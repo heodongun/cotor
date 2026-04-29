@@ -4899,6 +4899,7 @@ class DesktopAppService(
             val activeGoals = current.goals.filter {
                 it.companyId == companyId && it.status == GoalStatus.ACTIVE
             }
+            val activeGoalIds = activeGoals.map { it.id }.toSet()
             val autonomousGoals = activeGoals.filter { it.autonomyEnabled }
             val autonomousGoalIds = autonomousGoals.map { it.id }.toSet()
 
@@ -4918,8 +4919,6 @@ class DesktopAppService(
                         is RuntimeCommand.StartIssue -> Unit
                     }
                 }
-            } else {
-                actions += "idle-no-autonomous-goals"
             }
 
             val executionSnapshot = stateStore.load()
@@ -4966,7 +4965,7 @@ class DesktopAppService(
             val now = System.currentTimeMillis()
             val runnableIssues = boundExecution.issues
                 .filter { issue ->
-                    issue.goalId in autonomousGoalIds
+                    issue.goalId in activeGoalIds
                 }
                 .filter { issue -> issue.runtimeDisposition == "RUNNABLE" }
                 .filter { issue -> issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) }
@@ -4994,6 +4993,13 @@ class DesktopAppService(
                     )
                     val latestTask = tasksByIssueId[issue.id].orEmpty()
                         .maxByOrNull { it.updatedAt }
+                    val hasFailedExecutionHistory = tasksByIssueId[issue.id].orEmpty().any { task ->
+                        task.status == DesktopTaskStatus.FAILED
+                    }
+                    val recoveredNonAutonomousDuringThisTick =
+                        issue.updatedAt >= tickStartedAt &&
+                            hasFailedExecutionHistory &&
+                            issue.goalId !in autonomousGoalIds
                     val reopenedLegacyMergeConflict = issue.transitionReason?.contains(
                         "legacy CEO merge-conflict blocker",
                         ignoreCase = true
@@ -5002,8 +5008,15 @@ class DesktopAppService(
                     val waitingForRetryCooldown =
                         issue.status in setOf(IssueStatus.PLANNED, IssueStatus.BACKLOG, IssueStatus.DELEGATED) &&
                             retryDecision.mode == RecoverableRetryMode.WAITING
-                    dependenciesSatisfied && !alreadyStarted && !waitingForRetryCooldown && !reopenedDuringThisTick
+                    dependenciesSatisfied &&
+                        !alreadyStarted &&
+                        !waitingForRetryCooldown &&
+                        !recoveredNonAutonomousDuringThisTick &&
+                        !reopenedDuringThisTick
                 }
+            if (autonomousGoals.isEmpty() && runnableIssues.isEmpty()) {
+                actions += "idle-no-autonomous-goals"
+            }
             val delegatedRunnableIssues = runnableIssues.map { candidate ->
                 val delegated = if (candidate.assigneeProfileId == null || candidate.status != IssueStatus.DELEGATED) {
                     delegateIssue(candidate.id)

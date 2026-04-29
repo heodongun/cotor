@@ -3,6 +3,7 @@ package com.cotor.app
 import com.cotor.app.runtime.CompanyRuntimeBindingService
 import com.cotor.data.config.ConfigRepository
 import com.cotor.domain.executor.AgentExecutor
+import com.cotor.model.AgentResult
 import com.cotor.policy.PolicyEngine
 import com.cotor.policy.PolicyStore
 import com.cotor.providers.github.GitHubControlPlaneService
@@ -13,9 +14,12 @@ import com.cotor.runtime.durable.DurableRuntimeService
 import com.cotor.runtime.durable.DurableRuntimeStore
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.delay
 import java.nio.file.Files
 
 class DesktopAppServiceRuntimeDispositionSchedulerTest : FunSpec({
@@ -115,6 +119,98 @@ class DesktopAppServiceRuntimeDispositionSchedulerTest : FunSpec({
 
         snapshot.lastAction shouldBe "idle-pending-issues"
         stateStore.load().tasks.shouldBeEmpty()
+    }
+
+    test("runCompanyRuntimeTick starts existing runnable issues when goal autonomy is disabled") {
+        val appHome = Files.createTempDirectory("desktop-runtime-manual-issue-home")
+        val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-manual-issue-repo").resolve("repo"))
+        val stateStore = DesktopStateStore { appHome }
+        seedRuntimeDispositionWorkspace(stateStore, repoRoot)
+        val companyId = "company-manual"
+        val issueId = "issue-existing-manual"
+
+        val gitWorkspaceService = mockk<GitWorkspaceService>(relaxed = true)
+        coEvery { gitWorkspaceService.ensureWorktree(any(), any(), any(), any(), any()) } returns WorktreeBinding(
+            branchName = "codex/cotor/manual-issue/opencode",
+            worktreePath = repoRoot.resolve(".cotor/worktrees/manual-issue/opencode")
+        )
+        coEvery { gitWorkspaceService.publishRun(any(), any(), any(), any(), any(), any()) } returns PublishMetadata()
+
+        val agentExecutor = mockk<AgentExecutor>()
+        coEvery { agentExecutor.executeAgent(any(), any(), any()) } coAnswers {
+            delay(500)
+            AgentResult(
+                agentName = "opencode",
+                isSuccess = true,
+                output = "manual issue finished",
+                error = null,
+                duration = 500,
+                metadata = emptyMap()
+            )
+        }
+
+        val service = DesktopAppService(
+            stateStore = stateStore,
+            gitWorkspaceService = gitWorkspaceService,
+            configRepository = mockk<ConfigRepository>(relaxed = true),
+            agentExecutor = agentExecutor
+        )
+
+        val state = stateStore.load()
+        stateStore.save(
+            state.copy(
+                backendSettings = state.backendSettings.copy(codePublishMode = CodePublishMode.ALLOW_LOCAL_GIT),
+                companies = listOf(
+                    Company(
+                        id = companyId,
+                        name = "Manual Runtime Co",
+                        rootPath = repoRoot.toString(),
+                        repositoryId = "repo-1",
+                        defaultBaseBranch = "main",
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                goals = listOf(
+                    CompanyGoal(
+                        id = "goal-manual",
+                        companyId = companyId,
+                        projectContextId = "project-1",
+                        title = "Manual goal",
+                        description = "Existing runnable work should run even when new autonomous planning is off.",
+                        status = GoalStatus.ACTIVE,
+                        autonomyEnabled = false,
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                issues = listOf(
+                    CompanyIssue(
+                        id = issueId,
+                        companyId = companyId,
+                        projectContextId = "project-1",
+                        goalId = "goal-manual",
+                        workspaceId = "workspace-1",
+                        title = "Existing manual issue",
+                        description = "Run this issue.",
+                        status = IssueStatus.PLANNED,
+                        createdAt = 1L,
+                        updatedAt = 1L
+                    )
+                ),
+                companyRuntimes = listOf(
+                    CompanyRuntimeSnapshot(companyId = companyId, status = CompanyRuntimeStatus.RUNNING)
+                )
+            )
+        )
+
+        val snapshot = service.runCompanyRuntimeTick(companyId)
+        val refreshed = stateStore.load()
+
+        snapshot.lastAction shouldBe "started:$issueId"
+        refreshed.tasks.shouldNotBeEmpty()
+        refreshed.issues.first { it.id == issueId }.status shouldBe IssueStatus.IN_PROGRESS
+        coVerify(timeout = 2_000, exactly = 1) { agentExecutor.executeAgent(any(), any(), any()) }
     }
 })
 
