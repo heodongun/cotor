@@ -1,7 +1,6 @@
 class Cotor < Formula
   desc "AI company orchestration platform - CLI and desktop app"
   homepage "https://github.com/bssm-oss/cotor"
-  version "1.0.6"
   url "https://github.com/bssm-oss/cotor/releases/download/v1.0.6/cotor-1.0.6-all.jar"
   sha256 "d23e0424175eb704d40fd4db8f9012932653abf77e06b7d1288a744b2908d1aa"
   license "MIT"
@@ -78,8 +77,8 @@ class Cotor < Formula
     ENV.delete("GOOGLE_API_KEY")
     output = shell_output("#{bin}/cotor interactive --no-context --prompt hello")
     assert_match "hello", output
-    assert_predicate testpath/"home/.cotor/interactive/default/cotor.yaml", :exist?
-    assert_predicate testpath/"home/.cotor/interactive/default/interactive.log", :exist?
+    assert_path_exists testpath/"home/.cotor/interactive/default/cotor.yaml"
+    assert_path_exists testpath/"home/.cotor/interactive/default/interactive.log"
 
     if OS.mac?
       assert_predicate pkgshare/"desktop/Cotor Desktop.app", :directory?
