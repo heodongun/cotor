@@ -53,6 +53,34 @@ class CompanyCommandTest : FunSpec({
         result.output shouldContain "\"name\": \"Test Company\""
     }
 
+    test("company create can disable autonomy at creation time") {
+        coEvery {
+            service.createCompany(
+                name = "Smoke",
+                rootPath = "/tmp/company",
+                defaultBaseBranch = null,
+                autonomyEnabled = false,
+                dailyBudgetCents = null,
+                monthlyBudgetCents = null
+            )
+        } returns Company(
+            id = "company-disabled",
+            name = "Smoke",
+            rootPath = "/tmp/company",
+            repositoryId = "repo-1",
+            defaultBaseBranch = "master",
+            autonomyEnabled = false,
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        val result = CompanyCommand().test("create --name Smoke --root /tmp/company --autonomy-disabled")
+
+        result.statusCode shouldBe 0
+        result.output shouldContain "\"id\": \"company-disabled\""
+        result.output shouldContain "\"autonomyEnabled\": false"
+    }
+
     test("company agent batch-update forwards selected patch fields") {
         coEvery {
             service.batchUpdateCompanyAgentDefinitions(
