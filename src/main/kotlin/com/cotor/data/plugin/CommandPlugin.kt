@@ -63,7 +63,13 @@ class CommandPlugin : AgentPlugin {
 
         // Resolve `{input}` substitutions before deciding whether stdin should also be used.
         // This keeps the command template deterministic from the config alone.
-        val argv = parseArgvJson(argvJson).map { token ->
+        val argvTemplate = parseArgvJson(argvJson)
+        if (argvTemplate.isEmpty()) {
+            throw IllegalArgumentException("argvJson must contain at least one element (the executable)")
+        }
+        context.validateCommand?.invoke(argvTemplate)
+
+        val argv = argvTemplate.map { token ->
             if (token.contains("{input}")) {
                 token.replace("{input}", context.input.orEmpty())
             } else {
@@ -73,10 +79,6 @@ class CommandPlugin : AgentPlugin {
 
         val useStdin = context.parameters["stdin"]?.lowercase() == "true"
         val stdin = if (useStdin) context.input else null
-
-        if (argv.isEmpty()) {
-            throw IllegalArgumentException("argvJson must contain at least one element (the executable)")
-        }
 
         var result = processManager.executeProcess(
             command = argv,
