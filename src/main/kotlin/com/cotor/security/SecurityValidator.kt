@@ -8,6 +8,7 @@ package com.cotor.security
  * Read here first when tracing behavior that flows through this part of the codebase.
  */
 
+import com.cotor.data.process.resolveExecutablePath
 import com.cotor.model.AgentConfig
 import com.cotor.model.SecurityConfig
 import com.cotor.model.SecurityException
@@ -66,12 +67,28 @@ class DefaultSecurityValidator(
             throw SecurityException("Empty command is not allowed")
         }
 
-        val executable = command.first()
+        val executable = command.first().trim()
+        val executableName = runCatching { Path.of(executable).fileName?.toString() }.getOrNull()
+
+        if (isShellInterpreter(executableName ?: executable) && command.drop(1).any { it == "-c" || it == "/c" }) {
+            throw SecurityException("Shell command execution is not allowed: $executable")
+        }
+
+        val resolvedExecutable = resolveExecutablePath(executable)
 
         // Whitelist validation
-        val executableName = runCatching { Path.of(executable).fileName?.toString() }.getOrNull()
-        if (config.useWhitelist && executable !in config.allowedExecutables && executableName !in config.allowedExecutables) {
+        val resolvedExecutableName = resolvedExecutable?.fileName?.toString()
+        if (config.useWhitelist &&
+            executable !in config.allowedExecutables &&
+            executableName !in config.allowedExecutables &&
+            resolvedExecutable?.toString() !in config.allowedExecutables &&
+            resolvedExecutableName !in config.allowedExecutables
+        ) {
             throw SecurityException("Executable not in whitelist: $executable")
+        }
+
+        if (resolvedExecutable != null && config.enablePathValidation && config.allowedDirectories.isNotEmpty()) {
+            validatePath(resolvedExecutable)
         }
 
         // Dangerous commands check
@@ -110,7 +127,9 @@ class DefaultSecurityValidator(
 
         // Validate symbolic links
         if (path.isSymbolicLink()) {
-            val target = Files.readSymbolicLink(path)
+            val target = Files.readSymbolicLink(path).let { linkTarget ->
+                if (linkTarget.isAbsolute) linkTarget else path.toAbsolutePath().parent.resolve(linkTarget)
+            }
             validatePath(target)
         }
     }
@@ -142,5 +161,9 @@ class DefaultSecurityValidator(
         return injectionPatterns.any { pattern ->
             input.contains(pattern)
         }
+    }
+
+    private fun isShellInterpreter(executableName: String): Boolean {
+        return executableName.lowercase() in setOf("sh", "bash", "zsh", "fish", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh")
     }
 }
