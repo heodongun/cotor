@@ -51,6 +51,11 @@ class A2aSessionStore(
         return sessions.values.filter { it.tenant == tenant }
     }
 
+    fun sessionsForAgent(agentId: String, now: Long): List<A2aSession> {
+        prune(now)
+        return sessions.values.filter { it.agentId == agentId }
+    }
+
     fun enqueue(sessionId: String, envelope: A2aEnvelope, now: Long) {
         prune(now)
         val cursor = cursors.getOrPut(sessionId) { AtomicLong(0) }.incrementAndGet()
