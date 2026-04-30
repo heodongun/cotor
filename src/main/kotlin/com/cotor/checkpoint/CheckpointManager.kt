@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNames
 import java.io.File
 import java.nio.file.Paths
+import java.security.MessageDigest
 import java.time.Instant
 
 /**
@@ -57,7 +58,7 @@ class CheckpointManager(
             completedStages = completedStages
         )
 
-        val checkpointFile = File(checkpointDir, "$pipelineId.json")
+        val checkpointFile = checkpointFile(pipelineId)
         checkpointFile.writeText(json.encodeToString(checkpoint))
 
         return checkpointFile.absolutePath
@@ -67,10 +68,8 @@ class CheckpointManager(
      * Load checkpoint for a pipeline
      */
     fun loadCheckpoint(pipelineId: String): PipelineCheckpoint? {
-        val checkpointFile = File(checkpointDir, "$pipelineId.json")
-        if (!checkpointFile.exists()) {
-            return null
-        }
+        val checkpointFile = checkpointFileCandidates(pipelineId).firstOrNull { it.exists() }
+            ?: return null
 
         return try {
             json.decodeFromString<PipelineCheckpoint>(checkpointFile.readText())
@@ -114,8 +113,9 @@ class CheckpointManager(
      * Delete checkpoint
      */
     fun deleteCheckpoint(pipelineId: String): Boolean {
-        val checkpointFile = File(checkpointDir, "$pipelineId.json")
-        return checkpointFile.delete()
+        return checkpointFileCandidates(pipelineId).any { file ->
+            file.exists() && file.delete()
+        }
     }
 
     /**
@@ -171,6 +171,35 @@ class CheckpointManager(
         }
         return deletedCount
     }
+
+    private fun checkpointFile(pipelineId: String): File {
+        val root = File(checkpointDir).canonicalFile
+        val file = File(root, "${safeCheckpointFileName(pipelineId)}.json").canonicalFile
+        require(file.parentFile == root) { "Checkpoint path must stay inside $root" }
+        return file
+    }
+
+    private fun checkpointFileCandidates(pipelineId: String): List<File> {
+        val root = File(checkpointDir).canonicalFile
+        val safe = checkpointFile(pipelineId)
+        val legacy = File(root, "$pipelineId.json").canonicalFile
+            .takeIf { it.parentFile == root }
+        return listOfNotNull(safe, legacy).distinctBy { it.absolutePath }
+    }
+}
+
+private fun safeCheckpointFileName(pipelineId: String): String {
+    val sanitized = pipelineId
+        .trim()
+        .replace(Regex("[^A-Za-z0-9._-]+"), "_")
+        .trim('.', '_', '-')
+        .ifBlank { "pipeline" }
+        .take(80)
+    val hash = MessageDigest.getInstance("SHA-256")
+        .digest(pipelineId.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+        .take(12)
+    return "$sanitized-$hash"
 }
 
 private fun defaultCheckpointDir(): String {
