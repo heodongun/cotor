@@ -217,6 +217,20 @@ struct DesktopStoreTests {
     }
 
     @Test
+    func codexArgumentParserPreservesQuotedArguments() {
+        let args = parseCodexArguments("app-server --host 127.0.0.1 --label \"local dev server\" --note 'quoted value'")
+
+        #expect(args == ["app-server", "--host", "127.0.0.1", "--label", "local dev server", "--note", "quoted value"])
+    }
+
+    @Test
+    func codexArgumentParserSupportsEscapedWhitespace() {
+        let args = parseCodexArguments("app-server --name local\\ server --port {port}")
+
+        #expect(args == ["app-server", "--name", "local server", "--port", "{port}"])
+    }
+
+    @Test
     func shellModeDefaultsToCompanyAndCanSwitchToTui() {
         let store = DesktopStore()
 

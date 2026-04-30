@@ -8,6 +8,57 @@ import SwiftUI
 // It collects declarations centered on desktop store so the native shell code stays easier to navigate.
 // Start with this file when tracing how the desktop client presents, stores, or moves state in this area.
 
+func parseCodexArguments(_ raw: String) -> [String] {
+    var args: [String] = []
+    var current = ""
+    var quote: Character?
+    var escaping = false
+
+    for character in raw {
+        if escaping {
+            current.append(character)
+            escaping = false
+            continue
+        }
+
+        if character == "\\" {
+            escaping = true
+            continue
+        }
+
+        if let activeQuote = quote {
+            if character == activeQuote {
+                quote = nil
+            } else {
+                current.append(character)
+            }
+            continue
+        }
+
+        if character == "\"" || character == "'" {
+            quote = character
+            continue
+        }
+
+        if character.isWhitespace {
+            if !current.isEmpty {
+                args.append(current)
+                current = ""
+            }
+        } else {
+            current.append(character)
+        }
+    }
+
+    if escaping {
+        current.append("\\")
+    }
+    if !current.isEmpty {
+        args.append(current)
+    }
+    return args
+}
+
 /// Tracks the high-level backend/runtime state shown in the shell header.
 ///
 /// The visible text is derived later through the active app language so the same
@@ -2664,9 +2715,7 @@ final class DesktopStore: ObservableObject {
                 codePublishMode: codePublishMode,
                 codexLaunchMode: codexLaunchMode,
                 codexCommand: trimmedOptional(codexCommand),
-                codexArgs: codexArgs
-                    .split(whereSeparator: \.isWhitespace)
-                    .map(String.init),
+                codexArgs: parseCodexArguments(codexArgs),
                 codexWorkingDirectory: trimmedOptional(codexWorkingDirectory),
                 codexPort: Int(trimmedOptional(codexPort) ?? ""),
                 codexStartupTimeoutSeconds: Int(trimmedOptional(codexStartupTimeoutSeconds) ?? ""),
@@ -2710,7 +2759,7 @@ final class DesktopStore: ObservableObject {
                 kind: "CODEX_APP_SERVER",
                 launchMode: codexLaunchMode,
                 command: trimmedOptional(codexCommand),
-                args: codexArgs.split(whereSeparator: \.isWhitespace).map(String.init),
+                args: parseCodexArguments(codexArgs),
                 workingDirectory: trimmedOptional(codexWorkingDirectory),
                 port: Int(trimmedOptional(codexPort) ?? ""),
                 startupTimeoutSeconds: Int(trimmedOptional(codexStartupTimeoutSeconds) ?? ""),
@@ -2779,7 +2828,7 @@ final class DesktopStore: ObservableObject {
                 backendKind: kind,
                 launchMode: codexLaunchMode,
                 command: trimmedOptional(codexCommand),
-                args: codexArgs.split(whereSeparator: \.isWhitespace).map(String.init),
+                args: parseCodexArguments(codexArgs),
                 workingDirectory: trimmedOptional(codexWorkingDirectory),
                 port: Int(trimmedOptional(codexPort) ?? ""),
                 startupTimeoutSeconds: Int(trimmedOptional(codexStartupTimeoutSeconds) ?? ""),
