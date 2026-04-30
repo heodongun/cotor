@@ -377,6 +377,7 @@ class GitWorkspaceService(
         ensureBootstrapCommit(repositoryRoot)
         val normalizedPath = worktreePath.toAbsolutePath().normalize()
         if (normalizedPath.exists()) {
+            verifyExistingWorktreeLineage(repositoryRoot, branchName, normalizedPath)
             return WorktreeBinding(branchName = branchName, worktreePath = normalizedPath)
         }
 
@@ -397,6 +398,32 @@ class GitWorkspaceService(
         }
 
         return WorktreeBinding(branchName = branchName, worktreePath = normalizedPath)
+    }
+
+    private suspend fun verifyExistingWorktreeLineage(
+        repositoryRoot: Path,
+        branchName: String,
+        worktreePath: Path
+    ) {
+        val actualCommonRoot = runCatching { repositoryCommonRoot(worktreePath) }.getOrElse {
+            throw IllegalStateException("Existing worktree path is not a git checkout: $worktreePath")
+        }
+        val expectedRoot = repositoryRoot.toAbsolutePath().normalize()
+        if (actualCommonRoot != expectedRoot) {
+            throw IllegalStateException("Existing worktree path $worktreePath belongs to $actualCommonRoot, not $expectedRoot")
+        }
+
+        val actualBranch = runGit(
+            worktreePath,
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+            failOnError = false,
+            timeoutMs = 10_000
+        ).stdout.trim()
+        if (actualBranch != branchName) {
+            throw IllegalStateException("Existing worktree path $worktreePath is on branch $actualBranch, not $branchName")
+        }
     }
 
     /**
@@ -1306,7 +1333,7 @@ class GitWorkspaceService(
         )
         if (!fetchResult.isSuccess) {
             logger.warn("Could not fetch origin/$baseBranch while checking GitHub publish readiness")
-            return null
+            return "GitHub publishing cannot verify origin/$baseBranch because fetching the remote base failed."
         }
 
         val mergeBaseResult = runGit(
