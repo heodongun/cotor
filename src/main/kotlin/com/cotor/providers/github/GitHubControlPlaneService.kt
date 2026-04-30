@@ -10,11 +10,6 @@ class GitHubControlPlaneService(
     private val knowledgeService: KnowledgeService = KnowledgeService()
 ) {
     fun recordSnapshot(snapshot: PullRequestSnapshot, eventType: String, detail: String): PullRequestSnapshot {
-        val current = store.load()
-        val mergedPullRequests = current.pullRequests
-            .filterNot { it.number == snapshot.number }
-            .plus(snapshot)
-            .sortedByDescending { it.updatedAt }
         val dedupeKey = ProviderEventDedupeKey(
             type = eventType,
             pullRequestNumber = snapshot.number,
@@ -31,25 +26,30 @@ class GitHubControlPlaneService(
             detail = detail,
             dedupeKey = dedupeKey
         )
-        val mergedEvents = (current.events + event)
-            .reversed()
-            .distinctBy { existing ->
-                existing.dedupeKey ?: ProviderEventDedupeKey(
-                    type = existing.type,
-                    pullRequestNumber = existing.pullRequestNumber,
-                    companyId = existing.companyId,
-                    issueId = existing.issueId,
-                    detailFingerprint = existing.detail.trim().lowercase()
-                )
-            }
-            .reversed()
-        store.save(
+        store.update { current ->
+            val mergedPullRequests = current.pullRequests
+                .filterNot { it.number == snapshot.number }
+                .plus(snapshot)
+                .sortedByDescending { it.updatedAt }
+            val mergedEvents = (current.events + event)
+                .reversed()
+                .distinctBy { existing ->
+                    existing.dedupeKey ?: ProviderEventDedupeKey(
+                        type = existing.type,
+                        pullRequestNumber = existing.pullRequestNumber,
+                        companyId = existing.companyId,
+                        issueId = existing.issueId,
+                        detailFingerprint = existing.detail.trim().lowercase()
+                    )
+                }
+                .reversed()
+
             current.copy(
                 pullRequests = mergedPullRequests,
                 events = mergedEvents.takeLast(500),
                 updatedAt = System.currentTimeMillis()
             )
-        )
+        }
         provenanceService.recordPullRequestState(
             runId = snapshot.runId,
             pullRequestNumber = snapshot.number,
