@@ -9,6 +9,8 @@ package com.cotor.domain.orchestrator
  */
 
 import com.cotor.analysis.DefaultResultAnalyzer
+import com.cotor.checkpoint.CheckpointManager
+import com.cotor.context.TemplateEngine
 import com.cotor.data.registry.InMemoryAgentRegistry
 import com.cotor.domain.aggregator.DefaultResultAggregator
 import com.cotor.domain.executor.AgentExecutor
@@ -26,6 +28,7 @@ import com.cotor.model.StageConditionConfig
 import com.cotor.model.StageLoopConfig
 import com.cotor.model.StageType
 import com.cotor.stats.StatsManager
+import com.cotor.validation.PipelineTemplateValidator
 import com.cotor.validation.output.DefaultOutputValidator
 import com.cotor.validation.output.SyntaxValidator
 import io.kotest.core.spec.style.FunSpec
@@ -48,7 +51,8 @@ class PipelineOrchestratorConditionalTest : FunSpec({
 
     fun createOrchestrator(
         executor: AgentExecutor,
-        statsManager: StatsManager = StatsManager(Files.createTempDirectory("conditional-stats").toString())
+        statsManager: StatsManager = StatsManager(Files.createTempDirectory("conditional-stats").toString()),
+        checkpointManager: CheckpointManager = CheckpointManager(Files.createTempDirectory("conditional-checkpoints").toString())
     ): DefaultPipelineOrchestrator {
         return DefaultPipelineOrchestrator(
             agentExecutor = executor,
@@ -57,7 +61,9 @@ class PipelineOrchestratorConditionalTest : FunSpec({
             logger = LoggerFactory.getLogger("ConditionalTest"),
             agentRegistry = registry,
             outputValidator = DefaultOutputValidator(SyntaxValidator()),
-            statsManager = statsManager
+            statsManager = statsManager,
+            checkpointManager = checkpointManager,
+            templateValidator = PipelineTemplateValidator(TemplateEngine())
         )
     }
 
@@ -157,6 +163,44 @@ class PipelineOrchestratorConditionalTest : FunSpec({
             )
         )
         execution.stages.map { it.duration }.shouldContainExactly(listOf(5L, 0L, 5L, 0L, 5L, 0L, 5L))
+    }
+
+    test("loop stage checkpoints preserve every traversal by stage id") {
+        val executor = RecordingAgentExecutor()
+        val checkpointManager = CheckpointManager(Files.createTempDirectory("loop-checkpoints").toString())
+        val orchestrator = createOrchestrator(executor, checkpointManager = checkpointManager)
+
+        val pipeline = Pipeline(
+            name = "looping-checkpoint",
+            executionMode = ExecutionMode.SEQUENTIAL,
+            stages = listOf(
+                PipelineStage(id = "draft", agent = AgentReference("alpha")),
+                PipelineStage(
+                    id = "loop-controller",
+                    type = StageType.LOOP,
+                    loop = StageLoopConfig(
+                        targetStageId = "draft",
+                        maxIterations = 2
+                    )
+                ),
+                PipelineStage(id = "review", agent = AgentReference("alpha"))
+            )
+        )
+
+        runBlocking { orchestrator.executePipeline(pipeline) }
+
+        val checkpoint = checkpointManager.getCheckpoints().single()
+        checkpoint.completedStages.map { it.stageId }.shouldContainExactly(
+            listOf(
+                "draft",
+                "loop-controller",
+                "draft",
+                "loop-controller",
+                "draft",
+                "loop-controller",
+                "review"
+            )
+        )
     }
 })
 

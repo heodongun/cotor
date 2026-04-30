@@ -11,6 +11,7 @@ package com.cotor.model
 import kotlinx.serialization.Serializable
 import java.nio.file.Path
 import java.time.Instant
+import java.util.Collections
 
 /**
  * Core configuration for the Cotor system
@@ -427,6 +428,16 @@ data class AgentExecutionMetadata(
 )
 
 /**
+ * Ordered record of every stage traversal. Repeated loop/MAP stage IDs still keep
+ * their latest value in [PipelineContext.stageResults], while this list preserves
+ * the full execution history for stats and checkpoints.
+ */
+data class StageExecutionRecord(
+    val stageId: String,
+    val result: AgentResult
+)
+
+/**
  * Shared pipeline context accessible to all stages
  */
 data class PipelineContext(
@@ -438,25 +449,34 @@ data class PipelineContext(
     val metadata: MutableMap<String, Any> = java.util.concurrent.ConcurrentHashMap(),
     val startTime: Long = System.currentTimeMillis()
 ) {
+    private val stageExecutionHistory = Collections.synchronizedList(mutableListOf<StageExecutionRecord>())
+
     @Volatile
     var currentStageIndex: Int = 0
 
     fun addStageResult(stageId: String, result: AgentResult) {
         stageResults[stageId] = result
+        stageExecutionHistory.add(StageExecutionRecord(stageId, result))
     }
 
     fun getStageResult(stageId: String): AgentResult? = stageResults[stageId]
 
     fun getStageOutput(stageId: String): String? = stageResults[stageId]?.output
 
+    fun getStageExecutionHistory(): List<StageExecutionRecord> = synchronized(stageExecutionHistory) {
+        stageExecutionHistory.toList()
+    }
+
     fun getAllOutputs(): String {
-        return stageResults.values
+        val results = getStageExecutionHistory().map { it.result }.ifEmpty { stageResults.values.toList() }
+        return results
             .mapNotNull { it.output }
             .joinToString("\n\n---\n\n")
     }
 
     fun getSuccessfulOutputs(): String {
-        return stageResults.values
+        val results = getStageExecutionHistory().map { it.result }.ifEmpty { stageResults.values.toList() }
+        return results
             .filter { it.isSuccess }
             .mapNotNull { it.output }
             .joinToString("\n\n---\n\n")
