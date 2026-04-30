@@ -285,7 +285,10 @@ class DefaultPipelineOrchestrator(
         // Sequential mode is also the only mode that supports decision and loop stages. The index
         // is therefore mutable and may jump forward, backward, or terminate early depending on the
         // outcome of guard expressions and loop bookkeeping.
-        val results = pipelineContext.stageResults.values.toMutableList()
+        val results = pipelineContext.getStageExecutionHistory()
+            .map { it.result }
+            .ifEmpty { pipelineContext.stageResults.values.toList() }
+            .toMutableList()
         val stageIndexMap = pipeline.stages.mapIndexed { index, stage -> stage.id to index }.toMap()
         var previousOutput: String? = results.lastOrNull()?.output
 
@@ -774,8 +777,10 @@ class DefaultPipelineOrchestrator(
         context: PipelineContext
     ) {
         try {
-            val completedStages = context.stageResults.entries.map { entry ->
-                entry.value.toCheckpoint(entry.key)
+            val completedStages = context.getStageExecutionHistory().map { entry ->
+                entry.result.toCheckpoint(entry.stageId)
+            }.ifEmpty {
+                context.stageResults.entries.map { entry -> entry.value.toCheckpoint(entry.key) }
             }
 
             if (completedStages.isNotEmpty()) {

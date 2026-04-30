@@ -209,6 +209,7 @@ jobs:
           set -euo pipefail
           mkdir -p build/release
           cp "build/libs/cotor-${{ needs.detect-version.outputs.version }}-all.jar" "build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar"
+          shasum -a 256 "build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar" > "build/release/cotor-${{ needs.detect-version.outputs.version }}-all.jar.sha256"
 
       - name: Upload jar artifact
         uses: actions/upload-artifact@v4

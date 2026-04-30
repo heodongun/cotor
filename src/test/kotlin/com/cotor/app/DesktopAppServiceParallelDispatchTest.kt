@@ -12,7 +12,7 @@ import io.mockk.mockk
 import java.nio.file.Files
 
 class DesktopAppServiceParallelDispatchTest : FunSpec({
-    test("runtime starts multiple runnable issues even when assignees share the same execution cli") {
+    test("runtime starts only one runnable issue when assignees share the same execution cli") {
         val appHome = Files.createTempDirectory("desktop-runtime-shared-cli-home")
         val repoRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-shared-cli-repo").resolve("repo"))
         val worktreeRoot = Files.createDirectories(Files.createTempDirectory("desktop-runtime-shared-cli-worktrees"))
@@ -82,7 +82,7 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
                 companyId = company.id,
                 projectContextId = projectContext.id,
                 title = "Parallel shared-cli execution",
-                description = "Start two runnable issues on the same execution CLI.",
+                description = "Start only one runnable issue on the same execution CLI.",
                 status = GoalStatus.ACTIVE,
                 autonomyEnabled = true,
                 createdAt = now,
@@ -139,10 +139,11 @@ class DesktopAppServiceParallelDispatchTest : FunSpec({
             service.runCompanyRuntimeTick(company.id)
 
             val finalState = stateStore.load()
-            finalState.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) } shouldHaveSize 2
-            finalState.issues
-                .filter { it.id in setOf(issueOne.id, issueTwo.id) }
-                .all { issue -> issue.status != IssueStatus.DELEGATED && issue.status != IssueStatus.PLANNED && issue.status != IssueStatus.BACKLOG } shouldBe true
+            val startedTasks = finalState.tasks.filter { it.issueId in setOf(issueOne.id, issueTwo.id) }
+            startedTasks shouldHaveSize 1
+            startedTasks.single().issueId shouldBe issueOne.id
+            finalState.issues.first { it.id == issueOne.id }.status shouldBe IssueStatus.IN_PROGRESS
+            finalState.issues.first { it.id == issueTwo.id }.status shouldBe IssueStatus.DELEGATED
         } finally {
             service.shutdown()
         }

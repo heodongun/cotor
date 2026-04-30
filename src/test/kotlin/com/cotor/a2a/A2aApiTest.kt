@@ -163,6 +163,39 @@ class A2aApiTest : FunSpec({
         }
     }
 
+    test("message tenant must match existing sender session tenant") {
+        testApplication {
+            application {
+                cotorAppModule(
+                    token = "secret-token",
+                    desktopService = desktopService,
+                    tuiSessionService = tuiSessionService
+                )
+            }
+
+            val hello = client.post("/api/a2a/v1/sessions") {
+                header(HttpHeaders.Authorization, "Bearer secret-token")
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(A2aHelloRequest(agentId = "agent-ceo", capabilities = listOf("task.assign"), tenant = A2aTenant("company-1"))))
+            }
+            hello.status shouldBe HttpStatusCode.OK
+
+            val spoofed = envelope(dedupeKey = "tenant-spoof-key").copy(
+                tenant = A2aTenant(companyId = "company-2")
+            )
+
+            val response = client.post("/api/a2a/v1/messages") {
+                header(HttpHeaders.Authorization, "Bearer secret-token")
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(spoofed))
+            }
+
+            response.status shouldBe HttpStatusCode.BadRequest
+            response.bodyAsText() shouldContain "not authorized for tenant.companyId company-2"
+            coVerify(exactly = 0) { desktopService.ingestA2aTaskAssignment(any(), any(), any(), any(), any(), any(), any()) }
+        }
+    }
+
     test("task.assign routes through canonical task assignment ingestion") {
         testApplication {
             application {

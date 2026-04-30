@@ -27,8 +27,6 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.awt.Desktop
@@ -456,11 +454,13 @@ internal fun Application.cotorWebModule(
         }
 
         get("/editor") {
-            call.respondText(editorHtml(webToken), ContentType.Text.Html)
+            call.attachWebTokenCookie(webToken)
+            call.respondText(editorHtml(), ContentType.Text.Html)
         }
 
         get("/company") {
-            call.respondText(companyHtml(webToken), ContentType.Text.Html)
+            call.attachWebTokenCookie(webToken)
+            call.respondText(companyHtml(), ContentType.Text.Html)
         }
 
         get("/help") {
@@ -474,10 +474,12 @@ internal fun Application.cotorWebModule(
         }
 
         get("/api/runtime/runs") {
+            if (!call.requireWebToken(webToken)) return@get
             call.respond(durableRuntimeService?.listRuns().orEmpty())
         }
 
         get("/api/runtime/runs/{runId}") {
+            if (!call.requireWebToken(webToken)) return@get
             val runId = call.parameters["runId"]
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
             val snapshot = durableRuntimeService?.inspectRun(runId)
@@ -486,34 +488,40 @@ internal fun Application.cotorWebModule(
         }
 
         get("/api/runtime/policy/decisions") {
+            if (!call.requireWebToken(webToken)) return@get
             val runId = call.request.queryParameters["runId"]
             val issueId = call.request.queryParameters["issueId"]
             call.respond(desktopService.policyDecisions(runId = runId, issueId = issueId))
         }
 
         get("/api/runtime/evidence/runs/{runId}") {
+            if (!call.requireWebToken(webToken)) return@get
             val runId = call.parameters["runId"]
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "runId is required"))
             call.respond(desktopService.evidenceForRun(runId))
         }
 
         get("/api/runtime/evidence/files") {
+            if (!call.requireWebToken(webToken)) return@get
             val path = call.request.queryParameters["path"]
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "path is required"))
             call.respond(desktopService.evidenceForFile(path))
         }
 
         get("/api/runtime/github/pull-requests") {
+            if (!call.requireWebToken(webToken)) return@get
             val companyId = call.request.queryParameters["companyId"]
             call.respond(desktopService.listGitHubPullRequests(companyId))
         }
 
         get("/api/runtime/github/events") {
+            if (!call.requireWebToken(webToken)) return@get
             val companyId = call.request.queryParameters["companyId"]
             call.respond(desktopService.listGitHubEvents(companyId))
         }
 
         get("/api/runtime/github/pull-requests/{pullRequestNumber}") {
+            if (!call.requireWebToken(webToken)) return@get
             val pullRequestNumber = call.parameters["pullRequestNumber"]?.toIntOrNull()
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "pullRequestNumber is required"))
             val snapshot = desktopService.inspectGitHubPullRequest(pullRequestNumber)
@@ -522,36 +530,43 @@ internal fun Application.cotorWebModule(
         }
 
         get("/api/runtime/knowledge/issues/{issueId}") {
+            if (!call.requireWebToken(webToken)) return@get
             val issueId = call.parameters["issueId"]
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
             call.respond(desktopService.issueKnowledge(issueId))
         }
 
         get("/api/runtime/verification/issues/{issueId}") {
+            if (!call.requireWebToken(webToken)) return@get
             val issueId = call.parameters["issueId"]
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
             call.respond(desktopService.verificationBundle(issueId))
         }
 
         get("/api/runtime/issues/{issueId}/projection") {
+            if (!call.requireWebToken(webToken)) return@get
             val issueId = call.parameters["issueId"]
                 ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "issueId is required"))
             call.respond(desktopService.issueRuntimeProjection(issueId))
         }
 
         get("/api/editor/config") {
+            if (!call.requireWebToken(webToken)) return@get
             call.respond(ConfigResponse(readOnly = readOnly))
         }
 
         get("/api/editor/templates") {
+            if (!call.requireWebToken(webToken)) return@get
             call.respond(buildTemplates())
         }
 
         get("/api/editor/pipelines") {
+            if (!call.requireWebToken(webToken)) return@get
             call.respond(listSavedPipelines())
         }
 
         get("/api/editor/pipelines/{name}") {
+            if (!call.requireWebToken(webToken)) return@get
             val name = call.parameters["name"] ?: return@get call.respond(HttpStatusCode.BadRequest)
             val detail = loadPipelineDetail(name)
             if (detail == null) {
@@ -646,16 +661,19 @@ internal fun Application.cotorWebModule(
 
         route("/api/company") {
             get("/dashboard") {
+                if (!call.requireWebToken(webToken)) return@get
                 call.respond(desktopService.companyDashboardReadOnly())
             }
 
             get("/issues/{issueId}/execution-details") {
+                if (!call.requireWebToken(webToken)) return@get
                 val issueId = call.parameters["issueId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 call.respond(desktopService.issueExecutionDetails(issueId))
             }
 
             route("/companies") {
                 get {
+                    if (!call.requireWebToken(webToken)) return@get
                     call.respond(desktopService.listCompanies())
                 }
 
@@ -675,6 +693,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 get("/{companyId}") {
+                    if (!call.requireWebToken(webToken)) return@get
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     val company = desktopService.getCompany(companyId)
                         ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Company not found"))
@@ -682,6 +701,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 get("/{companyId}/dashboard") {
+                    if (!call.requireWebToken(webToken)) return@get
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     call.respond(desktopService.companyDashboardReadOnly(companyId))
                 }
@@ -710,6 +730,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 get("/{companyId}/agents") {
+                    if (!call.requireWebToken(webToken)) return@get
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     call.respond(desktopService.listCompanyAgentDefinitions(companyId))
                 }
@@ -731,6 +752,7 @@ internal fun Application.cotorWebModule(
                 }
 
                 get("/{companyId}/goals") {
+                    if (!call.requireWebToken(webToken)) return@get
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     call.respond(desktopService.listGoals().filter { it.companyId == companyId })
                 }
@@ -751,12 +773,14 @@ internal fun Application.cotorWebModule(
                 }
 
                 get("/{companyId}/issues") {
+                    if (!call.requireWebToken(webToken)) return@get
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     val goalId = call.request.queryParameters["goalId"]
                     call.respond(desktopService.listIssues(goalId, companyId))
                 }
 
                 get("/{companyId}/issues/{issueId}") {
+                    if (!call.requireWebToken(webToken)) return@get
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     val issueId = call.parameters["issueId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     val issue = desktopService.getIssueProjected(issueId)?.takeIf { it.companyId == companyId }
@@ -765,7 +789,11 @@ internal fun Application.cotorWebModule(
                 }
 
                 get("/{companyId}/issues/{issueId}/execution-details") {
+                    if (!call.requireWebToken(webToken)) return@get
+                    val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     val issueId = call.parameters["issueId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                    desktopService.getIssueProjected(issueId)?.takeIf { it.companyId == companyId }
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "Issue not found"))
                     call.respond(desktopService.issueExecutionDetails(issueId))
                 }
 
@@ -786,11 +814,13 @@ internal fun Application.cotorWebModule(
                 }
 
                 get("/{companyId}/review-queue") {
+                    if (!call.requireWebToken(webToken)) return@get
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     call.respond(desktopService.listReviewQueue(companyId))
                 }
 
                 get("/{companyId}/runtime") {
+                    if (!call.requireWebToken(webToken)) return@get
                     val companyId = call.parameters["companyId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                     call.respond(desktopService.runtimeStatus(companyId))
                 }
@@ -862,23 +892,43 @@ private suspend fun ApplicationCall.requireWebToken(webToken: String?): Boolean 
     val expected = webToken?.takeIf { it.isNotBlank() } ?: return true
     val actualBearer = request.header(HttpHeaders.Authorization)
     val actualHeader = request.header("X-Cotor-Web-Token")
-    if (actualBearer == "Bearer $expected" || actualHeader == expected) {
+    val actualCookie = request.cookies[WEB_TOKEN_COOKIE]
+    if (actualBearer == "Bearer $expected" || actualHeader == expected || actualCookie == expected) {
         return true
     }
     respond(HttpStatusCode.Unauthorized, mapOf("error" to "Unauthorized"))
     return false
 }
 
-private fun webTokenScript(webToken: String?): String {
-    val encoded = Json.encodeToString(webToken.orEmpty())
-    return "<script>window.COTOR_WEB_TOKEN = $encoded;</script>"
+private const val WEB_TOKEN_COOKIE = "CotorWebToken"
+
+private fun ApplicationCall.attachWebTokenCookie(webToken: String?) {
+    val expected = webToken?.takeIf { it.isNotBlank() } ?: return
+    response.cookies.append(
+        Cookie(
+            name = WEB_TOKEN_COOKIE,
+            value = expected,
+            path = "/",
+            httpOnly = true,
+            extensions = mapOf("SameSite" to "Strict")
+        )
+    )
 }
 
 private fun webFetchHeaders(): String = """
     function webHeaders(extra = {}) {
-      const headers = { ...extra };
-      if (window.COTOR_WEB_TOKEN) headers["X-Cotor-Web-Token"] = window.COTOR_WEB_TOKEN;
-      return headers;
+      return { ...extra };
+    }
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+    function escapeJsString(value) {
+      return JSON.stringify(String(value ?? "")).slice(1, -1).replace(/'/g, "\\'");
     }
 """.trimIndent()
 
@@ -901,7 +951,6 @@ private val landingHtml = """
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Cotor | 멀티 에이전트 워크플로 오케스트레이션</title>
-  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
   <style>
     :root {
       --bg: #060912;
@@ -991,7 +1040,7 @@ private val landingHtml = """
 </html>
 """.trimIndent()
 
-private fun companyHtml(webToken: String?): String = """
+private fun companyHtml(): String = """
 <!doctype html>
 <html lang="en">
 <head>
@@ -1005,7 +1054,6 @@ private fun companyHtml(webToken: String?): String = """
     pre { background: #0f172a; color: #dbeafe; padding: 12px; border-radius: 12px; overflow: auto; }
     code { background: #e7eef8; padding: 2px 6px; border-radius: 6px; }
   </style>
-  ${webTokenScript(webToken)}
 </head>
 <body>
   <h1>Cotor Company Console</h1>
@@ -1035,7 +1083,7 @@ private fun companyHtml(webToken: String?): String = """
   <script>
     ${webFetchHeaders()}
     async function loadDashboard() {
-      const response = await fetch('/api/company/dashboard');
+      const response = await fetch('/api/company/dashboard', { headers: webHeaders() });
       const data = await response.json();
       document.getElementById('output').textContent = JSON.stringify(data, null, 2);
     }
@@ -1126,14 +1174,13 @@ private fun helpHtml(language: CliHelpLanguage): String {
 }
 
 // Lightweight HTML (single file) to keep the web UI self contained.
-private fun editorHtml(webToken: String?): String = """
+private fun editorHtml(): String = """
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>Cotor Flow Studio</title>
-  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
   <style>
     :root {
       --bg: #0b1224;
@@ -1190,7 +1237,6 @@ private fun editorHtml(webToken: String?): String = """
     .yaml-preview { font-family: "SFMono-Regular", ui-monospace, monospace; background: #0d1528; border: 1px solid var(--border); border-radius: 12px; padding: 12px; color: #cbd5e1; min-height: 160px; white-space: pre-wrap; }
     @media (max-width: 1024px) { .layout { grid-template-columns: 1fr; } }
   </style>
-  ${webTokenScript(webToken)}
 </head>
 <body>
   <div class="page">
@@ -1306,25 +1352,25 @@ private fun editorHtml(webToken: String?): String = """
           <div class="stage-card" draggable="true" ondragstart="onDragStart(${ '$' }{i})" ondragover="onDragOver(event, ${ '$' }{i})" ondrop="onDrop(event, ${ '$' }{i})">
             <div class="stage-header">
               <span class="grip">⋮⋮</span>
-              <input class="input" style="max-width:200px;" value="${ '$' }{s.id}" onchange="updateStageField(${ '$' }{i}, 'id', this.value)" />
+              <input class="input" style="max-width:200px;" value="${ '$' }{escapeHtml(s.id)}" onchange="updateStageField(${ '$' }{i}, 'id', this.value)" />
               <select class="input" style="max-width:140px;" onchange="updateStageField(${ '$' }{i}, 'type', this.value)">
-                ${ '$' }{["EXECUTION"].map(t => `<option value="${ '$' }{t}" ${ '$' }{s.type===t?"selected":""}>${ '$' }{t}</option>`).join("")}
+                ${ '$' }{["EXECUTION"].map(t => `<option value="${ '$' }{escapeHtml(t)}" ${ '$' }{s.type===t?"selected":""}>${ '$' }{escapeHtml(t)}</option>`).join("")}
               </select>
               <button class="btn" style="padding:6px 10px;" onclick="removeStage(${ '$' }{i})">삭제</button>
             </div>
             <div class="grid-2">
               <div class="field">
                 <label>Agent</label>
-                <input class="input" value="${ '$' }{s.agent || ""}" onchange="updateStageField(${ '$' }{i}, 'agent', this.value)" placeholder="claude / gemini / ..." />
+                <input class="input" value="${ '$' }{escapeHtml(s.agent || "")}" onchange="updateStageField(${ '$' }{i}, 'agent', this.value)" placeholder="claude / gemini / ..." />
               </div>
               <div class="field">
                 <label>Dependencies</label>
-                <input class="input" value="${ '$' }{deps}" onchange="updateStageField(${ '$' }{i}, 'dependencies', this.value)" placeholder="comma 로 구분" />
+                <input class="input" value="${ '$' }{escapeHtml(deps)}" onchange="updateStageField(${ '$' }{i}, 'dependencies', this.value)" placeholder="comma 로 구분" />
               </div>
             </div>
             <div class="field">
               <label>Input / Prompt</label>
-              <textarea onchange="updateStageField(${ '$' }{i}, 'input', this.value)" placeholder="이 단계가 수행할 내용">${ '$' }{s.input || ""}</textarea>
+              <textarea onchange="updateStageField(${ '$' }{i}, 'input', this.value)" placeholder="이 단계가 수행할 내용">${ '$' }{escapeHtml(s.input || "")}</textarea>
             </div>
           </div>
         `;
@@ -1378,9 +1424,9 @@ private fun editorHtml(webToken: String?): String = """
         templates = await res.json();
         const list = document.getElementById("templateList");
         list.innerHTML = templates.map(t => `
-          <div class="template-card" onclick="applyTemplate('${'$'}{t.id}')">
-            <div style="font-weight:700;">${'$'}{t.name}</div>
-            <div style="color:var(--muted); font-size:0.9rem;">${'$'}{t.description}</div>
+          <div class="template-card" onclick="applyTemplate('${'$'}{escapeJsString(t.id)}')">
+            <div style="font-weight:700;">${'$'}{escapeHtml(t.name)}</div>
+            <div style="color:var(--muted); font-size:0.9rem;">${'$'}{escapeHtml(t.description)}</div>
           </div>
         `).join("");
       } catch (e) {
@@ -1410,7 +1456,7 @@ private fun editorHtml(webToken: String?): String = """
         const style = active
           ? 'background:linear-gradient(135deg,#8b5cf6,#6d28d9);border:none;color:white;'
           : '';
-        return `<button class="btn" style="padding:6px 10px;${'$'}{style}" onclick="toggleSavedTag('${'$'}{tag.replace(/'/g, "\\'")}')">#${'$'}{tag}</button>`;
+        return `<button class="btn" style="padding:6px 10px;${'$'}{style}" onclick="toggleSavedTag('${'$'}{escapeJsString(tag)}')">#${'$'}{escapeHtml(tag)}</button>`;
       }).join("");
     }
 
@@ -1437,14 +1483,14 @@ private fun editorHtml(webToken: String?): String = """
         return;
       }
       list.innerHTML = filtered.map(p => `
-        <div class="saved-card" onclick="loadPipeline('${'$'}{p.name}')">
-          <div style="font-weight:700;">${'$'}{p.name}</div>
-          <div style="color:var(--muted);font-size:0.9rem;">${'$'}{p.description}</div>
+        <div class="saved-card" onclick="loadPipeline('${'$'}{escapeJsString(p.name)}')">
+          <div style="font-weight:700;">${'$'}{escapeHtml(p.name)}</div>
+          <div style="color:var(--muted);font-size:0.9rem;">${'$'}{escapeHtml(p.description)}</div>
           <div class="tags">
-            <span class="pill">${'$'}{p.executionMode}</span>
-            <span class="pill">${'$'}{p.stageCount} stages</span>
-            ${'$'}{(p.agents || []).map(a => `<span class="pill">@${'$'}{a}</span>`).join("")}
-            ${'$'}{(p.tags || []).map(tag => `<span class="pill">#${'$'}{tag}</span>`).join("")}
+            <span class="pill">${'$'}{escapeHtml(p.executionMode)}</span>
+            <span class="pill">${'$'}{escapeHtml(p.stageCount)} stages</span>
+            ${'$'}{(p.agents || []).map(a => `<span class="pill">@${'$'}{escapeHtml(a)}</span>`).join("")}
+            ${'$'}{(p.tags || []).map(tag => `<span class="pill">#${'$'}{escapeHtml(tag)}</span>`).join("")}
           </div>
         </div>
       `).join("");
@@ -1552,15 +1598,15 @@ private fun editorHtml(webToken: String?): String = """
       const timeline = (data.timeline || []).map(t => {
         const cls = t.state === "FAILED" ? "fail" : "success";
         return `<div class="timeline-entry ${'$'}{cls}">
-          <div style="font-weight:700;">${'$'}{t.stageId}</div>
-          <div style="color:var(--muted);font-size:0.9rem;">${'$'}{t.durationMs || "-"} ms</div>
-          <div style="color:var(--muted);font-size:0.9rem;">${'$'}{t.message || t.outputPreview || ""}</div>
+          <div style="font-weight:700;">${'$'}{escapeHtml(t.stageId)}</div>
+          <div style="color:var(--muted);font-size:0.9rem;">${'$'}{escapeHtml(t.durationMs || "-")} ms</div>
+          <div style="color:var(--muted);font-size:0.9rem;">${'$'}{escapeHtml(t.message || t.outputPreview || "")}</div>
         </div>`;
       }).join("");
       box.innerHTML = `
         <div class="status">
-          <span class="pill">${'$'}{data.executionMode}</span>
-          <span>${'$'}{data.successCount}/${'$'}{data.totalAgents} 성공 · ${'$'}{data.totalDuration}ms</span>
+          <span class="pill">${'$'}{escapeHtml(data.executionMode)}</span>
+          <span>${'$'}{escapeHtml(data.successCount)}/${'$'}{escapeHtml(data.totalAgents)} 성공 · ${'$'}{escapeHtml(data.totalDuration)}ms</span>
         </div>
         <div class="timeline">${'$'}{timeline || "타임라인 없음"}</div>
       `;

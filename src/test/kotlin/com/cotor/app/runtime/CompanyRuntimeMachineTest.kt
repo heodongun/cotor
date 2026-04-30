@@ -51,7 +51,7 @@ class CompanyRuntimeMachineTest : FunSpec({
         ) shouldContainExactly listOf(RuntimeCommand.EnsurePlanningIssue("goal-a"))
     }
 
-    test("planIssueStarts limits concurrent work by profile only") {
+    test("planIssueStarts limits concurrent work by profile and execution agent") {
         val profiles = listOf(
             OrgAgentProfile(
                 id = "profile-a",
@@ -121,7 +121,61 @@ class CompanyRuntimeMachineTest : FunSpec({
             occupiedExecutionAgents = emptySet()
         )
 
-        commands.map { (it as RuntimeCommand.StartIssue).issueId } shouldContainExactly listOf("issue-a", "issue-b", "issue-c")
-        commands.size shouldBe 3
+        commands.map { (it as RuntimeCommand.StartIssue).issueId } shouldContainExactly listOf("issue-a", "issue-c")
+        commands.size shouldBe 2
+    }
+
+    test("planIssueStarts skips issues whose execution agent is already occupied") {
+        val profiles = listOf(
+            OrgAgentProfile(
+                id = "profile-a",
+                companyId = "company-1",
+                roleName = "Builder",
+                executionAgentName = "opencode"
+            ),
+            OrgAgentProfile(
+                id = "profile-c",
+                companyId = "company-1",
+                roleName = "Backend",
+                executionAgentName = "codex"
+            )
+        )
+        val issues = listOf(
+            CompanyIssue(
+                id = "issue-a",
+                companyId = "company-1",
+                goalId = "goal-1",
+                workspaceId = "workspace-1",
+                title = "A",
+                description = "A",
+                status = IssueStatus.DELEGATED,
+                kind = "execution",
+                assigneeProfileId = "profile-a",
+                createdAt = 1,
+                updatedAt = 1
+            ),
+            CompanyIssue(
+                id = "issue-c",
+                companyId = "company-1",
+                goalId = "goal-1",
+                workspaceId = "workspace-1",
+                title = "C",
+                description = "C",
+                status = IssueStatus.DELEGATED,
+                kind = "execution",
+                assigneeProfileId = "profile-c",
+                createdAt = 2,
+                updatedAt = 2
+            )
+        )
+
+        val commands = CompanyRuntimeMachine.planIssueStarts(
+            runnableIssues = issues,
+            companyProfiles = profiles,
+            occupiedProfileIds = emptySet(),
+            occupiedExecutionAgents = setOf(" OpenCode ")
+        )
+
+        commands.map { (it as RuntimeCommand.StartIssue).issueId } shouldContainExactly listOf("issue-c")
     }
 })

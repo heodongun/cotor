@@ -37,9 +37,12 @@ class CheckpointManagerTest : FunSpec({
             jvm = "17"
         )
 
-        val expected = defaultDesktopAppHome().resolve("checkpoints").resolve("$pipelineId.json").toFile()
-        expected.exists() shouldBe true
-        expected.delete() shouldBe true
+        val checkpointRoot = defaultDesktopAppHome().resolve("checkpoints").toFile()
+        val expected = checkpointRoot.listFiles()?.singleOrNull { file ->
+            file.name.startsWith(pipelineId) && file.name.endsWith(".json")
+        }
+        expected shouldNotBe null
+        expected?.delete() shouldBe true
     }
 
     beforeTest {
@@ -80,6 +83,45 @@ class CheckpointManagerTest : FunSpec({
         loadedCheckpoint?.os shouldBe "Test OS"
         loadedCheckpoint?.jvm shouldBe "11"
         loadedCheckpoint?.completedStages?.size shouldBe 1
+    }
+
+    test("checkpoint filenames are derived safely from untrusted pipeline ids") {
+        val pipelineId = "../outside/pipeline"
+
+        val path = checkpointManager.saveCheckpoint(
+            pipelineId = pipelineId,
+            pipelineName = "Unsafe Pipeline",
+            completedStages = emptyList(),
+            cotorVersion = "1.0.0",
+            gitCommit = "abcdef",
+            os = "Test OS",
+            jvm = "11"
+        )
+
+        val root = File(checkpointDir).canonicalFile
+        val saved = File(path).canonicalFile
+        saved.parentFile shouldBe root
+        File(root.parentFile, "outside").exists() shouldBe false
+        checkpointManager.loadCheckpoint(pipelineId)?.pipelineId shouldBe pipelineId
+        checkpointManager.deleteCheckpoint(pipelineId) shouldBe true
+    }
+
+    test("checkpoint files preserve repeated stage history order") {
+        val first = StageCheckpoint("stage-1", "agent", "first", true, 10, Instant.now().toString())
+        val second = StageCheckpoint("stage-1", "agent", "second", true, 11, Instant.now().toString())
+
+        checkpointManager.saveCheckpoint(
+            pipelineId = "repeated-stage-pipeline",
+            pipelineName = "Repeated Stage Pipeline",
+            completedStages = listOf(first, second),
+            cotorVersion = "1.0.0",
+            gitCommit = "abcdef",
+            os = "Test OS",
+            jvm = "11"
+        )
+
+        val loaded = checkpointManager.loadCheckpoint("repeated-stage-pipeline")
+        loaded?.completedStages?.map { it.output } shouldBe listOf("first", "second")
     }
 
     test("list checkpoints with metadata") {

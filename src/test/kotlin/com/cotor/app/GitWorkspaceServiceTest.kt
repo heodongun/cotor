@@ -211,6 +211,41 @@ class GitWorkspaceServiceTest : FunSpec({
         processManager.remainingSteps() shouldBe 0
     }
 
+    test("ensureExistingWorktreeLineage rejects existing worktree on the wrong branch") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-existing-lineage-mismatch")
+        val worktreePath = repositoryRoot.resolve(".cotor").resolve("worktrees").resolve("existing-pr").resolve("codex")
+        Files.createDirectories(worktreePath)
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--verify", "HEAD"),
+                    ProcessResult(0, "abc1234567890\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--git-common-dir"),
+                    ProcessResult(0, repositoryRoot.resolve(".git").toString() + "\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "rev-parse", "--abbrev-ref", "HEAD"),
+                    ProcessResult(0, "somebody-elses-branch\n", "", true)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val error = shouldThrow<IllegalStateException> {
+            service.ensureExistingWorktreeLineage(
+                repositoryRoot = repositoryRoot,
+                branchName = "codex/cotor/existing-pr/codex",
+                worktreePath = worktreePath,
+                baseBranch = "master"
+            )
+        }
+
+        error.message shouldContain "not codex/cotor/existing-pr/codex"
+        processManager.remainingSteps() shouldBe 0
+    }
+
     test("ensureInitializedRepositoryRoot bootstraps an existing repo that has no commits yet") {
         val repositoryRoot = Files.createTempDirectory("git-workspace-existing-repo")
         val processManager = FakeProcessManager(
@@ -288,6 +323,42 @@ class GitWorkspaceServiceTest : FunSpec({
         readiness.ready shouldBe false
         readiness.originUrl shouldBe "https://github.com/heodongun/cotor.git"
         readiness.error shouldContain "no history in common"
+        processManager.remainingSteps() shouldBe 0
+    }
+
+    test("ensureGitHubPublishReady rejects repositories when remote base fetch fails") {
+        val repositoryRoot = Files.createTempDirectory("git-workspace-publish-fetch-failure")
+        val processManager = FakeProcessManager(
+            listOf(
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "config", "--get", "remote.origin.url"),
+                    ProcessResult(0, "https://github.com/heodongun/cotor.git\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "show-ref", "--verify", "--quiet", "refs/heads/master"),
+                    ProcessResult(0, "", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "ls-remote", "--heads", "origin", "master"),
+                    ProcessResult(0, "abc123\trefs/heads/master\n", "", true)
+                ),
+                FakeProcessManager.Step(
+                    listOf("git", "fetch", "--no-tags", "origin", "refs/heads/master:refs/remotes/origin/master"),
+                    ProcessResult(1, "", "network down", false)
+                )
+            )
+        )
+        val service = GitWorkspaceService(processManager, mockk(relaxed = true), mockk<Logger>(relaxed = true))
+
+        val readiness = service.ensureGitHubPublishReady(repositoryRoot, "master")
+
+        readiness.ready shouldBe false
+        readiness.originUrl shouldBe "https://github.com/heodongun/cotor.git"
+        readiness.error shouldContain "fetching the remote base failed"
         processManager.remainingSteps() shouldBe 0
     }
 

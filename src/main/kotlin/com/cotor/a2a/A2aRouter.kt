@@ -38,6 +38,7 @@ class A2aRouter(
 
     suspend fun postMessage(envelope: A2aEnvelope, now: Long = System.currentTimeMillis()): A2aAckResponse {
         validateEnvelope(envelope, now)
+        validateSenderTenant(envelope, now)
         val freshAck = A2aAck(
             messageId = envelope.id,
             dedupeStatus = "accepted",
@@ -132,6 +133,13 @@ class A2aRouter(
         require(envelope.tenant.companyId.isNotBlank()) { "tenant.companyId is required" }
         if (envelope.ts + envelope.ttlMs < now) {
             error("expired_message")
+        }
+    }
+
+    private fun validateSenderTenant(envelope: A2aEnvelope, now: Long) {
+        val knownSessions = sessionStore.sessionsForAgent(envelope.from.agentId, now)
+        if (knownSessions.isNotEmpty() && knownSessions.none { it.tenant == envelope.tenant }) {
+            throw IllegalArgumentException("from.agentId is not authorized for tenant.companyId ${envelope.tenant.companyId}")
         }
     }
 

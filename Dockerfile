@@ -25,4 +25,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD ["curl", "--fail", "--silent", "http://127.0.0.1:8787/health"]
 
 ENTRYPOINT ["java", "-jar", "/app/cotor.jar"]
-CMD ["app-server", "--host", "127.0.0.1", "--port", "8787"]
+CMD ["app-server", "--host", "0.0.0.0", "--port", "8787"]
