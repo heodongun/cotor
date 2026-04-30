@@ -25,8 +25,8 @@ class ProductionReliabilityBaselineTest {
             "Dockerfile should define a healthcheck against /health"
         )
         assertTrue(
-            dockerfile.contains("CMD [\"app-server\", \"--host\", \"127.0.0.1\", \"--port\", \"8787\"]"),
-            "Dockerfile should start app-server on loopback by default"
+            dockerfile.contains("CMD [\"app-server\", \"--host\", \"0.0.0.0\", \"--port\", \"8787\"]"),
+            "Dockerfile should bind app-server to all container interfaces for published ports"
         )
     }
 
@@ -36,6 +36,7 @@ class ProductionReliabilityBaselineTest {
 
         assertTrue(workflow.contains("- master"), "Release workflow should trigger on pushes to master")
         assertTrue(workflow.contains("build/release/cotor-"), "Release workflow should publish the shaded jar artifact")
+        assertTrue(workflow.contains("shasum -a 256 \"build/release/cotor-"), "Release workflow should generate the shaded jar checksum")
         assertTrue(workflow.contains("build/release/Cotor-"), "Release workflow should publish the desktop DMG artifact")
     }
 
