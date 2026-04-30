@@ -220,6 +220,54 @@ class WebServerTest : FunSpec({
         }
     }
 
+    test("company issue execution details reject mismatched company path") {
+        val configRepository = mockk<ConfigRepository>(relaxed = true)
+        val agentRegistry = mockk<AgentRegistry>(relaxed = true)
+        val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
+        val desktopService = mockk<DesktopAppService>(relaxed = true)
+        val editorDir = Files.createTempDirectory("cotor-web-company-scope-test")
+        coEvery { desktopService.getIssueProjected("issue-1") } returns CompanyIssue(
+            id = "issue-1",
+            companyId = "company-2",
+            projectContextId = "project-1",
+            goalId = "goal-1",
+            workspaceId = "workspace-1",
+            title = "Issue",
+            description = "desc",
+            status = IssueStatus.IN_PROGRESS,
+            runtimeDisposition = "RUNNABLE",
+            createdAt = 1L,
+            updatedAt = 2L
+        )
+
+        testApplication {
+            application {
+                cotorWebModule(
+                    configRepository = configRepository,
+                    agentRegistry = agentRegistry,
+                    orchestrator = orchestrator,
+                    desktopService = desktopService,
+                    editorDir = editorDir,
+                    readOnly = false,
+                    webToken = "secret-web-token",
+                    buildTemplates = { emptyList() },
+                    listSavedPipelines = { emptyList() },
+                    loadPipelineDetail = { null },
+                    savePipeline = { editorDir.resolve("saved.yaml") },
+                    buildTimelinePayload = { _, _ -> emptyList() }
+                )
+            }
+
+            val response = client.get("/api/company/companies/company-1/issues/issue-1/execution-details") {
+                header("X-Cotor-Web-Token", "secret-web-token")
+            }
+
+            response.status shouldBe HttpStatusCode.NotFound
+            coVerify(exactly = 1) { desktopService.getIssueProjected("issue-1") }
+            coVerify(exactly = 0) { desktopService.issueExecutionDetails("issue-1") }
+        }
+    }
+
     test("mutating web editor routes reject missing token") {
         val configRepository = mockk<ConfigRepository>(relaxed = true)
         val agentRegistry = mockk<AgentRegistry>(relaxed = true)
@@ -252,6 +300,77 @@ class WebServerTest : FunSpec({
 
             response.status shouldBe HttpStatusCode.Unauthorized
             response.bodyAsText() shouldContain "Unauthorized"
+        }
+    }
+
+    test("sensitive web get routes reject missing token") {
+        val configRepository = mockk<ConfigRepository>(relaxed = true)
+        val agentRegistry = mockk<AgentRegistry>(relaxed = true)
+        val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
+        val desktopService = mockk<DesktopAppService>(relaxed = true)
+        val editorDir = Files.createTempDirectory("cotor-web-get-token-test")
+
+        testApplication {
+            application {
+                cotorWebModule(
+                    configRepository = configRepository,
+                    agentRegistry = agentRegistry,
+                    orchestrator = orchestrator,
+                    desktopService = desktopService,
+                    editorDir = editorDir,
+                    readOnly = false,
+                    webToken = "secret-web-token",
+                    buildTemplates = { emptyList() },
+                    listSavedPipelines = { emptyList() },
+                    loadPipelineDetail = { null },
+                    savePipeline = { editorDir.resolve("saved.yaml") },
+                    buildTimelinePayload = { _, _ -> emptyList() }
+                )
+            }
+
+            val response = client.get("/api/company/dashboard")
+
+            response.status shouldBe HttpStatusCode.Unauthorized
+            response.bodyAsText() shouldContain "Unauthorized"
+            coVerify(exactly = 0) { desktopService.companyDashboardReadOnly() }
+        }
+    }
+
+    test("served web pages do not expose web token or external capture script") {
+        val configRepository = mockk<ConfigRepository>(relaxed = true)
+        val agentRegistry = mockk<AgentRegistry>(relaxed = true)
+        val orchestrator = mockk<PipelineOrchestrator>(relaxed = true)
+        val desktopService = mockk<DesktopAppService>(relaxed = true)
+        val editorDir = Files.createTempDirectory("cotor-web-page-token-test")
+
+        testApplication {
+            application {
+                cotorWebModule(
+                    configRepository = configRepository,
+                    agentRegistry = agentRegistry,
+                    orchestrator = orchestrator,
+                    desktopService = desktopService,
+                    editorDir = editorDir,
+                    readOnly = false,
+                    webToken = "secret-web-token",
+                    buildTemplates = { emptyList() },
+                    listSavedPipelines = { emptyList() },
+                    loadPipelineDetail = { null },
+                    savePipeline = { editorDir.resolve("saved.yaml") },
+                    buildTimelinePayload = { _, _ -> emptyList() }
+                )
+            }
+
+            val editorPage = client.get("/editor")
+            val companyPage = client.get("/company")
+
+            editorPage.status shouldBe HttpStatusCode.OK
+            companyPage.status shouldBe HttpStatusCode.OK
+            editorPage.bodyAsText().contains("window.COTOR_WEB_TOKEN") shouldBe false
+            companyPage.bodyAsText().contains("window.COTOR_WEB_TOKEN") shouldBe false
+            editorPage.bodyAsText().contains("capture.js") shouldBe false
+            companyPage.bodyAsText().contains("capture.js") shouldBe false
+            editorPage.bodyAsText() shouldContain "function escapeHtml"
         }
     }
 
